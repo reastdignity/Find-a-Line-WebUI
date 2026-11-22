@@ -1035,23 +1035,37 @@ function useNoteAfterCrossing(view: SpotView, measured: Line | null, onNote: () 
   }, [view]);  // once, when the frame is made
 }
 
-/** A phone: the map's layers menu opened while the sheet stands above its low stop drops the sheet there, so the whole
- *  menu shows over the map (the user's gate-2 answer 9 a); closing the menu does not raise it again. The menu's open
- *  state is Leaflet's class on its control (`leaflet-control-layers-expanded`), watched as it changes. */
+/** How long after a press on the layers control its opening counts as that press's, ms (a finger's tap opens it by the
+ *  mouse events the browser makes after the touch; a key opens it at once). */
+const LAYERS_PRESS_MS = 800;
+
+/** A phone: the map's layers menu opened by a press while the sheet stands above its low stop drops the sheet there,
+ *  so the whole menu shows over the map (the user's gate-2 answer 9 a); closing the menu does not raise it again. The
+ *  menu's open state is Leaflet's class on its control (`leaflet-control-layers-expanded`), watched as it changes; an
+ *  opening counts only right after a press on the control (a pointer's press, Enter or Space on its button), never a
+ *  passing mouse's hover, which Leaflet also opens it on (the code review's G3: a narrow window with a mouse). */
 function useLayersLowerTheSheet(col: {current: HTMLElement | null}, map: L.Map | null, snap: () => Snap, lower: () => void) {
   const latest = useRef({snap, lower});
   latest.current = {snap, lower};
   useEffect(() => {
     const control = col.current?.querySelector<HTMLElement>(".leaflet-control-layers");
     if (!map || !control) return;
-    let open = control.classList.contains("leaflet-control-layers-expanded");
+    let open = control.classList.contains("leaflet-control-layers-expanded"), pressed = -Infinity;
+    const press = () => { pressed = performance.now(); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") press(); };
+    control.addEventListener("pointerdown", press, true);
+    control.addEventListener("keydown", key, true);
     const watch = new MutationObserver(() => {
       const now = control.classList.contains("leaflet-control-layers-expanded");
-      if (now && !open && latest.current.snap() !== "peek") latest.current.lower();
+      if (now && !open && performance.now() - pressed < LAYERS_PRESS_MS && latest.current.snap() !== "peek") latest.current.lower();
       open = now;
     });
     watch.observe(control, {attributes: true, attributeFilter: ["class"]});
-    return () => watch.disconnect();
+    return () => {
+      watch.disconnect();
+      control.removeEventListener("pointerdown", press, true);
+      control.removeEventListener("keydown", key, true);
+    };
   }, [map]);
 }
 

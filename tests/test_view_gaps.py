@@ -1280,3 +1280,34 @@ def test_list_never_scrolls_sideways(site, width):
     print("sideways:", width, "desktop", got, "phone", phone)
     assert got[0] <= got[1] and got[2] == 0, got
     assert phone[0] <= phone[1] and phone[2] == 0, phone
+
+
+def test_layers_hover_leaves_the_sheet(boxes_site):
+    """The code review's G3: a narrow window with a mouse (760 x 900: the phone frame, no touch), the sheet at half: the
+    mouse passing over the layers button opens the menu (Leaflet's hover) but leaves the sheet at half; a click on it
+    (and Enter on its button) opened by a press drops the sheet to its low stop (9 a)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, boxes_site + f"#run={BOXES}", {"viewport": {"width": 760, "height": 900}}, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "half")
+            box = page.evaluate("() => { const r = document.querySelector('.v-map .leaflet-control-layers').getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }")
+            page.mouse.move(*box)
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", timeout=WAIT)
+            page.evaluate("() => T.frames().then(() => T.frames())")
+            hovered = page.evaluate("() => F.snap()")
+            page.mouse.move(5, 450)  # away: Leaflet closes it
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", state="detached", timeout=WAIT)
+            # by the keyboard: Enter on the layers' button opens it by a press
+            page.focus(".v-map .leaflet-control-layers-toggle")
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", timeout=WAIT)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            keyed = page.evaluate("() => F.snap()")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("layers by hover and by a key:", hovered, keyed)
+    assert hovered == "half" and keyed == "peek", (hovered, keyed)
