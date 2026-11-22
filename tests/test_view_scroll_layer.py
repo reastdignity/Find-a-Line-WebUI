@@ -3,7 +3,8 @@ phone's sheet scrolled at 1-3 fps on a spot with 420 tree rows, today's page flu
 `position: relative` as the cause and a layer of the sheet's body as a cure). iOS WebKit's scrolling thread cannot be
 measured here (headless WebKit on Windows has none), so the tests check what makes it possible, as built: the view's
 scrollers have a layer of their own (computed `will-change: transform`; today's page, which shares the kit's sheet, is
-left as it is). Playwright's WebKit with the iPhone 13 profile and Edge with a phone's, over the app's server, offline,
+left as it is) and their rows hold their own hidden names (gate 2's second check: absolute boxes hanging off the
+resizing sheet body cost every frame of the sheet's move). Playwright's WebKit with the iPhone 13 profile and Edge with a phone's, over the app's server, offline,
 on the result view's clip run. Every wait is an event with a deadline. Run from PowerShell
 (.claude/rules/browser-tests.md)."""
 
@@ -85,40 +86,49 @@ def test_the_desktop_columns_have_their_own_layer(site, engine):
             browser.close()
 
 
-# The rows of a scroller: their computed position, and whether each row's hidden names (u-sr, absolute) lie inside
-# the row after the scroller moved (their containing block scrolls with them)
+# The rows of a scroller: their computed position, each row's hidden names (u-sr, absolute) placed against their row
+# (offsetParent), and whether every name lies inside its row after the scroller moved
 ROWS = r"""async (sel) => { const box = document.querySelector(sel); box.scrollTop = 0;
   await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
   box.scrollTop = Math.min(300, box.scrollHeight - box.clientHeight);
   await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+  return window.ROWS_NOW(box); }"""
+ROWS_NOW = r"""
+window.ROWS_NOW = (box) => {
   const rows = [...box.querySelectorAll('.vl-rows > li .vl-main')].filter((r) => { const b = r.getBoundingClientRect(); return b.height > 0; });
-  const out = {scrolled: box.scrollTop, rows: rows.length, positions: [...new Set(rows.map((r) => getComputedStyle(r).position))], outside: 0, names: 0};
+  const out = {scrolled: box.scrollTop, rows: rows.length, positions: [...new Set(rows.map((r) => getComputedStyle(r).position))], outside: 0, names: 0, elsewhere: 0};
   for (const r of rows) { const b = r.getBoundingClientRect();
     for (const s of r.querySelectorAll('.u-sr')) { out.names++; const c = s.getBoundingClientRect();
+      if (s.offsetParent !== r) out.elsewhere++;
       if (c.top < b.top - 1 || c.bottom > b.bottom + 1) out.outside++; } }
-  return out; }"""
+  return out; };
+"""
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_the_rows_are_not_positioned(site, engine):
-    """The rows (`.vl-main`) are not positioned (the user's variant 3: hundreds of positioned rows made iOS WebKit
-    scroll the sheet on the main thread), in a phone's sheet and the desktop's list; each row's hidden names (u-sr,
-    absolute) still lie inside their row once the scroller moved 300 px (their containing block is the scroller's
-    layer, so they scroll with the rows)."""
+def test_the_rows_hold_their_hidden_names(site, engine):
+    """The rows (`.vl-main`) are positioned and their hidden names (u-sr, absolute) hang off them, in a phone's sheet
+    and the desktop's list (gate 2's second check: hanging off the sheet's body, about 1 700 of them cost every frame of
+    the sheet's move on 420 rows; the user's variant 41, shipped). Every name lies inside its row after the scroller
+    moved 300 px, and on the phone also after the sheet moved from its full stop to half."""
     from playwright.sync_api import sync_playwright
     from test_shell_c_view_map import DESKTOP
     with sync_playwright() as p:
         browser = _browser(p, engine)
         try:
             for context, scroller in ((_phone(p, engine), ".v-result .u-sheet-body"), (DESKTOP, ".v-result .c-col-list .vl-body")):
-                page = _open(browser, f"{site}#run={BIG}", context, script=SCRIPT)
+                page = _open(browser, f"{site}#run={BIG}", context, script=SCRIPT + ROWS_NOW)
                 _view(page)
                 _select(page)
                 if context is not DESKTOP:
                     _sheet(page, "full")
                 got = page.evaluate(ROWS, scroller)
                 assert got["scrolled"] > 0 and got["rows"] > 5 and got["names"] > 5, (scroller, got)
-                assert got["positions"] == ["static"] and got["outside"] == 0, (scroller, got)
+                assert got["positions"] == ["relative"] and got["elsewhere"] == 0 and got["outside"] == 0, (scroller, got)
+                if context is not DESKTOP:
+                    _sheet(page, "half")
+                    moved = page.evaluate(f"() => window.ROWS_NOW(document.querySelector('{scroller}'))")
+                    assert moved["rows"] > 2 and moved["elsewhere"] == 0 and moved["outside"] == 0, (scroller, moved)
                 page.context.close()
         finally:
             browser.close()
