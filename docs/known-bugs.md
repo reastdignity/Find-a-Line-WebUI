@@ -694,11 +694,20 @@ G3 put the free screens' text actions, rows, closes, badges and checkboxes on th
   page's and the layer explorer's titles); the account page's "Account" is a section's title with no section of the
   same size under it. "24 px, every page" was built on every page's h1: Admin, Home's searches, the OSM page, the layer
   explorer.
+- **"How to read the result" is 44 px high on a touch screen** wherever the kit's text action stands (the user,
+  2026-11-22: "Keep the 44 px target"): on today's result page on the Pixel the list starts 25 to 28 px lower than
+  before; round 6's view takes the same where it shows the intro's link.
+- **The admin page on an iPhone at load**: the 24 px title puts the waiting user's "Approve" and "Block…" partly under
+  the bottom bar in the first screen (ui_metrics' "covered" 1 -> 3 a theme); they scroll into view; the operator's page,
+  accepted by the design review (F2).
+- **The coverage page's table**: its countries' names are the kit's text action, 500 and not underlined at rest (they
+  were the row header's 600 and underlined): Q7 a's look for a standalone action.
+- **The close mark** still marks the search form's Clear and the cancelled status chip (no sheet or answer moved them).
 - **Hooks kept for tests and ui_shots**: `n-intro-link`, `cov-link`, `cov-name-link`, `s-reset`, `c-menu-item`,
   `c-fav-star`, `c-fav-open`, `c-tree-name`, `s-more-head`, `s-rig-item`, `c-layer-hist-name`, `c-account-btn`, `cov-x`,
   `v3-activity-dismiss`, `v3-infobox-close`, `c-check`, `s-check`, `c-user-*`: each beside the kit's class, with no look
-  of its own but its place or size. Three rows keep a difference from the kit's row under the mouse: a favourite's
-  line (its words take the accent, no fill), a chart's name and the tree's fold (no fill), as before.
+  of its own but its place or size. Two rows keep a difference from the kit's row under the mouse: a favourite's line
+  (its words take the accent, no fill) and a chart's name (no fill), as before.
 
 ## Step 3d, group G5 (the words): what stays (2026-11-21)
 
