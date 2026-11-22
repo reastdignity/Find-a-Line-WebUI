@@ -17,9 +17,13 @@
 // words the page shows (ui.result.store_failed). A body the browser could not hold (a null ArrayBuffer) is TooLarge.
 // Only answers of 200 report the download's progress (an error's short body is no part of the run). The lines of
 // other runs (Compare) and of Home's mini maps come from their lines.arrow alone (loadOtherRun, loadRunLines).
+// A download cut while the page was hidden (a phone's screen off: iOS suspends the page and its requests fail; the
+// user's iPhone test of 2026-11-22) is started again, whole, once the page is visible again, with its progress from
+// nought: one try per visible spell (watchHidden); a download that fails while the page stays visible is a
+// StoreFailed at once, as before.
 
 import { RecordBatchReader, Type, type Data, type RecordBatch, type Schema } from "apache-arrow";
-import { download } from "../download";
+import { download, type Answer } from "../download";
 import { t } from "../i18n";
 import { measure, timed } from "../perf";
 import { nextPaint } from "../paint";
@@ -150,11 +154,28 @@ async function downloadStore(folder: string, key: string, report: OnProgress, st
     const total = sum(totals), got = done.reduce((a, b) => a + b, 0);
     report({phase: "download", fraction: total ? Math.min(1, got / total) : null, done: got, total});
   };
-  report({phase: "download", fraction: null});
-  const answers = await Promise.all(names.map((name, k) => download(folder + name, "arraybuffer", {
-    onHeaders: (total, status) => { refused ||= status !== 200; totals[k] = total; progress(); },
-    onBytes: (bytes) => { done[k] = bytes; progress(); },
-  }))).catch(() => { throw new StoreFailed(key, "the download failed"); });
+  let answers: Answer<ArrayBuffer>[];
+  for (;;) {
+    totals.fill(undefined);
+    done.fill(0);
+    refused = false;
+    report({phase: "download", fraction: null});
+    const hidden = watchHidden();
+    const loads = names.map((name, k) => download(folder + name, "arraybuffer", {
+      onHeaders: (total, status) => { refused ||= status !== 200; totals[k] = total; progress(); },
+      onBytes: (bytes) => { done[k] = bytes; progress(); },
+    }));
+    try {
+      answers = await Promise.all(loads);
+      hidden();
+      break;
+    } catch {
+      if (!hidden()) throw new StoreFailed(key, "the download failed");
+      // cut while the page was hidden: the other file's request ends first, then the whole store once it is visible
+      await Promise.allSettled(loads);
+      await whenVisible();
+    }
+  }
   for (const answer of answers) {
     if (answer.status !== 200) throw new StoreFailed(key, String(answer.status));
     // The XHR gives null when it could not allocate the body's ArrayBuffer (XMLHttpRequest standard, "response")
@@ -169,6 +190,35 @@ async function downloadStore(folder: string, key: string, report: OnProgress, st
     throw e instanceof NewerStore ? e : new StoreFailed(key, e instanceof Error ? e.message : String(e));
   }
 }
+/** Has the page a document whose visibility can be watched (Node's units run this file with a stand-in or none). */
+const watchable = () => typeof document !== "undefined" && typeof document.addEventListener === "function";
+
+/** Watch whether the page is hidden from now on; the function returned ends the watch and tells whether it was hidden
+ *  at any time since (a page without a document: never). */
+function watchHidden(): () => boolean {
+  if (!watchable()) return () => false;
+  let hidden = document.visibilityState === "hidden";
+  const seen = () => { if (document.visibilityState === "hidden") hidden = true; };
+  document.addEventListener("visibilitychange", seen);
+  return () => {
+    document.removeEventListener("visibilitychange", seen);
+    return hidden || document.visibilityState === "hidden";
+  };
+}
+
+/** Resolves once the page is visible (at once when it is). */
+function whenVisible(): Promise<void> {
+  if (!watchable() || document.visibilityState !== "hidden") return Promise.resolve();
+  return new Promise((resolve) => {
+    const seen = () => {
+      if (document.visibilityState === "hidden") return;
+      document.removeEventListener("visibilitychange", seen);
+      resolve();
+    };
+    document.addEventListener("visibilitychange", seen);
+  });
+}
+
 /** A store's Arrow file (`bytes`, the whole file) as its one record batch and its metadata `findaline`; a store of
  *  a higher format is refused before its batch is read. */
 function storeBatch(bytes: ArrayBuffer): {batch: RecordBatch; meta: StoreMeta} {
