@@ -44,12 +44,18 @@
 .ui .u-grow { flex: 1; min-width: 0; }
 .ui .u-h { font: 600 var(--fs-5)/1.2 var(--display); letter-spacing: .01em; margin: 0; }
 .ui .u-h.u-xl { font-size: var(--fs-7); }
+/* a page's title, one step above its sections' titles (.u-h; step 3d G3, C6: Admin, Home, the account) */
+.ui .u-h.u-title { font-size: var(--fs-6); }
 .ui .u-h4 { font-weight: 600; font-size: var(--fs-3); margin: 0; }
 .ui .u-small { font-size: var(--fs-2); color: var(--muted); }
 .ui .u-mono { font-family: var(--mono); }
-.ui .u-badge { font: 500 var(--fs-1)/1 var(--font); font-variant-numeric: tabular-nums; background: var(--accent); color: var(--on-accent);
+/* A badge (step 3d G3, Q8 a): a neutral pill (it cannot be pressed: the accent's fill is for what can, row 4); a state
+   as the status chips' soft fill of its colour; the accent only for a count on the phones' bottom bar (.u-bnav-item) */
+.ui .u-badge { font: 500 var(--fs-1)/1 var(--font); font-variant-numeric: tabular-nums; background: var(--surface-2); color: var(--ink-2);
   border-radius: var(--r-full); padding: 4px 8px; }
-.ui .u-badge.u-n { background: var(--surface-2); color: var(--ink-2); }
+.ui .u-badge.u-ok { background: var(--ok-soft); color: var(--ok); }
+.ui .u-badge.u-warn { background: var(--warn-soft); color: var(--warn); }
+.ui .u-badge.u-bad { background: var(--bad-soft); color: var(--bad); }
 
 /* Buttons */
 .ui .u-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--touch); padding: 0 12px;
@@ -70,6 +76,30 @@
 .ui .u-ib.u-plain { border-color: transparent; background: transparent; }
 .ui .u-ib.u-round { border-radius: var(--r-round); }
 .ui .u-ib.u-on { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
+/* The close of a box (step 3d G3, Q9 a): one plain icon button, 24 px, 44 px on a touch screen (R2) */
+.ui .u-ib.u-x { width: 24px; height: 24px; border-color: transparent; background: transparent; color: var(--ink-2); }
+.ui .u-ib.u-x:hover { background: var(--hover); }
+@media (pointer: coarse) { .ui .u-ib.u-x { width: 44px; height: 44px; } }
+
+/* A text action (step 3d G3, Q7 a): accent text at a label's weight, underlined under the mouse and the keyboard's
+   focus; a control of its own, 24 px high, 44 px on a touch screen (R2); inside a sentence (.u-inline) a word of the
+   sentence with no target of its own (R2's exemption) */
+.ui .u-link { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0; border: 0; background: none;
+  color: var(--accent); font-weight: 500; text-align: left; text-decoration: none; cursor: pointer; }
+.ui .u-link:hover, .ui .u-link:focus-visible { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: currentColor; }
+@media (pointer: coarse) { .ui .u-link { min-height: 44px; } }
+.ui .u-link.u-inline { display: inline; min-height: 0; }
+
+/* A row of a list or a menu that is one press (step 3d G3): no edge and no fill, the hover's fill, 8 px corners; its
+   size and its inside are its list's */
+.ui .u-item { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0; border: 0; border-radius: var(--r-2); background: none;
+  color: var(--ink); text-align: left; text-decoration: none; cursor: pointer; }
+.ui .u-item:hover { background: var(--hover); }
+
+/* The checkbox (step 3d G3, Q11 a): the browser's own box, 20 px, in the accent; the keyboard's ring an outline 2 px
+   off the box (WebKit draws no shadow on a native checkbox; an outline it draws) */
+.ui .u-check { width: 20px; height: 20px; flex: none; accent-color: var(--accent); }
+.ui .u-check:focus-visible { box-shadow: none; outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Chips */
 .ui .u-chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -211,7 +241,7 @@
 .ui .u-bnav-item:focus-visible { box-shadow: var(--focus-in); }
 @media (forced-colors: active) { .ui .u-bnav-item:focus-visible { outline-offset: -2px; } }
 .ui .u-bnav-item .u-ic { width: 22px; height: 22px; }
-.ui .u-bnav-item .u-badge { position: absolute; top: 2px; left: calc(50% + 4px); }
+.ui .u-bnav-item .u-badge { position: absolute; top: 2px; left: calc(50% + 4px); background: var(--accent); color: var(--on-accent); }
 
 /* Sheet: a bottom sheet on phones (peek / half / full), a side or floating panel on desktops */
 .ui .u-sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: var(--r-4) var(--r-4) 0 0;
@@ -241,12 +271,15 @@
 .ui .u-split-h::after { left: 0; right: 0; top: calc(50% - 1px); height: 2px; }
 .ui .u-split:hover::after, .ui .u-split.u-dragging::after, .ui .u-split:focus-visible::after { background: var(--accent); }
 .ui .u-split:focus-visible { box-shadow: none; }
-/* The round tab at the middle of a column's edge (collapse ‹ ›; a rail's own tab looks the same) */
-.ui .u-split-tab { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 22px; height: 44px; border-radius: 11px;
-  border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); display: flex; align-items: center; justify-content: center;
-  padding: 0; cursor: pointer; box-shadow: 0 1px 3px rgb(0 0 0 / .14); z-index: var(--z-up); }
+/* The tab at the middle of a column's edge (collapse ‹ ›; a rail's own tab looks the same): raised (R8, row 12: the
+   surface and its shadow, no edge), 24 px wide, 8 px corners, the keyboard's ring beside its shadow (step 3d G3, C8:
+   "No edge, one look"; the highline layer's copy went onto it) */
+.ui .u-split-tab { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 24px; height: 44px; border-radius: var(--r-2);
+  border: 1px solid transparent; background: var(--surface); color: var(--ink-2); display: flex; align-items: center; justify-content: center;
+  padding: 0; cursor: pointer; box-shadow: var(--shadow); z-index: var(--z-up); }
 .ui .u-split-tab .u-ic { width: 14px; height: 14px; stroke-width: 2.2; }
 .ui .u-split-tab:hover { color: var(--accent); border-color: var(--accent); }
+.ui .u-split-tab:focus-visible { box-shadow: var(--shadow), var(--focus); }
 
 /* Touch targets on coarse pointers */
 
@@ -346,8 +379,9 @@
    them always in sight; on a desktop no button */
 .ui .u-credits-toggle { display: none; font: inherit; color: var(--accent); background: none; border: 0; padding: 0;
   cursor: pointer; }
-.ui .u-credits-toggle::after { content: " \25B8"; }
-.ui .u-credits-toggle[aria-expanded="true"]::after { content: " \25BE"; }
+/* its disclosure the icon set's arrow (R9; step 3d G3, C9), turned while open */
+.ui .u-credits-toggle .u-credits-mark { width: 12px; height: 12px; stroke-width: 2.2; vertical-align: -1.5px; margin-left: 4px; }
+.ui .u-credits-toggle[aria-expanded="true"] .u-credits-mark { transform: rotate(90deg); }
 @media (max-width: 767px) {
   .ui .u-credits-toggle { display: inline; }
   .ui .u-credits-toggle[aria-expanded="true"] { margin-right: 4px; }

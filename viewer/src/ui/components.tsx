@@ -73,6 +73,12 @@ export function IconButton({icon, label, on, expanded, plain, round, fav, class:
     <Icon name={icon} fav={fav} /></button>;
 }
 
+/** The close of a box: one plain icon button, 24 px (44 px on a touch screen); `label` its name and tooltip. */
+export function CloseButton({label, class: cls, ...rest}: {label: string; class?: string}
+                            & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "icon" | "class">) {
+  return <IconButton icon="close" label={label} class={cx("u-x", cls)} {...rest} />;
+}
+
 // ---- chips and choices -----------------------------------------------------------------------
 
 /** A chip: a toggle (`on`), a removable value (`onRemove`) or a dashed "add" button (`add`); `expanded`:
