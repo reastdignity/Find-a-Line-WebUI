@@ -83,3 +83,42 @@ def test_the_desktop_columns_have_their_own_layer(site, engine):
             assert today and set(today) == {"auto"}, today
         finally:
             browser.close()
+
+
+# The rows of a scroller: their computed position, and whether each row's hidden names (u-sr, absolute) lie inside
+# the row after the scroller moved (their containing block scrolls with them)
+ROWS = r"""async (sel) => { const box = document.querySelector(sel); box.scrollTop = 0;
+  await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+  box.scrollTop = Math.min(300, box.scrollHeight - box.clientHeight);
+  await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+  const rows = [...box.querySelectorAll('.vl-rows > li .vl-main')].filter((r) => { const b = r.getBoundingClientRect(); return b.height > 0; });
+  const out = {scrolled: box.scrollTop, rows: rows.length, positions: [...new Set(rows.map((r) => getComputedStyle(r).position))], outside: 0, names: 0};
+  for (const r of rows) { const b = r.getBoundingClientRect();
+    for (const s of r.querySelectorAll('.u-sr')) { out.names++; const c = s.getBoundingClientRect();
+      if (c.top < b.top - 1 || c.bottom > b.bottom + 1) out.outside++; } }
+  return out; }"""
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_the_rows_are_not_positioned(site, engine):
+    """The rows (`.vl-main`) are not positioned (the user's variant 3: hundreds of positioned rows made iOS WebKit
+    scroll the sheet on the main thread), in a phone's sheet and the desktop's list; each row's hidden names (u-sr,
+    absolute) still lie inside their row once the scroller moved 300 px (their containing block is the scroller's
+    layer, so they scroll with the rows)."""
+    from playwright.sync_api import sync_playwright
+    from test_shell_c_view_map import DESKTOP
+    with sync_playwright() as p:
+        browser = _browser(p, engine)
+        try:
+            for context, scroller in ((_phone(p, engine), ".v-result .u-sheet-body"), (DESKTOP, ".v-result .c-col-list .vl-body")):
+                page = _open(browser, f"{site}#run={BIG}", context, script=SCRIPT)
+                _view(page)
+                _select(page)
+                if context is not DESKTOP:
+                    _sheet(page, "full")
+                got = page.evaluate(ROWS, scroller)
+                assert got["scrolled"] > 0 and got["rows"] > 5 and got["names"] > 5, (scroller, got)
+                assert got["positions"] == ["static"] and got["outside"] == 0, (scroller, got)
+                page.context.close()
+        finally:
+            browser.close()

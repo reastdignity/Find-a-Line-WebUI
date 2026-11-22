@@ -82,8 +82,11 @@
   column-gap: 4px; align-items: center; padding: 0 8px 0 4px; border-left: 3px solid transparent; }
 .ui .vl-with-acc .vl-main, .ui .vl-cols.vl-with-acc {
   grid-template-columns: 40px 12px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.25fr) 48px minmax(0, .8fr); }
-/* positioned: the hidden names of its values (u-sr) stay inside the row */
-.ui .vl-main { position: relative; width: 100%; min-height: 36px; border-top: 0; border-right: 0; border-bottom: 0;
+/* not positioned (gate 2: hundreds of positioned rows made iOS WebKit scroll the phone's sheet on the main thread, 1-3
+   fps on 420 rows): the hidden names of its values (u-sr, absolute) take the scroller's layer as their containing block
+   (the sheet's body, the list's and the details' columns: will-change below), so they scroll with their rows; nothing
+   else is placed against a row */
+.ui .vl-main { width: 100%; min-height: 36px; border-top: 0; border-right: 0; border-bottom: 0;
   border-radius: 0 var(--r-1) var(--r-1) 0; background: none; color: inherit; font: inherit; font-size: var(--fs-3);
   font-variant-numeric: tabular-nums; text-align: left; cursor: pointer; }
 .ui .vl-main:hover { background: var(--hover); }
