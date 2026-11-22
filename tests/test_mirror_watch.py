@@ -711,6 +711,39 @@ def test_the_committed_baseline_has_a_record_for_every_signal():
                                                                                             "lengths", "updated"))
 
 
+def test_the_monthly_workflow():
+    """.github/workflows/mirror-watch.yml (the user's W10): on the 1st of each month (off the hour) and by hand, reading
+    the repository and its own artifacts only, no secret; the runner's python3 without the project's dependencies; the
+    tool's own command (its parser takes it), whose exit code is the run's; the result kept for the next run's
+    --previous whatever the check said; every action pinned by its commit."""
+    with open(os.path.join(REPO, ".github", "workflows", "mirror-watch.yml"), encoding="utf-8") as f:
+        text = f.read()
+    workflow = yaml.safe_load(text)
+    on = workflow[True]   # PyYAML reads the key "on" as True
+    assert set(on) == {"schedule", "workflow_dispatch"}
+    (cron,) = [c["cron"] for c in on["schedule"]]
+    minute, hour, day, month, weekday = cron.split()
+    assert (day, month, weekday) == ("1", "*", "*") and minute.isdigit() and minute != "0" and hour.isdigit()
+    assert workflow["permissions"] == {"contents": "read", "actions": "read"}
+    (job,) = workflow["jobs"].values()
+    assert "permissions" not in job and "secrets." not in text
+    steps = job["steps"]
+    uses = [s["uses"] for s in steps if "uses" in s]
+    assert uses and all(re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", u) for u in uses), uses
+    assert not any(re.search(r"setup-(python|uv)", u) for u in uses)
+    runs = "\n".join(s.get("run", "") for s in steps)
+    assert not re.search(r"\b(uv|pip)\b", runs)
+    (command,) = re.findall(r"python3 -I tools/mirror_watch\.py ([^>|\n]+)", runs)
+    args = mw._parser().parse_args(shlex.split(command))
+    assert (args.command, args.datasets, args.previous, args.json_out) == ("check", [], "previous/result.json",
+                                                                           "result.json")
+    assert "|| status=$?" in runs and "exit $status" in runs   # the tool's exit code fails the run, not a pipe's
+    (upload,) = [s for s in steps if s.get("uses", "").startswith("actions/upload-artifact@")]
+    assert upload["with"]["path"] == args.json_out and upload["if"].startswith("always()")
+    assert upload["with"]["retention-days"] == 90
+    assert f"-n {upload['with']['name']} -D previous" in runs
+
+
 def test_the_tool_imports_nothing_of_the_project():
     """Standard library only: it runs in a stock Python (the monthly workflow's) without the project."""
     with open(os.path.join(REPO, "tools", "mirror_watch.py"), encoding="utf-8") as f:

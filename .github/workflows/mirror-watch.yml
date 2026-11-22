@@ -1,0 +1,71 @@
+# The mirror's watch (docs/mirror-hosting/watch.md): on the 1st of each month, and by hand, tools/mirror_watch.py
+# asks the providers of the mirror's datasets whether they replaced a file or published a successor, against the
+# committed baseline tools/mirror_watch.json (the user's W10, 2026-11-22: "Yes, GitHub Actions monthly").
+# - A change fails the run (exit 1), and GitHub mails it. A provider that does not answer fails it only when the same
+#   dataset was not checkable in the previous run too (exit 3 with --previous, the tool's rule); a first time is a
+#   warning and the run passes. The result is kept as an artifact for the next run (90 days; a monthly run's cache
+#   would expire after 7 days unused).
+# - The runner's own python3 (Ubuntu's, 3.11 or newer), no `uv sync` and no project dependency: the tool is standard
+#   library only. No secret; the token reads the previous run's artifact (actions: read).
+# - GitHub: "Scheduled workflows will only run on the default branch." "In a public repository, scheduled workflows
+#   are automatically disabled when no repository activity has occurred in 60 days." "High load times include the
+#   start of every hour": hence 06:17 UTC.
+#   (docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows, read 2026-11-23)
+name: Mirror watch
+
+on:
+  schedule:
+    - cron: '17 6 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: mirror-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The newest unexpired result of an earlier run of this branch; none (the first run, an expired artifact) is said
+      # and the check goes on: --previous then reads no file and a provider not answering is a first time
+      - name: The previous run's result
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=mirror-watch-result&per_page=100" --jq \
+            "[.artifacts[] | select(.expired | not) | select(.workflow_run.id != $GITHUB_RUN_ID)
+              | select(.workflow_run.head_branch == \"$GITHUB_REF_NAME\")] | sort_by(.created_at) | last
+              | .workflow_run.id // empty") || run=
+          if [ -n "$run" ] && gh run download "$run" -R "$GITHUB_REPOSITORY" -n mirror-watch-result -D previous; then
+            echo "The previous result: run $run"
+          else
+            echo "No previous result (the first run, or its artifact expired): a provider not answering is a warning"
+          fi
+
+      - name: Check the providers
+        run: |
+          python3 --version
+          status=0
+          python3 -I tools/mirror_watch.py check --previous previous/result.json --json-out result.json > lines.txt || status=$?
+          cat lines.txt
+          { echo '### Mirror watch'; echo; echo '```'; cat lines.txt; echo '```'; echo; echo "Exit code: $status"; } >> "$GITHUB_STEP_SUMMARY"
+          grep 'not checkable (first time)' lines.txt | sed -e 's/%/%25/g' -e 's/^/::warning title=Mirror watch::/' || true
+          exit $status
+
+      - name: Keep the result for the next run
+        if: always() && hashFiles('result.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: mirror-watch-result
+          path: result.json
+          retention-days: 90
+          if-no-files-found: error

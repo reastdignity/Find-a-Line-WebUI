@@ -617,3 +617,20 @@ def test_the_readmes_rclone_remote_has_what_the_tool_asks_for():
     assert set(named) <= lines and "type = sftp" in lines and "user = publish" in lines
     assert "known_hosts_file = <a known_hosts file on the PC>" in lines
     assert "--to findaline-mirror:/mirror" in readme and "--from findaline-mirror:/mirror/logs" in readme
+
+
+def test_every_published_dataset_is_watched():
+    """tools/mirror_watch.py (docs/mirror-hosting/watch.md): every PUBLISHABLE dataset has a WATCH row (no dataset is
+    published unwatched; the user's W4, W5), and every WATCH row is a dataset the tools cut (DATASETS or Slovakia),
+    but for PENDING_CUT. The tool's own tests (tests/test_mirror_watch.py) keep its baseline in step with WATCH."""
+    import mirror_watch
+    # Watched before its cut is in this branch (DATASETS["wallonia"] comes with branch `wallonia`); the planner empties
+    # it when that branch is merged
+    PENDING_CUT = {"wallonia"}
+    cut = set(_cut_datasets())
+    assert set(mp.PUBLISHABLE) <= set(mirror_watch.WATCH), set(mp.PUBLISHABLE) - set(mirror_watch.WATCH)
+    assert PENDING_CUT <= set(mirror_watch.WATCH), ("a name in PENDING_CUT without a WATCH row",
+                                                    PENDING_CUT - set(mirror_watch.WATCH))
+    assert not PENDING_CUT & cut, ("cut now: drop it from PENDING_CUT", PENDING_CUT & cut)
+    assert set(mirror_watch.WATCH) - PENDING_CUT <= cut, ("a WATCH row for a dataset no tool cuts",
+                                                          set(mirror_watch.WATCH) - PENDING_CUT - cut)

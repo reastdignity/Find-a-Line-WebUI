@@ -143,6 +143,18 @@ Madeira, Valle d'Aosta, Porto Santo, the Desertas, the Selvagens; the attributio
 Prints its own lines only, never rclone's or the remote's name. `tests/test_mirror_publish.py` (rclone's local backend
 as the server; skipped without rclone), `tests/test_mirror_pairs.py`.
 
+## `tools/mirror_watch.py`
+
+Run by hand or by the monthly workflow `.github/workflows/mirror-watch.yml` (docs/mirror-hosting/watch.md; standard
+library only, no import of the project): whether the providers of the mirror's datasets replaced a file or published
+a successor. `WATCH`: per dataset its signals, `File` (a HEAD: size, Last-Modified, ETag), `Feed` (an ATOM feed's
+matching entries: `updated`, enclosure lengths) and `Listing` (the set of strings patterns extract from a page, feed
+or record); `Http` asks each address once a run, 1.5 s after the host's previous answer, without redirects, cookies
+or a proxy. `check` (one line per dataset, exit 0/1/3/2; `--json`, `--json-out`, `--previous`: a first "not
+checkable" does not make exit 3), `adopt` (rewrites the datasets' records in the committed `tools/mirror_watch.json`,
+refusing a signal not checkable), `list`. `tests/test_mirror_watch.py` (against `tests/http_server.py`, the real rows
+on cuts of the providers' answers, the workflow's YAML), `tests/test_mirror_pairs.py`.
+
 ## `tools/mirror_sizes.py`
 
 Run by hand (M1 of the mirror hosting; under the test lock with `--resource data` on the mirror; standard library

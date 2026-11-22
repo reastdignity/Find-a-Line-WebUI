@@ -12,7 +12,9 @@ Sections 2-3 say what was decided and how the parts fit. Sections 4-7 are the fo
 B the address contract and the publish tool, C the client, D the site's switch, the monitoring and the docs), each
 with: Decision, Behaviour, Data and interfaces, Files and pairs, Tests, Acceptance, Risks, Needs the user's word.
 Section 8 is security and misuse, 9 what is still open, 10 the order of building with the files each agent owns,
-11 the rollout, 12 the definition of done, 13 the later payloads this design must not block.
+11 the rollout, 12 the definition of done, 13 the later payloads this design must not block. Whether a provider has
+replaced a dataset's files or published a successor, and what such a report leads to (a new edition, U24):
+[watch.md](watch.md), "The providers watched" (`tools/mirror_watch.py`, monthly in GitHub Actions).
 
 **Names.** "A.5" is behaviour 5 of solution A. U1-U57 are the user's decisions (U27-U57 taken during the build),
 P1-P28 the planner's, S1-S17 the

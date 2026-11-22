@@ -5,6 +5,7 @@ paths:
   - "tests/test_mirror_pairs.py"
   - "tests/test_mirror_client.py"
   - "tests/test_mirror_publish.py"
+  - "tools/mirror_watch.py"
 ---
 # The project's data server: the publish tool and the client
 
@@ -21,6 +22,9 @@ is in `.claude/rules/deploy.md`, the VPS's checks of it (C7, C8) in `metrics.md`
   approval and date; until then it is not published and is named in the pair test's `CUT_WITHOUT_A_ROW` (empty:
   every cut dataset has a row). A recut with other values is a new edition (a new folder name, U24). `BLOCK` 10 in
   `sk_tiles`, `mirror_tiles`, `mirror_publish` and `tilebases` (`tests/test_mirror_pairs.py`).
+- A published dataset has a `tools/mirror_watch.py` `WATCH` row (`test_every_published_dataset_is_watched`) and each
+  signal a record in `tools/mirror_watch.json`; a new edition ends with `adopt` and a commit of the baseline. The tool
+  stays standard library only (the monthly workflow's stock python3; docs/mirror-hosting/watch.md).
 - The client (`tilebases.py`): `MIRROR_URL`'s host is the key of `net.HOST_SLOTS_OF`/`HOST_RATES_OF` (another address
   takes its manners through `net.LIMITS_AS`) and Telegraf's address; `off` (or empty) turns it off, also in conftest,
   `tests/regression.py` and the privacy sentence; a test never sets it empty (Windows deletes the variable: the real
