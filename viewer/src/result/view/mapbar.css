@@ -165,6 +165,8 @@
 .ui .v-result .c-pill { position: relative; }
 .ui .v-result .c-pill .r-actions .r-popwrap { position: static; }
 .ui .v-result .c-pill .r-actions .r-pop { left: 0; right: 0; width: auto; }
+/* ... with the kit's edge beside its raised shadow, so it stands apart from the sheet beneath (the user's 9 a) */
+.ui .v-result .c-pill .r-actions .r-pop.u-panel { border: 1px solid var(--line); }
 
 /* the map's message on a desktop: a dark box at the top, under the switch (a phone: in the status line's box) */
 .ui .v-map > .v-toast { position: absolute; z-index: 810; top: 56px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px);

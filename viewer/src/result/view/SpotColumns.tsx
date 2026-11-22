@@ -1026,6 +1026,26 @@ function useNoteAfterCrossing(view: SpotView, measured: Line | null, onNote: () 
   }, [view]);  // once, when the frame is made
 }
 
+/** A phone: the map's layers menu opened while the sheet stands above its low stop drops the sheet there, so the whole
+ *  menu shows over the map (the user's gate-2 answer 9 a); closing the menu does not raise it again. The menu's open
+ *  state is Leaflet's class on its control (`leaflet-control-layers-expanded`), watched as it changes. */
+function useLayersLowerTheSheet(col: {current: HTMLElement | null}, map: L.Map | null, snap: () => Snap, lower: () => void) {
+  const latest = useRef({snap, lower});
+  latest.current = {snap, lower};
+  useEffect(() => {
+    const control = col.current?.querySelector<HTMLElement>(".leaflet-control-layers");
+    if (!map || !control) return;
+    let open = control.classList.contains("leaflet-control-layers-expanded");
+    const watch = new MutationObserver(() => {
+      const now = control.classList.contains("leaflet-control-layers-expanded");
+      if (now && !open && latest.current.snap() !== "peek") latest.current.lower();
+      open = now;
+    });
+    watch.observe(control, {attributes: true, attributeFilter: ["class"]});
+    return () => watch.disconnect();
+  }, [map]);
+}
+
 function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, ortho, base, folder, show,
                 panels, measured, onMeasured, firstShow, measuredLink, selections}: FrameProps) {
   useSpotView(view);
@@ -1180,6 +1200,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   const toNote = () => setSnap((s) => s === "peek" ? "half" : s);
   useViewLink(view, canvas, line, nav, hashOf, fitPadding, (l) => onMeasured(l, true), toNote);
   useNoteAfterCrossing(view, measured, toNote);
+  useLayersLowerTheSheet(colRef, map, () => snapNow.current, () => moveSheet("peek"));
   useCornersAboveSheet(phoneRef, ref, true);  // the attribution and the scale above the sheet
   useRunCredits(map, data, base, folder);
   // The sheet moved: the bar's foot stays above it, and once it rests the view's rectangle is taken again (the

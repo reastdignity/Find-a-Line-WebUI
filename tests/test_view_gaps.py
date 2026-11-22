@@ -872,3 +872,40 @@ def test_pill_menus_over_the_sheet_at_full(site, device):
     print("the pill's menus at full:", device.get("viewport"), got)
     assert menus and all(got[m] and all(i["on"] for i in got[m]) for m in menus), got
     assert got["pill"] and all(i["on"] for i in got["pill"]) and got["handle"][0]["on"], got
+
+
+# --- gate 2's answers (the user's iPhone test, 2026-11-22) ---
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_layers_menu_lowers_the_sheet(boxes_site, device):
+    """9 a: the map's layers menu (the run with both coast boxes: its base maps and two overlays) opened by a tap while
+    the sheet is at half drops the sheet to its low stop, and every row of the menu lies inside the window and on top
+    (a press at its middle reaches it); closing the menu leaves the sheet low. The pill's Download menu has the kit's
+    raised shadow and an edge."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, boxes_site + f"#run={BOXES}", device, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "half")
+            _tap_on(page, ".v-map .leaflet-control-layers-toggle")
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", timeout=WAIT)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            rows = page.evaluate(HIT, ".v-map .leaflet-control-layers-expanded label")
+            height = page.evaluate("() => innerHeight")
+            # closed again (Leaflet's collapse, as a tap on the map does): the sheet stays low
+            page.evaluate("() => document.querySelector('.v-map .leaflet-control-layers').classList.remove('leaflet-control-layers-expanded')")
+            page.evaluate("() => T.frames()")
+            after = page.evaluate("() => F.snap()")
+            # the pill's Download menu
+            page.evaluate("() => [...document.querySelectorAll('.c-pill .r-actions button[aria-expanded]')].pop().click()")
+            page.wait_for_selector(".c-pill .r-pop", timeout=WAIT)
+            look = page.evaluate("() => { const s = getComputedStyle(document.querySelector('.c-pill .r-pop')); return [s.boxShadow, s.borderTopWidth, s.borderTopStyle]; }")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("layers at half:", device.get("viewport"), rows, "after", after, "download menu", look)
+    assert rows and all(r["on"] and r["y"][0] >= 0 and r["y"][1] <= height for r in rows), rows
+    assert after == "peek", after
+    assert look[0] != "none" and look[1] == "1px" and look[2] == "solid", look
