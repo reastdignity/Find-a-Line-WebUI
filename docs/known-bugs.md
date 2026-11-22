@@ -473,13 +473,10 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
   alone before calling a failure a regression.
 - `test_view_gaps.py::test_no_page_zoom_outside_the_map`'s double-tap step tests nothing in Chromium (its pinch step
   does).
-- The checks that `runs.js` is asked at most once count the browser's resource-timing entries, which miss a second
-  load of the same address in one page (`test_view_parity_pages.py` M15, M16, S1, S2, inherited from
-  `test_store_share.py`); counting requests with `page.on("request")` would catch it.
-- **`tools/lan_app.py`** (the LAN test of gate 2): `prepare` does not refuse a non-empty folder without its mark (or
-  one holding `jobs.sqlite`), and writes `lan-app.json` before its checks, so two wrong arguments in a row could write
-  into a real data folder; `test_serve_starts_and_stops` leaves the tool's children if it fails midway; `make_clip`
-  has no test. While it serves, the local app's other routes stay open on the network (an estimate, a place's lookup,
+- `test_store_share.py` (and `test_thumb_store.py`) still check that `runs.js` is asked at most once by the browser's
+  resource-timing entries, which miss a second load of the same address in one page; `test_view_parity_pages.py`
+  counts the requests sent (`page.on("request")`) since round 6's closing fixes.
+- **`tools/lan_app.py`** (the LAN test of gate 2): `make_clip` has no test. While it serves, the local app's other routes stay open on the network (an estimate, a place's lookup,
   deleting a search or a run of the scratch folder, the rigs and the admin routes).
 
 ## The UI measuring tools: known and left (2026-11-17)
