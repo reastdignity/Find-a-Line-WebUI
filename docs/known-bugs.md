@@ -386,10 +386,10 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
 - **WebKit reports "ResizeObserver loop completed with undelivered notifications."** as a page error at every change
   of the view's sheet stop (Playwright's iPhone 13; also without round 6's code, and on every run of the LAN test). A
   WebKit test of the view filters that one message.
-- **WebKit scrolls a desktop list kept at 260 px sideways by 2 px** (round 6's code review, round 5; 280 px and Edge
-  are clean).
-- **`matchMedia(...).addEventListener` throws on Safari older than 14** (no `addListener` fallback); the app does not
-  support such browsers otherwise either.
+- **WebKit lets a desktop list kept at 260 px overflow sideways by 2 px** (`scrollWidth` 261 against 259; Edge 259,
+  and 372 px clean in both; C4's code review of gate 2's round: negligible).
+- **`MediaQueryList.addEventListener` is missing in Safari before 14** and would throw in round 6's effect that uses
+  it (read only, C4's code review); the other new rules of the round degrade gracefully in old browsers.
 - **Safari on a Mac froze once while a run's line loaded** (the user, 2026-11-22; the Develop menu froze too). Not
   reproduced: on the Gozo run (717 044 lines) the view's main thread stalls about 0.8 s after the store arrives in
   desktop WebKit (about 80 ms of it redraws that could be saved) and about 0.2 s on the iPhone profile, against

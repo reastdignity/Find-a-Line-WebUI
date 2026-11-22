@@ -454,6 +454,10 @@ default changed. Today's result page in the app (`tests/test_view_parity.py`, se
 same (a view test shows it), 53 ported (a new test of the view), 29 different by a recorded decision (the user's or
 the planner's, cited in the row), 0 partly and 0 gaps (the gaps P1, P3 and P4 were built, P2 and P5 became known
 differences), 3 untested on both pages, 10 of other lists or not the result page; and 7 checks without a feature.
+The counts are those before gate 2: one of the 29, L6 (the sorted column's name saying the order; recorded as said by
+the direction button's name, as the heads were hidden from screen readers), lost its reason when gate 2's 12 a made
+the heads sort buttons that say their order ("Length, sorted smallest first", asserted by
+`test_view_gaps.py::test_heads_sort_the_tree`), so the view now does what L6 asks; the list was not relabelled.
 The pages around a result (`tests/test_view_parity_pages.py`: the access mark's parts, Download, a run's map.html, a
 share link's page, the public site's people): 71 rows, 16 the same, 7 the same before the page is chosen, 46 ported,
 2 different by decision, 0 gaps. Each ported assertion names its row. The lists themselves stay with the task's
