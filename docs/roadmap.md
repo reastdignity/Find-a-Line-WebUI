@@ -234,32 +234,93 @@ how a result is organised), built the low-effort part and specified the rest.
   `--html` removed after one release (store U10: accepted and ignored since a0c511ac); a way to remove a tiled
   search stopped part-way (a folder without `run.json`, which `runs remove-old` skips); `linestore.read` of chosen
   columns (`tools/perf_country.py`, docs/known-bugs.md).
+- **State on 2026-11-22** (round 6, branch `view-3c`): the result view's steps 3c and 3d are built and the view is a
+  run's page by default (`VIEW_DEFAULT`, on the user's word after gate 2's iPhone checks; today's page stays behind
+  `?view=today` and for the runs the view cannot show). Step 3c joined today's features (the run's actions, the
+  profile card and the phone's docks, favourites with folders, Compare drawn apart, Measure, links, the search area,
+  the coast boxes as chips) with the design review's list below; step 3d ported today's checks (the parity lists:
+  every feature of today's result page either the same, ported or different by a recorded decision) and brought the
+  tools to the view (`tools/ui_shots.py` `VIEW_STATES`, `tools/ui_walks.py`, `tools/today_page.py`). Gate 2 added the
+  sticky heads that sort, the list's star with folders, the sideways notice, no page zoom outside the map, the layers
+  menu at half, the 2D credits pill, the store's retry when a phone's screen went off and the scrollers' layer. What
+  it decided and left: docs/DESIGN.md rows 100 to 130, docs/line-volume/spec-view.md B.2 and B.10 ("as built in round
+  6"), docs/known-bugs.md ("Line volume, round 6"), and the list below. Open: 2d, 2e, 2g; the UX task's G6 aligns the
+  view's own closes, links and legend with the control family.
+
+### Line volume round 6: open (2026-11-22)
+Each from the user's answers at the gates of round 6 (`local/line-volume-6/user-inputs.md`); none started.
+- **Fewer steps on a phone** (T7 "not met", the user's T a and G-E a): from a spot to a line of a chosen direction
+  takes 5 steps on the clip's run and 6-8 on a run of 15 338 lines (4 without scrolls), against the target of 3; the
+  sheet's raise and the scroll to the row are the steps beyond the three. The first result takes 5 pointer actions
+  where today's page takes 4 (3 on a later visit). Parked: a design question for a later round.
+- **Compare's other runs pressable in the view** (the user's P5 b, "known difference now"; effort medium-high): a
+  hit test for other runs' lines on the canvas and a details panel for a line that is no spot of this run (today's
+  page opens it with its "Run").
+- **The level switch as a radio group** (the final design check's F6; effort medium-low): Auto, Area, Spots, Lines
+  are four toggle buttons and four Tab stops; `ui/radios.ts` (`radioKeys`, `radioStop`) would make them one stop with
+  arrows (DESIGN.md row 82), the buttons `role=radio` with `aria-checked` (`test_shell_c_view_map.py` reads
+  `aria-pressed` and changes with it).
+- **"Add to home screen" as a web app** (the user's 8 a at gate 2: a separate small task after the switch): a
+  manifest, icons, a standalone display and portrait orientation, so a phone gives the page the address bar's and the
+  navigation buttons' room.
+- **"Top level" per spot as a possible search filter** (the user, 2026-11-22: "Ok add it to road map as a possible
+  search filter"): today's flag (K-17) is decided per 8 m cell, so lines of one face about 30 m apart in height can all
+  be top level when their anchors fall in other cells (the Gozo coast's re-run of 2026-11-22, spot 1858: the highest
+  line, anchors 66 and 63 m, 254 m long, and two lines with anchors about 34-39 m, all three top level). Judged across
+  a whole spot or face instead; measure the counts it keeps first, as round 1's K-17 study did, before a design.
+- **The 3D view's orthophoto kept in the browser** (the user, 2026-11-22: "Roadmap only"): each opening of the 3D
+  view downloads its aerial tiles again, because geoportal's high-resolution WMS and Malta's WMS send no cache
+  headers (geoportal took about 9 s a tile that day); the addresses are already on the XYZ grid, and geoportal's WMTS
+  base tiles are kept for 30 days. Options: B a Cache API store in the 3D page (a CSP `connect-src` change), C a
+  service worker, D a tile route of our own through the worker within `net.HOST_RATES_OF` (shared and the gentlest to
+  the providers, costs disk), E ask the providers for cache headers.
+- **A cut store download resumed**: since gate 2 a run's store cut while the page was hidden starts again whole once
+  the page is visible (`result/load.ts`); asking only for the bytes not yet in (a range) would save a slow phone's
+  minutes; the gzip on the wire (nginx, the LAN tool) needs a plan for it.
+- **Profiles asked ahead** (gate 2's finding 2): a step through a spot's lines now draws the map once, but the felt
+  lag on a phone is most likely `/api/profile`'s round trip per step (an area's run keeps profiles only for each
+  spot's first line); asking the next and the previous lines' profiles ahead, and fewer elements in the page (about
+  460 icons on a long list), are the options.
+- **The long list in the phone's sheet, its proper fix** (docs/known-bugs.md, "The phone's sheet moves in steps with a
+  long list"; the user: "create a bug report for fixing it properly"): A the tree opened only around the selected row
+  with about 60 rows a sector (recommended; the button's words the user's), B a virtual list (compare the libraries
+  first), C one hidden name a row instead of four. The positioned rows (the user's variant 41) are the mitigation in
+  place.
 
 ### Step 3c of the result view: the design review's list (2026-11-17)
 The design reviewer read the whole view (docs/design-review.md) on its tree before the last fix rounds: nothing
 blocks it behind the flag; these come before the view becomes the default. Two small ones were fixed before the merge (focus rings, unused
 texts), and one was not a defect. With step 3c, beside today's features and the search area's outline (the user:
-"4. a"):
+"4. a"). **Done in round 6** (2026-11-20 to 2026-11-22), each as the line after it says:
 - The phone's first look puts the hint before the result (spec-view B.2 item 12): the headline and the top block
-  first, the hint after; needs the user's word.
+  first, the hint after; needs the user's word. *Closed: the hint stays first, as a plain line (the plan's 7 a).*
 - Numbers pile up on the map at Best 30 and in the fan: measure how many overlap by a quarter, a third, a half of a
-  box at Best 10 / 30 / 100 on the reference runs; the user picks when a number is left out.
+  box at Best 10 / 30 / 100 on the reference runs; the user picks when a number is left out. *Done:
+  `tools/view_numbers.py` measured it; the user picked a third of a box, for the fan's numbers too (N1 b, N2 a;
+  DESIGN.md row 115).*
 - Values under marks and controls at Area (a square's value under a pick's diamond or the shore chip; on a phone on
-  its side the scale over the shore chip).
+  its side the scale over the shore chip). *Values done (`SpotMap.valueAt`: the square's middle, else the first clear
+  place of eight inside it, else left out); the coarser chip no longer over the scale; the sideways phone's pair is a
+  known bug (P c), behind the upright notice since gate 2.*
 - The selected line under the phone's sheet after the sheet rises (to verify: the picture's selection was made by a
-  script).
-- Help only in tooltips (the level switch, Best, "Top level only", the column heads): a "?" each on touch.
-- One "?" shape for three meanings (cannot tell, help, the hint's reopen).
+  script). *Verified 2026-11-20 on Playwright's iPhone 13 and Pixel 7 (the line tapped low was under the sheet at
+  half); fixed by `useSheetKeeps`, and since the user's G-E a a line keeps one end in view by a pan at the same zoom.*
+- Help only in tooltips (the level switch, Best, "Top level only", the column heads): a "?" each on touch. *Done: the
+  map's one "i" and the list's two (DESIGN.md rows 102, 118).*
+- One "?" shape for three meanings (cannot tell, help, the hint's reopen). *Done: the kit's info icon for help, the
+  rope for the hint (row 14).*
 - Words: "Held by you.", "choose 100", "Clear.", "Height diff.", "anchor squares", "pick"; the status texts are the
-  specification's and need the user's word.
+  specification's and need the user's word. *Done: the user's W1 to W14 at gate 1 (spec-view B.2 "as built in round 6").*
 - Counts that compete on the desktop's first screen, and "hidden by filters" when only "Top level only" hides.
-- Over trees by colour alone in the lists, the fan and the table of spots (docs/DESIGN.md R4.2).
-- "No line passes the filters." without a next step.
-- Best greyed at Area without a reason on touch.
+  *Done: the header's line count dropped (W8), "5 965 hidden by Top level only" (W7).*
+- Over trees by colour alone in the lists, the fan and the table of spots (docs/DESIGN.md R4.2). *Done (row 7).*
+- "No line passes the filters." without a next step. *Done: "Loosen one, or clear all." with "Clear all" (W9, row
+  120).*
+- Best greyed at Area without a reason on touch. *Done: the reason in the map's help (W11).*
 - docs/DESIGN.md R5 to R7 (the type, radius and spacing scales) against the accepted mock-up: the user settles which
-  holds.
+  holds. *Done by the UX task's pilot and G2 (rows 87 to 89).*
 - The 44 px rule on touch (R2) and the smallest text (R1): the view's controls and text listed in docs/known-bugs.md
-  (the user: "2. a").
+  (the user: "2. a"). *Done but for the kit's chip and the measured profile's two fields (known-bugs.md).*
 
 ### An access grid that needs less memory (the user, 2026-11-16)
 The access mark's grid covers the search's whole grid. In blocks it needs about 12 B per pixel of the whole grid and
