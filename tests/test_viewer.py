@@ -3628,7 +3628,6 @@ OFF_THE_SCALES = {
     ("ui/pages.css", ".ui .p-provider", "font", "14px"): "the sign-in providers' own button guidelines",
     # radii (R6: the --r-* tokens, none, round, full)
     ("ui/pages.css", ".ui .p-provider", "radius", "4px"): "the sign-in providers' own button guidelines",
-    ("ui/ui.css", ".ui .u-split-tab", "radius", "11px"): "the kit's collapse tab: its look is step 3d G3's",
     # spacing (R7: 0, 4, 8, 12, 16, 24, 32 px)
     ("access.css", ".ui .ac-pair", "space", "3px"): "one mark of two dots, a drawing (as the coverage stars' 2 px)",
     ("app/c/c.css", ".ui .c-layer-hist-bars", "space", "2px"): "between a chart's bars: a drawing's marks",
@@ -3656,14 +3655,12 @@ OFF_THE_SCALES = {
     ("app/c/c.css", ".ui .c-layer-hist-open", "shadow", ""): "a ring of the accent around the open chart",
     ("ui/ui.css", ".ui .u-legend-sw", "shadow", ""): "a legend's swatch: its inset edge of the ink (rows 68, 90)",
     ("app/c/c.css", ".ui .c-layer-bar-fill", "shadow", ""): "a bar's inset edge of the ink (row 68)",
-    ("app/coverageLayer.css", ".n-coverage-btn.n-on::before", "shadow", ""): "the ticked box's gap inside its edge",
     ("search/search.css", ".ui .s-card.u-on", "shadow", ""): "the selected card's second px of edge",
     ("search/search.css", ".ui .s-card.u-on:focus-visible", "shadow", ""): "that edge beside the keyboard's ring",
     ("ui/ui.css", ".ui .u-sheet.u-scrolled .u-sheet-head", "shadow", ""): "a drawing: a cue that the sheet's body "
                                                                            "scrolls under its head, not a raised surface",
     ("app/coverageLayer.css", ".ui .n-coverage-legend .n-coverage-sw3", "shadow", ""): "the place box's transparent "
         "\"Everywhere else\" drawn by the controls' --line edge, 1.85:1 on the box (the user, 2026-11-22)",
-    ("ui/ui.css", ".ui .u-split-tab", "shadow", ""): "the kit's collapse tab: its look is step 3d G3's",
     ("view3d/others.css", ".v3-other", "shadow", ""): "a label over the picture: a lighter drop shadow (35 %, not "
                                                       "--shadow-mark's 45 %: the same pixels kept)",
     ("view3d/others.css", ".v3-other:focus-visible", "shadow", ""): "that label's shadow beside the keyboard's ring",

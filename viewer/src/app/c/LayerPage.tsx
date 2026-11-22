@@ -668,7 +668,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
 
     {fold.length > 0 && <details class="c-layer-more" open={more}
                                  onToggle={(e) => setMore((e.currentTarget as HTMLDetailsElement).open)}>
-      <summary>{t("ui.layer.more")} <span class="u-badge u-n">{foldCount}</span>
+      <summary>{t("ui.layer.more")} <span class="u-badge">{foldCount}</span>
         {foldSet.length > 0 && <span class="c-layer-more-set">{t("ui.layer.more_set", {count: foldSet.length})}</span>}
         <Icon name="down" /></summary>
       <div class="c-layer-more-body">

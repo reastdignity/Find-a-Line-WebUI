@@ -161,20 +161,20 @@ function SearchCard({card, runs, jobs, publicSite, highlight, usage, onGone}:
   const removeJob = () => api.removeJob(job!.id).then(() => onGone(jobs.refresh()), (e) => setError(e.message));
   const canRemove = !!job && job.status === "cancelled" && job.own === true;  // not another user's (an administrator's Home)
   const items = [
-    open && <a key="open" role="menuitem" class="c-menu-item" href={open}><Icon name="layers" />{t("ui.card.open")}</a>,
-    job && <a key="edit" role="menuitem" class="c-menu-item" href={editHash(job.id)}><Icon name="edit" />{t("ui.app.edit_again")}</a>,
-    canShare && <button key="share" type="button" role="menuitem" class="c-menu-item" onClick={act(() => setPanel("share"))}>
+    open && <a key="open" role="menuitem" class="u-item c-menu-item" href={open}><Icon name="layers" />{t("ui.card.open")}</a>,
+    job && <a key="edit" role="menuitem" class="u-item c-menu-item" href={editHash(job.id)}><Icon name="edit" />{t("ui.app.edit_again")}</a>,
+    canShare && <button key="share" type="button" role="menuitem" class="u-item c-menu-item" onClick={act(() => setPanel("share"))}>
       <Icon name="share" />{t("ui.card.share")}</button>,
-    job && st.unfinished && <button key="cancel" type="button" role="menuitem" class="c-menu-item" onClick={act(cancel)}>
-      <Icon name="close" />{t("ui.card.cancel")}</button>,
-    canReport() && <button key="report" type="button" role="menuitem" class="c-menu-item"
+    job && st.unfinished && <button key="cancel" type="button" role="menuitem" class="u-item c-menu-item" onClick={act(cancel)}>
+      <Icon name="stop" />{t("ui.card.cancel")}</button>,
+    canReport() && <button key="report" type="button" role="menuitem" class="u-item c-menu-item"
                            onClick={act(() => openReport({about: name, context: run ? {run: run.id} : {}}))}>
       <Icon name="warn" />{t("ui.card.report")}</button>,
-    canDelete && <button key="delete" type="button" role="menuitem" class="c-menu-item c-danger" onClick={act(() => setPanel("delete"))}>
-      <Icon name="close" />{t("ui.common.delete_ask")}</button>,
-    canRemove && <button key="remove" type="button" role="menuitem" class="c-menu-item"
+    canDelete && <button key="delete" type="button" role="menuitem" class="u-item c-menu-item c-danger" onClick={act(() => setPanel("delete"))}>
+      <Icon name="bin" />{t("ui.common.delete_ask")}</button>,
+    canRemove && <button key="remove" type="button" role="menuitem" class="u-item c-menu-item"
                          onClick={act(() => { setCounts(countsToday(job!, usage)); setPanel("remove"); })}>
-      <Icon name="close" />{t("ui.card.remove")}</button>,
+      <Icon name="bin" />{t("ui.card.remove")}</button>,
   ].filter(Boolean);
 
   const body = <>
@@ -188,7 +188,7 @@ function SearchCard({card, runs, jobs, publicSite, highlight, usage, onGone}:
     <div class="c-card-body">
       <div class="c-card-head">
         <StatusChip status={st.status}>{st.chip}</StatusChip>
-        {run?.demo && <span class="u-badge u-n" title={t("ui.card.example_title")}>{t("ui.card.example")}</span>}
+        {run?.demo && <span class="u-badge" title={t("ui.card.example_title")}>{t("ui.card.example")}</span>}
         <span class="u-grow" />
         {items.length > 0 && <Popover label={t("ui.card.actions_title")} align="right" open={menu} onOpen={setMenu}
                                       button={(on, toggle) => <IconButton icon="more" label={t("ui.card.actions")} plain expanded={on}
@@ -292,7 +292,7 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
         </a>}
       </div>
       <div class="c-section-head">
-        <h1 class="u-h" ref={heading} tabIndex={-1}>{t("ui.home.searches")}</h1>
+        <h1 class="u-h u-title" ref={heading} tabIndex={-1}>{t("ui.home.searches")}</h1>
         <span class="u-small">{cards.length}</span>
         <span class="u-grow" />
         {wide ? <Chips>

@@ -38,13 +38,13 @@ export function AccountBody({theme, setTheme, onPick, usage}:
     </div>
     <SearchedLine usage={usage} />
     <nav class="c-account-links">
-      {!user.local && user.admin && <a class="c-menu-item" href="#admin" onClick={pick}><Icon name="user" />{t("ui.app.admin")}</a>}
-      {(user.local || user.admin) && <a class="c-menu-item" href="#osm" onClick={pick}><Icon name="layers" />{t("ui.app.osm")}</a>}
-      {(user.local || user.admin) && <a class="c-menu-item" href="#layer" onClick={pick}><Icon name="poly" />{t("ui.layer.title")}</a>}
-      {canReport() && <button type="button" class="c-menu-item" onClick={() => { pick(); openReport(); }}>
+      {!user.local && user.admin && <a class="u-item c-menu-item" href="#admin" onClick={pick}><Icon name="user" />{t("ui.app.admin")}</a>}
+      {(user.local || user.admin) && <a class="u-item c-menu-item" href="#osm" onClick={pick}><Icon name="layers" />{t("ui.app.osm")}</a>}
+      {(user.local || user.admin) && <a class="u-item c-menu-item" href="#layer" onClick={pick}><Icon name="poly" />{t("ui.layer.title")}</a>}
+      {canReport() && <button type="button" class="u-item c-menu-item" onClick={() => { pick(); openReport(); }}>
         <Icon name="warn" />{t("ui.account.report")}</button>}
-      {!user.local && <a class="c-menu-item" href="/privacy" target="_blank"><Icon name="info" />{t("ui.app.privacy")}</a>}
-      {!user.local && <a class="c-menu-item" href="/about" target="_blank"><Icon name="info" />{t("ui.account.about")}</a>}
+      {!user.local && <a class="u-item c-menu-item" href="/privacy" target="_blank"><Icon name="info" />{t("ui.app.privacy")}</a>}
+      {!user.local && <a class="u-item c-menu-item" href="/about" target="_blank"><Icon name="info" />{t("ui.account.about")}</a>}
     </nav>
     <div class="c-account-theme"><span class="u-small">{t("ui.account.theme")}</span>
       <Segmented label={t("ui.account.theme")} options={themes()} value={theme} onChange={(t) => { storeTheme(t); setTheme(t); }} /></div>
@@ -58,7 +58,7 @@ export function AccountMenu({theme, setTheme, usage}:
                             {theme: Theme; setTheme(t: Theme): void; usage?: Usage | null}) {
   const [open, setOpen] = useState(false);
   return <Popover label={t("ui.app.account")} align="right" open={open} onOpen={setOpen}
-                  button={(on, toggle) => <button type="button" class={`c-account-btn${on ? " u-on" : ""}`}
+                  button={(on, toggle) => <button type="button" class={`u-btn c-account-btn${on ? " u-on" : ""}`}
                                                   aria-expanded={on} onClick={toggle}>
                     <span class="c-avatar"><Icon name="user" /></span>
                     <span class="c-account-name">{user.local ? t("ui.account.local") : user.name}</span>
@@ -142,7 +142,7 @@ export function MapPage({title, aside, children}:
   if (!aside) {
     return <div class="c-mappage">
       <aside class="c-sidepanel" aria-label={title}>
-        <h1 class="u-h">{title}</h1>
+        <h1 class="u-h u-title">{title}</h1>
         {place && children(place, null, extras.current)}
       </aside>
       <div class="c-newmap" ref={ref} />
@@ -151,7 +151,7 @@ export function MapPage({title, aside, children}:
   return <div class="c-mappage c-mappage-3" ref={cols}>
     <SidePanel {...props("left")} name={t("ui.panel.filters")} label={title} rail={{icon: "filter", text: rails[0] || title}}>
       <div class="c-col-scroll" data-scroll="left">
-        <h1 class="u-h">{title}</h1>
+        <h1 class="u-h u-title">{title}</h1>
         {place && right && children(place, right, extras.current)}
       </div>
     </SidePanel>

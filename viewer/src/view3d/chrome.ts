@@ -23,7 +23,7 @@ export function createActivity(box: HTMLElement): Activity {
   const entries = new Map<string, Entry>();
   const spin = el("span", "v3-spin"), text = el("span", "v3-activity-text");
   const meter = el("span", "u-prog v3-activity-meter"), fill = el("i", "");
-  const action = el("button", "u-btn v3-activity-action"), dismiss = el("button", "u-btn v3-activity-dismiss");
+  const action = el("button", "u-btn v3-activity-action"), dismiss = el("button", "u-ib u-x v3-activity-dismiss");
   action.type = dismiss.type = "button";
   // the kit's "close" icon: the pill's text stays the message alone
   dismiss.append(kitIcon("close"));

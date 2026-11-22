@@ -16,7 +16,6 @@
 .ui .c-error { color: var(--bad); font-weight: 500; margin: 0; }
 .ui .c-app-error { padding: 8px 16px; background: var(--bad-soft); }
 .ui .c-no-worker { background: var(--bad-soft); padding: 12px 16px; border-radius: var(--r-2); font-weight: 400; }
-.ui .c-link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font-weight: 500; align-self: flex-start; }
 .ui .c-page { max-width: 760px; margin: 0 auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 16px; }
 .ui .c-newmap { background: var(--map-bg); isolation: isolate; min-width: 0; min-height: 0; }
 
@@ -39,9 +38,9 @@
 .ui .c-nav-item.u-on { background: var(--accent-soft); color: var(--accent-ink); }
 .ui .c-avatar { width: 28px; height: 28px; border-radius: var(--r-round); background: var(--surface-2); color: var(--ink-2); display: inline-flex;
   align-items: center; justify-content: center; flex: none; }
-.ui .c-account-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: var(--r-full);
-  background: var(--surface); padding: 0 12px 0 4px; cursor: pointer; min-height: var(--touch); }
-.ui .c-account-btn.u-on, .ui .c-account-btn:hover { background: var(--hover); }
+/* the header's account button: the kit's button (.u-btn) as a pill around the avatar */
+.ui .c-account-btn { border-radius: var(--r-full); padding: 0 12px 0 4px; font-weight: 400; }
+.ui .c-account-btn.u-on { background: var(--hover); }
 .ui .c-account-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .ui .c-account { display: flex; flex-direction: column; gap: 12px; }
 .ui .c-account-who { display: flex; align-items: center; gap: 12px; }
@@ -50,11 +49,9 @@
 .ui .c-account-theme { display: flex; flex-direction: column; gap: 8px; }
 .ui .c-top .r-pop { width: 290px; max-height: calc(100vh - 80px); }  /* the account menu: Sign out in view */
 
-/* Menus (a card's actions, the account) */
+/* Menus (a card's actions, the account): their rows the kit's (.u-item) */
 .ui .c-menu { display: flex; flex-direction: column; margin: -8px; }
-.ui .c-menu-item { display: flex; align-items: center; gap: 12px; min-height: var(--touch); padding: 0 12px; border: 0; border-radius: var(--r-2);
-  background: none; color: var(--ink); text-decoration: none; cursor: pointer; width: 100%; text-align: left; font-weight: 500; }
-.ui .c-menu-item:hover { background: var(--hover); }
+.ui .c-menu-item { gap: 12px; min-height: var(--touch); padding: 0 12px; width: 100%; font-weight: 500; }
 .ui .c-menu-item .u-ic { color: var(--ink-2); }
 .ui .c-menu-item.c-danger, .ui .c-menu-item.c-danger .u-ic { color: var(--bad); }
 
@@ -130,17 +127,15 @@
 .ui .c-up .u-ic { transform: rotate(180deg); }
 .ui .c-trip-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .ui .c-fav { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--rule); }
-.ui .c-fav-star { width: 36px; height: 36px; flex: none; border: 0; border-radius: var(--r-round); background: none; cursor: pointer; display: inline-flex;
-  align-items: center; justify-content: center; padding: 0; }
-.ui .c-fav-star:hover { background: var(--hover); }
-.ui .c-fav-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 8px 4px; color: var(--ink); text-decoration: none;
-  font-variant-numeric: tabular-nums; }
-.ui .c-fav-open:hover { color: var(--accent); }
+/* a favourite's star the kit's plain round icon button; its line the kit's row (.u-item), whose words take the accent
+   under the mouse in place of the row's fill */
+.ui .c-fav-open { flex: 1; padding: 8px 4px; border-radius: 0; font-variant-numeric: tabular-nums; }
+.ui .c-fav-open:hover { background: none; color: var(--accent); }
 .ui .c-fav-open > .u-ic { color: var(--muted); }
 .ui .c-fav-run { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .c-fav-over { color: var(--warn); font-size: var(--fs-2); }
 .ui .c-trip-empty .u-ic { width: 16px; height: 16px; vertical-align: -3px; }
-@media (pointer: coarse) { .ui .c-fav-star { width: 44px; height: 44px; } .ui .c-fav-open { min-height: 48px; } }
+@media (pointer: coarse) { .ui .c-fav-open { min-height: 48px; } }
 
 /* Favourites in folders (FavouritesPage): the tree and the chosen folder */
 .ui .c-page-wide { max-width: 1040px; }
@@ -154,20 +149,20 @@
 .ui .c-tree-row.u-on { background: var(--accent-soft); }
 /* the counts and runs' names on the fill (a selected folder; a row dragged over): --muted is under 4.5:1 there (3.79 dark) */
 .ui .c-tree-row.u-on .u-small, .ui .c-drop-over .u-small { color: var(--ink-2); }
-.ui .c-tree-fold { width: 24px; height: 28px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 0;
-  background: none; padding: 0; color: var(--muted); cursor: pointer; }
+/* the tree's fold: the kit's plain icon button, narrow; a folder's name the kit's row */
+.ui .c-tree-fold { width: 24px; height: 28px; flex: none; display: inline-flex; color: var(--muted); }
 .ui .c-tree-fold .u-ic { width: 16px; height: 16px; }
-.ui .c-tree-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 8px 4px 4px; border: 0;
-  background: none; color: var(--ink); text-align: left; cursor: pointer; border-radius: var(--r-2); }
-.ui .c-tree-name:hover { background: var(--hover); }
+.ui .c-tree-name { flex: 1; min-height: 32px; padding: 4px 8px 4px 4px; }
 .ui .c-tree-name:focus-visible { box-shadow: var(--focus-in); }  /* inside: the tree's scroll box clips a ring outside */
 @media (forced-colors: active) { .ui .c-tree-name:focus-visible { outline-offset: -2px; } }
 @media (pointer: coarse) { .ui .c-tree-fold { width: 44px; height: 44px; } .ui .c-tree-name { min-height: 44px; } }
 .ui .c-tree-name span.u-grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .c-crumbs { font-size: var(--fs-2); color: var(--muted); overflow-wrap: anywhere; }
 /* a folder of the path: a control of its own between the strokes (R2) */
-.ui .c-crumbs .c-link { font-size: var(--fs-2); display: inline-flex; align-items: center; min-height: 24px; }
-@media (pointer: coarse) { .ui .c-crumbs .c-link { min-height: 44px; min-width: 44px; } }
+.ui .c-crumbs .u-link { font-size: var(--fs-2); }
+@media (pointer: coarse) { .ui .c-crumbs .u-link { min-width: 44px; } }
+/* "Show all" under Home's favourite lines: a text action that does not stretch across its column */
+.ui .c-trip-all { align-self: flex-start; }
 .ui .c-folder-row .c-folder-open { border: 0; background: none; text-align: left; cursor: pointer; font: inherit; }
 .ui .c-folder-row .c-folder-open > .u-ic:first-child { color: var(--accent); margin: 0 8px; }
 .ui .c-row-menu { flex: none; }
@@ -182,7 +177,7 @@
 /* Focused pages: their own top bar */
 .ui .c-subtop { flex: none; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px;
   border-bottom: 1px solid var(--rule); position: relative; z-index: var(--z-bar); min-width: 0; }
-.ui .c-subtitle { margin: 0; font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }  /* a page's title, as the result view's */
+.ui .c-subtitle { margin: 0; }  /* New search's title: the kit's page title (.u-h.u-title, step 3d G3) */
 
 /* New search (c2) */
 .ui .c-newsearch { flex: 1; min-width: 0; display: grid; grid-template: "top top" auto "form map" minmax(0, 1fr) "bar bar" auto / 460px minmax(0, 1fr); }
@@ -216,6 +211,7 @@
    in a gap (measured: 6 px above the words with the gap left open, every row on the iPhone) */
 .ui .c-check { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; font-size: var(--fs-2); color: var(--ink-2);
   cursor: pointer; }
+.ui .c-check > .u-check { margin: 0; }
 @media (pointer: coarse) {
   .ui .c-check { min-height: 44px; }
   .ui .c-admin-tools > .c-check { flex-basis: 100%; min-height: 52px; margin-top: -8px; padding-top: 8px; }
@@ -232,9 +228,6 @@
    chips (.u-st-word): the words come in lower case from the server and the code; ::first-letter needs a block, which
    a badge is as a flex item of .c-admin-head */
 .ui .c-admin .u-badge::first-letter { text-transform: uppercase; }
-.ui .c-user-pending { background: var(--warn); }
-.ui .c-user-blocked { background: var(--bad); }
-.ui .c-user-approved { background: var(--ok); }
 .ui .c-mappage { flex: 1; min-width: 0; display: flex; }
 .ui .c-sidepanel { width: 440px; flex: none; overflow-y: auto; padding: 16px 24px;
   border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 12px; }
@@ -256,9 +249,6 @@
 .ui .c-mappage-3 .c-col-side, .ui .c-mappage-3 .c-rail { background: var(--bg); }
 .ui .c-mappage-3 .c-rail:hover { background: var(--hover); }
 .ui .c-mappage-3 .c-rail-text, .ui .c-mappage-3 .c-rail-auto { font: 500 var(--fs-1) var(--font); letter-spacing: 0; text-transform: none; }
-.ui .c-mappage-3 .u-split-tab { width: 24px; border-radius: var(--r-2); border-color: var(--rule); background: var(--surface); box-shadow: var(--shadow); }
-/* the tab's own shadow and the keyboard's ring together (the kit's tab rule replaces the ring: ui.css) */
-.ui .c-mappage-3 .u-split-tab:focus-visible { box-shadow: var(--shadow), var(--focus); }
 /* a touch tablet keeps the desktop's columns: an invisible 44 px target on the 24 px wide tab (R2; docs/DESIGN.md row
    83; the insets count from inside its 1 px edge) */
 @media (pointer: coarse) {
@@ -347,9 +337,10 @@
   .ui .c-layer-hist[data-hist="length"] { grid-column: 1 / -1; }
 }
 .ui .c-layer-hist-open { box-shadow: 0 0 0 2px var(--accent); padding: 8px; margin: -8px; border-radius: var(--r-2); }  /* a ring drawn: no elevation */
-.ui .c-layer-hist-name { display: block; max-width: 100%; border: 0; border-radius: var(--r-1); padding: 0; background: none; font: inherit;
-  color: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; cursor: pointer; }
+/* a chart's name: the kit's row (.u-item), the chart title's font and colour, no fill under the mouse */
+.ui .c-layer-hist-name { display: block; max-width: 100%; gap: 0; border-radius: var(--r-1); font: inherit; color: inherit; letter-spacing: inherit;
+  text-transform: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui .c-layer-hist-name:hover { background: none; }
 .ui .c-layer-inview-more { font-size: var(--fs-2); color: var(--ink-2); font-variant-numeric: tabular-nums; margin-top: 4px; }
 .ui .c-layer-inview-more b { color: var(--ink); }
 .ui .c-layer-hist-title { font: 600 var(--fs-2)/1.2 var(--font); color: var(--ink-2); margin: 0 0 8px; }

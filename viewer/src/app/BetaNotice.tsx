@@ -53,7 +53,7 @@ export function BetaNotice() {
     <p class="n-ways">
       <a href={ISSUES_URL} target="_blank" rel="noopener"><Icon name="link" />{t("ui.beta.issues")}</a>
       {contact && <span><Icon name="info" />{`${t("ui.beta.email")} `}<Contact contact={contact} /></span>}
-      <button type="button" class="c-link" onClick={() => { close(); openReport(); }}>
+      <button type="button" class="u-link" onClick={() => { close(); openReport(); }}>
         <Icon name="warn" />{t("ui.beta.report")}</button>
     </p>
     <p class="u-small">{t("ui.beta.later")}</p>

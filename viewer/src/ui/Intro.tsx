@@ -99,7 +99,7 @@ export function Intro({state, title, children, class: cls}:
     <h2 class="u-h" id={id}>{title}</h2>
     <div class="n-intro-body">{children}</div>
     <div class="n-actions n-intro-foot">
-      {state.auto && <label class="n-again"><input type="checkbox" ref={check} defaultChecked />{t("intro.dont_show")}</label>}
+      {state.auto && <label class="n-again"><input type="checkbox" class="u-check" ref={check} defaultChecked />{t("intro.dont_show")}</label>}
       <Button kind="primary" onClick={done}>{t("intro.got_it")}</Button>
     </div>
   </dialog>;
@@ -120,6 +120,6 @@ export function Rich({text}: {text: string}) {
 /** A link that opens the intro again. */
 export function IntroLink({state, children, class: cls}:
                           {state: IntroState; children: ComponentChildren; class?: string}) {
-  return <button type="button" ref={state.link} class={"n-intro-link" + (cls ? " " + cls : "")}
+  return <button type="button" ref={state.link} class={"u-link n-intro-link" + (cls ? " " + cls : "")}
                  onClick={state.show}>{children}</button>;
 }

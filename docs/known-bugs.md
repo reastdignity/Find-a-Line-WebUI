@@ -464,15 +464,12 @@ word's help are written out since step 3d G5 (DESIGN.md choice 92).
   catalogue's forms). A problem report's context line reads "page: …; interface: …; window: …" since step 3d G5
   (labelled values, parts joined by "; " as the run's link holds a comma); it still wraps to 2 lines on a 390 px phone
   and 3 at 360 px.
-- **Left on the admin page, inherited** (the design review's F5 and F6): the kit's solid-accent badges
-  ("Administrator", "Water level", "Demo") beside the solid-accent primary button ("Done", "Approve"; in the dark
-  theme "Demo" and "Done" are the same pill), for the kit's round; "Open" in Runs with its arrow before the word where "Open map" has it after; the page's title the size of
-  its section titles; a wrapped ghost "End sessions" set in by its padding.
+- **Left on the admin page, inherited** (the design review's F6): a wrapped ghost "End sessions" set in by its
+  padding. The solid-accent badges, "Open" with its arrow before the word and the page's title the size of its
+  section titles were mended in step 3d G3 (DESIGN.md rows 98, 99).
 - **The about page shows "<year of the run>" literally**: not a credit's own text. A credit names the year of the run
   as `sources.YEAR` ("{year}"); where no run exists, the about page fills it with `sources.credit.YEAR_TEXT` (web.py
   `about_page`, `src.dated(..., src.YEAR_TEXT)`): deliberate, left.
-- **The admin page's checkbox** is the browser's own (13 px box, not the search form's 20 px `.s-check` in the
-  accent); its row is the 44 px target (choice 50), the box itself is not restyled.
 
 ## Step 3c, group B (the 3D view): left, inherited, and what the probes found (2026-11-19)
 
@@ -625,9 +622,6 @@ Found by the reviews of G1 and left (DESIGN.md rows 81 to 84 hold what was mende
   (`--focus-in`) with no forced-colours `outline-offset: -2px` beside it, so the kit's forced-colours outline falls 2 px
   outside them, where their bar clips it (the zoom: cut 4 px on three sides, only an edge shows; measured on the
   desktop and the phone, 10 stops on 5 states). Line volume's round 6's files: for G6.
-- **WebKit draws no focus on a native checkbox** (the admin page's "Without limits" and "Demo", the search's "Mark
-  anchors you can walk to"): `:focus-visible` matches, the computed shadow is `none` (as at db84edbc). G3's one checkbox
-  may mend it. The 3D view's slider had the same and was mended (its ring around its field, row 84).
 - **The layer page on a phone**: with the column scrolled to 500 px a press on the sticky map scrolls it to 222 px
   (Leaflet focuses its container on a press, and the column's `scroll-padding-top` of the map's height brings the
   focused map's top under itself); as on main.
@@ -666,7 +660,6 @@ rows 87 to 91; `tests/test_viewer.py::test_free_css_on_the_scales` and its `OFF_
   elevation tokens does not cover them; tokens for a ring, an inset edge and a mark's rim are the planner's to decide.
   The 3D marks' values differ a little (an edge of 55, 60 and 65 % black; the pin's shadow offset turned against its
   rotation, so that it falls straight down).
-- **The kit's collapse tab** (`ui.css` `.u-split-tab`: its 11 px corners and its own shadow): G3's look.
 - **Round 6's files and ui.css's shore block** keep their numbers, literal shadows, colours and spacing (`result/view/`,
   `profile.css`, `Profile.tsx`; the shore's and coarser box's rules): step 3d's G6, which can take the names now in
   `tokens.css` (`--z-map-box` 800, `--z-map-box-2` 810, `--z-map-top` 1100, `--shadow-up`). Today's result page keeps
@@ -685,6 +678,36 @@ rows 87 to 91; `tests/test_viewer.py::test_free_css_on_the_scales` and its `OFF_
   whole: room for it in `.v-over` is G6's (the design review's F2). The result view's `.v-legend` and the profile's
   legend (round 6's files) keep their own rules until G6 puts them on `.u-legend-*` (the view's swatches would
   then gain the inset edge).
+
+## Step 3d, group G3 (one control family): known and left (2026-11-22)
+
+G3 put the free screens' text actions, rows, closes, badges and checkboxes on the kit's (DESIGN.md rows 96 to 99;
+`tests/test_controls_kit.py`). Left:
+
+- **Line volume's round 6's own controls** keep theirs until G6: the view's `r-link`, `r-why-link`, `r-note-x`,
+  `vl-*-x`, the profile's "×" and its legend; the view's collapse tab (`result/view/view.css`) keeps its 1 px
+  `--rule` edge, which the kit's tab and the layer page's no longer have.
+- **The kit's rules reach round 6's view and today's result page** where they use the kit's classes: the "More
+  filters" count badge is neutral there too (Q8 a: the accent only for the bottom bar's count), "How to read the
+  result" (`ui/Intro.tsx`, the kit's text action) takes a label's weight, today's page's tab the kit's look and its ring.
+- **"The account" of C6**: stage 1's note named the account's title, but the h1 of `Account.tsx` is `MapPage`'s (the OSM
+  page's and the layer explorer's titles); the account page's "Account" is a Panel's title. "24 px, every page" was built
+  on every page's h1 (Admin, Home's searches, the OSM page, the layer explorer) and, after the reviews (the user,
+  "Yes, every page 24 px"), on the account's and Favourites' Panel titles (`Panel`'s `page`) and New search's title.
+- **"How to read the result" is 44 px high on a touch screen** wherever the kit's text action stands (the user,
+  2026-11-22: "Keep the 44 px target"): on today's result page on the Pixel the list starts 25 to 28 px lower than
+  before; round 6's view takes the same where it shows the intro's link.
+- **The admin page on an iPhone at load**: the 24 px title puts the waiting user's "Approve" and "Block…" partly under
+  the bottom bar in the first screen (ui_metrics' "covered" 1 -> 3 a theme); they scroll into view; the operator's page,
+  accepted by the design review (F2).
+- **The coverage page's table**: its countries' names are the kit's text action, 500 and not underlined at rest (they
+  were the row header's 600 and underlined): Q7 a's look for a standalone action.
+- **The close mark** still marks the search form's Clear and the cancelled status chip (no sheet or answer moved them).
+- **Hooks kept for tests and ui_shots**: `n-intro-link`, `cov-link`, `cov-name-link`, `s-reset`, `c-menu-item`,
+  `c-fav-star`, `c-fav-open`, `c-tree-name`, `s-more-head`, `s-rig-item`, `c-layer-hist-name`, `c-account-btn`, `cov-x`,
+  `v3-activity-dismiss`, `v3-infobox-close`, `c-check`, `s-check`, `c-user-*`: each beside the kit's class, with no look
+  of its own but its place or size. Two rows keep a difference from the kit's row under the mouse: a favourite's line
+  (its words take the accent, no fill) and a chart's name (no fill), as before.
 
 ## Step 3d, group G5 (the words): what stays (2026-11-21)
 

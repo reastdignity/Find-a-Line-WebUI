@@ -5,7 +5,7 @@
 // cells the border cuts and partner rows beyond it (?theme=light|dark; ?pick=border selects a cut cell).
 
 import { useState } from "preact/hooks";
-import { BottomNav, Button, Chip, Chips, Field, IconButton, Panel, Progress, Range, RangePair, Screen,
+import { BottomNav, Button, Chip, Chips, CloseButton, Field, IconButton, Panel, Progress, Range, RangePair, Screen,
          Segmented, Sheet, Stat, Stats, StatusChip, type Snap, type Theme } from "./components";
 import { ICONS, Icon, Logo, type IconName } from "./icons";
 import { storeTheme, storedTheme, uiHref } from "./choice";
@@ -45,6 +45,20 @@ function Column({theme}: {theme: Theme}) {
         <IconButton icon="ruler" label="Measure" on />
         <IconButton icon="star" label="Favourite" fav plain />
         <IconButton icon="more" label="More" round />
+        <CloseButton label="Close" />
+      </div>
+      <div class="u-row">
+        <button type="button" class="u-link">Show every setting<Icon name="next" /></button>
+        <span class="u-small">A text action <button type="button" class="u-link u-inline">inside a sentence</button>.</span>
+      </div>
+      <div class="u-row">
+        <label class="u-row"><input type="checkbox" class="u-check" checked />A checkbox</label>
+        <label class="u-row"><input type="checkbox" class="u-check" />Not ticked</label>
+      </div>
+      <div>
+        <button type="button" class="u-item"><Icon name="edit" />A row of a menu</button>
+        <button type="button" class="u-item"><Icon name="bin" />Delete…</button>
+        <button type="button" class="u-item"><Icon name="stop" />Cancel the search</button>
       </div>
     </section>
 
@@ -83,6 +97,10 @@ function Column({theme}: {theme: Theme}) {
       <div class="u-row">
         <StatusChip status="running" /><StatusChip status="done" /><StatusChip status="waiting" />
         <StatusChip status="failed" /><StatusChip status="shared" />
+      </div>
+      <div class="u-row">
+        <span class="u-badge">Demo</span><span class="u-badge">12</span><span class="u-badge u-ok">Approved</span>
+        <span class="u-badge u-warn">Waiting</span><span class="u-badge u-bad">Blocked</span>
       </div>
       <Progress value={0.62} label="Downloading · 62%" />
       <Progress value={null} label="Computing…" />

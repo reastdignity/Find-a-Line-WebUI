@@ -25,3 +25,6 @@ paths:
   a word changes only with the user's yes, as a row with its source; `tests/test_words.py` reads its "Not" column.
 - A screen's change goes to the design reviewer with the numbers of tools/ui_metrics.py and tools/ui_walks.py
   before and after and its screenshots on the desktop and both phones, light and dark (DESIGN.md, R12).
+- One control family (DESIGN.md rows 96 to 99): a text action `.u-link`, a list's row `.u-item`, a close `.u-ib.u-x`,
+  a badge `.u-badge` (neutral; a state's soft fill; the accent only for a count), a checkbox `.u-check`; a new control
+  takes the kit's class and its own class keeps only its place and size (`tests/test_controls_kit.py`).
