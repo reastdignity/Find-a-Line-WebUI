@@ -64,10 +64,10 @@ check the tests' places and commit the table (`tests/test_japan.py`).
 The copy shipped with the code of the list of the USA's 1 m DEM files that USGS's bucket holds and the TNM index does
 not list (`sources/catalogue/usa_unlisted_1m.json`, read where no list is cached: a fresh install, the public site
 before its first renewal), made by the function a renewal uses (`sources.layers.tnmbucket.make_unlisted`): the
-bucket's 1 m projects (about 990 requests), the index over the USA and its territories (about 450 requests, about 1 GB
+bucket's 1 m projects (about 990 requests), the index over the USA and its territories (about 415 requests, about 1 GB
 of answers) and a header read for each unlisted name without a zone that its project does not tell (about 300);
-about 15 minutes, nothing written when a step fails. Run it again before a release and commit the file
-(`tests/test_usa_unlisted.py::test_shipped_copy`).
+about 33 minutes, nothing written when a step fails (2026-11-22: 1,410 files, 285 GB, none left out). Run it again
+before a release and commit the file (`tests/test_usa_unlisted.py::test_shipped_copy`).
 
 ## `tools/hong_kong_sheets.py`
 

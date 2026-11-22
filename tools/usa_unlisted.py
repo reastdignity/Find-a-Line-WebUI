@@ -4,12 +4,14 @@ does not list (sources/catalogue/usa_unlisted_1m.json): made by the same functio
 site before its first `cache update usa`) still sees those files.
 
 One run lists the bucket's 1 m projects (about 990 requests), the TNM index over the USA and its territories (about
-450 requests, about 1 GB of answers) and reads the header of each unlisted file whose name carries no UTM zone and
-whose project does not tell it (about 300 small reads): about 15 minutes. Every request has the app's User-Agent and
-a slot of its host (the locks of the cache folder given). Nothing is written when a step fails. Run it again before
-a release (the copy goes stale between releases), check its counts against the last run and commit the file.
+415 requests, about 1 GB of answers) and reads the header of each unlisted file whose name carries no UTM zone and
+whose project does not tell it (about 300 small reads): about 33 minutes, one request at a time (2026-11-22: 989 +
+415 + 302 requests, 1947 s). Every request has the app's User-Agent and a slot of its host (the locks of the cache
+folder given). Nothing is written when a step fails. Run it again before a release (the copy goes stale between
+releases), check its counts against the last run and commit the file.
 
-    uv run tools/usa_unlisted.py [--cache <cache folder for the host slots>] [--out sources/catalogue/usa_unlisted_1m.json]
+    uv run tools/usa_unlisted.py [--cache <cache folder for the host slots>]
+                                 [--out sources/catalogue/usa_unlisted_1m.json]
 """
 
 import argparse

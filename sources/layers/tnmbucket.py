@@ -66,7 +66,7 @@ TNM_PAGE = 500     # products a page (the API's most)
 SPLIT_ABOVE = 2500  # a box holding more products is asked as its four quarters (at most 5 pages a box)
 MIN_SPLIT_DEG = 0.25
 BUCKET_PAGES = 3000  # 989 on 2026-11-22
-TNM_PAGES = 3000     # about 450 (est.)
+TNM_PAGES = 3000     # 415 on 2026-11-22
 # More of the bucket's files looking unlisted than this share is an index that answered too little (a box empty for
 # a moment): an error, not a list (1.1 % on 2026-11-22)
 MAX_UNLISTED_SHARE = 0.05
