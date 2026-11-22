@@ -267,10 +267,14 @@ def _upright_then_hidden(page):
     page.evaluate("() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)))")
 
 
-def _open(browser, url: str, context: dict, flag: bool | None = True, script: str = ""):
+def _open(browser, url: str, context: dict, flag: bool | None = True, script: str = "", requests: list | None = None):
     """The run's page with the page's helpers; with `flag` the result view is asked for and awaited; False: today's
-    page pinned (tools/today_page.py); None: neither (the browser's default)."""
+    page pinned (tools/today_page.py); None: neither (the browser's default). `requests`, when given, gets the address
+    of every request the page's context sends, from before the first (Playwright's request event: a second load of an
+    address in one document is one more, which the page's resource timing does not list)."""
     ctx = browser.new_context(**context)
+    if requests is not None:
+        ctx.on("request", lambda request: requests.append(request.url))
     ctx.add_init_script(HELPERS + (FLAG if flag else today_page.SCRIPT if flag is False else "") + script)
     page = ctx.new_page()
     page.errors = []

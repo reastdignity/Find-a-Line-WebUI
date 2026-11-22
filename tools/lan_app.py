@@ -6,7 +6,9 @@ opens the app's Home, a run's page `/?ui=c#run=`, as the default will open it). 
                                     [--coast]
     python tools/lan_app.py serve --data-dir <scratch folder> [--port 8443]
 
-`prepare` fills a scratch data folder (neither the folder copied from nor a folder inside it): **copies** of the runs
+`prepare` fills a scratch data folder (neither the folder copied from nor a folder inside it; a new or empty folder,
+or one it made before: a folder holding anything without MARKER is refused, so a real data folder is never written
+into; everything is checked before the first write): **copies** of the runs
 named by `--run` of `--from`'s runs folder (of each only web.RUN_FILES and its run.json), the clip's run (the Żabi Koń
 clip, made by tools/ui_shots.py's offline search once, its two terrain files copied beside it so the run does not
 lean on a checkout), with `--coast` the Gozo coast's run (COAST: a public place's request, no user's data;
@@ -234,8 +236,15 @@ def prepare(data: str, source: str, runs: Sequence[str] = (), clip: bool = True,
         os.path.normcase(source).rstrip(os.sep) + os.sep)
     if inside:
         raise SystemExit("the data folder must be a scratch folder, neither the one copied from nor inside it")
+    if os.path.exists(data) and not os.path.isfile(os.path.join(data, MARKER)) and (
+            not os.path.isdir(data) or os.listdir(data)):
+        raise SystemExit(f"{data} is not empty and was not made by `tools/lan_app.py prepare` (no {MARKER}): "
+                         "name a new or empty scratch folder")
+    for run in runs:  # every run there before anything is written
+        if not os.path.isfile(os.path.join(source, "runs", run, "run.json")):
+            raise SystemExit(f"no run {run} in {os.path.join(source, 'runs')}")
     os.makedirs(os.path.join(data, "runs"), exist_ok=True)
-    write_marker(data, prepared=True)  # the mark serve requires
+    write_marker(data, prepared=True)  # the mark serve requires, the first file written
     for run in runs:
         copy_run(os.path.join(source, "runs"), data, run)
         say(f"Copied the run {run}")
