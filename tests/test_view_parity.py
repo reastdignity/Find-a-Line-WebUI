@@ -77,6 +77,12 @@ window.Q = {
     for (;;) { const value = await get(); if (ok(value)) return value;
       if (performance.now() - start > ms) throw new Error(`${what}: not reached in ${ms} ms: ${JSON.stringify(value).slice(0, 200)}`);
       await new Promise((next) => requestAnimationFrame(next)); } },
+  /** A phone's sheet at rest: its drawn height exactly its stop's (its style's) and its top the same in two frames
+   *  in a row (its move, a 0.22 s transition of its height, puts its last frame within 1 px of the stop). */
+  sheetRests(what) { let last = null;
+    return this.until(() => { const s = document.querySelector(".u-sheet"); if (!s || !s.style.height) return false;
+      const r = s.getBoundingClientRect(), same = last !== null && r.top === last; last = r.top;
+      return same && r.height === parseFloat(s.style.height); }, what); },
   text(s) { return (document.querySelector(s) || {}).textContent || ""; },
   kept() { return JSON.parse(localStorage.getItem("findaline.layout") || "null"); },
   sep(side) { return document.querySelector(`.c-col-${side} > .c-split`); },
@@ -915,8 +921,7 @@ def test_list_and_filters(parity_site):
             page.keyboard.press("ArrowUp")
             page.keyboard.press("ArrowUp")
             _wait(page, "() => document.querySelector('.u-sheet').classList.contains('u-full')", "L18: the sheet at full")
-            _wait(page, "() => { const s = document.querySelector('.u-sheet'); return Math.abs(s.getBoundingClientRect().height - parseFloat(s.style.height)) < 1; }",
-                  "L18: the sheet at rest")
+            page.evaluate("() => Q.sheetRests('L18: the sheet at rest')")
             _chip(page, WORDS["ui.view.chip.length"], "L18")
             _sel(page, ".r-editor .r-editor-x", "L18: the phone's editor")
             editors["phone"] = page.evaluate(EDITOR_JS)
@@ -956,8 +961,7 @@ def test_phone_frame(parity_site):
             page.keyboard.press("ArrowUp")
             page.keyboard.press("ArrowUp")
             _wait(page, "() => document.querySelector('.u-sheet').classList.contains('u-full')", "Ph3: the sheet at full")
-            _wait(page, "() => { const s = document.querySelector('.u-sheet'); return Math.abs(s.getBoundingClientRect().height - parseFloat(s.style.height)) < 1; }",
-                  "Ph3: the sheet at rest")
+            page.evaluate("() => Q.sheetRests('Ph3: the sheet at rest')")
             sheet = """() => { const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom].map(Math.round); };
                 const h = document.querySelector('.u-sheet .u-sheet-head'), b = document.querySelector('.u-sheet .u-sheet-body');
                 return {shadow: getComputedStyle(h).boxShadow, head: box(h), body: box(b), top: b.scrollTop,
