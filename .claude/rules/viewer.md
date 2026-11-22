@@ -45,13 +45,15 @@ catalogue), `browser-tests.md`.
   access grid runs without the mark: the estimate's note has the code `access_skipped` (`basic.ts` `ACCESS_SKIPPED` =
   `search.py`'s note) and the run's head the key `access_skipped` (`types.ts` `RunHead` = `mapping.map_head`).
 
-- The result view (step 3b, beside today's page behind `findaline.view`; docs/code-map/viewer.md): `result/spots.ts`
+- The result view (a run's page by default since line volume's round 6; docs/code-map/viewer.md): `result/spots.ts`
   reads the store's `spot`, `top`, `by_spot` as written (run-files.md: the order inside a spot is Python's); its
   interface (`SpotView`, `SpotMap`, the slots of `view/SpotPanels.tsx`) is shared with the panels: add to it, never
   rename. The panels (`view/Spot*.tsx`, `FanPanel.tsx`, `Hint.tsx`, `ViewFilters.tsx`) import only types from
   `SpotPanels.tsx` (it imports their slots, and the Node units bundle them without Leaflet), make no Line for a row
   (`view.values`, the columns' `at`), keep a row as a list item with one button and its other controls as siblings,
-  and keep in the browser only the sort and the hint (`viewstate.ts`; "Top level only" is on at every start).
+  and keep in the browser only the sort, its direction and the hint (`viewstate.ts`; "Top level only" is on at every
+  start), and today's `findaline.lastFolder` through the folder picker; a new slot of the frame is optional in
+  `SpotPanels`.
   `SpotMap.ts` draws from the columns (no Leaflet layer per line) and the legend lists `legend()`'s shapes;
   a number is placed clear of every `[data-map-control]`, `.leaflet-control` and the frame's obstacles: a new box
   over the map carries `data-map-control`, and one that takes no press (a desktop's toast, the bar's rows) has
@@ -63,6 +65,26 @@ catalogue), `browser-tests.md`.
   Leaflet's own controls lie above the bar (`.v-map > .c-leaflet` makes no stacking context). The
   phone's sheet has no height at the first draw (`covered` counts its state's height until then), and Preact 11 runs
   an unmounted frame's effect cleanups after the paint, before the next frame's effects.
+
+- The result view's pairs (round 6): which page opens is `SpotColumns.tsx` `VIEW_DEFAULT` with `viewWanted` (only an
+  answer other than the default is kept in `findaline.view`); a test or tool that checks today's page pins it with
+  `tools/today_page.py`, never by leaving the flag out. `SpotMap.ts`'s placement of the numbers (`APART_MIN`, the
+  seven fractions, the 32 × 23 box, the fan's 0.82, `markSize`) has a copy in `tools/view_numbers.py`;
+  `SpotView.topOnlyHides` reads the filters as `pass()` does (`test_view_link.py`'s `K.topRule`); `shoreLayer.ts` `INFO_ICON`
+  copies `ICONS.info` (`test_access_view.py`): change each pair together. The canvas also draws today's features
+  (outline, halo, other runs, a measurement), none pressable or counted.
+- The frame's geometry: the view's card stands on the credits (`--v-card-bottom`, `corners.ts` `onCredits`), the foot
+  above it (`useFootClear`'s cover) and the canvas's `setCovered` takes its height: change the three; `useSheetKeeps`
+  counts the sheet at rest only once the credits' corner stands above it. Every move goes into the bar's room, a
+  selection's fit through `selectedFit`; no move's padding grows for the controls. While P3's drop runs (a selection
+  at full), `bar()` and `free()` count the sheet at half.
+- `Profile.tsx` draws at `TEXT_PX` with `LABEL_BOXES` (measured at 12 px): a size change changes both; `labels.ts`'
+  defaults stay its Node test's 11 px. `ProfileDock`'s `compact` is the view's phone docks' only; today's page and
+  the cards never pass it. `layersControl.ts` holds the maps' layers control: the view never imports
+  `app/PlaceMap.ts` (its Leaflet-Geoman would join `viewer.js`). `coarserLayer.ts` takes the shore chip's classes:
+  a change of that look changes both. The narrow desktop list on touch shares its columns by measured widths (39 /
+  43 / 53 / 28 px): new words or units re-measure them (`test_list_at_1024_keeps_heads_and_values_apart`).
+  `SpotActions.tsx` imports `report.ts`, which reads the page at load: the panels' Node bundle leaves it out.
 
 ## Pitfalls
 

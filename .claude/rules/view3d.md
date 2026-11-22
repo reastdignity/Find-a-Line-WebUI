@@ -79,3 +79,7 @@ docs/3d-view-contract.md. Its server side lives in `search.py` (`patch_of_line`,
 - **The one-row bar** (DESIGN.md row 37: a phone held sideways, a touch tablet) keys on the class `v3-row`, whose
   condition lives in `chrome.ts` `oneRow` alone; a media query of the viewer never takes the range syntax
   (`width > 600px`: WebKit before Safari 16.4 drops the whole query; `test_viewer_media_queries_older_webkit`).
+- **A long press on the stage** (line volume round 6, gate 2): the stage selects no text and shows no iOS callout
+  (`view3d.css` `.v3-stage`), and a press on it ends a selection and takes the focus from a control outside it
+  (`views.ts`); a new control inside the stage that needs its text selectable sets it back itself
+  (`tests/test_view3d_press.py`).

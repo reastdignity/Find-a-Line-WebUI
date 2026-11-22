@@ -294,7 +294,7 @@ Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the 
 ## Line volume, round 4: known and left (2026-11-17)
 
 Found in the reviews and test runs of round 4 (the view's columns, the exports with the Download buttons, the store
-read by share links, the result view behind `?view=b`), none fixed:
+read by share links, the result view then behind `?view=b`), none fixed:
 - **R48 differs on `main`** since before round 4: 1 252 lines and 39 spots against the baseline's 1 541 and 44
   (sha256 985a5cb3…), with every tile from the cache and no fallback. Its source keeps the newest survey per 1 km
   tile (survey years 2022-2025), so a newer survey of some tiles since the baseline is the likely cause (a guess, not
@@ -322,11 +322,14 @@ read by share links, the result view behind `?view=b`), none fixed:
 - **The store read by share links:** an old run without a store, opened by a share link or outside the page's list,
   makes two small 404 requests before `data.js` (in the logs' 4xx counts; until store wave 4 removes such runs). On
   a run's own `map.html` Compare's list of other runs stays as first loaded until a reload.
-- **The result view** (behind `?view=b`): its controls under 44 px on a phone and its text under 12 px against
+- **The result view** (then behind `?view=b`): its controls under 44 px on a phone and its text under 12 px against
   docs/DESIGN.md R1 and R2 (the level buttons 42 px high, Best's select 29, "Legend" 30, "Back to Auto" 18.8, the
   chips 36, the column heads' 10.5 px, the shapes' text 8.7 px), left to step 3c by the user ("2. a"); the design
   review's other findings are step 3c's list in docs/roadmap.md. Not run: a real phone, presses in WebKit or
-  Firefox; the focus rules are tested in Chromium only.
+  Firefox; the focus rules are tested in Chromium only. **Brought to R1 and R2 in round 6** (2026-11-22) in the
+  states `tools/ui_shots.py` measures: no text under 12 px outside the credits, no control under the bound in the
+  first view or with a line. The filter editor and More filters, which no state measures, are not; what is left is in
+  "Line volume, round 6" below.
 
 ## Line volume, round 5 (store wave 4): known and left (2026-11-18)
 
@@ -368,6 +371,117 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   never deletes; nothing loads it); a run's `map.html` whose store cannot be loaded shows one sentence and no way back
   to the app (as before wave 4; roadmap "Later").
 
+## Line volume, round 6 (the result view as the default): known and left (2026-11-22)
+
+Found in round 6's reviews, gates and the user's iPhone checks (the result view's step 3c, then step 3d and its flip
+to the default); none fixed. The phone sheet's jerky move with a long list has its own entry at the top of this file.
+
+**Safari and WebKit**
+- **Safari's console shows one CSP line per dropdown**: "Refused to apply a stylesheet because its hash, its nonce,
+  or 'unsafe-inline' does not appear in the style-src directive", once for every `<select>` a page makes (today's
+  page one, the view two, Home too). It is WebKit's own bug 327212: an inline style on the button slot of the
+  select's user-agent shadow tree, refused under `style-src 'self'` even on a bare page with one parsed `<select>`;
+  the select is drawn the same, Edge reports nothing. No code of ours; the user, 2026-11-22: "Leave it, known bug".
+  `tests/test_view_gate2.py::test_no_style_refused_in_webkit` allows exactly that message, one per `<select>`, while
+  a bare `<select>` in the same WebKit is refused too, and nothing else.
+- **WebKit reports "ResizeObserver loop completed with undelivered notifications."** as a page error at every change
+  of the view's sheet stop (Playwright's iPhone 13; also without round 6's code, and on every run of the LAN test). A
+  WebKit test of the view filters that one message.
+- **WebKit lets a desktop list kept at 260 px overflow sideways by 2 px** (`scrollWidth` 261 against 259; Edge 259,
+  and 372 px clean in both; C4's code review of gate 2's round: negligible).
+- **`MediaQueryList.addEventListener` is missing in Safari before 14** and would throw in round 6's effect that uses
+  it (read only, C4's code review); the other new rules of the round degrade gracefully in old browsers.
+- **Safari on a Mac froze once while a run's line loaded** (the user, 2026-11-22; the Develop menu froze too). Not
+  reproduced: on the Gozo run (717 044 lines) the view's main thread stalls about 0.8 s after the store arrives in
+  desktop WebKit (about 80 ms of it redraws that could be saved) and about 0.2 s on the iPhone profile, against
+  today's page's 1.6 s; the memory peak 1.07 GB against today's 1.50 GB. Look again if it recurs.
+
+**What the design checks left** (the final design check and gate 2's, 2026-11-22; none breaks a user answer)
+- **R2's leftovers**: the measured profile's two number fields 56 × 23 px on the desktop, and a set filter chip's
+  label button (19-20 px high) and its × (16 × 16 px) on every device: the kit's chip.
+- **R1 and R2 in the filter editor and More filters** (measured by wave A's A4, 2026-11-20, in states
+  `tools/ui_shots.py` does not have, so the final design check did not cover them): on a phone a filter's editor has
+  its × at 40 × 40 px and two number fields at 76 × 40; More filters has its × at 40 × 40, every number field at
+  76 × 40 and every checkbox row 40 px high, and on every device its section heads and the A-frame field's label at
+  11 px. These are today's page's components, borrowed by the view and shared with today's page (`result.css`:
+  `.r-note-x` and `.r-check` 40 px under `(pointer: coarse)`, `.r-num` 40 px, `.r-more-sec > h3, .r-field-lab` 11 px).
+  The table of spots has nothing under a bound. ui_shots states for the editor and More filters would measure them.
+- **Two inside rings without a forced-colours twin**: `mapbar.css` `.v-part:focus-visible` (the map's help parts;
+  its forced outline is cut at its top and right by the help's box) and `view.css` `.vl-star:focus-visible` (DESIGN.md
+  row 81; with the other three of round 6 for the UX task's G6).
+- **The map's switch, Best and its "i" come after the nine credits links in the Tab order** (the switch stands at the
+  map's top, the credits at its foot).
+- **The sector's name scrolls away while its heads stick** (the design review's G2-F3): in a sector of 59 spots the
+  rigger loses which sector the heads belong to.
+- **The level switch takes no arrows**: four Tab stops against DESIGN.md row 82; docs/roadmap.md.
+- **Two word patterns and one icon for two steppers**: the spot's ‹ › in the head and the line's ‹ › share an icon
+  (told apart by names and places); "Previous spot / Next spot" beside "The line before / The next line". With the
+  tree smallest first, a sector's head still says "mean height up to …" while its first row is its smallest.
+- **"Grouping the lines…"** shows while the view loads, whose model groups nothing (`model.ts buildModel`).
+- **The screenshot gate's answers** (2026-11-21): (G-A a) on a 390 x 664 phone at half with a level held and both
+  coast chips, the coarser chip wraps under the zoom row and hides the status line's count sentence and its "Back to
+  Auto" (measured 2026-11-20: chip [8,172,219,216], status [8,200,281,248], "Back to Auto" from y 209; CSS px); Auto,
+  the low stop, the Pixel's 412 x 839 and one chip alone are clear (`CHIPS_HALF_HELD` in `test_phone_chips` and
+  `test_phone_controls_apart`). (G-D a) at 1024 x 768 with both coast boxes and a line selected the card opens (the
+  map, 712 px, is above `LIMITS.low` as on today's page) and the shore box [328,187,617,303] covers the status line
+  [328,221,529,249], the hint [328,257,627,289], "Legend" [328,297,419,329] and the "i" [427,297,459,329]; the
+  coarser box [328,311,587,373] covers "Legend", the "i" and the scale [328,337,428,367]; folded by the person,
+  nothing covers anything. Accepted, not a bug (G-C a): an opened coast box may cover the status line, "Legend", the
+  "i" and "Back to Auto" until it is closed (on 390 x 664 at half the coarser box [8,172,248,252] and the shore box
+  [8,172,248,259]). The phone held sideways (P c): the entry "A phone on its side at half" below.
+- **A measured line on 390 x 664 at half**: never shorter than 120 px on the screen; a link's line at the run's centre
+  is 126 px with its lower end under the "i"'s ring, 5 px right of the button (both chips shown), 124 px outside the
+  run; on 412 x 839 both ends clear.
+
+**The frame's moves** (the code reviews of B3 and C4; low risk, each read or probed)
+- A selection the person did not press (a filter moving it to another line of the spot, the line stepper) can pull
+  the map back over the person's pan; it ends with an end clear.
+- A selected line given one end clear at the phone's low stop loses it when the person raises the sheet to half (the
+  rest check acts only on a line with both anchors in sight); a press made in the same task as a sheet move gets no
+  step; the measured line's next-frame step does not check again that the same line is still shown (read only, very
+  unlikely); rare: the one-end step after the sheet's bring-back, or during a glide, can move the map in the middle
+  of a gesture.
+- An anchor's 18 px access icon can lie about half under a chip while its point, label and ring are clear (the rule
+  counts the point; counting the icon would mean about 11 px more pan).
+- A measured end lying wholly inside a number's box is not drawn (the numbers' clip); a first Measure point pressed on
+  a number shows nothing until the second.
+- A desktop list kept at 260 px on a touch screen cuts the Length values (280 px, or a mouse, are fine).
+- P3's drop (a selection at full): a sheet held by its handle during the drop counts as resting; `footAbove` is stale
+  after a rotation or a resize at full (only the drop's fit padding); a bring-back pan still animating when a drop
+  starts counts as the person's move, so that drop's rest moves nothing; the first selection's "fit moved the map"
+  flag carries to a later selection in the same drop (one extra end check).
+- "Lines from A1" pressed with the phone's sheet at full zooms the hidden map out (16.75 to 15.5 on 390 px, 17.25 to
+  15.5 on 412); the same before round 6's last fixes.
+- At full the phone pill's own shadow is drawn faintly over the sheet's rounded top edge (cosmetic).
+- The sideways notice's media query also matches a phone held upright whose page an on-screen keyboard shrinks in
+  some Android browsers (not iOS Safari, not Chrome on Android).
+
+**Loading a run** (gate 2's store retry, `result/load.ts`)
+- Leaving a run right after the retry starts still downloads its whole store again.
+- `navigator.onLine` can turn true before the phone's network link really carries traffic (a tunnel coming back), so
+  the retry may still fail at once; then "Reload the page" as before.
+- The 3D stage's `user-select: none` (the long press's fix) also makes the profile card's, the info box's and the
+  credits' text unselectable on the desktop (one CSS line restores them if wanted).
+
+**Tests and tools**
+- **Flaky under a loaded parallel full run, each passing 3 of 3 alone:**
+  `test_shell_c_view_map.py::test_landscape_phone_columns_fold_the_legend` (opening the page timed out once; another
+  time the status against the zoom at 852 x 393), `test_view_link.py::test_sheet_moves` (the iPhone in WebKit),
+  `test_shell_c_view_map.py::test_phone_controls_apart`, `test_lan_app.py::test_smoke_over_https`,
+  `test_view_frame.py::test_measured_points_lie_under_the_numbers[412]`,
+  `test_access_view.py::test_legend_lists_the_three_marks`, `test_shell_c_flows.py::test_shell_c_intros`. Run them
+  alone before calling a failure a regression.
+- `test_view_gaps.py::test_no_page_zoom_outside_the_map`'s double-tap step tests nothing in Chromium (its pinch step
+  does).
+- The checks that `runs.js` is asked at most once count the browser's resource-timing entries, which miss a second
+  load of the same address in one page (`test_view_parity_pages.py` M15, M16, S1, S2, inherited from
+  `test_store_share.py`); counting requests with `page.on("request")` would catch it.
+- **`tools/lan_app.py`** (the LAN test of gate 2): `prepare` does not refuse a non-empty folder without its mark (or
+  one holding `jobs.sqlite`), and writes `lan-app.json` before its checks, so two wrong arguments in a row could write
+  into a real data folder; `test_serve_starts_and_stops` leaves the tool's children if it fails midway; `make_clip`
+  has no test. While it serves, the local app's other routes stay open on the network (an estimate, a place's lookup,
+  deleting a search or a run of the scratch folder, the rigs and the admin routes).
+
 ## The UI measuring tools: known and left (2026-11-17)
 
 Found in the reviews of `tools/ui_metrics.py` and `tools/ui_walks.py`, none fixed; none changes a count on today's
@@ -392,6 +506,8 @@ pages (checked by the last reviewer against the baseline pass):
   added. The containing-block rule does not look at `will-change`, `perspective`, `backdrop-filter`, `container-type`.
 - **`c-basic-sea` on the desktop** can time out waiting for the search bar's estimate (once in the baseline pass of
   2026-11-17): the state is then "not measured" and the pass exits 1.
+- **`ui_metrics.py` has no `--run`** (`ui_shots.py` has): the result view's five coast states, which need a coastal
+  run, are not measured (line volume's round 6).
 
 ## The Cancelled state on Home: known and left (2026-11-17)
 
@@ -509,10 +625,10 @@ word's help are written out since step 3d G5 (DESIGN.md choice 92).
 Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept (rows 40 to 49). Left as it is:
 
 - **Inherited from the profile chart** (`Profile.tsx`, `profile.css`: shared with today's result page and line
-  volume's round 6, not changed here): its text at 11 px (116 characters a state with the card open: R1; the only
-  text under 12 px left in the 3D view's states), the card's facts joined by " · ", "→" and "Δh" (R9), and on a
-  touch screen the controls of "Rigging and layers" under 44 px (five number fields, three or four checkboxes by
-  their labels, the "1:1 scale" button: R2; measured in the probe with that box open on both phones, sideways too).
+  volume's round 6, not changed here): the card's facts joined by " · ", "→" and "Δh" (R9). Its text at 11 px and
+  the controls of "Rigging and layers" under 44 px on a touch screen were mended by line volume's round 6 (the user's
+  12 a: the chart's text 12 px, every control of the profile 44 px on touch, on both pages and the 3D card;
+  DESIGN.md row 104).
 - **The phone's three layout questions** were answered on a mock-up and built (DESIGN.md rows 37 to 39: the bar in
   one row held sideways, the card stepping aside, the notes behind "About this view" with the safety sentence kept
   in the bar). What they leave, measured after the fix round of 2026-11-20 (`local/ux-design-2026-11-16/3c-b/fixes/`: `tip/`,
@@ -544,7 +660,8 @@ Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept 
   - At 360 px of width the title is cut to 97 of its 115 px ("3D view of a…") between the two buttons (its 20 px
     of row 46).
   - On the narrower card beside the strip (the chart 298 px against 350 px) the chart's own labels "min.
-    clearance" and "highest … above terrain" stand on touching lines (`Profile.tsx`: inherited;
+    clearance" and "highest … above terrain" stood on touching lines (`Profile.tsx`: inherited; since line volume's
+    round 6 its labels are laid out 2 px apart at 12 px, `LABEL_BOXES`, so this is mended unless a picture shows it again;
     `local/ux-design-2026-11-16/3c-b-review/design/mock/sheets/390x664-s2A-five-tools-card-light__chromium-390x664-full-card-light.png`).
   - While "About this view" is open, the credits' box, its button with it, is hidden where the box would overlap it
     (the design review's P9) until the box is closed ("Close", Escape, a press beside it, Tab or, since step 3d,
@@ -588,7 +705,17 @@ the zoom and the layers 164 px are left in the first row, and the second holds "
 status line, with the scale at its right end. With a level held, the status line's longer sentence ("Area. Held
 by you. Back to Auto") reaches under the chip. Measured with the test's stand-in on the test site's run: the
 status line at 159-387 x 137-165 px, the chip at 347-542 x 112-156. `test_phone_on_its_side` excepts this pair
-by name. Under Auto, and at the low stop, nothing covers another. Found 2026-11-18 (the UX pilot's Q2 probes).
+by name. Under Auto nothing covers another. Found 2026-11-18 (the UX pilot's Q2 probes).
+
+Measured again 2026-11-20: the status line at 159-387 x 141-169 px, its "Back to Auto" target 294-375 x 133-177, the
+chip at 347-542 x 112-156. Since round 6's words (W1: "Kept while you zoom.", longer than "Held by you.") the pair
+shows at the low stop too ("Back to Auto" wraps under the chip: back [340.6,133,422.2,177], chip [347,112,541.7,156]);
+the user's P c of 2026-11-20 keeps it a known bug, and the test excepts the pair at both stops. The cause: MapBar's
+`inline` is measured once per state and never checked again once the foot stands in a row; a fix tried in round 6
+(end the row left of the control it still reaches, the status on two lines) was not taken. The coarser terrain's
+chip (DESIGN.md row 105) ends at x 558 and the scale starts at 559 (the sheet low): no longer over the scale. Since
+gate 2 (the user's 4 a) a touch phone held sideways sees the notice to turn it upright over this layout (DESIGN.md
+row 127), so the pair lies behind the notice there.
 
 ## Step 3c, group C (the coverage page, the highline layer): what is left, and what the probes found (2026-11-20)
 

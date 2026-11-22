@@ -1,17 +1,18 @@
 """The parity of today's result page and the result view (step 3d of docs/line-volume/spec-view.md part B): the checks
 today's tests make of today's page (tests/test_shell_c.py, test_shell_c_flows.py, test_same_lines.py, test_viewer.py's
 test_result_map_in_edge, test_web.py's kit), made again of the view where no test of the view made them. Each
-assertion and each wait names the row of the parity list it stands for (C1's list, H2 … X2) in its message; the list
-gives each row its verdict. Seven walks: the desktop's header and map (the store read, credits, corners, the dark
-theme, Compare, the coarser terrain's "Show on map", Edit & run again), the desktop's kept layout (the panels' edges
-and rails, the card's height, width and fold, the credits' button, a reload), a narrow and low window (and a narrow
-window widened), a line's details and its profile (presses beside lines, the card's text and steadiness, its point on
-the map, a thin line pressed, the line stepper's focus, the facts against today's, a measured link, a tight line's
-card, a new folder, Measure cancelled and refused), the list's head and filters, a phone's frame, and the loading's
-failures with the flag set. Playwright's Edge over the app's server, offline, on the result view's clip run
-(clip_runs.view_clip); a wait is for the state read next, at every frame, with a deadline (`Q.until`, `_wait`), but
-in two helpers of other files (test_shell_c_view_map._crowded's own frames, test_shell_c.STEADY_JS's frames, which are
-what it measures); no CSP violation and no page error anywhere. Run from PowerShell (.claude/rules/browser-tests.md)."""
+assertion and each wait names the row id of the planner's parity list, kept outside the repository, that it stands for
+(H2 … X2) in its message; the list gives each row its verdict. Seven walks: the desktop's header and map (the store
+read, credits, corners, the dark theme, Compare, the coarser terrain's "Show on map", Edit & run again), the desktop's
+kept layout (the panels' edges and rails, the card's height, width and fold, the credits' button, a reload), a narrow
+and low window (and a narrow window widened), a line's details and its profile (presses beside lines, the card's text
+and steadiness, its point on the map, a thin line pressed, the line stepper's focus, the facts against today's, a
+measured link, a tight line's card, a new folder, Measure cancelled and refused), the list's head and filters, a
+phone's frame, and the loading's failures with the flag set. Playwright's Edge over the app's server, offline, on the
+result view's clip run (clip_runs.view_clip); a wait is for the state read next, at every frame, with a deadline
+(`Q.until`, `_wait`), but in two helpers of other files (test_shell_c_view_map._crowded's own frames,
+test_shell_c.STEADY_JS's frames, which are what it measures); no CSP violation and no page error anywhere. Run from
+PowerShell (.claude/rules/browser-tests.md)."""
 
 import math
 import os
