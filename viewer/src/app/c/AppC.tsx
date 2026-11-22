@@ -128,11 +128,11 @@ export function AppC() {
       page = <ResultPage key={route.id} id={route.id} line={route.line} nav={navs} editJob={editJob} wide={wide} />;
       break;
     case "favourites":
-      page = <div class="c-page c-page-wide"><Panel title={t("ui.app.favourite_lines")} class="c-favs c-favs-page">
+      page = <div class="c-page c-page-wide"><Panel title={t("ui.app.favourite_lines")} page class="c-favs c-favs-page">
         <FavouritesPage wide={wide} /></Panel></div>;
       break;
     case "account":
-      page = <div class="c-page"><Panel title={t("ui.app.account")}><AccountBody theme={theme} setTheme={setTheme} usage={usage.usage} /></Panel></div>;
+      page = <div class="c-page"><Panel title={t("ui.app.account")} page><AccountBody theme={theme} setTheme={setTheme} usage={usage.usage} /></Panel></div>;
       break;
     case "admin":
       page = <AdminPage jobs={jobs.jobs} />;

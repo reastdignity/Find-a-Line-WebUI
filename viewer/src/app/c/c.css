@@ -149,9 +149,8 @@
 .ui .c-tree-row.u-on { background: var(--accent-soft); }
 /* the counts and runs' names on the fill (a selected folder; a row dragged over): --muted is under 4.5:1 there (3.79 dark) */
 .ui .c-tree-row.u-on .u-small, .ui .c-drop-over .u-small { color: var(--ink-2); }
-/* the tree's fold: the kit's plain icon button, narrow, with no fill under the mouse; a folder's name the kit's row */
+/* the tree's fold: the kit's plain icon button, narrow; a folder's name the kit's row */
 .ui .c-tree-fold { width: 24px; height: 28px; flex: none; display: inline-flex; color: var(--muted); }
-.ui .c-tree-fold:hover { background: transparent; }
 .ui .c-tree-fold .u-ic { width: 16px; height: 16px; }
 .ui .c-tree-name { flex: 1; min-height: 32px; padding: 4px 8px 4px 4px; }
 .ui .c-tree-name:focus-visible { box-shadow: var(--focus-in); }  /* inside: the tree's scroll box clips a ring outside */
@@ -178,7 +177,7 @@
 /* Focused pages: their own top bar */
 .ui .c-subtop { flex: none; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px;
   border-bottom: 1px solid var(--rule); position: relative; z-index: var(--z-bar); min-width: 0; }
-.ui .c-subtitle { margin: 0; font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }  /* a page's title, as the result view's */
+.ui .c-subtitle { margin: 0; }  /* New search's title: the kit's page title (.u-h.u-title, step 3d G3) */
 
 /* New search (c2) */
 .ui .c-newsearch { flex: 1; min-width: 0; display: grid; grid-template: "top top" auto "form map" minmax(0, 1fr) "bar bar" auto / 460px minmax(0, 1fr); }

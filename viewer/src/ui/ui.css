@@ -74,6 +74,7 @@
   border-radius: var(--r-2); border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); padding: 0; cursor: pointer; }
 .ui .u-ib:hover { background: var(--hover); }
 .ui .u-ib.u-plain { border-color: transparent; background: transparent; }
+.ui .u-ib.u-plain:hover { background: var(--hover); }  /* a plain icon button shows the hover's fill too */
 .ui .u-ib.u-round { border-radius: var(--r-round); }
 .ui .u-ib.u-on { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
 /* The close of a box (step 3d G3, Q9 a): one plain icon button, 24 px, 44 px on a touch screen (R2) */
@@ -83,12 +84,13 @@
 
 /* A text action (step 3d G3, Q7 a): accent text at a label's weight, underlined under the mouse and the keyboard's
    focus; a control of its own, 24 px high, 44 px on a touch screen (R2); inside a sentence (.u-inline) a word of the
-   sentence with no target of its own (R2's exemption) */
+   sentence with no target of its own (R2's exemption), always underlined: the accent beside the sentence's ink is under
+   3:1, so the line is its cue beside the colour (WCAG 1.4.1; the user, 2026-11-22) */
 .ui .u-link { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0; border: 0; background: none;
   color: var(--accent); font-weight: 500; text-align: left; text-decoration: none; cursor: pointer; }
 .ui .u-link:hover, .ui .u-link:focus-visible { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: currentColor; }
 @media (pointer: coarse) { .ui .u-link { min-height: 44px; } }
-.ui .u-link.u-inline { display: inline; min-height: 0; }
+.ui .u-link.u-inline { display: inline; min-height: 0; text-decoration: underline; text-underline-offset: 2px; }
 
 /* A row of a list or a menu that is one press (step 3d G3): no edge and no fill, the hover's fill, 8 px corners; its
    size and its inside are its list's */

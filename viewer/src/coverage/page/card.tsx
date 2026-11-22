@@ -4,6 +4,7 @@ import { COVERAGE, areaOf, regionsOf } from "../data";
 import { areaName, ct, noteText, resText, surveyText, type Lang } from "../i18n";
 import type { Level } from "../types";
 import { Icon } from "../../ui/icons";
+import { CloseButton } from "../../ui/components";
 import { radioKeys, radioStop } from "../../ui/radios";
 import { parseKey } from "./geo";
 
@@ -82,8 +83,7 @@ export function Card({areaKey, lang, scale, onClose, onPick}:
   const {id, rest} = parseKey(areaKey);
   const area = rest || areaKey === "world" ? null : areaOf(id);
   const name = areaKey === "world" ? ct(lang, "world.name") : areaName(id, lang);
-  const close = <button type="button" class="u-ib u-x cov-x" aria-label={ct(lang, "close")} onClick={onClose}>
-    <svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg></button>;
+  const close = <CloseButton label={ct(lang, "close")} class="cov-x" onClick={onClose} />;
   if (!area) {
     const world = COVERAGE.world, regions = rest ? [] : regionsOf(id);
     return <div class="cov-card-body">
