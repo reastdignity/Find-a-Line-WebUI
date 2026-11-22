@@ -63,7 +63,7 @@ loads with `deploy/monitoring/` too.
   port`), D39 sshd's banner through it; their controls are the self-test's port variants. A port bound on an address
   that comes up after Docker: the README's "An address that comes up after Docker" (seen on Docker 29 in dind).
 - SWAG is attached by `docker network connect findaline-mirror_mirror swag`, again after every SWAG update (the
-  monthly item of docs/deployment.md). `mirror_check.sh --self-test` takes about 90 min: `--timeout 7200` under the lock;
+  monthly item of docs/deployment.md), or by a scheduled job of the host (README "SWAG"). `mirror_check.sh --self-test` takes about 90 min: `--timeout 7200` under the lock;
   in CI it is the job `mirror` of its own workflow `.github/workflows/mirror.yml` (when the mirror's files, the
   script, `tests/test_mirror_deploy.py` or the workflow change, and by hand; 150 minutes).
 - Test stacks never ask the real data server: CI's docker job appends `FINDALINE_MIRROR_URL=off` to its findaline.env

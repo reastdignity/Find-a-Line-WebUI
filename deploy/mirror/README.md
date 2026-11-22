@@ -68,6 +68,8 @@ The limits are constants of `nginx.conf`, not settings. `tests/mirror_check.sh` 
    docker compose up -d --build --wait
    docker compose ps            # files: running (healthy)
    ```
+   On a kernel without swap accounting compose warns "Your kernel does not support swap limit capabilities or the
+   cgroup is not mounted. Memory limited without swap.": no fault; `MIRROR_MEMORY` then limits the memory alone.
 5. Attach SWAG to the project's network (next section), copy the SWAG conf, add the host name to SWAG's
    certificate (the section after), and check from outside (`tests/mirror_check.sh --live`, "Checks").
 6. The publishing door ("The publishing account").
@@ -90,7 +92,8 @@ If `docker network connect` answers `endpoint with name swag already exists in n
 (exit 1), SWAG is already attached: nothing to do. Whether it is attached is told by the check line of
 "Checking it" below, not by that command's exit code.
 The attachment lasts until SWAG's container is recreated (an image update recreates it): **run the
-`docker network connect` again after every update of SWAG** (the same "already exists" answer means the
+`docker network connect` again after every update of SWAG**, or let a scheduled job of the host do it (end of
+this section; the same "already exists" answer means the
 recreation kept it), and check it (below). This way does not stop SWAG when the mirror is away: the conf names
 the mirror through a variable and SWAG's resolver, so SWAG starts and serves its other sites whether the mirror is
 there or not (tried with the test stack's stand-in: taken off the mirror's network and restarted, it started and
@@ -116,7 +119,7 @@ loses that attachment at every update of SWAG until `docker network connect` is 
 127.0.0.11 does not exist in SWAG, so every site whose upstream is a host name set through a variable (resolved
 by nginx at request time, as SWAG's sample confs do) answers 502, not only the mirror; upstreams written as IP
 addresses, or names in a plain `proxy_pass`, are unaffected. So run the `docker network connect` right after
-every update of SWAG. (Not tried with the test stack.)
+every update of SWAG, or let the scheduled job do it. (Not tried with the test stack.)
 
 `swag/findaline-mirror.subdomain.conf` answers `mirror.findaline.lukawski.org`, passes requests on with SWAG's
 own `proxy.conf`, refuses every method but GET and HEAD and any body over 1 KB itself (405 and 413, never 403,
@@ -152,8 +155,22 @@ networks:
 ```
 Its risk: **SWAG, and every site behind it, cannot start while that network is missing**, for instance after the
 mirror's project was taken down (`docker compose down` removes the network) or before it was first started. Where
-SWAG runs from a platform's container template, the template may allow several networks per container, with the
-same risk.
+SWAG runs from a platform's container template on Docker's default `bridge`, the template cannot add the mirror's
+network on some Docker releases: the default bridge and a user-defined network together are refused at creation
+("conflicting options: cannot attach both user-defined and non-user-defined network-modes"), so SWAG is not created
+at all, and a lone `--network=findaline-mirror_mirror` in the template's extra parameters (where the template writes
+no network option of its own for the default bridge) replaces the bridge: the mirror's network is internal, no port
+is published, and every site behind SWAG is unreachable. A later Docker release accepted the pair in a trial: try it
+on the server's own version first. Where the template cannot carry it, a scheduled job of the host attaches SWAG
+again when an update has dropped it, every few minutes (the mirror answers 502 until it runs; the other sites are
+untouched):
+```sh
+docker inspect swag >/dev/null 2>&1 || exit 0
+docker network inspect findaline-mirror_mirror >/dev/null 2>&1 || exit 0
+docker inspect swag --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' | grep -q findaline-mirror_mirror && exit 0
+docker network connect findaline-mirror_mirror swag
+```
+Switch the job off while the mirror's project is taken down (it would attach SWAG again after the disconnect above).
 
 ## Certificate: a planned maintenance stop
 
@@ -404,7 +421,7 @@ LV17 holds slow downloads of the same tile and asks once more: it shows that SWA
 proxy's buffers and the sockets on the way hold. With the stand-in that was every time from 16 MB tiles on
 (12-14 MB now and then, 8 MB never: `LV17_MIN_BYTES`); below it LV17 is a SKIP naming the sizes. None of
 today's datasets has such tiles, so through the real SWAG that part stays unproven (the specification's open
-item M2); the test stack's C03-C07 show it with the stand-in.
+item M4); the test stack's C03-C07 show it with the stand-in.
 
 ## The log and privacy
 

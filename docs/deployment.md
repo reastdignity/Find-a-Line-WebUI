@@ -1182,4 +1182,4 @@ before the VPS gets the update whose Telegraf checks it: otherwise "Mirror down"
 3. After every update of SWAG (and whenever C7 fires): attach SWAG to the mirror's network again
    (`docker network connect findaline-mirror_mirror swag`) and run the README's check (it prints
    `NOT ATTACHED` when the attachment is missing): a recreated SWAG container loses its second
-   network.
+   network. A scheduled job of the home server can do it instead (deploy/mirror/README.md, "SWAG").

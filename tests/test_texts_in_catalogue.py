@@ -182,26 +182,28 @@ def test_footer_unchanged():
 
 # The privacy page's rendering on main at db84edbc (sha256 of web.privacy_page(contact, keep_events_days, ring=ring)),
 # its footer's link "About and data licences" since G5 (the user's answer of 2026-11-21; the page's own words unchanged:
-# each page with that link put back as "About / data licences" gave the digest of before)
+# each page with that link put back as "About / data licences" gave the digest of before), and the row "Elevation data
+# from the project's data server" of the mirror's task (its words approved by the user on 2026-11-15, U13:
+# docs/mirror-hosting/spec.md, section 7; web.py differs from main's only by that row)
 PRIVACY = {
-    ("admin@example.org", None, False): "7e839ee9814cfbad4c69972cd1d2d9116255a682e2659c6287b18d30866f435b",
-    ("admin@example.org", None, True): "8395d53a42cd3acc4428972e630ca9d25c9703df63cd4667748f20f70ed347d3",
-    ("admin@example.org", 30, False): "00d4af315220962f94e41bd97bd49db710b969c457ffeb51e238587d0101fc07",
-    ("admin@example.org", 30, True): "5165848d5f4e226582287b8bd877d6a7f272e088861b034dcba5e16239ca3466",
-    ("admin@example.org", 7.5, False): "9b13df288b2011c0b3901c3e0f8b152c84a3fe99c877db9c2bb0dcbbf1ec1bc4",
-    ("admin@example.org", 7.5, True): "9465cdcec67b18079fa6f0a77318a53cd2767ad27336e2183de60c8abf73a819",
-    ("<Ann & Bob>", None, False): "e426c3f65962985b3b9a6ceb864cc9543df46c4f2a6ce4c871033065432b7239",
-    ("<Ann & Bob>", None, True): "57c747459ecf147dd327f3e8dd8e8ee02b8ace3c44a1cd43d99616ae7cb3a046",
-    ("<Ann & Bob>", 30, False): "905d3aef55107dfa7dfbbf98ccd5b2fb24cd38a088b46dcf3a5015503f55cae6",
-    ("<Ann & Bob>", 30, True): "19e0ba5ba96863308a9a829b493cdc915ad0c0d06aba14558b32513ce9bdd0d1",
-    ("<Ann & Bob>", 7.5, False): "f2a587c2724512719fdbba2f76250e1e1fcc87abb028f451c304ba4d67b8aa49",
-    ("<Ann & Bob>", 7.5, True): "2986e607f229a46ecbd6a66d363773c3154299af5f59d33c2c9d6eadcf38817a",
+    ("admin@example.org", None, False): "d31eaa982420ed046353498f66874e7f738bf9be0292a03d173c0490f424a337",
+    ("admin@example.org", None, True): "e79035d8bf88cfd6470e046bc485d2d7a8dd779bff035c7c40cae84e2c1b41e1",
+    ("admin@example.org", 30, False): "97a4152d3b99e99d3613a818cc13d957e018ef041873df0a77617076b69d7225",
+    ("admin@example.org", 30, True): "e32c7424fa2b3e3213408a3cd1f6e19a625635feb914ae8277d71e8397318704",
+    ("admin@example.org", 7.5, False): "73a03466b3f9cfd8be13b590642c2f403f47701bf9616d30318246972ea0c12a",
+    ("admin@example.org", 7.5, True): "c88f0690b835e685bfdfa85d3ddae4c21d568e31819255eb61fbb59b4db6b42c",
+    ("<Ann & Bob>", None, False): "b261559665c3fdb441a9ae15f1da0e43b1712d8878a297fa5cdf127ad9924c0d",
+    ("<Ann & Bob>", None, True): "4caaed9f7319720e1b3df54cd7fb5c6499a8582925aeea46741a397504ffb464",
+    ("<Ann & Bob>", 30, False): "0a818af58eb593c75a179056ab983bf659555d0b8e3eb102af469747c74cafcd",
+    ("<Ann & Bob>", 30, True): "ecf206892b4eac12d2054fb4aef3e4e6f0ad624a3da5413f81386fcbe3e07bb5",
+    ("<Ann & Bob>", 7.5, False): "1c280a7f8417bc5cfb266014cf4cdc282ceace9c36f35ab04eb9ff6e311fa741",
+    ("<Ann & Bob>", 7.5, True): "bbb438fe35f5d928b467a50cec466ea398de678583b9872cc912dd1d720dc80e",
 }
 
 
 @pytest.mark.parametrize("variant", sorted(PRIVACY, key=repr))
 def test_privacy_page_byte_for_byte(variant):
-    """The privacy page renders byte for byte as on main at db84edbc, in every variant (contact, how long events are
+    """The privacy page renders byte for byte as pinned above (main at db84edbc, G5's link, the data server's row), in every variant (contact, how long events are
     kept, the 3D view's ring). Its words are the user's: a change of them, or of a fact it states (a retention, a
     cookie, a stored field), needs the user's yes on the exact sentences first; then the digests here change with it."""
     import hashlib

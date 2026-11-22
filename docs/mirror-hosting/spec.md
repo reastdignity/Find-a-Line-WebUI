@@ -16,7 +16,7 @@ Section 8 is security and misuse, 9 what is still open, 10 the order of building
 
 **Names.** "A.5" is behaviour 5 of solution A. U1-U57 are the user's decisions (U27-U57 taken during the build),
 P1-P28 the planner's, S1-S17 the
-security rows, M2, E1 and E2 the open items. `<host>` stands for the mirror's host name, `mirror.findaline.lukawski.org` (U23).
+security rows, M2, M4, E1 and E2 the items of section 9. `<host>` stands for the mirror's host name, `mirror.findaline.lukawski.org` (U23).
 
 **Sources.** The user's decisions are quoted with their date; "(planner)" marks a decision taken without the
 user's own word, which the user can overturn. Facts about the code were read on `main` 47c5fa7. "(wave 0: ...)"
@@ -34,7 +34,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 
 ## 2. What was decided
 
-### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17; U68 and U75-U80 2026-11-18/19; U86-U89 2026-11-21)
+### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17; U68 and U75-U80 2026-11-18/19; U86-U89 2026-11-21; U93, U94 2026-11-22)
 | Id | Question | The user's answer |
 | --- | --- | --- |
 | U1 | Who may download | "Any installation, anonymous" |
@@ -103,6 +103,8 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 | U87 | The door code already built | the sidecar removed, not `publish/` (as revised by U89): Husarnet's sidecar (`husarnet.sh`, `husarnet-sidecar.Dockerfile`, its compose service and settings), its checks, CI steps and README text removed from the build; `publish/`'s `sftp` kept; the WireGuard door's branch kept unmerged; the Husarnet door removed from the home server |
 | U88 | Claude's use of the home server's address over the link | "Publishing only": rclone only (publishing and its checks); commands on the home server stay with the user |
 | U89 | The door, revised (2026-11-21) | the user: "keep docker with sftp, but no door": the sftp container stays (gate, read-only, one mount), its port published on PUBLISH_ADDRESS, reached over the user's own VPN link; no sidecar (Husarnet's U68/U75-U80 and the WireGuard U81-U85 dropped) |
+| U93 | Keeping SWAG on the mirror's network across SWAG's updates (2026-11-22; an update had dropped the attachment and the mirror answered 502) | "1": a scheduled job on the home server attaches SWAG again when it is missing, every 5 minutes (the network in SWAG's platform template was tried and failed: on some Docker releases the default bridge cannot be combined with the mirror's network, README "SWAG") |
+| U94 | The numbers of A.5, C.3 and C.6 after M2 | kept as they are: "ok, do step 4" after M2's results and the planner's advice to keep them (the VPS's two connections had not met their mark at the time of the measurement) |
 
 History, not in this branch: U81-U85 (2026-11-20/21), a WireGuard sidecar in place of Husarnet's for the door, was built and dropped (U86, U89).
 
@@ -361,7 +363,7 @@ root, no capability, no published port, no route out, and no log file older than
   client's start check allows 30 s). The README says so.
 
 ### Needs the user's word
-M2's result (section 11, step 3). E2 (the publishing account) was answered by U27, U32 and U33.
+M2's result (section 11, step 3; given: the numbers kept, U94). E2 (the publishing account) was answered by U27, U32 and U33.
 
 ## 5. Solution B: the address contract and the publish tool
 
@@ -703,7 +705,7 @@ process's pages make no request.
   source of the place takes over (for an islet Madeira's when Madeira's is available, by the catalogue's order).
 
 ### Needs the user's word
-Nothing before the build; the numbers of 3 and 6 are confirmed or corrected after M2.
+Nothing before the build; the numbers of 3 and 6 were confirmed after M2 (U94).
 
 ## 7. Solution D: the site's switch, the monitoring and the docs
 
@@ -808,7 +810,8 @@ Nothing before the build.
 
 | Id | What | Who | When |
 | --- | --- | --- | --- |
-| M2 | On the real server through SWAG, from the VPS and from one outside address: the first byte of a tile after ten idle minutes under 2 s; two connections sustain at least 80 % of twice the class's rate; the per-address cap refuses through the real SWAG; a 5 km Slovak search's tiles (189 MB) arrive within 45 s at a visitor's limits (24 s by the numbers). Numbers of A.5, C.3 and C.6 confirmed or corrected with the user | measured at rollout step 3 | rollout |
+| M2 | On the real server through SWAG, from the VPS and from one outside address: the first byte of a tile after ten idle minutes under 2 s; two connections sustain at least 80 % of twice the class's rate; the per-address cap refuses through the real SWAG; a 5 km Slovak search's tiles (189 MB) arrive within 45 s at a visitor's limits (24 s by the numbers). Numbers of A.5, C.3 and C.6 confirmed or corrected with the user | closed in rollout step 3 (2026-11-22): from one outside address the first byte 0.11 s, two connections 7.41 MB/s (mark 6.40), the cap 4 served and 4 refused through the real SWAG, the 189 MB in 25.5 s; from the VPS the first byte, the cap and the 45 s mark met, the two connections' mark not met at the time of the measurement; the numbers kept as they are (U94); LV17 through the real SWAG left to M4 | - |
+| M4 | LV17 of `mirror_check.sh --live` through the real SWAG: held downloads show that SWAG streams a tile (`X-Accel-Buffering`) instead of buffering it; it needs tiles of 16 MB or more | when the first dataset with such tiles is published (batch 6's 0.5 m tiles, about 22 MB) | that dataset's publishing |
 | E1 | rclone's behaviour on a refused rename (the door's `sha256sum` is its own, U32; the tool proves the server's hashing on its lock file before any copy, U35) | closed in rollout step 1 (2026-11-20): the four folders on one device and one mount, and a folder moved from `staging` to `trash` by a server-side move through the door; the README requires one mount (U34) | - |
 | E2 | Which account the publishing key opens on the server | closed by U27, U32, U33: the publishing door, an SFTP container of the repository's own (`deploy/mirror/publish/`) | - |
 | - | The home server's facts (platform, uplink, the proxy's certificates, storage, how the PC reaches it, power and maintenance, the VPS's transfer quota) | answered by the user on 2026-11-15 and, by U16, kept out of the repository; what they set stands above as requirements | - |
@@ -854,7 +857,7 @@ tool from the task's branch: `deploy/mirror/` is copied to the home server from 
    with an empty public folder; E1. `--live`'s cap check through the real SWAG (LV15: eight requests at once from
    one address) needs a tile of 1 MB or more, so it runs after the first publish (Madeira's tiles are about
    1.8 MB); LV17 (held downloads: SWAG streams instead of buffering) needs tiles of 16 MB, which no dataset has
-   today (M2).
+   today (M4).
 2. Publish Madeira (0.33 GB), check; then its islets Porto Santo, the Desertas and the Selvagens (U53, U55; 3.5 MB
    in all); then Valle d'Aosta, then Slovakia; `verify` on the remote after each. Step 1's cap
    check (LV15) keeps Madeira's tiles: no islet has a tile of 1 MB.
@@ -893,7 +896,7 @@ The build is done when every line below holds; each names its test or command.
       the mirror's files, the check script, its static test or the workflow change, and by hand: U49; at most 150
       minutes): every line PASS, and its self-test FAILs every check with the behaviour switched off.
 - [ ] `tests/mirror_check.sh --live https://<host>`: every line PASS (the cap through the real SWAG among them,
-      LV15, from 1 MB tiles); LV17 a SKIP until a dataset has tiles of 16 MB (M2).
+      LV15, from 1 MB tiles); LV17 a SKIP until a dataset has tiles of 16 MB (M4).
 - [ ] On the home server the README's check commands: read-only root, no capability, no published port, no route
       out, no log file older than 14 days; SWAG attached (U42); the door's port on `PUBLISH_ADDRESS` only (`docker compose port sftp 2222`, U89).
 
@@ -925,7 +928,7 @@ The build is done when every line below holds; each names its test or command.
       mirror's log are not the app's data).
 
 **Rollout**
-- [ ] Steps 1-5 of section 11 done, each on the user's word; M2's marks met or the numbers corrected by the user.
+- [ ] Steps 1-5 of section 11 done, each on the user's word; M2's marks met, or the numbers confirmed or corrected by the user.
 
 ## 13. Later payloads: what this design keeps possible
 
