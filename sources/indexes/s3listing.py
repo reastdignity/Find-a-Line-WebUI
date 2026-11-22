@@ -2,6 +2,7 @@
 HTTP), as cached by CachedIndex."""
 
 import contextlib
+import threading
 import xml.etree.ElementTree as ET
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence
 
@@ -25,16 +26,27 @@ MAX_PAGES = 1000  # a listing that never ends is an error (every waiting loop ha
 
 
 class PageBudget:
-    """The pages (requests) a whole listing of many prefixes may ask, shared by its calls: one more is
-    IndexUnavailable, never a shorter listing (the bucket of USGS's 1 m DEM: about 990 pages, tnmbucket)."""
+    """The pages (requests) a whole listing of many prefixes may ask, shared by its calls and threads: one more is
+    IndexUnavailable, never a shorter listing (the bucket of USGS's 1 m DEM: about 990 pages, tnmbucket). stop: an
+    event that, once set (another part of the listing failed), makes every further take IndexUnavailable. The bytes
+    of the answers are added up (add)."""
 
-    def __init__(self, what: str, limit: int):
-        self.what, self.limit, self.used = what, limit, 0
+    def __init__(self, what: str, limit: int, stop: Optional[threading.Event] = None):
+        self.what, self.limit, self.used, self.bytes = what, limit, 0, 0
+        self.stop = stop
+        self._lock = threading.Lock()
 
     def take(self):
-        if self.used >= self.limit:
-            raise IndexUnavailable(f"{self.what}: more than {self.limit} pages; the listing was stopped")
-        self.used += 1
+        with self._lock:
+            if self.stop is not None and self.stop.is_set():
+                raise IndexUnavailable(f"{self.what}: stopped (another request of the listing failed)")
+            if self.used >= self.limit:
+                raise IndexUnavailable(f"{self.what}: more than {self.limit} pages; the listing was stopped")
+            self.used += 1
+
+    def add(self, size: int):
+        with self._lock:
+            self.bytes += size
 
 
 class S3Object(NamedTuple):
@@ -74,6 +86,8 @@ def _page(bucket: str, params: Dict[str, str], cache_dir: Optional[str] = None,
             if attempt == RETRIES - 1:
                 raise IndexUnavailable(f"S3 ListObjectsV2: {cache.clean_error(e)}") from e
         else:
+            if budget is not None:
+                budget.add(len(response.content))
             error = _error(response.content)
             if response.status_code == 200 and error is None:
                 return response.content

@@ -20,10 +20,10 @@ from .indexed import IndexedTiles
 TNM_API = "https://tnmaccess.nationalmap.gov/api/v1/products"
 
 
-def _survey_year(url: str, published: str) -> int:
-    """The year of a 3DEP project from its folders (e.g. CA_YosemiteNP_2019_D19 or
-    AK_IFSAR_2010/AK_IFSAR-Cell23_2010): a year in the name, else the fiscal year of a work
-    unit suffix (UT_WestEast_B22), else the year of publication."""
+def folder_year(url: str) -> Optional[int]:
+    """The year a 3DEP project's folders name (e.g. CA_YosemiteNP_2019_D19 or AK_IFSAR_2010/AK_IFSAR-Cell23_2010):
+    a year in the name, else the fiscal year of a work unit suffix (UT_WestEast_B22); None when they name none
+    (ND_Lidar_Phase10)."""
     folders = url.split("/Projects/", 1)[-1].rsplit("/", 2)[0] if "/Projects/" in url else ""
     years = re.findall(r"(?<!\d)((?:19|20)\d\d)(?!\d)", folders)
     if years:
@@ -31,6 +31,14 @@ def _survey_year(url: str, published: str) -> int:
     suffix = re.findall(r"_[A-Z](\d\d)(?=/|$)", folders)
     if suffix:
         return 2000 + max(int(y) for y in suffix)
+    return None
+
+
+def _survey_year(url: str, published: str) -> int:
+    """The year of a 3DEP project: the year its folders name (folder_year), else the year of publication."""
+    year = folder_year(url)
+    if year is not None:
+        return year
     return int(published[:4]) if published[:4].isdigit() else 0
 
 
@@ -131,12 +139,13 @@ def tile_extent(name: str) -> Optional[List[int]]:
     return [x * 10000, (y - 1) * 10000, (x + 1) * 10000, y * 10000]
 
 
-def tile_item(url: str, zone: int, published: str) -> Dict:
+def tile_item(url: str, zone: int, published: str, year: Optional[int] = None) -> Dict:
     """A file of the 1 m DEM as cached ({name, url, crs, extent, year, published}), its zone known: the item of a TNM
-    answer (Usgs1mBlocks._item) and of a file of the bucket the index does not list (tnmbucket)."""
+    answer (Usgs1mBlocks._item) and of a file of the bucket the index does not list (tnmbucket). year: the survey
+    year when it is known otherwise (an unlisted file of a project whose folders name none), else _survey_year."""
     name = url.rsplit("/", 1)[-1]
     return {"name": name[:-4], "url": url, "crs": f"EPSG:{26900 + zone}", "extent": tile_extent(name),
-            "year": _survey_year(url, published), "published": published}
+            "year": _survey_year(url, published) if year is None else year, "published": published}
 
 
 def usgs_1m_item(product: Dict) -> Optional[Dict]:

@@ -161,7 +161,10 @@ def test_make_unlisted(http_server, tmp_path, monkeypatch):
     assert done["left_out"] == ["USGS_1m_x99y999_AL_25Co_B1_2017.tif"]
     assert done["bytes"] == 1004 + 1005 + 1006 + 1007 and done["bucket_files"] == 9 and done["listed"] == 4
     assert done["requests"] == {"bucket": 5, "index": 1, "headers": 3}  # the folders, 4 projects
-    items = tb.read_list(path)
+    assert done["answer_bytes"]["bucket"] > 0 and done["answer_bytes"]["index"] > 0
+    assert set(done["seconds_by_part"]) == {"bucket", "index", "headers"} and done["at_once"] == tb.REQUESTS_AT_ONCE
+    items, wrong = tb.read_list(path)
+    assert wrong == 0
     by_name = {i["name"]: i for i in items}
     assert {n: i["crs"] for n, i in by_name.items()} == {
         "USGS_1M_12_x43y449_UT_Named_2020": "EPSG:26912", "USGS_one_meter_x47y443_CO_Listed_2019": "EPSG:26913",
@@ -181,7 +184,7 @@ def test_make_unlisted(http_server, tmp_path, monkeypatch):
 
 def test_make_unlisted_keeps_the_list_when_a_step_fails(http_server, tmp_path):
     """A failing index (HTTP 500, asked again, then given up), an index that lists nothing or one that answered too
-    little: IndexUnavailable, and the list there was stays as it was."""
+    little: IndexUnavailable, and the list there was stays as it was; the last refused before any header is read."""
     state = {"products": None}
     _serve(http_server, tmp_path, products_of=lambda: state["products"])
     cache_dir = str(tmp_path / "cache")
@@ -201,8 +204,44 @@ def test_make_unlisted_keeps_the_list_when_a_step_fails(http_server, tmp_path):
     state["products"] = [_product("https://x/Projects/P/TIFF/USGS_1M_12_x1y1_P.tif", 12, 1, 1)]
     with pytest.raises(IndexUnavailable, match="answered too little"):
         run()
+    assert not [r for r in http_server.log if r.path.endswith(".tif")]  # no header read before the guard
     with open(path, encoding="utf-8") as f:
         assert f.read() == '{"items": []}'
+
+
+def test_header_reads_have_a_budget(http_server, tmp_path, monkeypatch):
+    """One header read more than HEADER_READS is IndexUnavailable, and nothing is written."""
+    _serve(http_server, tmp_path)
+    monkeypatch.setattr(tb, "MAX_UNLISTED_SHARE", 1.0)
+    monkeypatch.setattr(tb, "HEADER_READS", 2)  # 3 are needed
+    cache_dir = str(tmp_path / "cache")
+    with pytest.raises(IndexUnavailable, match="headers of the unlisted 1 m files: more than 2"):
+        tb.make_unlisted(cache_dir, bucket=http_server.base, api=http_server.url(API_PATH),
+                         regions=[(-125.0, 24.0, -66.0, 50.0)], log=lambda text: None, at_once=1)
+    assert not os.path.exists(tb.unlisted_path(cache_dir))
+
+
+def test_index_listing_clearly_fewer_files_than_before(http_server, tmp_path, monkeypatch):
+    """The index listing fewer files than the list before recorded (its counts.listed) by more than MAX_LISTED_DROP
+    is IndexUnavailable before any header is read, the list kept; allow_drop writes it."""
+    _serve(http_server, tmp_path)
+    monkeypatch.setattr(tb, "MAX_UNLISTED_SHARE", 1.0)
+    cache_dir = str(tmp_path / "cache")
+    path = tb.unlisted_path(cache_dir)
+    tb.write_list(path, {"made_at": "x", "listed": 100, "left_out": []}, [], "b", "a", "d")
+    with open(path, encoding="utf-8") as f:
+        before = f.read()
+    run = lambda **kw: tb.make_unlisted(cache_dir, bucket=http_server.base, api=http_server.url(API_PATH),  # noqa
+                                        regions=[(-125.0, 24.0, -66.0, 50.0)], log=lambda text: None, **kw)
+    with pytest.raises(IndexUnavailable, match="listed 4 1 m files, the list before 100"):
+        run()
+    assert not [r for r in http_server.log if r.path.endswith(".tif")]
+    with open(path, encoding="utf-8") as f:
+        assert f.read() == before
+    assert tb.previous_listed(cache_dir) == 100
+    assert run(allow_drop=True)["listed"] == 4 and tb.previous_listed(cache_dir) == 4
+    tb.write_list(path, {"made_at": "x", "listed": 4, "left_out": []}, [], "b", "a", "d")  # 4 of 4: no drop
+    assert run()["files"] == 4
 
 
 def test_bucket_listing_is_bounded(http_server):
@@ -223,41 +262,63 @@ def test_bucket_listing_is_bounded(http_server):
         tb.bucket_files(None, http_server.base, PageBudget("test", 5))
 
 
-def test_tnm_listing_in_small_boxes(monkeypatch):
-    """The index asked over the regions: a box that holds more than SPLIT_ABOVE is asked as its quarters (no deep
-    offsets), a page shorter than its total promises asked again once and joined (the API counts some products
-    twice), the pages after it at the offset of what came; distinct URLs kept; more pages than the budget: an
-    error."""
-    monkeypatch.setattr(tb, "SPLIT_ABOVE", 6)
-    monkeypatch.setattr(tb, "TNM_PAGE", 4)
-    asked = []
-    products = [f"https://x/Projects/P/TIFF/USGS_1M_12_x{i}y1_P.tif" for i in range(9)]
+def _tnm_pages(boxes, asked, dropped=None):
+    """requests.get of the TNM index as its answers of 2026-11-23 show it: a box's `total` counts some products
+    twice (positions: the products in the API's order, repeats included), and a page returns the distinct products
+    of its positions (a box of positions a, b, a, b answers 2 at offset 0 and the same 2 at offset 2). dropped:
+    (box, offset) -> how many times that page comes back empty first (a dropped page)."""
+    dropped = dict(dropped or {})
 
     def fake(url, params=None, headers=None, **kwargs):
         box, offset = tuple(float(v) for v in params["bbox"].split(",")), int(params["offset"])
         asked.append((box, offset))
-        assert headers["User-Agent"] == cache.http_headers()["User-Agent"] and params["max"] == 4
-        if box == (0.0, 0.0, 8.0, 8.0):                       # the region: 9 products, more than 6
-            total, items = 9, products[:4]
-        elif box == (0.0, 0.0, 4.0, 4.0):                     # its south-west quarter: 6 said, 5 distinct
-            total = 6
-            first = sum(1 for b, o in asked if b == box and o == 0)
-            items = {0: products[:2] if first == 1 else products[:3], 3: products[3:5], 5: []}.get(offset, [])
-        else:
-            total, items = 0, []
+        assert headers["User-Agent"] == cache.http_headers()["User-Agent"]
+        positions = boxes.get(box, [])
+        items = list(dict.fromkeys(positions[offset:offset + int(params["max"])]))
+        if dropped.get((box, offset)):
+            dropped[(box, offset)] -= 1
+            items = []
         response = requests.Response()
         response.status_code, response._content = 200, json.dumps(
-            {"total": total, "items": [{"downloadURL": u} for u in items]}).encode()
+            {"total": len(positions), "items": [{"downloadURL": u} for u in items]}).encode()
         return response
-    monkeypatch.setattr(requests, "get", fake)
+    return fake
+
+
+def test_tnm_listing_in_small_boxes(monkeypatch):
+    """The index asked over the regions: a box that holds more than SPLIT_ABOVE is asked as its quarters (no deep
+    offsets); the API's double counting (a short page, then the repeats until `total`) is no error: a short page is
+    asked again once, the next page starts after what came, the distinct URLs are kept; more pages than the budget:
+    an error."""
+    monkeypatch.setattr(tb, "SPLIT_ABOVE", 6)
+    monkeypatch.setattr(tb, "TNM_PAGE", 4)
+    asked = []
+    p = [f"https://x/Projects/P/TIFF/USGS_1M_12_x{i}y1_P.tif" for i in range(9)]
+    boxes = {(0.0, 0.0, 8.0, 8.0): p[:9],                        # the region: 9 products, more than 6
+             (0.0, 0.0, 4.0, 4.0): [p[0], p[1], p[0], p[2], p[3], p[4]]}  # a quarter: 6 said, 5 distinct
+    monkeypatch.setattr(requests, "get", _tnm_pages(boxes, asked))
     found = tb.tnm_listed(None, "https://tnm.example/api", "Test DEM", [(0.0, 0.0, 8.0, 8.0)])
-    assert sorted(found) == sorted(products[:5])
-    quarter = [o for b, o in asked if b == (0.0, 0.0, 4.0, 4.0)]
-    # 2 of 4: asked again (3 came); from 3: 2 of 3, again; from 5: nothing of the 1 said, again; the end
-    assert quarter == [0, 0, 3, 3, 5, 5]
+    assert sorted(found) == sorted(p[:5])
+    # offset 0: 3 of the 4 promised, asked again (the same 3); offset 3: the last 3 of the 6 said; the end
+    assert [o for b, o in asked if b == (0.0, 0.0, 4.0, 4.0)] == [0, 0, 3]
     assert [b for b, _ in asked].count((0.0, 0.0, 8.0, 8.0)) == 1 and len({b for b, _ in asked}) == 5
     with pytest.raises(IndexUnavailable, match="more than 3 pages"):
         tb.tnm_listed(None, "https://tnm.example/api", "Test DEM", [(0.0, 0.0, 8.0, 8.0)], PageBudget("TNM", 3))
+
+
+def test_tnm_listing_a_dropped_page(monkeypatch):
+    """A page that comes back empty before the box's `total` is reached is no double counting but a dropped page:
+    asked again once (it comes: the box is whole), then IndexUnavailable, never a box ended early."""
+    monkeypatch.setattr(tb, "TNM_PAGE", 4)
+    p = [f"https://x/Projects/P/TIFF/USGS_1M_12_x{i}y1_P.tif" for i in range(12)]
+    box = (0.0, 0.0, 1.0, 1.0)
+    asked = []
+    monkeypatch.setattr(requests, "get", _tnm_pages({box: p}, asked, {(box, 4): 1}))
+    assert sorted(tb.tnm_listed(None, "https://tnm.example/api", "Test DEM", [box])) == sorted(p)
+    assert [o for _, o in asked] == [0, 4, 4, 8]
+    monkeypatch.setattr(requests, "get", _tnm_pages({box: p}, [], {(box, 4): 2}))
+    with pytest.raises(IndexUnavailable, match="empty page at offset 4 of 12"):
+        tb.tnm_listed(None, "https://tnm.example/api", "Test DEM", [box])
 
 
 # 3. The zone
@@ -280,7 +341,8 @@ def test_zone_of_the_three_name_forms():
     def header(url, extent):
         asked.append(url.rsplit("/", 1)[-1])
         return {"USGS_1m_x38y372_AL_C_2017.tif": 16}.get(url.rsplit("/", 1)[-1])
-    items, left_out, counts = tb.unlisted_from(objects, listed, header, "https://b")
+    items, left_out, counts, upload_projects = tb.unlisted_from(objects, listed, header, "https://b")
+    assert upload_projects == []
     assert {i["name"]: i["crs"] for i in items} == {"USGS_1M_10_x51y500_OR_A_2019": "EPSG:26910",
                                                     "USGS_one_meter_x43y449_UT_B_2013": "EPSG:26912",
                                                     "USGS_1m_x38y372_AL_C_2017": "EPSG:26916"}
@@ -291,28 +353,94 @@ def test_zone_of_the_three_name_forms():
     assert counts == {"zone_in_name": 1, "zone_from_project": 1, "zone_from_header": 1, "bytes": 1 + 2 + 4}
 
 
+def test_year_of_a_project_whose_folder_names_none():
+    """A file of a project whose folders name no year takes the year its project's listed files carry (the most
+    frequent; ND_Lidar_Phase10's listed 2024, its unlisted uploaded in 2026), published its upload time; only a
+    project without a listed file keeps the upload year, counted and named."""
+    def listed_url(project, name):
+        return f"https://b/{tb.PROJECTS}{project}/TIFF/{name}"
+    listed = {}
+    for name, published in (("USGS_1M_14_x40y520_ND_Lidar_Phase10.tif", "2024-03-01"),
+                            ("USGS_1M_14_x41y520_ND_Lidar_Phase10.tif", "2024-05-01"),
+                            ("USGS_1M_14_x42y520_ND_Lidar_Phase10.tif", "2023-01-01")):
+        url = listed_url("ND_Lidar_Phase10", name)
+        listed[url] = {**_product(url, 14, 40, 520), "publicationDate": published}
+    objects = [S3Object(_key("ND_Lidar_Phase10", "USGS_1M_14_x43y520_ND_Lidar_Phase10.tif"), 1,
+                        "2026-02-14T10:00:00.000Z", ""),
+               S3Object(_key("XX_No_Year_Listed", "USGS_1M_14_x43y521_XX_No_Year_Listed.tif"), 2,
+                        "2026-04-21T10:00:00.000Z", ""),
+               S3Object(_key("ND_Phase11_C24", "USGS_1M_14_x43y520_ND_Phase11_C24.tif"), 3,
+                        "2026-02-14T10:00:00.000Z", "")]
+    items, left_out, counts, upload_projects = tb.unlisted_from(objects, listed, lambda url, extent: None, "https://b")
+    assert {i["name"]: (i["year"], i["published"]) for i in items} == {
+        "USGS_1M_14_x43y520_ND_Lidar_Phase10": (2024, "2026-02-14T10:00:00.000Z"),
+        "USGS_1M_14_x43y521_XX_No_Year_Listed": (2026, "2026-04-21T10:00:00.000Z"),
+        "USGS_1M_14_x43y520_ND_Phase11_C24": (2024, "2026-02-14T10:00:00.000Z")}
+    assert counts["year_from_siblings"] == 1 and counts["year_from_upload"] == 1
+    assert upload_projects == ["XX_No_Year_Listed"]
+
+
+EXTENT = [430000, 4480000, 440000, 4490000]  # x43 y449
+
+
+def _served_header(http_server, tmp_path, name, *args, **kwargs):
+    _header_file(str(tmp_path / name), *args, **kwargs)
+    with open(tmp_path / name, "rb") as f:
+        http_server.add(f"/h/{name}", f.read(), "image/tiff")
+    return http_server.url(f"/h/{name}")
+
+
 def test_header_zone(http_server, tmp_path):
-    """The zone from a remote file's header: the NAD83 / UTM zone of its CRS when its bounds are the name's square;
-    None for a file that is not there, one in no UTM zone or one off its square; an answer that keeps failing
-    raises."""
-    for name, args in (("good.tif", (12, 43, 449)), ("geo.tif", (12, 43, 449, "EPSG:4326")),
-                       ("off.tif", (12, 43, 449, None, 1500.0))):
-        _header_file(str(tmp_path / name), *args)
-        with open(tmp_path / name, "rb") as f:
-            http_server.add(f"/h/{name}", f.read(), "image/tiff")
-    extent = [430000, 4480000, 440000, 4490000]
-    assert tb.header_zone(http_server.url("/h/good.tif"), extent, str(tmp_path / "cache")) == 12
-    assert tb.header_zone(http_server.url("/h/missing.tif"), extent, None) is None
-    assert tb.header_zone(http_server.url("/h/geo.tif"), extent, None) is None
-    assert tb.header_zone(http_server.url("/h/off.tif"), extent, None) is None
-    http_server.add("/h/busy.tif", b"busy", "text/plain", status=403)  # (GDAL asks a 503 again itself, slowly)
-    with pytest.raises(IndexUnavailable, match="busy.tif"):
-        tb.header_zone(http_server.url("/h/busy.tif"), extent, None)
-    # a refusal of a file whose name holds "404" (a northing of 4,040 km) is no "not there"
-    http_server.add("/h/USGS_1m_x40y404_P.tif", b"no", "text/plain", status=403)
-    with pytest.raises(IndexUnavailable, match="x40y404"):
-        tb.header_zone(http_server.url("/h/USGS_1m_x40y404_P.tif"), [400000, 4030000, 410000, 4040000], None)
+    """The zone from a remote file's header: the NAD83 / UTM zone of its CRS when its bounds are the name's square,
+    read with our User-Agent under a host slot."""
+    url = _served_header(http_server, tmp_path, "good.tif", 12, 43, 449)
+    assert tb.header_zone(url, EXTENT, str(tmp_path / "cache")) == 12
     assert {r.user_agent for r in http_server.log} == {cache.http_headers()["User-Agent"]}
+
+
+def _no_crs_file(path):
+    with rio.open(path, "w", driver="GTiff", width=20, height=20, count=1, dtype="float32",
+                  transform=from_origin(429994, 4490006, 500.6, 500.6)) as dst:
+        dst.write(np.full((20, 20), 1000.0, np.float32), 1)
+
+
+@pytest.mark.parametrize("kind", ["404", "403", "not a TIFF", "no CRS", "not NAD83 UTM", "off its square"])
+def test_header_definite_answers_leave_the_file_out(http_server, tmp_path, kind):
+    """A definite answer of a header is None (the file left out and named), never an error that stops the list: not
+    there, refused, not a TIFF, without a CRS, in no NAD83 / UTM zone, bounds off the name's square."""
+    if kind == "404":
+        url = http_server.url("/h/missing.tif")
+    elif kind == "403":
+        http_server.add("/h/refused.tif", b"<Error><Code>AccessDenied</Code></Error>", "application/xml", status=403)
+        url = http_server.url("/h/refused.tif")
+    elif kind == "not a TIFF":
+        http_server.add("/h/page.tif", b"<html>a page, not a TIFF</html>" * 20, "text/html")
+        url = http_server.url("/h/page.tif")
+    elif kind == "no CRS":
+        _no_crs_file(str(tmp_path / "nocrs.tif"))
+        with open(tmp_path / "nocrs.tif", "rb") as f:
+            http_server.add("/h/nocrs.tif", f.read(), "image/tiff")
+        url = http_server.url("/h/nocrs.tif")
+    elif kind == "not NAD83 UTM":
+        url = _served_header(http_server, tmp_path, "geo.tif", 12, 43, 449, crs="EPSG:4326")
+    else:
+        url = _served_header(http_server, tmp_path, "off.tif", 12, 43, 449, shift=1500.0)
+    assert tb.header_zone(url, EXTENT, None) is None
+
+
+@pytest.mark.parametrize("kind", ["5xx", "connection closed"])
+def test_header_failures_that_may_pass_stop_the_list(http_server, tmp_path, monkeypatch, kind):
+    """A header failure that may pass (a 5xx, a connection closed without an answer) is asked again, then
+    IndexUnavailable; a name holding "404" (a northing of 4,040 km) is no "not there"."""
+    monkeypatch.setattr(src.net, "RETRIES", 1)  # GDAL's own retries too: one, after 2 s
+    name = "USGS_1m_x40y404_P.tif"
+    if kind == "5xx":
+        http_server.add(f"/h/{name}", b"busy", "text/plain", status=500)
+    else:
+        _served_header(http_server, tmp_path, name, 12, 40, 404)
+        http_server.fault(f"/h/{name}", "close", lambda n, r: True, plain=True)
+    with pytest.raises(IndexUnavailable, match="x40y404"):
+        tb.header_zone(http_server.url(f"/h/{name}"), [400000, 4030000, 410000, 4040000], None)
 
 
 # 4. The merge
@@ -429,15 +557,250 @@ def test_list_read_again_when_renewed(tmp_path, monkeypatch):
     assert tb.unlisted_in_tile(cache_dir, "usa", lat, lon + 3) == []
 
 
+def _shipped(tmp_path, monkeypatch, items):
+    """A stand-in shipped copy of these items, switched on."""
+    shipped = str(tmp_path / "shipped.json")
+    tb.write_list(shipped, {"made_at": "x", "listed": 1, "left_out": []}, items, "b", "a", "d")
+    monkeypatch.setattr(tb, "SHIPPED", shipped)
+    monkeypatch.setenv(tb.SHIPPED_ENV, "")
+    tb.forget_unlisted()
+
+
+ONE = tile_item("https://b/Projects/P/TIFF/USGS_1M_12_x43y449_P.tif", 12, "2026-01-01")
+TWO = tile_item("https://b/Projects/Q/TIFF/USGS_1M_12_x43y449_Q.tif", 12, "2026-01-02")
+
+
+@pytest.mark.parametrize("content", ["not JSON", "cut short", "[]", "items not a list", "extent null"])
+def test_a_cached_list_that_cannot_be_used(tmp_path, monkeypatch, capsys, content):
+    """Whatever the cached list holds, reading the 1 m layer never fails because of it: one printed line, the shipped
+    copy instead, remembered as a good read (no read per tile); a wrong item in a list otherwise right is dropped
+    and counted in that line."""
+    _shipped(tmp_path, monkeypatch, [TWO])
+    cache_dir = str(tmp_path / "cache")
+    path = tb.unlisted_path(cache_dir)
+    _unlisted(cache_dir, [ONE])
+    with open(path, encoding="utf-8") as f:
+        good = f.read()
+    text = {"not JSON": "this is no list", "cut short": good[:len(good) // 2], "[]": "[]",
+            "items not a list": '{"items": 5}',
+            "extent null": good.replace('"extent": [430000', '"extent": null, "x": [430000')}[content]
+    if content == "extent null":  # a second, good item beside the broken one
+        text = text.replace('"items": [\n', '"items": [\n' + json.dumps(TWO) + ",\n")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    tb.forget_unlisted()
+    reads = tb.READS
+    found = [tb.unlisted_in_tile(cache_dir, "usa", 40.5, -111.75) for _ in range(5)]
+    assert all(f == [TWO] for f in found)  # the shipped copy's (or the good item's) file
+    out = capsys.readouterr().out
+    if content == "extent null":
+        assert out.count("1 of its items are no 1 m file") == 1 and tb.READS == reads + 1
+    else:
+        assert out.count("cannot be used") == 1 and "the shipped copy is read instead" in out
+        assert tb.READS <= reads + 2  # the cached list tried once, the shipped copy once
+    # the layer's answers work on (no exception out of UnlistedIndex.answers)
+    layer = src.Usgs1mBlocks("Test 1 m", "Test DEM", "test1m", "usa/test1m", native_res=RES, block_m=1000,
+                             bytes_per_tile=1e4)
+    monkeypatch.setattr(requests, "get", FakeTnm().get)
+    assert [i["name"] for i in layer.index.answers(cache_dir, 40.5, -111.75)] == [TWO["name"]]
+
+
+def test_list_write_failure_keeps_the_list(tmp_path, monkeypatch):
+    """A failure to put the written list in its place is IndexUnavailable, the temporary file removed and the list
+    there was kept (an open-and-write in place would have changed it)."""
+    cache_dir = str(tmp_path / "cache")
+    path = tb.unlisted_path(cache_dir)
+    _unlisted(cache_dir, [ONE])
+    with open(path, encoding="utf-8") as f:
+        before = f.read()
+
+    def refused(a, b):
+        raise PermissionError(13, "The process cannot access the file", b)
+    monkeypatch.setattr(os, "replace", refused)
+    with pytest.raises(IndexUnavailable, match="could not be written"):
+        tb.write_list(path, {"made_at": "y", "left_out": []}, [ONE, TWO], "b", "a", "d")
+    monkeypatch.undo()
+    with open(path, encoding="utf-8") as f:
+        assert f.read() == before
+    assert [n for n in os.listdir(os.path.dirname(path))] == ["unlisted.json"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="only Windows refuses to replace a file another handle holds")
+def test_list_write_while_another_process_holds_it(tmp_path):
+    """On Windows a list held open (a reader) cannot be replaced: IndexUnavailable, no .part, the old list kept."""
+    cache_dir = str(tmp_path / "cache")
+    path = tb.unlisted_path(cache_dir)
+    _unlisted(cache_dir, [ONE])
+    with open(path, encoding="utf-8") as held:
+        before = held.read()
+        with pytest.raises(IndexUnavailable, match="could not be written"):
+            tb.write_list(path, {"made_at": "y", "left_out": []}, [ONE, TWO], "b", "a", "d")
+    with open(path, encoding="utf-8") as f:
+        assert f.read() == before
+    assert os.listdir(os.path.dirname(path)) == ["unlisted.json"]
+
+
+# 7. Several requests at a time
+
+def test_several_requests_at_a_time_give_the_same_list(http_server, tmp_path, monkeypatch):
+    """The three parts 4 requests at a time give the list one at a time gives: the same items, the same counts."""
+    _serve(http_server, tmp_path)
+    monkeypatch.setattr(tb, "MAX_UNLISTED_SHARE", 1.0)
+    cache_dir = str(tmp_path / "cache")
+    runs = {}
+    for at_once in (1, 4):
+        out = str(tmp_path / f"list-{at_once}.json")
+        done = tb.make_unlisted(cache_dir, out=out, bucket=http_server.base, api=http_server.url(API_PATH),
+                                regions=[(-125.0, 24.0, -95.0, 50.0), (-95.0, 24.0, -66.0, 50.0)],
+                                log=lambda text: None, at_once=at_once)
+        with open(out, encoding="utf-8") as f:
+            document = json.load(f)
+        runs[at_once] = (document["items"], document["counts"], document["left_out"],
+                         {k: v for k, v in done["requests"].items()})
+    assert runs[1] == runs[4] and len(runs[4][0]) == 4
+
+
+def test_a_failing_request_stops_the_others(http_server, tmp_path, monkeypatch):
+    """A project of the bucket whose listing keeps failing stops the listing of the others (not all are asked) and
+    leaves the list there was; so does a header read failing inside make_unlisted."""
+    import time
+    keys = [(_key(f"P{i:02d}_2020", f"USGS_1M_12_x{i}y1_P{i:02d}_2020.tif"), 1, "2026-01-01T00:00:00.000Z")
+            for i in range(40)]
+
+    def bucket(request):
+        prefix = dict(request.query).get("prefix", "")
+        if "P05_2020" in prefix:
+            return Answer(500, b"<Error><Code>InternalError</Code><Message>x</Message></Error>")
+        time.sleep(0.05)
+        return _s3_answer(keys, request)
+    http_server.route("/", lambda request: bucket(request) if request.path == "/" else None)
+    cache_dir = str(tmp_path / "cache")
+    _unlisted(cache_dir, [ONE])
+    with open(tb.unlisted_path(cache_dir), encoding="utf-8") as f:
+        before = f.read()
+    with pytest.raises(IndexUnavailable, match="HTTP 500"):
+        tb.make_unlisted(cache_dir, bucket=http_server.base, api=http_server.url(API_PATH), log=lambda text: None,
+                         at_once=4)
+    listed = {dict(r.query)["prefix"] for r in http_server.log if "TIFF" in dict(r.query).get("prefix", "")}
+    assert len(listed) < 40
+    with open(tb.unlisted_path(cache_dir), encoding="utf-8") as f:
+        assert f.read() == before
+
+
+def test_a_header_failing_inside_make_unlisted(http_server, tmp_path, monkeypatch):
+    """A header read that keeps failing (a 5xx) inside make_unlisted is IndexUnavailable, the list kept."""
+    _serve(http_server, tmp_path)
+    monkeypatch.setattr(tb, "MAX_UNLISTED_SHARE", 1.0)
+    monkeypatch.setattr(src.net, "RETRIES", 1)
+    http_server.add("/" + _key("AL_25Co_B1_2017", "USGS_1m_x38y372_AL_25Co_B1_2017.tif"), b"busy", "text/plain",
+                    status=503)
+    cache_dir = str(tmp_path / "cache")
+    _unlisted(cache_dir, [ONE])
+    with open(tb.unlisted_path(cache_dir), encoding="utf-8") as f:
+        before = f.read()
+    with pytest.raises(IndexUnavailable, match="x38y372"):
+        tb.make_unlisted(cache_dir, bucket=http_server.base, api=http_server.url(API_PATH),
+                         regions=[(-125.0, 24.0, -66.0, 50.0)], log=lambda text: None)
+    with open(tb.unlisted_path(cache_dir), encoding="utf-8") as f:
+        assert f.read() == before
+
+
+# 8. Behaviours of their own
+
+def test_out_writes_no_row(http_server, tmp_path, monkeypatch):
+    """With out= the list goes there (the shipped copy's way): no cached list, no row in the index."""
+    _serve(http_server, tmp_path)
+    monkeypatch.setattr(tb, "MAX_UNLISTED_SHARE", 1.0)
+    cache_dir, out = str(tmp_path / "cache"), str(tmp_path / "elsewhere" / "list.json")
+    done = tb.make_unlisted(cache_dir, out=out, bucket=http_server.base, api=http_server.url(API_PATH),
+                            regions=[(-125.0, 24.0, -66.0, 50.0)], log=lambda text: None)
+    assert done["path"] == out and len(tb.read_list(out)[0]) == 4
+    assert not os.path.exists(tb.unlisted_path(cache_dir)) and cache.info(cache_dir, tb.unlisted_path(cache_dir)) is None
+
+
+def test_the_list_under_threads(tmp_path, monkeypatch):
+    """Many threads asking tiles while the list is replaced again and again: never an error, each answer one of the
+    lists."""
+    import threading
+    cache_dir = str(tmp_path / "cache")
+    _unlisted(cache_dir, [ONE])
+    monkeypatch.setattr(tb, "RECHECK_S", 0)  # every ask looks at the file
+    errors, seen = [], set()
+
+    def ask():
+        try:
+            for _ in range(200):
+                seen.add(len(tb.unlisted_in_tile(cache_dir, "usa", 40.5, -111.75)))
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+    threads = [threading.Thread(target=ask) for _ in range(8)]
+    for t in threads:
+        t.start()
+    written = 0
+    while written < 30:  # on Windows a reader holding the file makes a write fail now and then (F4): written again
+        try:
+            tb.write_list(tb.unlisted_path(cache_dir), {"made_at": str(written), "left_out": []},
+                          [ONE, TWO][:1 + written % 2], "b", "a", "d")
+            written += 1
+        except IndexUnavailable:
+            pass
+    for t in threads:
+        t.join()
+    assert not errors and seen <= {1, 2}
+
+
+def test_a_file_reaching_two_index_tiles(tmp_path):
+    """A file whose square crosses the edges of 0.25° index tiles is in each of their answers, and a block over it
+    has one key whichever tile's files make it."""
+    from sources.indexes.versions import ComposedBlocks
+    cache_dir = str(tmp_path / "cache")
+    _unlisted(cache_dir, [ONE])  # x43 y449 of zone 12: 40.47-40.56 N, 111.83-111.71 W
+    corners = [(40.25, -112.0), (40.25, -111.75), (40.5, -112.0), (40.5, -111.75)]
+    answers = [tb.unlisted_in_tile(cache_dir, "usa", lat, lon) for lat, lon in corners]
+    assert all(a == [ONE] for a in answers)
+    assert tb.unlisted_in_tile(cache_dir, "usa", 40.75, -111.75) == []
+    versions = ComposedBlocks("usa/test1m", 1000, 1.0)
+    bounds = {"EPSG:26912": (434000, 4484000, 436000, 4486000)}
+    keys = {tuple(b.key for b in versions._blocks(a, bounds)) for a in answers}
+    assert len(keys) == 1 and len(next(iter(keys))) == 4
+
+
+def test_the_tool_against_a_stand_in(http_server, tmp_path, monkeypatch, capsys):
+    """tools/usa_unlisted.py makes the list from a bucket and an index given, prints what it did and the files left
+    out."""
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tools"))
+    import usa_unlisted
+    _serve(http_server, tmp_path)
+    monkeypatch.setattr(tb, "MAX_UNLISTED_SHARE", 1.0)
+    out = str(tmp_path / "shipped.json")
+    assert usa_unlisted.main(["--cache", str(tmp_path / "cache"), "--out", out, "--bucket", http_server.base,
+                              "--api", http_server.url(API_PATH)]) == 0
+    printed = capsys.readouterr().out
+    assert '"files": 4' in printed and "left out (1): USGS_1m_x99y999_AL_25Co_B1_2017.tif" in printed
+    assert "dated by their upload (0 files): -" in printed
+    assert len(tb.read_list(out)[0]) == 4
+
+
 # 5. The shipped copy
 
 def test_shipped_copy():
     """The copy shipped with the code parses; every item has the fields of a TNM item, a zone, a 10 km extent and a
     URL of USGS's bucket, once each; the left-out names are a list."""
+    from sources.layers.tnm import folder_year
     with open(tb.SHIPPED, encoding="utf-8") as f:
         document = json.load(f)
-    items = tb.read_list(tb.SHIPPED)
-    assert items and len(items) == len(document["items"]) == document["counts"]["files"]
+    items, wrong = tb.read_list(tb.SHIPPED)
+    assert items and not wrong and len(items) == len(document["items"]) == document["counts"]["files"]
+    # A year that is the upload's only where the project has no listed file (named in the list's head): not the 49
+    # files of ND_Lidar_Phase10 and Maine_and_Massachusetts_..._BAA dated 2026 by their upload (fix round 1, F2)
+    upload_projects = set(document["upload_year_projects"])
+    dated = [i for i in items if folder_year(i["url"]) is None and tb.project_of(i["url"]) in upload_projects]
+    assert len(dated) == document["counts"]["year_from_upload"]
+    assert all(i["year"] == int(i["published"][:4]) for i in dated)
+    assert not [i["name"] for i in items if folder_year(i["url"]) is None
+                and tb.project_of(i["url"]) not in upload_projects and i["year"] == int(i["published"][:4])]
+    assert document["counts"]["year_from_siblings"] == sum(
+        1 for i in items if folder_year(i["url"]) is None and tb.project_of(i["url"]) not in upload_projects)
     assert isinstance(document["left_out"], list) and re.match(r"20\d\d-\d\d-\d\dT", document["made_at"])
     assert len({i["url"] for i in items}) == len(items)
     for item in items:
@@ -499,10 +862,10 @@ def test_recorded_bucket_and_index(http_server, tmp_path):
     cache_dir = str(tmp_path / "cache")
     tb.make_unlisted(cache_dir, bucket=http_server.base, api=http_server.url(API_PATH),
                      regions=[tuple(box) for box in case["regions"]], projects=case["projects"],
-                     log=lambda text: None)
+                     log=lambda text: None, at_once=1)  # one at a time: the recorded order
     with open(os.path.join(RECORDED, "expected.json"), encoding="utf-8") as f:
         expected = json.load(f)
-    written = tb.read_list(tb.unlisted_path(cache_dir))
+    written, _ = tb.read_list(tb.unlisted_path(cache_dir))
     host = "https://prd-tnm.s3.amazonaws.com"
     assert [{**i, "url": i["url"].replace(http_server.base, host)} for i in written] == expected["items"]
     assert len(written) > 0

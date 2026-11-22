@@ -62,9 +62,10 @@ RECIPES = {
     # (tests/test_usa_unlisted.py)
     "bucket1m-usgs": ("bucket1m", "usgs-1m", "usa", "nmt", 39.9, -111.2),
 }
-# The projects of the bucket and the boxes of the index (west, south, east, north) the recipe bucket1m-usgs asks: a
-# project the index does not list at all (its names carry the zone) and one whose single unlisted file has a name
-# without a zone that its listed files give (no header read: GDAL's requests are not recorded)
+# The projects of the bucket and the boxes of the index (west, south, east, north) the recipe bucket1m-usgs asks, in
+# the list's order: one whose single unlisted file has a name without a zone that its listed files give, and one the
+# index does not list at all (its names carry the zone); no header read (GDAL's requests are not recorded). One
+# request at a time, so answers.json is in the order the test asks again
 BUCKET1M = {"projects": ["ME_Umbagog_2016", "UT_StrawberryRiver_2019"],
             "regions": [[-111.2, 39.9, -110.85, 40.15], [-68.5, 45.65, -67.95, 46.25]]}
 # The year layers a WFS recipe asks instead of those of the capabilities (none: GetFeature only)
@@ -183,8 +184,8 @@ def _bucket1m(cache_dir: str) -> bytes:
     from sources.layers import tnmbucket
     out = os.path.join(cache_dir, "unlisted.json")
     tnmbucket.make_unlisted(cache_dir, out=out, regions=[tuple(box) for box in BUCKET1M["regions"]],
-                            projects=BUCKET1M["projects"], log=lambda text: None)
-    items = tnmbucket.read_list(out)
+                            projects=BUCKET1M["projects"], log=lambda text: None, at_once=1)
+    items, _ = tnmbucket.read_list(out)
     return ('{"items": [\n' + ",\n".join(json.dumps(item) for item in items) + "\n]}\n").encode()
 
 

@@ -7,18 +7,23 @@ that looked like a hole). make_unlisted makes the list of those: (1) every `.tif
 StagedProducts/Elevation/1m/Projects/<project>/TIFF/ of the bucket (ListObjectsV2, about 990 pages), (2) the names
 the TNM index lists over the USA and its territories (REGIONS, a box split in four while it holds more than
 SPLIT_ABOVE products, so no page is asked at a deep offset), (3) the bucket's files whose name the index does not
-list, (4) the UTM zone of each (from the name, USGS_1M_<zone>_x..y..; for USGS_one_meter_x..y.. and USGS_1m_x..y..,
-which carry none, from the project's listed files when they lie in one zone and the tile then lands in the
-project's box, else from the file's own header: one small read), (5) written atomically to
-<cache>/usa/sheet-index/bucket1m/unlisted.json with a row in usa/index.sqlite (its age), each file as the item a
-TNM answer holds (tnm.tile_item: name, url, crs, extent, year; published = the upload time in the bucket). A file
-whose zone cannot be found is left out and named. Any step that fails raises IndexUnavailable and leaves the list
-there was. Every request carries the app's User-Agent, holds a slot of its host and is counted (servicecounts);
-each listing has a budget of pages (PageBudget) and a repeated continuation token is an error.
+list, checked against two guards before anything else is asked (too many of them, or the index listing clearly
+fewer files than the list before: an index that answered too little), (4) the UTM zone of each (from the name,
+USGS_1M_<zone>_x..y..; for USGS_one_meter_x..y.. and USGS_1m_x..y.., which carry none, from the project's listed
+files when they lie in one zone and the tile then lands in the project's box, else from the file's own header: one
+small read, HEADER_READS at most), and its survey year (the project's folders, else the year its listed files
+carry, else the upload year), (5) written atomically to <cache>/usa/sheet-index/bucket1m/unlisted.json with a row
+in usa/index.sqlite (its age), each file as the item a TNM answer holds (tnm.tile_item: name, url, crs, extent,
+year; published = the upload time in the bucket). A file whose header answers definitely (not there, refused, not
+a TIFF, no NAD83 / UTM CRS, bounds off its name) is left out and named. Any other failing step raises
+IndexUnavailable and leaves the list there was. Each of the three parts asks REQUESTS_AT_ONCE requests at a time
+(the bucket a project per task, the index a box per task, the headers a file per task); every request carries the
+app's User-Agent, holds a slot of its host and takes its rate turn; each part has a budget of requests
+(PageBudget) and the first failure stops the others.
 
-Where no list is cached, the copy shipped with the code is read (SHIPPED, made by tools/usa_unlisted.py with this
-function; FINDALINE_USA_UNLISTED_SHIPPED=off leaves it out: the tests). The renewal of the list (part A-2 of the
-USA's wave A) calls make_unlisted. The web process never imports this module.
+Where no list is cached (or the cached one cannot be used), the copy shipped with the code is read (SHIPPED, made
+by tools/usa_unlisted.py with this function; FINDALINE_USA_UNLISTED_SHIPPED=off leaves it out: the tests). The
+renewal of the list (part A-2 of the USA's wave A) calls make_unlisted. The web process never imports this module.
 """
 
 import collections
@@ -28,6 +33,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import rasterio as rio
@@ -42,7 +48,7 @@ from .. import net
 from ..indexes.cached import INDEX_MARGIN_DEG, IndexUnavailable
 from ..indexes.s3listing import MAX_KEYS, PageBudget, S3Object, common_prefixes, list_objects
 from ..readers.windows import _forget, _same_crs
-from .tnm import TILE_ZONE, TNM_API, tile_extent, tile_item, usgs_1m_item
+from .tnm import TILE_ZONE, TNM_API, _survey_year, folder_year, tile_extent, tile_item, usgs_1m_item
 
 BUCKET = "https://prd-tnm.s3.amazonaws.com"
 PROJECTS = "StagedProducts/Elevation/1m/Projects/"
@@ -66,15 +72,31 @@ REGIONS: Tuple[Tuple[float, float, float, float], ...] = (
 TNM_PAGE = 500     # products a page (the API's most)
 SPLIT_ABOVE = 2500  # a box holding more products is asked as its four quarters (at most 5 pages a box)
 MIN_SPLIT_DEG = 0.25
+# Requests at a time in each part: within the app's 8 connections a host (net.HOST_SLOTS), each still under a slot
+# of its host and its rate turn (the planner's measurement at 4, 2026-11-23: the bucket in 193 s against 10 min one
+# at a time, the 386 header reads in 43 s; gate 0b listed the index at 4 in 343 s)
+REQUESTS_AT_ONCE = 4
 BUCKET_PAGES = 3000  # 989 on 2026-11-22
 TNM_PAGES = 3000     # 415 on 2026-11-22
+HEADER_READS = 1000  # 302 on 2026-11-22: room for the bucket to triple its names without a zone the index lacks
 # More of the bucket's files looking unlisted than this share is an index that answered too little (a box empty for
-# a moment): an error, not a list (1.1 % on 2026-11-22)
+# a moment): an error, checked before any header is read (1.1 % on 2026-11-22)
 MAX_UNLISTED_SHARE = 0.05
+# The index listing fewer files than the list before recorded (its counts.listed: the cached list, else the shipped
+# copy) by more than this share is an index that answered too little, also when the unlisted files stay under
+# MAX_UNLISTED_SHARE: 2 % is 2,535 of 126,767 files, about one box of SPLIT_ABOVE; the index is not known to shrink
+# (it kept listing the 2013 projects beside their successors), so a real drop is rare and the maker of the list may
+# pass allow_drop after checking it (tools/usa_unlisted.py --allow-drop)
+MAX_LISTED_DROP = 0.02
 PROJECT_MARGIN_DEG = 0.25  # a tile given its project's one zone lands within the project's listed box grown by this
 # A file's bounds within this of its name's 10 km square: the standard tiles reach 6 m beyond it, older ones up to
 # about 400 m (MS_Laurel_2014's x22y372: 297 m west; checked 2026-11-22), some cover only part of it (NM_NorthCentral)
 HEADER_MARGIN_M = 1000
+# A header read that GDAL refuses with one of these is a definite answer (the file is left out and named): not there,
+# refused, not a TIFF. Anything else (a timeout, a broken connection, a 5xx after GDAL's own retries) may pass and
+# stops the list
+DEFINITE_HEADER_ERRORS = re.compile(r"\b40[34]\b|No such file|not recognized as|not a TIFF|TIFFReadDirectory",
+                                    re.I)
 RECHECK_S = 300            # how often a process looks whether the cached list was renewed (by another process)
 
 
@@ -88,19 +110,38 @@ def project_of(url: str) -> str:
     return url.split("/Projects/", 1)[-1].split("/", 1)[0] if "/Projects/" in url else ""
 
 
+def _all(task: Callable, args: Sequence, at_once: int, stop: Optional[threading.Event]) -> list:
+    """task(arg) of every arg, at_once at a time, the results in the order of args. The first failure sets stop (the
+    budgets of the others then refuse their next request), drops the tasks not yet started and is raised."""
+    if at_once <= 1 or len(args) <= 1:
+        return [task(arg) for arg in args]
+    with ThreadPoolExecutor(max_workers=at_once, thread_name_prefix="unlisted") as pool:
+        futures = [pool.submit(task, arg) for arg in args]
+        wait(futures, return_when=FIRST_EXCEPTION)
+        failed = next((f for f in futures if f.done() and f.exception() is not None), None)
+        if failed is not None:
+            if stop is not None:
+                stop.set()
+            for f in futures:
+                f.cancel()
+            raise failed.exception()
+        return [f.result() for f in futures]
+
+
 # The bucket
 
 def bucket_files(cache_dir: Optional[str], bucket: str = BUCKET, budget: Optional[PageBudget] = None,
-                 projects: Optional[Sequence[str]] = None) -> List[S3Object]:
-    """Every .tif key under <project>/TIFF/ of the bucket's 1 m projects (all, or those named), in S3's order."""
+                 projects: Optional[Sequence[str]] = None, at_once: int = 1) -> List[S3Object]:
+    """Every .tif key under <project>/TIFF/ of the bucket's 1 m projects (all, or those named), in S3's order of the
+    projects and their keys; the projects listed at_once at a time."""
     budget = budget or PageBudget("USGS's bucket (1 m DEM)", BUCKET_PAGES)
-    found: List[S3Object] = []
-    for folder in common_prefixes(bucket, PROJECTS, "/", cache_dir, budget):
-        if projects is not None and folder[len(PROJECTS):].rstrip("/") not in projects:
-            continue
-        found += [obj for obj in list_objects(bucket, folder + "TIFF/", MAX_KEYS, cache_dir, budget)
-                  if obj.key.lower().endswith(".tif")]
-    return found
+    folders = [folder for folder in common_prefixes(bucket, PROJECTS, "/", cache_dir, budget)
+               if projects is None or folder[len(PROJECTS):].rstrip("/") in projects]
+
+    def one(folder):
+        return [obj for obj in list_objects(bucket, folder + "TIFF/", MAX_KEYS, cache_dir, budget)
+                if obj.key.lower().endswith(".tif")]
+    return [obj for found in _all(one, folders, at_once, budget.stop) for obj in found]
 
 
 # The TNM index
@@ -116,6 +157,7 @@ def _tnm_page(cache_dir: Optional[str], api: str, dataset: str, box: Tuple[float
             slot = net.host_slot(cache_dir, api) if cache_dir else contextlib.nullcontext()
             with slot:
                 response = servicecounts.get(api, timeout=120, headers=cache.http_headers(), params=params)
+            budget.add(len(response.content or b""))
             response.raise_for_status()
             page = response.json()
             if not isinstance(page, dict) or not isinstance(page.get("items") or [], list):
@@ -130,33 +172,38 @@ def _tnm_page(cache_dir: Optional[str], api: str, dataset: str, box: Tuple[float
 
 def tnm_listed(cache_dir: Optional[str], api: str = TNM_API, dataset: str = DATASET,
                regions: Sequence[Tuple[float, float, float, float]] = REGIONS,
-               budget: Optional[PageBudget] = None) -> Dict[str, Dict]:
-    """Every product of the TNM index's dataset over the boxes, by its download URL. A box whose first page says it
-    holds more than SPLIT_ABOVE is asked again as its four quarters (the first page's products kept), so no page
-    lies deep. The API counts some products twice in its `total` (a box of one page may say 4 and give 2 distinct):
-    a page shorter than the total promises is asked once more and the two are joined; the next page starts after
-    what came (offset += its length: pages overlap, never skip). Completeness is the distinct URLs, never `total`."""
+               budget: Optional[PageBudget] = None, at_once: int = 1) -> Dict[str, Dict]:
+    """Every product of the TNM index's dataset over the boxes, by its download URL; the boxes asked at_once at a
+    time. A box whose first page says it holds more than SPLIT_ABOVE is asked again as its four quarters (the first
+    page's products kept), so no page lies deep.
+
+    The API counts some products twice in its `total`, and pages over that count: a page returns each product once
+    (a box saying 4 gives 2 at offset 0), and the pages after it return the repeats until `total` is reached (offset
+    2 gives the same 2 again; seen in its answers on 2026-11-23). So a page shorter than the total promises is
+    normal: it is asked once more, the two are joined and the next page starts after what came (offset += its
+    length: pages overlap, never skip); completeness is the distinct URLs, never `total`. A page that comes back
+    empty, also when asked again, before `total` is reached is no repeat but a dropped page: IndexUnavailable."""
     budget = budget or PageBudget("the TNM index (1 m DEM)", TNM_PAGES)
     found: Dict[str, Dict] = {}
+    lock = threading.Lock()
 
     def keep(items):
-        for product in items:
-            url = product.get("downloadURL") if isinstance(product, dict) else None
-            if url:
-                found.setdefault(url, {"downloadURL": url, "boundingBox": product.get("boundingBox"),
-                                       "publicationDate": product.get("publicationDate")})
+        with lock:
+            for product in items:
+                url = product.get("downloadURL") if isinstance(product, dict) else None
+                if url:
+                    found.setdefault(url, {"downloadURL": url, "boundingBox": product.get("boundingBox"),
+                                           "publicationDate": product.get("publicationDate")})
 
-    boxes = list(regions)
-    while boxes:
-        box = boxes.pop(0)
+    def one(box) -> list:
+        """The box's products kept; the quarters to ask instead, if any."""
         page, offset = _tnm_page(cache_dir, api, dataset, box, 0, budget), 0
         west, south, east, north = box
         if (page.get("total") or 0) > SPLIT_ABOVE and east - west > MIN_SPLIT_DEG:
             keep(page.get("items") or [])
             mid_x, mid_y = (west + east) / 2, (south + north) / 2
-            boxes[0:0] = [(west, south, mid_x, mid_y), (mid_x, south, east, mid_y),
-                          (west, mid_y, mid_x, north), (mid_x, mid_y, east, north)]
-            continue
+            return [(west, south, mid_x, mid_y), (mid_x, south, east, mid_y),
+                    (west, mid_y, mid_x, north), (mid_x, mid_y, east, north)]
         while True:
             items, total = page.get("items") or [], page.get("total") or 0
             if len(items) < min(TNM_PAGE, total - offset):
@@ -165,11 +212,32 @@ def tnm_listed(cache_dir: Optional[str], api: str = TNM_API, dataset: str = DATA
                 items = again if len(again) > len(items) else items
             keep(page.get("items") or [])
             if not items:
-                break
+                if offset < total:
+                    raise IndexUnavailable(f"TNM API: an empty page at offset {offset} of {total} in the box "
+                                           f"{','.join(f'{v:g}' for v in box)} (a dropped page)")
+                return []
             offset += len(items)
             if offset >= total:
-                break
+                return []
             page = _tnm_page(cache_dir, api, dataset, box, offset, budget)
+
+    if at_once <= 1:
+        boxes = list(regions)
+        while boxes:
+            boxes[0:1] = one(boxes[0])
+        return found
+    with ThreadPoolExecutor(max_workers=at_once, thread_name_prefix="unlisted-tnm") as pool:
+        pending = {pool.submit(one, box) for box in regions}
+        while pending:
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                if future.exception() is not None:
+                    if budget.stop is not None:
+                        budget.stop.set()
+                    for other in pending:
+                        other.cancel()
+                    raise future.exception()
+                pending |= {pool.submit(one, box) for box in future.result()}
     return found
 
 
@@ -179,8 +247,10 @@ def header_zone(url: str, extent: Sequence[float], cache_dir: Optional[str]) -> 
     """The UTM zone of a remote 1 m file from its own header (one small read through GDAL's /vsicurl/, inside
     net._gdal_http, its errors seen through net.gdal_errors, holding a slot of the host): the zone z whose NAD83 /
     UTM (EPSG:269zz) the file's CRS is (windows._same_crs, as the reader will test it), the file's bounds meeting
-    the name's 10 km square and within HEADER_MARGIN_M of it. None when the file is not there (404) or fits no zone; a failure
-    to read it raises IndexUnavailable (the list is then not made)."""
+    the name's 10 km square and within HEADER_MARGIN_M of it. None for a definite answer: the file not there (404),
+    refused (403), not a TIFF (DEFINITE_HEADER_ERRORS), without a CRS, in no NAD83 / UTM zone, or off its square. A
+    failure that may pass (a timeout, a broken connection, a 5xx) is asked again (net.RETRIES), then raises
+    IndexUnavailable (the list is then not made)."""
     found = None
     slot = net.host_slot(cache_dir, url) if cache_dir else contextlib.nullcontext()
     with slot, net._gdal_http():
@@ -196,8 +266,8 @@ def header_zone(url: str, extent: Sequence[float], cache_dir: Optional[str]) -> 
                     break
                 except rio.errors.RasterioIOError as e:
                     _forget(url)
-                    if re.search(r"\b404\b|No such file", str(e)):  # as windows._read_block
-                        counted.outcome = "not_found"
+                    if DEFINITE_HEADER_ERRORS.search(str(e)):
+                        counted.outcome = "not_found" if re.search(r"\b404\b|No such file", str(e)) else "other"
                         return None
                     counted.outcome = "other"
                     if attempt == net.RETRIES - 1:
@@ -225,19 +295,40 @@ def _in_box(zone: int, extent: Sequence[float], box: Sequence[float]) -> bool:
     return box[0] - m <= x[0] <= box[2] + m and box[1] - m <= y[0] <= box[3] + m
 
 
+def unlisted_objects(objects: Sequence[S3Object], listed: Dict[str, Dict]) -> List[S3Object]:
+    """The bucket's files whose name the index (its products by URL) does not list, in their order."""
+    names = {url.rsplit("/", 1)[-1] for url in listed}
+    return [obj for obj in objects if obj.key.rsplit("/", 1)[-1] not in names]
+
+
+def _sibling_year(years: collections.Counter) -> int:
+    """The year a project's listed files carry: the most frequent, of two as frequent the newer."""
+    return max(years.items(), key=lambda kv: (kv[1], kv[0]))[0]
+
+
 def unlisted_from(objects: Sequence[S3Object], listed: Dict[str, Dict], header: Callable[[str, list], Optional[int]],
-                  bucket: str = BUCKET) -> Tuple[List[Dict], List[str], Dict[str, int]]:
+                  bucket: str = BUCKET, at_once: int = 1,
+                  stop: Optional[threading.Event] = None) -> Tuple[List[Dict], List[str], Dict[str, int], List[str]]:
     """The bucket's files (objects) whose name the index (listed: its products by URL) does not list, each as an item
     (tnm.tile_item, published = its upload time), sorted by URL; the names left out (no x..y.. in the name, or no
-    zone found); counts (by how the zone was found, and bytes). header(url, extent) gives a zone from the file."""
-    names = {url.rsplit("/", 1)[-1] for url in listed}
-    unlisted = [obj for obj in objects if obj.key.rsplit("/", 1)[-1] not in names]
-    # The zones and the box of the listed files of the projects that need them (names without a zone)
+    zone found); counts (by how the zone and the year were found, and bytes); the projects whose files took their
+    upload year. header(url, extent) gives a zone from the file; those reads go at_once at a time (stop: as _all).
+
+    The year: the one the project's folders name (tnm.folder_year); else the one the project's listed files carry
+    (the most frequent: ND_Lidar_Phase10's listed files 2024, its unlisted ones uploaded in 2026); only a project
+    without a listed file keeps the upload year."""
+    unlisted = unlisted_objects(objects, listed)
+    # The zones and the box of the listed files of the projects that need them (names without a zone), and the years
+    # of the listed files of the projects whose folders name no year
     wanted = {project_of(obj.key) for obj in unlisted if not TILE_ZONE.match(obj.key.rsplit("/", 1)[-1])}
+    yearless = {project_of(obj.key) for obj in unlisted if folder_year(obj.key) is None}
     zones: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    years: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     boxes: Dict[str, List[float]] = {}
     for url, product in listed.items():
         project = project_of(url)
+        if project in yearless:
+            years[project][_survey_year(url, product.get("publicationDate") or "")] += 1
         if project not in wanted:
             continue
         item = usgs_1m_item(product)
@@ -248,8 +339,8 @@ def unlisted_from(objects: Sequence[S3Object], listed: Dict[str, Dict], header: 
         b = boxes.setdefault(project, [box["minX"], box["minY"], box["maxX"], box["maxY"]])
         boxes[project] = [min(b[0], box["minX"]), min(b[1], box["minY"]), max(b[2], box["maxX"]),
                           max(b[3], box["maxY"])]
-    items, left_out = [], []
-    counts = collections.Counter()
+    # The zone of each file: from its name or its project here, the header reads then at once
+    zoned, reads = [], []
     for obj in unlisted:
         name = obj.key.rsplit("/", 1)[-1]
         url = f"{bucket.rstrip('/')}/{obj.key}"
@@ -263,57 +354,110 @@ def unlisted_from(objects: Sequence[S3Object], listed: Dict[str, Dict], header: 
             elif len(zones.get(project, ())) == 1 and _in_box(next(iter(zones[project])), extent, boxes[project]):
                 zone, how = next(iter(zones[project])), "zone_from_project"
             else:
-                zone, how = header(url, extent), "zone_from_header"
+                how = "zone_from_header"
+                zone = len(reads)  # the position of its read, until the reads are done
+                reads.append((url, extent))
+        zoned.append((obj, name, url, zone, how))
+    read = _all(lambda r: header(*r), reads, at_once, stop)
+    items, left_out, upload_projects = [], [], set()
+    counts = collections.Counter()
+    for obj, name, url, zone, how in zoned:
+        if how == "zone_from_header":
+            zone = read[zone]
         if zone is None:
             left_out.append(name)
             continue
         counts[how] += 1
         counts["bytes"] += obj.size
-        items.append(tile_item(url, zone, obj.last_modified))
+        year = None
+        if folder_year(obj.key) is None:
+            project = project_of(obj.key)
+            if years.get(project):
+                year = _sibling_year(years[project])
+                counts["year_from_siblings"] += 1
+            else:
+                counts["year_from_upload"] += 1
+                upload_projects.add(project)
+        items.append(tile_item(url, zone, obj.last_modified, year))
     items.sort(key=lambda item: item["url"])
-    return items, sorted(left_out), dict(counts)
+    return items, sorted(left_out), dict(counts), sorted(upload_projects)
 
 
 # Making the list
 
+def previous_listed(cache_dir: str, top: str = TOP) -> Optional[int]:
+    """The index's count of files the list before recorded (counts.listed): the cached list's, else the shipped
+    copy's (unless SHIPPED_ENV is off); None without a usable one."""
+    paths = [unlisted_path(cache_dir, top)] + ([] if _shipped_off() else [SHIPPED])
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as f:
+                listed = json.load(f)["counts"]["listed"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if isinstance(listed, int) and listed > 0:
+            return listed
+    return None
+
+
 def make_unlisted(cache_dir: str, out: Optional[str] = None, bucket: str = BUCKET, api: str = TNM_API,
                   dataset: str = DATASET, regions: Sequence[Tuple[float, float, float, float]] = REGIONS,
-                  projects: Optional[Sequence[str]] = None, log: Callable[[str], None] = print) -> Dict:
+                  projects: Optional[Sequence[str]] = None, log: Callable[[str], None] = print,
+                  at_once: Optional[int] = None, allow_drop: bool = False) -> Dict:
     """Make the list of the bucket's 1 m files the TNM index does not list and write it to out, by default the cached
     list (unlisted_path, with a row in the index of its top folder); cache_dir also holds the host slots. projects:
-    only these of the bucket (a recorded test; then the share of unlisted files is not checked). Returns what it did:
-    files, bytes, how their zones were found, the names left out, the bucket's files and the index's, the requests.
-    IndexUnavailable when a step fails; the list there was stays."""
+    only these of the bucket (a recorded test; then neither guard applies). at_once: requests at a time in each
+    part (REQUESTS_AT_ONCE). allow_drop: the index may list fewer files than the list before by more than
+    MAX_LISTED_DROP (checked by hand). Returns what it did: files, bytes, how their zones and years were found, the
+    names left out, the projects dated by their upload, the bucket's files and the index's, the requests, bytes and
+    seconds of each part. IndexUnavailable when a step fails; the list there was stays."""
+    at_once = REQUESTS_AT_ONCE if at_once is None else at_once
     started = time.monotonic()
-    bucket_budget = PageBudget("USGS's bucket (1 m DEM)", BUCKET_PAGES)
-    tnm_budget = PageBudget("the TNM index (1 m DEM)", TNM_PAGES)
-    headers = [0]
+    stop = threading.Event()
+    bucket_budget = PageBudget("USGS's bucket (1 m DEM)", BUCKET_PAGES, stop)
+    tnm_budget = PageBudget("the TNM index (1 m DEM)", TNM_PAGES, stop)
+    header_budget = PageBudget("the headers of the unlisted 1 m files", HEADER_READS, stop)
+    seconds = {}
 
     def header(url, extent):
-        headers[0] += 1
+        header_budget.take()
         return header_zone(url, extent, cache_dir)
     try:
         log("Listing USGS's bucket (1 m DEM projects)...")
-        objects = bucket_files(cache_dir, bucket, bucket_budget, projects)
+        objects = bucket_files(cache_dir, bucket, bucket_budget, projects, at_once)
+        seconds["bucket"] = round(time.monotonic() - started, 1)
         log(f"  {len(objects)} files in {bucket_budget.used} requests; listing the TNM index...")
-        listed = tnm_listed(cache_dir, api, dataset, regions, tnm_budget)
+        listed = tnm_listed(cache_dir, api, dataset, regions, tnm_budget, at_once)
+        seconds["index"] = round(time.monotonic() - started - seconds["bucket"], 1)
         log(f"  {len(listed)} listed in {tnm_budget.used} requests; finding the zones of the unlisted files...")
         if objects and not listed:
             raise IndexUnavailable("the TNM index listed no 1 m file")
-        items, left_out, counts = unlisted_from(objects, listed, header, bucket)
+        if projects is None:  # the guards, before any header is read
+            unlisted = len(unlisted_objects(objects, listed))
+            if unlisted > MAX_UNLISTED_SHARE * len(objects):
+                raise IndexUnavailable(f"{unlisted} of the bucket's {len(objects)} 1 m files look unlisted: the TNM "
+                                       f"index answered too little; the list was not made")
+            before = previous_listed(cache_dir)
+            if before and not allow_drop and len(listed) < (1 - MAX_LISTED_DROP) * before:
+                raise IndexUnavailable(f"the TNM index listed {len(listed)} 1 m files, the list before {before}: it "
+                                       f"answered too little; the list was not made (tools/usa_unlisted.py "
+                                       f"--allow-drop after checking)")
+        mark = time.monotonic()
+        items, left_out, counts, upload_projects = unlisted_from(objects, listed, header, bucket, at_once, stop)
+        seconds["headers"] = round(time.monotonic() - mark, 1)
     except IndexUnavailable:
         raise
     except (requests.RequestException, rio.errors.RasterioError, RuntimeError, OSError) as e:
         raise IndexUnavailable(f"the list of the unlisted 1 m files: {cache.clean_error(e)}") from e
-    if projects is None and objects and (len(items) + len(left_out)) > MAX_UNLISTED_SHARE * len(objects):
-        raise IndexUnavailable(f"{len(items) + len(left_out)} of the bucket's {len(objects)} 1 m files look "
-                               f"unlisted: the TNM index answered too little; the list was not made")
     summary = {"made_at": cache.now_iso(), "files": len(items), "bytes": counts.get("bytes", 0),
                "zone_in_name": counts.get("zone_in_name", 0), "zone_from_project": counts.get("zone_from_project", 0),
-               "zone_from_header": counts.get("zone_from_header", 0), "left_out": left_out,
-               "bucket_files": len(objects), "listed": len(listed),
-               "requests": {"bucket": bucket_budget.used, "index": tnm_budget.used, "headers": headers[0]},
-               "seconds": round(time.monotonic() - started, 1)}
+               "zone_from_header": counts.get("zone_from_header", 0),
+               "year_from_siblings": counts.get("year_from_siblings", 0),
+               "year_from_upload": counts.get("year_from_upload", 0), "upload_year_projects": upload_projects,
+               "left_out": left_out, "bucket_files": len(objects), "listed": len(listed),
+               "requests": {"bucket": bucket_budget.used, "index": tnm_budget.used, "headers": header_budget.used},
+               "answer_bytes": {"bucket": bucket_budget.bytes, "index": tnm_budget.bytes},
+               "seconds_by_part": seconds, "at_once": at_once, "seconds": round(time.monotonic() - started, 1)}
     path = out or unlisted_path(cache_dir)
     write_list(path, summary, items, bucket, api, dataset)
     if out is None:
@@ -325,18 +469,28 @@ def make_unlisted(cache_dir: str, out: Optional[str] = None, bucket: str = BUCKE
     return summary
 
 
+COUNT_KEYS = ("files", "bytes", "zone_in_name", "zone_from_project", "zone_from_header", "year_from_siblings",
+              "year_from_upload", "bucket_files", "listed")
+
+
 def write_list(path: str, summary: Dict, items: List[Dict], bucket: str, api: str, dataset: str):
-    """The list as JSON, one item a line (the shipped copy's changes read as lines), written atomically."""
+    """The list as JSON, one item a line (the shipped copy's changes read as lines), written to a temporary file next
+    to it and put in its place (os.replace). A failure (a full disk, the file held open by another process on
+    Windows) is IndexUnavailable, the temporary file removed and the list there was kept."""
     head = {"made_at": summary["made_at"], "bucket": bucket, "index": api, "dataset": dataset,
-            "counts": {k: summary[k] for k in ("files", "bytes", "zone_in_name", "zone_from_project",
-                                               "zone_from_header", "bucket_files", "listed")},
-            "left_out": summary["left_out"]}
+            "counts": {k: summary.get(k, 0) for k in COUNT_KEYS},
+            "upload_year_projects": summary.get("upload_year_projects", []), "left_out": summary["left_out"]}
     text = json.dumps(head)[:-1] + ', "items": [\n' + ",\n".join(json.dumps(item) for item in items) + "\n]}\n"
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = net._part(path)
-    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
-    os.replace(tmp, path)
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except OSError as e:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        raise IndexUnavailable(f"the list of the unlisted 1 m files could not be written ({path}): {e}") from e
 
 
 def unlisted_age_days(cache_dir: str, top: str = TOP) -> float:
@@ -351,12 +505,16 @@ def unlisted_age_days(cache_dir: str, top: str = TOP) -> float:
 
 READS = 0  # lists parsed by this process (tests: once per process and data folder)
 ITEM_KEYS = ("name", "url", "crs", "extent", "year", "published")
-_memo: Dict[Tuple[str, str], Tuple[float, Optional[tuple], Dict]] = {}
+_memo: Dict[Tuple[str, str], Tuple[float, tuple, Dict]] = {}
 _memo_lock = threading.Lock()
 
 
 def _now() -> float:
     return time.monotonic()
+
+
+def _shipped_off() -> bool:
+    return os.environ.get(SHIPPED_ENV, "").strip().lower() == "off"
 
 
 def forget_unlisted():
@@ -373,25 +531,31 @@ def _stamp(path: str) -> Optional[tuple]:
     return path, st.st_mtime_ns, st.st_size
 
 
-def _source(cache_dir: str, top: str) -> Tuple[Optional[str], Optional[tuple]]:
-    """The list to read: the cached one, else the shipped copy (unless SHIPPED_ENV is off), else none."""
-    path = unlisted_path(cache_dir, top)
-    stamp = _stamp(path)
-    if stamp is not None:
-        return path, stamp
-    if os.environ.get(SHIPPED_ENV, "").strip().lower() == "off":
-        return None, None
-    stamp = _stamp(SHIPPED)
-    return (SHIPPED, stamp) if stamp is not None else (None, None)
+def _good_item(item) -> bool:
+    """Whether a list's item is a 1 m file as tile_item makes it (the right fields and kinds, a NAD83 / UTM zone, a
+    square extent)."""
+    if not isinstance(item, dict) or not all(k in item for k in ITEM_KEYS):
+        return False
+    zone = re.fullmatch(r"EPSG:269(\d\d)", item["crs"]) if isinstance(item["crs"], str) else None
+    extent = item["extent"]
+    return (isinstance(item["name"], str) and isinstance(item["url"], str) and bool(item["url"])
+            and zone is not None and 1 <= int(zone.group(1)) <= 23 and isinstance(item["year"], int)
+            and isinstance(item["published"], str) and isinstance(extent, list) and len(extent) == 4
+            and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in extent)
+            and extent[0] < extent[2] and extent[1] < extent[3])
 
 
-def read_list(path: str) -> List[Dict]:
-    """The items of a list file (those with every key of an item)."""
+def read_list(path: str) -> Tuple[List[Dict], int]:
+    """The items of a list file that are 1 m files (_good_item), and how many others it held. ValueError for a file
+    that is no list (not JSON, cut short, not an object with a list of items)."""
     global READS
     with open(path, encoding="utf-8") as f:
         document = json.load(f)
     READS += 1
-    return [item for item in document.get("items") or [] if isinstance(item, dict) and all(k in item for k in ITEM_KEYS)]
+    if not isinstance(document, dict) or not isinstance(document.get("items"), list):
+        raise ValueError("not a list of files (an object with \"items\")")
+    items = [item for item in document["items"] if _good_item(item)]
+    return items, len(document["items"]) - len(items)
 
 
 def _by_tile(items: List[Dict]) -> Dict[Tuple[int, int], List[Dict]]:
@@ -406,25 +570,55 @@ def _by_tile(items: List[Dict]) -> Dict[Tuple[int, int], List[Dict]]:
     return found
 
 
+def _load(cache_dir: str, top: str) -> Tuple[tuple, Dict[Tuple[int, int], List[Dict]]]:
+    """The stamps of the lists that could be read and the first usable one by index tile: the cached list, else the
+    shipped copy (unless SHIPPED_ENV is off). Whatever a file holds, reading it never fails the 1 m layer: a file that
+    cannot be used is one printed line and the next one is read; its wrong items are left out and counted."""
+    cached = unlisted_path(cache_dir, top)
+    paths = [cached] + ([] if _shipped_off() else [SHIPPED])
+    stamps = list(_stamp(path) for path in paths)
+    for k, (path, stamp) in enumerate(zip(paths, stamps)):
+        if stamp is None:
+            continue
+        try:
+            for attempt in range(3):  # a list being replaced by a renewal (Windows: a moment of no access)
+                try:
+                    items, wrong = read_list(path)
+                    break
+                except OSError:
+                    if attempt == 2:
+                        stamps[k] = (path, "unreadable", time.monotonic())  # looked at again at the next check
+                        raise
+                    time.sleep(0.05)
+            tiles = _by_tile(items)
+        except Exception as e:  # noqa: BLE001 (any content of a file: never a failure of a search)
+            then = "the shipped copy is read instead" if path == cached and len(paths) > 1 else "no list is used"
+            print(f"The list of the 1 m files the TNM index does not list cannot be used ({path}: "
+                  f"{type(e).__name__}: {str(e)[:200]}); {then}")
+            continue
+        if wrong:
+            print(f"The list of the 1 m files the TNM index does not list ({path}): {wrong} of its items are no 1 m "
+                  f"file and are left out")
+        return tuple(stamps), tiles
+    return tuple(stamps), {}
+
+
 def _tiles(cache_dir: str, top: str) -> Dict[Tuple[int, int], List[Dict]]:
     """The list by index tile, read once per process and data folder: looked at again (a stat) at most every
-    RECHECK_S and read again only when it changed (a renewal by another process)."""
+    RECHECK_S and read again only when it changed (a renewal by another process); a list that could not be used
+    is remembered the same way (no read per tile)."""
     key, now = (os.path.abspath(cache_dir), top), _now()
     with _memo_lock:
         memo = _memo.get(key)
         if memo is not None and now - memo[0] < RECHECK_S:
             return memo[2]
-        path, stamp = _source(cache_dir, top)
-        if memo is not None and memo[1] == stamp:
-            _memo[key] = (now, stamp, memo[2])
+        paths = [unlisted_path(cache_dir, top)] + ([] if _shipped_off() else [SHIPPED])
+        stamps = tuple(_stamp(path) for path in paths)
+        if memo is not None and memo[1] == stamps:
+            _memo[key] = (now, stamps, memo[2])
             return memo[2]
-        tiles: Dict[Tuple[int, int], List[Dict]] = {}
-        if path is not None:
-            try:
-                tiles = _by_tile(read_list(path))
-            except (OSError, ValueError) as e:
-                print(f"The list of the 1 m files the TNM index does not list could not be read ({path}): {e}")
-        _memo[key] = (now, stamp, tiles)
+        stamps, tiles = _load(cache_dir, top)
+        _memo[key] = (now, stamps, tiles)
         return tiles
 
 
