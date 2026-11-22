@@ -1125,10 +1125,14 @@ ZOOMS = "() => [window.visualViewport ? window.visualViewport.scale : 1, window.
 
 
 def _pinch(page, x: float, y: float, scale: float = 2.0):
-    """A finger's pinch out at (x, y) (Chromium's synthesized touch pinch, CDP)."""
+    """A finger's pinch out at (x, y) (Chromium's synthesized touch pinch, CDP: the command answers once the gesture's
+    events were sent), then the page drawn and the map still."""
     cdp = page.context.new_cdp_session(page)
     cdp.send("Input.synthesizePinchGesture", {"x": x, "y": y, "scaleFactor": scale, "relativeSpeed": 800, "gestureSourceType": "touch"})
     cdp.detach()
+    page.evaluate("() => T.frames()")
+    page.wait_for_function(STILL, timeout=WAIT)
+    page.evaluate("() => T.frames()")
 
 
 @pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
@@ -1146,16 +1150,19 @@ def test_no_page_zoom_outside_the_map(site, device):
             start = page.evaluate(ZOOMS)
             body = page.evaluate("() => { const r = document.querySelector('.u-sheet-body').getBoundingClientRect(); return [(r.left + r.right) / 2, r.top + 60]; }")
             _pinch(page, *body)
-            page.evaluate("() => new Promise((ok) => setTimeout(ok, 300))")
             pinched = page.evaluate(ZOOMS)
+            # a double tap: the second tap's click awaited (a counter of the page's clicks), then the page drawn
+            page.evaluate("() => { window.CLICKS = 0; document.addEventListener('click', () => { window.CLICKS++; }, true); }")
             page.touchscreen.tap(*body)
             page.touchscreen.tap(*body)
-            page.evaluate("() => new Promise((ok) => setTimeout(ok, 500))")
+            page.wait_for_function("() => window.CLICKS >= 2", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            page.wait_for_function(STILL, timeout=WAIT)
             tapped = page.evaluate(ZOOMS)
             m = page.evaluate("() => { const r = window.FINDALINE_MAP.getContainer().getBoundingClientRect(), s = document.querySelector('.u-sheet').getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + 120 + s.top) / 2]; }")
             _pinch(page, *m)
+            page.wait_for_function(f"() => window.FINDALINE_MAP.getZoom() !== {start[1]}", timeout=WAIT)
             page.wait_for_function(STILL, timeout=WAIT)
-            page.evaluate("() => new Promise((ok) => setTimeout(ok, 300))")
             mapped = page.evaluate(ZOOMS)
             gestures = page.evaluate("""() => ['.u-sheet-body', '.leaflet-container'].map((sel) => { const e = new Event('gesturestart', {bubbles: true, cancelable: true});
               document.querySelector(sel).dispatchEvent(e); return e.defaultPrevented; })""")
