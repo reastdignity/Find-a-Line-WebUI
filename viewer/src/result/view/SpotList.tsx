@@ -175,6 +175,28 @@ function pickerFocus(id: string, place: ReturnType<typeof placeOf>) {
                                              `${place.list} > li:last-child > .vl-main`, place.head] : []), ...FOCUS_REST);
 }
 
+/** A row's opened folder picker made whole in its list's scroller (the design re-check's G2-F7: from the lowest row in
+ *  view it ran past a phone's foot): once the scroller stands still (a phone's sheet rises to full for it), the list
+ *  scrolls it into view; where the list cannot scroll that far (its end), the picker opens upward over the row.
+ *  Returns what cancels the wait. */
+function wholeInView(id: string): () => void {
+  let frame = 0, last = NaN, tries = 90;
+  const go = () => {
+    const pop = document.getElementById(id)?.querySelector<HTMLElement>(".r-pop"), box = pop?.closest<HTMLElement>(".vl-body, .u-sheet-body");
+    if (!pop || !box) return;
+    const b = box.getBoundingClientRect();
+    if (b.height !== last && --tries > 0) { last = b.height; frame = requestAnimationFrame(go); return; }  // still moving
+    const over = pop.getBoundingClientRect().bottom - (b.bottom - 8);
+    if (over > 0) box.scrollTop += over;
+    if (pop.getBoundingClientRect().bottom > b.bottom - 8 + 0.5) {  // the list's end: upward, over the row
+      pop.style.top = "auto";
+      pop.style.bottom = "calc(100% + 6px)";
+    }
+  };
+  frame = requestAnimationFrame(go);
+  return () => cancelAnimationFrame(frame);
+}
+
 /** The folder picker in a row's star's place while it is open (RowStar). Closed, the row draws its plain star again
  *  and the focus goes to it (or where a row's focus goes when the row went: a removal under "Favourites only"). The
  *  row leaving the list while it is open (the map moved under "Best in view", its sector closed or paged away) ends
@@ -192,6 +214,7 @@ function RowPicker({view, picked}: {view: SpotView; picked: {id: string; row: nu
     pickerOf.delete(view);
     pickerFocus(id, place.current);
   }, []);
+  useEffect(() => wholeInView(id), []);
   return <FavouritePicker model={model} line={model.lineAt(row)} icon opened buttonClass="vl-star" buttonTabIndex={-1}
                           onOpen={(open) => {
                             if (open) return;

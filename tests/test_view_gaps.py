@@ -1526,3 +1526,60 @@ def test_sort_mark_by_its_own_word(site, device):
     assert got["col"] == "h" and b[0] - 0.5 <= i[0] and i[2] <= b[2] + 0.5 and b[1] - 0.5 <= i[1] and i[3] <= b[3] + 0.5, got
     assert got["lines"] == 1 or abs(i[1] - got["firstLine"]) <= 8, got  # on its word's first line
     assert got["gap"] is not None and got["gap"] >= 4, got
+
+
+# The star of the lowest row in view of the phone's sheet body (its li's id)
+LOWEST_STAR = """() => { const box = document.querySelector('.u-sheet-body').getBoundingClientRect();
+  const stars = [...document.querySelectorAll('.vl-rows > li > .vl-star')].filter((s) => { const r = s.getBoundingClientRect(); return r.height && r.top >= box.top && r.bottom <= box.bottom; });
+  const low = stars.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom)[0]; return low ? low.closest('li').id : null; }"""
+# Each item of the open row picker: inside the window and the sheet body's view, and a press at its middle reaching it
+PICKER_ITEMS = """() => { const pop = document.querySelector('.vl-row .r-pop'), box = document.querySelector('.u-sheet-body').getBoundingClientRect();
+  return [...pop.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(), hit = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    return {name: b.textContent.trim().slice(0, 20), y: [Math.round(r.top), Math.round(r.bottom)], inside: r.top >= box.top - 0.5 && r.bottom <= Math.min(box.bottom, innerHeight) + 0.5,
+            on: !!hit && b.contains(hit)}; }); }"""
+
+
+@pytest.mark.parametrize("stop", ["half", "full"])
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_row_picker_whole_from_the_lowest_row(site, device, stop):
+    """The design re-check's G2-F7: on a phone (the sheet at half or at full) the star of the lowest row in view opens
+    its folder list (the sheet rises to full for it) whole in the sheet's view: every item inside the window and
+    pressable, no swipe needed (it ran past the screen's foot: "New folder" below it); also from the list's very last
+    row, where the list cannot scroll further (the list opens upward)."""
+    from playwright.sync_api import sync_playwright
+    got = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for case in ("lowest", "last"):
+                page = _open(browser, site + f"#run={BIG}", device, script=HELP)
+                page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, stop)
+                if case == "last":
+                    # the tree's last sector opened, the list at its end: its last row is the list's last
+                    page.evaluate("() => { const t = [...document.querySelectorAll('.vl-tree .vl-sec')].pop().querySelector('.vl-toggle'); if (t.getAttribute('aria-expanded') !== 'true') t.click(); }")
+                    page.evaluate("() => T.frames()")
+                    page.evaluate("() => { const b = document.querySelector('.u-sheet-body'); b.scrollTop = b.scrollHeight; }")
+                    page.evaluate("() => T.frames()")
+                else:
+                    # the first sector's rows brought to the sheet's foot: its tenth row the lowest in view
+                    page.evaluate("""() => { const b = document.querySelector('.u-sheet-body'), r = document.querySelector('.vl-tree .vl-sec .vl-rows > li:nth-child(10)');
+                      b.scrollTop += r.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom + 2; }""")
+                    page.evaluate("() => T.frames()")
+                row = page.evaluate(LOWEST_STAR)
+                assert row, "no row's star in the sheet's view"
+                page.evaluate(f"() => document.querySelector('#{row} > .vl-star').click()")
+                page.wait_for_selector(".vl-row .r-picker", timeout=WAIT)
+                page.wait_for_function("() => F.snap() === 'full' && F.rest()", timeout=WAIT)
+                page.wait_for_function(f"""() => {{ const p = document.querySelector('.vl-row .r-pop'), b = document.querySelector('.u-sheet-body').getBoundingClientRect();
+                  return p && p.getBoundingClientRect().bottom <= Math.min(b.bottom, innerHeight) + 0.5; }}""", timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                got[case] = page.evaluate(PICKER_ITEMS)
+                assert page.errors == []
+                page.context.close()
+        finally:
+            browser.close()
+    print("the lowest row's picker:", device.get("viewport"), stop, got)
+    for case, items in got.items():
+        assert len(items) >= 2 and all(i["inside"] and i["on"] for i in items), (case, items)
