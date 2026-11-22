@@ -363,3 +363,15 @@
   .ui .c-col-list .vl-body .vl-main, .ui .c-col-list .vl-body .vl-cols { column-gap: 1px; padding-right: 0;
     grid-template-columns: 40px 12px minmax(0, 39fr) minmax(0, 43fr) minmax(0, 53fr) minmax(0, 28fr); }
 }
+
+/* ---- gate 2's answers (the user's iPhone test, 2026-11-22) ---- */
+/* 11 a: a block's column heads stay at the top of the list's scroller (a desktop's list body, a phone's sheet body)
+   while its rows scroll (sticky within its block: the top block, a sector); their ground spans the rows' stars and the
+   block's sides beside them (a layer of the heads' own, so a press there reaches the heads, never a row under them) */
+.ui .vl-topblock > .vl-cols, .ui .vl-sec > .vl-cols { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.ui .vl-topblock > .vl-cols::before, .ui .vl-sec > .vl-cols::before { content: ""; position: absolute; top: 0; bottom: 0;
+  left: -16px; right: -60px; z-index: -1; background: var(--surface); }
+/* a row the keyboard reaches is scrolled clear of its block's heads (they are at most two lines and 44 px on touch) */
+.ui .vl-topblock .vl-main, .ui .vl-sec .vl-main { scroll-margin-top: 64px; }
+/* (a phone's sheet body has 12 px at its top, mapbar.css: the heads stand at its edge, no row seen above them) */
+.ui .v-result .u-sheet-body .vl-topblock > .vl-cols, .ui .v-result .u-sheet-body .vl-sec > .vl-cols { top: -12px; }

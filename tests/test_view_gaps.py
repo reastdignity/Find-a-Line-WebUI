@@ -909,3 +909,40 @@ def test_layers_menu_lowers_the_sheet(boxes_site, device):
     assert rows and all(r["on"] and r["y"][0] >= 0 and r["y"][1] <= height for r in rows), rows
     assert after == "peek", after
     assert look[0] != "none" and look[1] == "1px" and look[2] == "solid", look
+
+
+# The first open sector's heads after its rows were scrolled under the scroller's top (`box`: the list's scroller):
+# their top against the scroller's, and what a press at the middle of each of their cells reaches
+STICKY = r"""([box]) => { const scroller = document.querySelector(box), sec = document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec');
+  const heads = sec.querySelector(':scope > .vl-cols'), rows = sec.querySelector('.vl-rows');
+  scroller.scrollTop += rows.getBoundingClientRect().top - scroller.getBoundingClientRect().top + 200;
+  const h = heads.getBoundingClientRect(), s = scroller.getBoundingClientRect(), r = rows.getBoundingClientRect();
+  const cells = [...heads.children].map((c) => { const b = c.getBoundingClientRect(), hit = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+    return !!hit && heads.contains(hit); });
+  const right = document.elementFromPoint(s.right - 20, (h.top + h.bottom) / 2);
+  return {heads: Math.round(h.top), scroller: Math.round(s.top), rowsAbove: Math.round(s.top - r.top), cells, right: !!right && heads.contains(right) || !!(right && right.closest('.vl-cols'))}; }"""
+
+
+@pytest.mark.parametrize("device", ["desktop", "390", "412"])
+def test_heads_stay_at_the_top(site, device):
+    """11 a: the tree's first sector scrolled so that 200 px of its rows lie above the list's scroller (a desktop's list
+    body; a phone's sheet body, the sheet at full): its column heads stand at the scroller's top, and a press anywhere
+    on them (each cell, and the right end where the rows' stars stand) reaches the heads, not a row."""
+    from playwright.sync_api import sync_playwright
+    context = {"desktop": DESKTOP, "390": SMALL_PHONE, "412": PIXEL}[device]
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            if device != "desktop":
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            page.wait_for_selector(".vl-tree .vl-sec .vl-rows", timeout=WAIT)
+            got = page.evaluate(STICKY, [".vl-body" if device == "desktop" else ".u-sheet-body"])
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("sticky heads:", device, got)
+    assert got["rowsAbove"] >= 150, got  # (the state tests something: rows scrolled under the scroller's top)
+    assert abs(got["heads"] - got["scroller"]) <= 1, got
+    assert all(got["cells"]) and got["right"], got

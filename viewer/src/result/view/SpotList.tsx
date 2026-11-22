@@ -608,13 +608,14 @@ function NonePass({view}: {view: SpotView}) {
 }
 
 /** Scroll the nearest scrolling ancestor of a row so that the row is in it (not scrollIntoView, which would scroll
- *  every ancestor, the map's too). */
+ *  every ancestor, the map's too), clear of its block's heads, which stay at the scroller's top (the user's 11 a). */
 function scrollToRow(row: HTMLElement) {
+  const heads = row.closest(".vl-sec, .vl-topblock")?.querySelector<HTMLElement>(":scope > .vl-cols")?.offsetHeight ?? 0;
   for (let box = row.parentElement; box; box = box.parentElement) {
     const overflow = getComputedStyle(box).overflowY;
     if ((overflow === "auto" || overflow === "scroll") && box.scrollHeight > box.clientHeight) {
-      const r = row.getBoundingClientRect(), b = box.getBoundingClientRect();
-      if (r.top < b.top + 8) box.scrollTop -= b.top + 8 - r.top;
+      const r = row.getBoundingClientRect(), b = box.getBoundingClientRect(), top = b.top + 8 + heads;
+      if (r.top < top) box.scrollTop -= top - r.top;
       else if (r.bottom > b.bottom - 8) box.scrollTop += r.bottom - b.bottom + 8;
       return;
     }
