@@ -342,6 +342,123 @@ def _served(data, build):
         thread.join(timeout=30)
 
 
+def _running(processes) -> list:
+    """The processes (psutil.Process) still running, a zombie counted as ended; one that ends while it is asked about
+    counts as ended (psutil.NoSuchProcess between is_running and status: seen under a full pytest's load)."""
+    import psutil
+    left = []
+    for p in processes:
+        try:
+            if p.is_running() and p.status() != psutil.STATUS_ZOMBIE:
+                left.append(p)
+        except psutil.NoSuchProcess:
+            pass
+    return left
+
+
+def _names(processes) -> list:
+    """The processes' names for a message (one that has ended meanwhile by its pid)."""
+    import psutil
+    names = []
+    for p in processes:
+        try:
+            names.append(p.name())
+        except psutil.Error:
+            names.append(f"pid {p.pid}")
+    return names
+
+
+def _ended_within(processes, seconds: float) -> list:
+    """Waits up to `seconds` for the processes to end; those still running then (_running)."""
+    deadline = time.monotonic() + seconds
+    while True:
+        left = _running(processes)
+        if not left or time.monotonic() > deadline:
+            return left
+        time.sleep(0.2)
+
+
+class _Tree:
+    """A process a test started and every descendant of it seen while it ran (psutil.Process objects, which know their
+    start time: a pid used again by another process is never stopped). watch() while the root runs: once it has ended,
+    its orphaned children can no longer be found from it."""
+
+    def __init__(self, pid: int):
+        import psutil
+        self.root = psutil.Process(pid)
+        self.seen = set()
+
+    def watch(self) -> list:
+        """The descendants of the root now, added to those seen; all seen."""
+        import psutil
+        try:
+            self.seen.update(self.root.children(recursive=True))
+        except psutil.NoSuchProcess:
+            pass
+        return list(self.seen)
+
+    def stop(self):
+        """Every process of the tree killed, the children first (then none is orphaned by the root's end), those that have
+        ended already skipped; waits for them to end."""
+        import psutil
+        processes = [*self.watch(), self.root]
+        for p in processes:
+            with contextlib.suppress(psutil.NoSuchProcess):
+                p.kill()
+        psutil.wait_procs(processes, timeout=30)
+
+
+def test_a_failed_test_leaves_no_process():
+    """_Tree, test_serve_starts_and_stops's cleanup: a test that fails while the process it started still runs leaves
+    neither that process nor the processes it started (a grandchild that would sleep a minute); a process of the tree
+    that has ended already does not stop the cleanup, nor does one asked about as it ends (_running)."""
+    import psutil
+    script = ("import subprocess, sys, time\n"
+              "child = subprocess.Popen([sys.executable, '-c', 'import time; print(\"up\", flush=True); time.sleep(60)'])\n"
+              "print(child.pid, flush=True)\n"
+              "time.sleep(60)\n")
+    root = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+    started = []
+    try:
+        tree = _Tree(root.pid)
+        with pytest.raises(RuntimeError):
+            try:
+                lines = [root.stdout.readline().strip() for _ in range(2)]  # the grandchild's pid, and it runs
+                assert "up" in lines, lines
+                grandchild = psutil.Process(int(next(line for line in lines if line.isdigit())))
+                started = tree.watch()
+                assert grandchild in started
+                quick = subprocess.Popen([sys.executable, "-c", "pass"])
+                tree.seen.add(psutil.Process(quick.pid))
+                quick.wait(timeout=60)
+                raise RuntimeError("the test fails midway")
+            finally:
+                tree.stop()
+        assert _ended_within(started, 10) == [], _names(started)
+        assert root.wait(timeout=10) is not None
+    finally:  # this test's own processes, should _Tree have left any
+        for p in started:
+            with contextlib.suppress(psutil.NoSuchProcess):
+                p.kill()
+        if root.poll() is None:
+            root.kill()
+        root.wait(timeout=30)
+        root.stdout.close()
+
+    class Ending:  # a process that ends between is_running and status
+        pid = 1
+
+        def is_running(self):
+            return True
+
+        def status(self):
+            raise psutil.NoSuchProcess(1)
+
+        def name(self):
+            raise psutil.NoSuchProcess(1)
+    assert _running([Ending()]) == [] and _names([Ending()]) == ["pid 1"]
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -405,26 +522,26 @@ def test_smoke_over_https(tmp_path, built, view_clip):
                 assert errors == []
             finally:
                 browser.close()
-    deadline = time.monotonic() + 30
-    while True:  # the worker's processes end with the server (the scheduler's stop)
-        left = [p for p in psutil.Process().children(recursive=True) if p.pid not in children_before and p.is_running()
-                and p.status() != psutil.STATUS_ZOMBIE]
-        if not left or time.monotonic() > deadline:
-            break
-        time.sleep(0.2)
-    assert left == [], [p.name() for p in left]
-
+    # the worker's processes end with the server (the scheduler's stop)
+    started = [p for p in psutil.Process().children(recursive=True) if p.pid not in children_before]
+    left = _ended_within(started, 30)
+    names = _names(left)
+    for p in left:  # this test's own, not left behind when it fails
+        with contextlib.suppress(psutil.NoSuchProcess):
+            p.kill()
+    assert left == [], names
 
 
 @needs_esbuild
 def test_serve_starts_and_stops(tmp_path, view_clip):
     """`serve` itself, as the user starts it (its own process; 127.0.0.1 and a free port): it builds the page, serves
     Home over HTTPS with its certificate in the data folder, and Ctrl+Break (Windows; SIGINT elsewhere) stops it
-    cleanly: "Stopped.", exit 0, the port free, the certificate's folder gone, none of its processes left."""
+    cleanly: "Stopped.", exit 0, the port free, the certificate's folder gone, none of its processes left. Should it
+    fail midway, its whole process tree is stopped (_Tree), not the tool's process alone (the numba warm-up would go
+    on compiling in the data folder)."""
     import signal
     import warnings
 
-    import psutil
     import requests
     import urllib3
 
@@ -442,10 +559,13 @@ def test_serve_starts_and_stops(tmp_path, view_clip):
     printed = []
     reader = threading.Thread(target=lambda: printed.extend(line.rstrip() for line in server.stdout), daemon=True)
     reader.start()
+    tree = None
     try:
+        tree = _Tree(server.pid)  # its processes, stopped in `finally` also when the test fails midway
         deadline = time.monotonic() + 300
         while not any("Ctrl+C stops" in line for line in printed):
             assert server.poll() is None and time.monotonic() < deadline, printed
+            tree.watch()
             time.sleep(0.1)
         assert any(f"https://localhost:{port}/" in line for line in printed), printed
         assert (data / lan_app.CERT_DIR / "device-key.pem").is_file()
@@ -453,22 +573,20 @@ def test_serve_starts_and_stops(tmp_path, view_clip):
             warnings.simplefilter("ignore", urllib3.exceptions.InsecureRequestWarning)
             home = requests.get(f"https://127.0.0.1:{port}/", verify=False, timeout=60)
         assert home.status_code == 200 and '<script src="/app/app.js"></script>' in home.text
-        children = [p.pid for p in psutil.Process(server.pid).children(recursive=True)]
+        children = tree.watch()
         server.send_signal(signal.CTRL_BREAK_EVENT if windows else signal.SIGINT)
         assert server.wait(timeout=60) == 0
         reader.join(timeout=10)
+        left = _ended_within(children, 30)  # ended by the stop itself, before any cleanup below
+        assert left == [], _names(left)
     finally:
+        if tree is not None:
+            tree.stop()
         if server.poll() is None:
             server.kill()
+            server.wait(timeout=30)
     assert "Stopped." in printed, printed
     assert not (data / lan_app.CERT_DIR).exists()
-    deadline = time.monotonic() + 30
-    while True:
-        left = [pid for pid in children if psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE]
-        if not left or time.monotonic() > deadline:
-            break
-        time.sleep(0.2)
-    assert left == []
     with socket.socket() as s:
         assert s.connect_ex(("127.0.0.1", port)) != 0
 
