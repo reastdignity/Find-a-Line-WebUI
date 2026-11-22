@@ -32,7 +32,7 @@ STATE_SECONDS = 2
 FREE_SECONDS = 60
 STARTING_SECONDS = 30       # a row started shows "starting" until its state says more, at most this long
 BAR_CELLS = 8
-LIVE = ("listing", "downloading", "waiting")
+LIVE = ("listing", "downloading", "waiting", "queued")   # queued: its supervisor waits for its source's turn
 SINGLE_ROW_COUNTRY_LEVEL = False  # a country of one row sits in its continent, by its title; True: a group of its own
 FOLD_AT_START = True   # a country's group folded at start unless one of its rows has a download's state; False: all open
 
@@ -58,6 +58,8 @@ def state_text(state: Dict) -> str:
         text = f"done, {state['gb']:.1f} GB" if state["gb"] >= 1 else f"done, {1000 * state['gb']:.0f} MB"
     elif stage in ("waiting", "needs attention") and state["message"]:
         text = f"{stage}: {state['message']}"
+    elif stage == "queued":   # its turn comes after the rows of its source started before it
+        text = "queued" if not state["share"] else f"queued, {100 * state['share']:.0f} % downloaded"
     else:
         text = stage
     if state["failed"] and stage != "needs attention":
@@ -69,12 +71,23 @@ def state_text(state: Dict) -> str:
     return text + ", no news" if state["stale"] else text
 
 
+AGAIN = "again"
+
+
+def start_word(state: Optional[Dict]) -> str:
+    """What Start does with a row, in its question: a new download, one that goes on, a finished one checked again."""
+    if not state:
+        return "new"
+    return AGAIN if state["stage"] == "done" else "resumes"
+
+
 def is_live(state: Optional[Dict]) -> bool:
     return bool(state) and state["stage"] in LIVE and not state["stale"]
 
 
 class Box(Checkbox):
-    """A checkbox that looks like one; up and down go through the list, past the rows that cannot be ticked."""
+    """A checkbox that looks like one; up and down go through the list (every row can be ticked, a finished one
+    too since 2026-11-18)."""
     BINDINGS = [Binding("up", "app.previous_row", show=False), Binding("down", "app.next_row", show=False)]
 
     def render(self) -> Content:
@@ -136,10 +149,8 @@ class AreaRow(Horizontal):
         cell.set_class(stage == "done", "-done")
         cell.set_class(stage == "needs attention", "-attention")
         cell.set_class(bool(state) and state["stale"], "-stale")
-        done = stage == "done" and not starting
-        if done and self.box.value:
-            self.box.value = False
-        self.box.disabled = done
+        # A finished row can be ticked and started again (the user's word of 2026-11-18): a source may have gained
+        # a layer or a stand-in since (Utah's 10 m tiles), and a pass over what is cached takes about a minute
 
     def set_target(self, label: str, share: bool):
         self.target = label
@@ -343,10 +354,12 @@ class Downloads(App):
             return
         rows = self.area_rows()
         ticked = [row for row in rows if row.ticked]
-        running = sum(is_live(row.state) for row in rows)
+        queued = sum(is_live(row.state) and row.state["stage"] == "queued" for row in rows)
+        running = sum(is_live(row.state) for row in rows) - queued
         size = sum(row.row.km2 for row in ticked)
         chosen = f"{len(ticked)} ticked ({km2_text(size)})" if size else f"{len(ticked)} ticked"
-        summary.update(f"{areas_word(len(rows))}, {chosen}, {running} downloading")
+        waiting = f", {queued} queued" if queued else ""   # fifty states started: one downloads, the others wait
+        summary.update(f"{areas_word(len(rows))}, {chosen}, {running} downloading{waiting}")
         for group in self.query(Group):
             members = list(group.query(AreaRow))
             if not members:   # its rows already removed while shutting down
@@ -444,7 +457,12 @@ class Downloads(App):
                 links += [link for link in needed if link not in links]
                 going.append(row)
         lines = [f"{row.row.title[:33]:<34}{row.row.resolution:g} m {km2_text(row.row.km2):>14}  {row.target[:7]:<8}"
-                 f"{'resumes' if row.state else 'new'}" for row in going]
+                 f"{start_word(row.state)}" for row in going]
+        if any(start_word(row.state) == AGAIN for row in going):
+            lines += ["", "A finished area is checked again: only what is missing or new is downloaded."]
+        notes = [note for note in (ar.slow_note(row.row) for row in going) if note]
+        if notes:
+            lines += ["", *notes]
         if blocked:
             lines += ["", "Not started:", *blocked]
         if not going:
@@ -480,7 +498,8 @@ class Downloads(App):
         for row in rows:
             target = self.settings.targets[row.target]
             needed = {os.path.join(target.data_dir, "cache", *folder.split("/"))
-                      for folder in ar.layer_folders(row.row.source)}
+                      for folder in ar.link_folders(row.row.source)}   # the stand-in's too: a row without one of
+            #                                                             them would fill this disk
             if target.tiles is not None and needed & unlinked:
                 self.call_from_thread(self.notify, f"{row.row.title}: no links, not started", severity="error",
                                       markup=False)

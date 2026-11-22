@@ -149,8 +149,7 @@ class SearchParams(BaseModel):
                                 "cannot tell, or hard access (from the terrain alone: no paths, fences, "
                                 "private land or trees; no line is filtered out)", "search")
     threads: Optional[int] = field(None, "number of threads for the line search (default: CPU count - 1, "
-                                         "at most a container's CPU quota); from 2, the files of a large run are "
-                                         "written by processes of their own (2 and 3: two, 4 and more: four)",
+                                         "at most a container's CPU quota)",
                                    "search")
     tile_size: Optional[float] = field(None, "large areas are computed in square tiles of this size in metres "
                                              "(plus an overlap of --max-length); default: from the free memory",
@@ -190,7 +189,8 @@ class SearchParams(BaseModel):
         "clearance", "line shown for each group: largest clearance, longest, or highest above the terrain "
                      "(height_max)", "output")
     name: Optional[str] = field(None, "name of the run (default: place name from OpenStreetMap)", "output")
-    no_html: bool = field(False, "do not save the interactive map", "output")
+    no_html: bool = field(False, "do not save the interactive map page (the lines are saved all the same: "
+                                 "findaline.py export)", "output")
     ortho: Literal["auto", "always", "never"] = field(
         "auto", "orthophoto tiles for offline use of the map: 'auto' asks when they would take longer than "
                 "30 min (--yes downloads), 'always', or 'never' (the map loads them online)", "output")
@@ -392,8 +392,8 @@ class CliOptions(BaseModel):
     data_dir: Optional[str] = field(None, "folder holding cache/ (downloaded data), runs/ (saved runs) and "
                                           "work/ (working grids)", "output",
                                     default_text="FINDALINE_DATA, else the folder of the script")
-    html: Optional[str] = field(None, "page that opens the map of the latest run", "output",
-                                default_text="findaline_map.html in the data folder")
+    html: Optional[str] = field(None, "no longer used (kept for one release): a run opens through the app, and the "
+                                      "search prints the command that opens it (findaline.py view)", "output")
     all_lines: bool = field(False, "list every line instead of one line per group", "output")
     no_plot: bool = field(False, "do not open the matplotlib map", "output")
     yes: bool = field(False, "do not ask for confirmation before long runs", "output", flags=["-y"])

@@ -153,9 +153,10 @@ def test_drawn_area_through_the_queue(tmp_path, monkeypatch):
          *[a for k, v in common.items() for a in ("--" + k.replace("_", "-"), str(v))]],
         cwd=REPO, capture_output=True, text=True, encoding="utf-8", timeout=600, env=dict(os.environ))
     assert cli.returncode == 0, cli.stdout + cli.stderr
-    cli_csv = next((tmp_path / "cli" / "runs").glob("*/lines.csv"))
-    lines = (folder / "lines.csv").read_bytes()
-    assert len(lines.splitlines()) > 10 and lines == cli_csv.read_bytes()
+    import clip_runs
+    cli_run = next((tmp_path / "cli" / "runs").glob("*/run.json")).parent
+    lines = clip_runs.export_text(folder)  # the runs' lines.csv before store wave 4
+    assert len(lines.splitlines()) > 10 and lines == clip_runs.export_text(cli_run)
 
 
 def test_jobs_database_migrated(tmp_path):
@@ -303,7 +304,8 @@ def test_job_through_the_queue(tmp_path, monkeypatch):
     steps = {e["data"]["step"].split(":")[0] for e in jobs.events(0, job) if e["kind"] == "progress"} - {""}
     assert steps == {f"Step {n}/5" for n in range(1, 6)}, steps
     stages = {e["data"]["stage"] for e in jobs.events(0, job) if e["kind"] == "progress"}
-    assert {"checking lines", "coordinates", "saving results", "saving the map"} <= stages, stages
+    assert {"checking lines", "coordinates", "saving results"} <= stages, stages  # "saving the map": gone with
+    assert "saving the map" not in stages  # store wave 4 (map.html is one small file, written in "saving results"'s step)
 
 
 def test_two_jobs_computing_at_once(tmp_path, monkeypatch):
@@ -591,8 +593,9 @@ def test_orthophoto_after_done_in_the_worker(tmp_path, monkeypatch, http_server,
     db.close()
     assert steps.get("orthophoto", 0) > 0 and steps["5"] > 0, steps
     assert not os.path.exists(jobs.folder(job))
-    data = (tmp_path / "runs" / row["run_id"] / "data.js").read_text(encoding="utf-8")
-    assert json.loads(data.partition(" = ")[2].rstrip().rstrip(";"))["ortho"]["cache"] == "../../cache/fake/ortho/live/wm256"
+    import linestore  # the map's orthophoto entry: the store's head (data.js's before store wave 4)
+    head = linestore.read(str(tmp_path / "runs" / row["run_id"]), profiles=False)[1]
+    assert head["ortho"]["cache"] == "../../cache/fake/ortho/live/wm256"
 
     # The step failing: the job stays done with its run; a warning event and a line on stderr
     def broken(plan, spots, confirm=None):
@@ -1030,8 +1033,10 @@ def _clip_run(tmp_path, monkeypatch, *extra) -> str:
 
 
 def _lines_of(tmp_path, run_id):
-    text = (tmp_path / "runs" / run_id / "data.js").read_text(encoding="utf-8")
-    return json.loads(text.partition(" = ")[2].rstrip().rstrip(";"))["lines"]
+    """The rows of a run's lines as its data.js held them before store wave 4, made from its store
+    (tests/old_scripts.py): row[:4] the anchors, [8] the length, [-1] the profile."""
+    import old_scripts
+    return old_scripts.data_js(tmp_path / "runs" / run_id)["lines"]
 
 
 def test_profile_on_demand(tmp_path, monkeypatch):
@@ -1114,6 +1119,53 @@ def test_run_again_and_edit(client, tmp_path):
     jobs.set(osm_job, "done")
     copy = client.post(f"/api/jobs/{osm_job}/again", headers=headers).json()["id"]
     assert json.loads(jobs.get(copy)["request"]) == {"osm": {"action": "download", "region": "malta"}}
+
+
+def test_remove_a_cancelled_search_locally(client, tmp_path):
+    """The local app: a cancelled search (cancelled while waiting, and while running through its worker) is
+    removed from the list with POST /api/jobs/<id>/remove (with the page's token); the local user's list, an
+    administrator's, keeps it marked (removed_at), so the page leaves its card out. A failed or waiting search is
+    refused with a code of the catalogue; a second removal answers ok; the job's row stays."""
+    import messages
+    jobs = Jobs(str(tmp_path))
+    request = {"params": {"name": "Cliff", "radius": 300}, "geometry": {"type": "Point", "coordinates": [14.2, 36.0]}}
+    headers = {"x-findaline-token": TOKEN}
+    waiting, running, failed = (jobs.add(request, name) for name in ("Waiting", "Running", "Failed"))
+    assert client.post(f"/api/jobs/{waiting}/remove", headers=headers).status_code == 409  # still waiting
+    assert client.delete(f"/api/jobs/{waiting}", headers=headers).status_code == 200      # cancelled at once
+    jobs.set(running, "computing")
+    jobs.set(running, "cancelled", when=("computing",))  # as the worker does after cancel_requested
+    jobs.set(failed, "failed", error="interrupted")
+    refused = client.post(f"/api/jobs/{failed}/remove", headers=headers)
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "job_not_cancelled"
+    assert refused.json()["detail"]["message"] == messages.text("error.job_not_cancelled")
+    assert client.post(f"/api/jobs/{waiting}/remove").status_code == 403  # no token
+    for job in (waiting, running):
+        assert client.post(f"/api/jobs/{job}/remove", headers=headers).json() == {"ok": True}
+        assert client.post(f"/api/jobs/{job}/remove", headers=headers).json() == {"ok": True}  # again: harmless
+    listed = {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}
+    assert listed[waiting]["removed_at"] and listed[running]["removed_at"] and not listed[failed]["removed_at"]
+    assert {jobs.get(j)["status"] for j in (waiting, running)} == {"cancelled"}  # the rows stay as they were
+    assert client.post("/api/jobs/nothing/remove", headers=headers).status_code == 404
+
+
+def test_run_deleted_by_hand_locally(client, tmp_path):
+    """The local app has no run deletion: a run is deleted in the runs folder. Its finished job is then listed with
+    run_gone (the page shows no card for it) at every listing after, not only once; the run put back, it is listed
+    as before. Nothing is stored for it."""
+    import shutil
+    jobs = Jobs(str(tmp_path))
+    job = jobs.add({"params": {"radius": 300}, "geometry": None}, "Saved")
+    run = tmp_path / "runs" / "2026-11-17_100000_Saved_0000000000000001"
+    run.mkdir(parents=True)
+    (run / "run.json").write_text("{}")
+    jobs.set(job, "done", run_id=run.name)
+    gone = lambda: {j["id"]: j["run_gone"] for j in client.get("/api/jobs").json()["jobs"]}[job]  # noqa: E731
+    assert gone() is False
+    shutil.move(run, tmp_path / "aside")  # deleted by hand (or moved away)
+    assert gone() is True and gone() is True and jobs.get(job)["removed_at"] is None
+    shutil.move(tmp_path / "aside", run)
+    assert gone() is False
 
 
 def test_sag_requests_keep_their_fall_zone(tmp_path):
@@ -1413,16 +1465,15 @@ def test_app_reads_area_files(tmp_path):
 XSS_NAME = "<img src=x onerror=window.XSS=1>"
 
 # Between data.js and the viewer: credits as a run records them, one with markup in its texts
-CREDITS_STUB = """
-window.FINDALINE_RUN.attribution = [
-  {data: "FABDEM V1-2", attribution: "FABDEM V1-2 © University of Bristol", licence: "CC BY-NC-SA 4.0",
-   url: "https://creativecommons.org/licenses/by-nc-sa/4.0/", notice: ""},
-  {data: "Bad", attribution: "<img src=x onerror=window.XSS=1>", licence: "<b>x</b>",
-   url: "javascript:window.XSS=2", notice: ""}];
-window.FINDALINE_RUN.ortho = {name: "Ortho test", url: null, layer: "", cache: null,
-  attribution: "<img src=x onerror=window.XSS=3> © Test", attribution_url: "https://example.invalid/terms",
-  base: {url: "https://example.invalid/{z}/{x}/{y}.jpg", max_zoom: 18}};
-"""
+CREDITS_HEAD = {
+    "attribution": [
+        {"data": "FABDEM V1-2", "attribution": "FABDEM V1-2 © University of Bristol", "licence": "CC BY-NC-SA 4.0",
+         "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/", "notice": ""},
+        {"data": "Bad", "attribution": "<img src=x onerror=window.XSS=1>", "licence": "<b>x</b>",
+         "url": "javascript:window.XSS=2", "notice": ""}],
+    "ortho": {"name": "Ortho test", "url": None, "layer": "", "cache": None,
+              "attribution": "<img src=x onerror=window.XSS=3> © Test", "attribution_url": "https://example.invalid/terms",
+              "base": {"url": "https://example.invalid/{z}/{x}/{y}.jpg", "max_zoom": 18}}}
 
 # The steps of a test of a run's map.html (the result view of the app, result/view/ResultColumns): each step
 # runs when its page shows what it waits for; the result (or where it stopped) goes into <pre id="result">
@@ -1522,15 +1573,8 @@ run({
     }); });
   },
   downloads(next) {
-    button("Download").click();
-    later(() => {
-      const links = $$(".r-downloads a").map((a) => a.getAttribute("href"));
-      Promise.all(links.map((href) => fetch(href).then((r) => r.status))).then((statuses) => {
-        result.downloads = links.map((href, k) => href + " " + statuses[k]);
-        button("Download").click();
-        next();
-      });
-    });
+    result.download = !!button("Download");  // a run's map.html has no token: no Download (RunActions mayExport)
+    next();
   },
   compare(next) {
     button("Compare").click();
@@ -1566,19 +1610,45 @@ run({
 """
 
 
-def _map_page(folder, name: str, script: str, before_data: str = "", after_data: str = "") -> str:
-    """A copy of the run's map.html with test scripts (`before_data` first in its head, `after_data` between
-    data.js and the viewer, `script` at the end); its file name. data.js is loaded by a tag before the viewer,
-    as a map.html written before 2026-11-04 does (the viewer takes its window.FINDALINE_RUN), so `after_data`
-    can change the data; test_run_map_loads_its_data has the viewer load it."""
+def store_with(folder, head: dict | None = None, first: dict | None = None):
+    """The run's lines.arrow with the keys `head` set in its head and the first line's values `first` ({the store's
+    column: the value}, scaled by the column's decimals) set: what a test once changed in data.js before the page read
+    it. run.json's block "store" is kept (the page checks no digest)."""
+    import pyarrow as pa
+    import linestore
+    path = str(folder / linestore.LINES_FILE)
+    with pa.OSFile(path, "rb") as f:
+        table = pa.ipc.open_file(f).read_all()
+    meta = json.loads(table.schema.metadata[linestore.META_KEY])
+    meta["head"].update(head or {})
+    for name, value in (first or {}).items():
+        k = table.schema.get_field_index(name)
+        field = table.schema.field(k)
+        decimals = (field.metadata or {}).get(b"decimals")
+        values = table.column(k).to_pylist()
+        values[0] = round(value * 10 ** int(decimals)) if decimals else value
+        try:
+            array = pa.array(values, type=field.type)
+        except (OverflowError, pa.ArrowInvalid):  # beyond the column's narrow integers: int32, as the store widens
+            field = field.with_type(pa.int32())
+            array = pa.array(values, type=field.type)
+        table = table.set_column(k, field, array)
+    linestore._write_file(path, table.replace_schema_metadata(
+        {linestore.META_KEY: json.dumps(meta, ensure_ascii=False).encode("utf-8")}))
+
+
+def _map_page(folder, name: str, script: str, before_data: str = "", head: dict | None = None,
+              first: dict | None = None) -> str:
+    """A copy of the run's map.html with test scripts (`before_data` first in its head, `script` at the end); its file
+    name. The page reads the run's store over http; `head` and `first` change the store first (store_with)."""
+    if head or first:
+        store_with(folder, head, first)
     page = (folder / "map.html").read_text(encoding="utf-8")
     assert "<style" not in page and " style=" not in page and 'src="data.js"' not in page
-    for suffix, content in (("before", before_data), ("after", after_data), ("test", script)):
+    for suffix, content in (("before", before_data), ("test", script)):
         (folder / f"{name}_{suffix}.js").write_text(content, encoding="utf-8")
     (folder / f"{name}.html").write_text(
         page.replace("<head>", f'<head><script src="{name}_before.js"></script>')
-            .replace('<script src="../runs.js"></script>',
-                     f'<script src="data.js"></script><script src="{name}_after.js"></script><script src="../runs.js"></script>')
             .replace("</body>", f'<script src="{name}_test.js"></script></body>'), encoding="utf-8")
     return f"{name}.html"
 
@@ -1596,8 +1666,8 @@ def test_run_map(tmp_path, monkeypatch):
     """A run's map.html served by the app shows the app's result view (C's columns): the way back to the app, the
     credits of its data as text (no markup, http(s) links only, ATTRIBUTION.txt), #line= of a line hidden by the
     filters named and opened, a row selects its line (the details' column, the profile in its card over the bottom
-    of the map with the attribution above it and the data credits folded behind their button, the hash), a favourite kept by the server, the downloads
-    beside it, another run (named like an HTML tag) compared, measuring; no CSP violations. On a desktop the
+    of the map with the attribution above it and the data credits folded behind their button, the hash), a favourite kept by the server, no
+    Download (a map.html has no token), another run (named like an HTML tag) compared, measuring; no CSP violations. On a desktop the
     data credits are not folded while no card is shown; without ESRI_API_KEY no satellite layer."""
     monkeypatch.delenv("ESRI_API_KEY", raising=False)
     monkeypatch.setattr("settings.SECRETS_DIR", str(tmp_path / "no-secrets"))
@@ -1607,7 +1677,7 @@ def test_run_map(tmp_path, monkeypatch):
     folder = tmp_path / "runs" / run_id
     assert (folder / "ATTRIBUTION.txt").exists()
     filters = 'localStorage.setItem("findaline.filters", \'{"lenMin": 100000}\');'
-    page = _map_page(folder, "map_test", MAP_SCRIPT, before_data=CSP_STUB + filters, after_data=CREDITS_STUB)
+    page = _map_page(folder, "map_test", MAP_SCRIPT, before_data=CSP_STUB + filters, head=CREDITS_HEAD)
     line = ",".join(str(v) for v in row[:4])
     dom = _edge_page(tmp_path, f"runs/{run_id}/{page}#line={line}", start_scheduler=True, size="1280,800")
     r = _result_in(dom)
@@ -1630,7 +1700,7 @@ def test_run_map(tmp_path, monkeypatch):
     assert r["card"] == {"insets": [12, 12, 12], "inDetails": False, "attributionAbove": True}, r
     assert r["creditsWithCard"]["button"] != "none" and r["creditsWithCard"]["credits"] == "none", r
     assert r["favouritesOn"] and r["favourite"], r
-    assert sorted(r["downloads"]) == ["lines.csv 200", "lines.geojson 200"], r
+    assert r["download"] is False, r
     assert len(r["others"]) == 1 and XSS_NAME in r["others"][0], r
     assert r["otherLines"] > 0 and r["xss"] is None and r["imgs"] == 0, r
     assert r["measured"].startswith(f"Measured: {r['expectedLength']} m"), r
@@ -1638,10 +1708,12 @@ def test_run_map(tmp_path, monkeypatch):
     assert re.match(r"(does not fit|fits over terrain only|fits) · min\. clearance ", r["measuredFacts"]), r
     assert r["measuringHint"] == ["Select a line on the map or in the list.", True], r
     assert _violations(dom) == []
-    index = (tmp_path / "runs" / "index.html").read_text(encoding="utf-8")
-    assert "<style" not in index and "_viewer/index.css" in index and XSS_NAME not in index
-    assert os.path.exists(tmp_path / "runs" / "_viewer" / "index.css")
-    assert other in index
+    # no runs/index.html since store wave 4 (the app lists the runs); runs.js lists both, the name as JSON
+    assert not (tmp_path / "runs" / "index.html").exists()
+    # nor its stylesheet since store wave 4's item 5 (runs/index.html went with deploy 1)
+    assert not os.path.exists(tmp_path / "runs" / "_viewer" / "index.css")
+    listed = (tmp_path / "runs" / "runs.js").read_text(encoding="utf-8")
+    assert other in listed and json.dumps(XSS_NAME, ensure_ascii=False) in listed
 
 
 # A map on a phone's width with the satellite map's key: the data credits folded behind their button, the tile
@@ -1691,7 +1763,7 @@ def test_run_map_on_a_phone_with_the_satellite_key(tmp_path, monkeypatch):
     monkeypatch.setenv("ESRI_API_KEY", key)
     run_id = _clip_run(tmp_path, monkeypatch)
     folder = tmp_path / "runs" / run_id
-    page = _map_page(folder, "phone_test", PHONE_CREDITS_SCRIPT, before_data=CSP_STUB, after_data=CREDITS_STUB)
+    page = _map_page(folder, "phone_test", PHONE_CREDITS_SCRIPT, before_data=CSP_STUB, head=CREDITS_HEAD)
     dom = _edge_page(tmp_path, f"runs/{run_id}/{page}", size="500,900")
     r = _result_in(dom)
     assert "timeout" not in r and r.get("at") == "end", r
@@ -1716,61 +1788,8 @@ def test_run_map_on_a_phone_with_the_satellite_key(tmp_path, monkeypatch):
                 assert key.encode() not in f.read(), name
 
 
-# A map opened from disk: no server, so no profiles, measuring or favourites; the other runs from ../runs.js
-DISK_SCRIPT = MAP_HELPERS + """
-run({
-  loaded(next) { wait(() => rows().length && model() && $(".u-credits"), () => {  // the credits come with the map
-    result.spots = model().shown.spots;
-    result.back = backs();
-    result.measure = !!button("Measure");
-    result.favouritesOn = model().favouritesOn;
-    result.canCompute = model().canCompute;
-    result.credits = credits().links;
-    next();
-  }); },
-  select(next) {
-    rows()[0].click();
-    wait(() => $(".c-col-details .r-dtitle") && $(".r-card .fal-profile-title"), () => {
-      result.profile = text(".r-card .fal-profile-title");
-      result.hash = decodeURIComponent(location.hash) === "#line=" + model().lineLink(model().selected.line);
-      next();
-    });
-  },
-  compare(next) {
-    button("Compare").click();
-    wait(() => $(".r-other input"), () => {
-      $(".r-other input").click();
-      wait(() => model().others.size === 1, () => { result.otherLines = [...model().others.values()][0].count; next(); });
-    });
-  },
-});
-"""
-
-
-@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_run_map_from_disk(tmp_path, monkeypatch):
-    """A run's map.html opened from disk (file://): the way back is the list of runs beside it, no measuring or
-    favourites (no server), the saved profile of a line, its hash, and another run compared from its lines.js."""
-    import subprocess
-    run_id = _clip_run(tmp_path, monkeypatch)
-    _clip_run(tmp_path, monkeypatch, "--easting", "554066")
-    folder = tmp_path / "runs" / run_id
-    page = _map_page(folder, "disk_test", DISK_SCRIPT, before_data=INTROS_SEEN, after_data=CREDITS_STUB)
-    dom = subprocess.run(
-        [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-         "--window-size=1280,800", "--allow-file-access-from-files", "--virtual-time-budget=60000", "--dump-dom",
-         (folder / page).as_uri()], capture_output=True, text=True, encoding="utf-8", timeout=180).stdout
-    r = _result_in(dom)
-    assert "timeout" not in r and r["at"] == "end", r
-    assert r["spots"] > 0 and r["back"] == ["All runs"], r
-    assert not r["measure"] and not r["favouritesOn"] and not r["canCompute"], r
-    assert "ATTRIBUTION.txt" in r["credits"], r
-    assert r["profile"].startswith("Profile: ") and r["hash"], r
-    assert r["otherLines"] > 0, r
-
-
-# On a map.html as written (the viewer loads data.js itself): the loading's texts the page showed, then the run's
-# lines and how data.js was read (the User Timing measures of result/load.ts)
+# On a map.html as written (the viewer loads the run's store itself): the loading's texts the page showed, then the
+# run's lines and how the store was read (the User Timing measures of result/load.ts), or the error it showed
 LOAD_SCRIPT = MAP_HELPERS + """
 const seen = [];
 const note = () => {
@@ -1778,14 +1797,16 @@ const note = () => {
   if (label && seen[seen.length - 1] !== label) seen.push(label);
   result.seen = seen;  // also in a timeout's result
   result.errors = [text(".c-result-wait .c-error")].filter(Boolean);
+  result.asked = performance.getEntriesByType("resource").map((e) => new URL(e.name).pathname.split("/").pop())
+    .filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f));
 };
 new MutationObserver(note).observe(document.body, {childList: true, subtree: true, characterData: true});
 note();
 step = "loading";
-wait(() => model() && rows().length > 0, () => {
+wait(() => (model() && rows().length > 0) || result.errors.length, () => {
   step = "end";
-  result.seen = seen;
-  result.lines = model().count;
+  note();
+  result.lines = model() ? model().count : null;
   result.measures = performance.getEntriesByType("measure").filter((m) => m.name.startsWith("fal:run:"))
     .map((m) => [m.name, m.detail]);
   show();
@@ -1794,28 +1815,20 @@ wait(() => model() && rows().length > 0, () => {
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_run_map_loads_its_data(tmp_path, monkeypatch):
-    """A run's map.html as written loads its data.js itself: from the app fetched with its bytes counted and read
-    by JSON.parse, the loading's phases shown; a data.js with NaN (which JSON.parse refuses) loaded as a script
-    instead; from disk as a script; a missing data.js named. Each shows every line; no CSP violations."""
+def test_run_map_loads_its_store(tmp_path, monkeypatch):
+    """A run's map.html as written loads its store itself (store wave 4's item 5: no data.js): its two files fetched
+    with their bytes counted, the loading's phases shown, every line; a run without a store (its files gone) shows
+    ui.result.store_failed's words and asks for no data.js or lines.js; no CSP violations."""
     import shutil
-    import subprocess
+    import linestore
     run_id = _clip_run(tmp_path, monkeypatch)
     folder = tmp_path / "runs" / run_id
-    rows = len(_lines_of(tmp_path, run_id))
-    import runs as rn  # data.js is what this test loads: the run as one without a store (a store is read instead)
-    meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
-    meta.pop("store", None)
-    (folder / "run.json").write_text(json.dumps(meta), encoding="utf-8")
-    rn.write_index(str(tmp_path / "runs"))
-    nan, missing = tmp_path / "runs" / (run_id + "-nan"), tmp_path / "runs" / (run_id + "-missing")
-    shutil.copytree(folder, nan)
+    rows = json.loads((folder / "run.json").read_text(encoding="utf-8"))["store"]["lines"]
+    missing = tmp_path / "runs" / (run_id + "-missing")  # not in runs.js: its store asked for directly (STORE_PROBE)
     shutil.copytree(folder, missing)
-    text = (nan / "data.js").read_text(encoding="utf-8")
-    (nan / "data.js").write_text(text.replace("window.FINDALINE_RUN = {", 'window.FINDALINE_RUN = {"probe":NaN,', 1),
-                                 encoding="utf-8")
-    (missing / "data.js").unlink()
-    for where in (folder, nan, missing):
+    for name in linestore.FILES:
+        (missing / name).unlink()
+    for where in (folder, missing):
         page = (where / "map.html").read_text(encoding="utf-8")
         assert 'src="data.js"' not in page
         (where / "load_stub.js").write_text(CSP_STUB, encoding="utf-8")
@@ -1823,37 +1836,25 @@ def test_run_map_loads_its_data(tmp_path, monkeypatch):
         (where / "load.html").write_text(page.replace("<head>", '<head><script src="load_stub.js"></script>')
                                          .replace("</body>", '<script src="load_test.js"></script></body>'), encoding="utf-8")
 
-    def measures(r):
-        return {name: detail for name, detail in r["measures"]}
-
     dom = _edge_page(tmp_path, f"runs/{run_id}/load.html", size="1280,800")
     r = _result_in(dom)
-    assert r.get("at") == "end" and r["lines"] == rows, r
+    assert r.get("at") == "end" and r["lines"] == rows and r["errors"] == [], r
     assert any(label.startswith("Downloading the run… ") and " of " in label for label in r["seen"]), r
     assert "Reading the lines…" in r["seen"] and "Grouping the lines…" in r["seen"], r
-    found = measures(r)
-    assert found["fal:run:parse"] == {"json": True} and "fal:run:script" not in found, r
-    assert found["fal:run:download"]["bytes"] == (folder / "data.js").stat().st_size, r
+    found = {name: detail for name, detail in r["measures"]}
+    sizes = sum((folder / name).stat().st_size for name in linestore.FILES)
+    assert found["fal:run:download"] == {"bytes": sizes, "store": True} and "fal:run:script" not in found, r
+    assert sorted(r["asked"]) == ["lines.arrow", "profiles.arrow"], r
     assert _violations(dom) == []
 
-    dom = _edge_page(tmp_path, f"runs/{nan.name}/load.html", size="1280,800", profile="edge-nan")
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)["ui.result.store_failed"]
+    dom = _edge_page(tmp_path, f"runs/{missing.name}/load.html", size="1280,800", profile="edge-missing")
     r = _result_in(dom)
-    assert r.get("at") == "end" and r["lines"] == rows, r
-    found = measures(r)
-    assert found["fal:run:parse"] == {"json": False} and "fal:run:script" in found, r
+    assert r.get("at") == "end" and r["lines"] is None and r["errors"] == [words], r
+    assert sorted(r["asked"]) == ["lines.arrow", "profiles.arrow"], r  # the probe's two 404s, nothing else
     assert _violations(dom) == []
 
-    r = _result_in(_edge_page(tmp_path, f"runs/{missing.name}/load.html", size="1280,800", profile="edge-missing"))
-    assert r.get("timeout") and r["errors"] == ["The run's data (data.js) could not be loaded."], r
-
-    dom = subprocess.run(
-        [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge-disk'}", "--no-first-run",
-         "--window-size=1280,800", "--allow-file-access-from-files", "--virtual-time-budget=60000", "--dump-dom",
-         (folder / "load.html").as_uri()], capture_output=True, text=True, encoding="utf-8", timeout=180).stdout
-    r = _result_in(dom)
-    assert r.get("at") == "end" and r["lines"] == rows, r
-    found = measures(r)
-    assert "fal:run:script" in found and "fal:run:download" not in found, r
 
 FAVOURITES_TAB_SCRIPT = """
 (function () {
@@ -2112,6 +2113,8 @@ RESULTS_SCRIPT = """
       button("Download").click();
       later(() => {
         const links = $$(".r-downloads a").map((a) => a.getAttribute("href"));
+        // a run read from its store: two rows that ask for an export (RunActions Export), no links
+        result.exportRows = $$(".r-downloads button.u-btn").map((b) => b.textContent.trim());
         Promise.all(links.map((href) => fetch(href).then((r) => r.status))).then((statuses) => {
           result.downloads = links.map((href, k) => href + " " + statuses[k]);
           next();
@@ -2175,7 +2178,7 @@ def test_results_ui(tmp_path, monkeypatch):
     """The results UI of the new interfaces (result/view) on its demo page, ?ui=kit-result&run=<id>: the summary
     and the list, a row selects its line (details, profile; a touch on the profile reads a point), the next
     spot, Enter on a row, a filter chip changes the counts and is removed, a favourite kept by the server,
-    the copied link holds the line, the downloads answer, #line= opens a line, measuring shows its profile;
+    the copied link holds the line, Download offers the two files, #line= opens a line, measuring shows its profile;
     below 768 px a sheet instead of the panel; no CSP violations."""
     import html
     import re
@@ -2219,8 +2222,9 @@ def test_results_ui(tmp_path, monkeypatch):
     assert r["favButton"] == "Favourite" and r["unmarked"] == 0, r
     assert r["copied"].endswith("&line=" + urllib.parse.quote(r["coords"], safe="")), r
     assert r["copyButton"] == "Link copied", r
-    assert sorted(r["downloads"]) == sorted(f"/runs/{urllib.parse.quote(run_id)}/{f} 200"
-                                            for f in ("lines.csv", "lines.geojson")), r
+    # the run has a store and the page its token: Download's rows ask the worker for the file, no kept file is linked
+    # (tests/test_shell_c_download.py presses them; a run without a store keeps its two links there)
+    assert r["downloads"] == [] and r["exportRows"] == ["CSV table, every line", "GeoJSON for GIS and map apps"], r
     assert r["linked"], r
     assert r["measured"].startswith(f"Measured: {r['expectedLength']} m"), r
     assert _violations(dom) == []
@@ -2378,7 +2382,7 @@ def test_search_panel(tmp_path):
     started = r["started"]
     assert started["id"] == started["job"] and "waiting" in started["card"], started
     assert started["meters"] == ["runs_gb", "jobs_day", "jobs_active"], started  # locally: no km² counted
-    assert "No daily limits" in started["usage"] and "Searches today · 1" in started["usage"], started
+    assert "No daily limits" in started["usage"] and "Searches today: 1" in started["usage"], started
     queued = Jobs(str(tmp_path)).get(started["id"])
     assert json.loads(queued["request"])["params"] == r["again"]["body"]
     assert _violations(dom) == []
@@ -2701,7 +2705,7 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
             r["saved_into"] = (page.text_content(".s-rig-save .u-small"), jobs.rigs(None)[0]["values"]["pretension"],
                                page.evaluate("() => document.querySelector('.s-setting[data-field=pretension] .s-changed')"))
             page.close()
-            # Ten rigs: "+ Add a rig" disabled with its sentence, Advanced's "Save as a new rig" too
+            # Ten rigs: "Add a rig" disabled with its sentence, Advanced's "Save as a new rig" too
             for k in range(9):
                 jobs.add_rig(None, f"Spare {k}", STARTING_RIG)
             page = _basic_page(tmp_path, port, browser, viewport={"width": 1280, "height": 900})
@@ -2724,7 +2728,7 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
     assert r["saved"][2] == r["saved"][3], r  # the new rig is in use, kept in this browser
     assert r["edit_title"] == "Change a rig" and r["escaped"] == ("My rig", "u-btn s-rig-change"), r
     assert r["inside"] == 1, r
-    assert r["renamed"] == ([("Light", {**STARTING_RIG, "end_zone": 3})], "sag · no-fall zone 3 m · no A-frames"), r
+    assert r["renamed"] == ([("Light", {**STARTING_RIG, "end_zone": 3})], "sag, no-fall zone 3 m, no A-frames"), r
     assert r["taken"] == "Give the copy a new name: “Light” is taken.", r
     assert r["copied"] == (["Light", "Heavy"], "2 rigs", r["copied"][3], r["copied"][3]), r
     assert r["chosen"] == str(light), r
@@ -2763,6 +2767,219 @@ QUEUE_FULL = {"detail": {"message": "The queue is full (50 searches). Try again 
 PHONE = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
 DESKTOP = {"viewport": {"width": 1280, "height": 900}}
 SHOWN_JS = "(sel) => { const e = document.querySelector(sel); return e ? [e.textContent.trim(), e.getClientRects().length > 0] : null; }"
+
+
+HTML_EN = '<!doctype html>\n<html lang="en">'  # a page's first two lines
+
+
+def test_pages_say_their_language(tmp_path):
+    """Every page the app writes or serves names its language, English (report defect 11: the app, the 3D view, a
+    run's own map, the runs' list and the latest-run redirect had no lang): the templates and the app's page as
+    served. runs.py writes no page since store wave 4 (no runs/index.html, no latest-run redirect: runs.js only)."""
+    import mapping
+    for name in ("APP_HTML", "COVERAGE_HTML", "VIEW3D_HTML", "SIGNIN_HTML", "PAGE_HTML"):
+        assert getattr(web, name).startswith(HTML_EN), name
+    assert mapping.MAP_HTML.startswith(HTML_EN)
+    import runs
+    folder = tmp_path / "runs"
+    folder.mkdir()
+    runs.write_index(str(folder))
+    assert sorted(os.listdir(folder)) in (["runs.js"], ["_runs.lock", "runs.js"])
+    assert not hasattr(runs, "write_latest_redirect")
+    app = web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False)
+    with TestClient(app, base_url=LOCAL) as client:
+        assert '<html lang="en">' in client.get("/").text
+
+
+def test_example_card_open_map_arrow():
+    """The sign-in page's example card says "Open map" with the kit's drawn arrow (web.NEXT_ICON, a copy of
+    viewer/src/ui/icons.tsx ICONS.next), not the character "›" (R9; step 3c, group D); the arrow is static markup
+    without a style attribute (the pages' CSP: style-src 'self'). Its markup is what the kit's Icon draws (icons.tsx:
+    the class u-ic, which gives the stroke and no fill, the viewBox, aria-hidden, the path of ICONS.next), 16 px in
+    pages.css; tests/test_shell_c.py::test_admin_block_asks_and_checkbox_apart compares the drawn arrow with the kit's."""
+    import re
+    with open(os.path.join(REPO, "viewer", "src", "ui", "icons.tsx"), encoding="utf-8") as f:
+        icons = f.read()
+    path = re.search(r"\n  next: '([^']*)',", icons).group(1)
+    assert 'class={`u-ic${' in icons and 'viewBox="0 0 24 24"' in icons and 'aria-hidden={title ? undefined : "true"}' in icons
+    assert web.NEXT_ICON == f'<svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true">{path}</svg>'
+    with open(os.path.join(REPO, "viewer", "src", "ui", "pages.css"), encoding="utf-8") as f:
+        assert ".ui .p-open .u-ic { width: 16px; height: 16px; }" in f.read()
+    run = {"id": "r1", "name": "A run", "summary": {"spots": 1, "lines": 2}, "has_map": True,
+           "params": {"nmpt": None, "radius": 300, "resolution": 1, "slope_threshold": 60, "min_length": 20,
+                      "max_length": 200}}
+    html = web.demo_list([run])
+    assert f"<span class='p-open'>Open map{web.NEXT_ICON}</span>" in html
+    assert "›" not in html and "style=" not in html
+
+
+# The controls whose own font rule loses to the base rule `.ui button, .ui input, ...` (ui.css): their computed font
+# with the base rule weakened to :where(.ui) in the CSSOM differs from the font the page shows
+SHRUNK_JS = """() => {
+  const controls = [...document.querySelectorAll('button, input, select, textarea')].filter((e) => e.getClientRects().length);
+  const font = (e) => { const s = getComputedStyle(e); return [s.fontSize, s.fontWeight, s.fontFamily].join(' '); };
+  const before = controls.map(font);
+  let found = null;
+  for (const sheet of document.styleSheets) {
+    const rules = sheet.cssRules;
+    for (let i = 0; i < rules.length && !found; i++) {
+      if ((rules[i].selectorText || '').replace(/\\s+/g, ' ') === '.ui button, .ui input, .ui select, .ui textarea') {
+        found = [sheet, i, rules[i].cssText];
+        sheet.deleteRule(i);
+        sheet.insertRule(found[2].replace(/^[^{]+/, ':where(.ui) button, :where(.ui) input, :where(.ui) select, :where(.ui) textarea '), i);
+      }
+    }
+    if (found) break;
+  }
+  const after = controls.map(font);
+  if (found) { found[0].deleteRule(found[1]); found[0].insertRule(found[2], found[1]); }
+  return {rule: !!found, shrunk: controls.map((e, i) => [e.className, before[i], after[i]]).filter(([, b, a]) => b !== a)};
+}"""
+# The boxes of the place map's scale and attribution: the scale is clear of the credits where they share a strip
+CORNERS_JS = """() => {
+  const map = document.querySelector('.n-map .leaflet-container') || document.querySelector('.leaflet-container');
+  const box = (sel) => { const r = map.querySelector(sel).getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  return {scale: box('.leaflet-control-scale'), attribution: box('.leaflet-control-attribution')};
+}"""
+# Settled: the scale right above the credits where they run under its corner, else clear of them
+CORNERS_CLEAR = ("() => { const m = document.querySelector('.leaflet-container'); "
+                 "const s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(), "
+                 "a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect(); "
+                 "const under = a.left < s.right && s.left < a.right; "
+                 "return a.height > 0 && (under ? a.top - s.bottom >= 0 && a.top - s.bottom <= 10 "
+                 ": true); }")  # side by side: apart by themselves
+# The search map's scale line set to a width (px) or, with null, wide enough to reach under the credits by 40 px:
+# as a zoom changes it, with nothing else resizing; then [the scale's corner's style.bottom, the credits under the
+# scale, the gap between them]
+SCALE_WIDTH = """(px) => { const m = document.querySelector('.leaflet-container');
+  const a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect(), r = m.getBoundingClientRect();
+  m.querySelector('.leaflet-control-scale-line').style.width = (px === null ? Math.round(a.left - r.left + 40) : px) + 'px'; }"""
+SCALE_STATE = """() => { const m = document.querySelector('.leaflet-container');
+  const s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(),
+    a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect();
+  return [m.querySelector('.leaflet-bottom.leaflet-left').style.bottom, a.left < s.right && s.left < a.right,
+          Math.round(a.top - s.bottom)]; }"""
+CLEAR_BY_SCRIPT = ("() => [...document.querySelectorAll('.s-where button')]"
+                   ".find((b) => b.textContent.trim() === 'Clear the place').click()")  # a click of detail 0
+PLACE_ZOOM = "(by) => window.FINDALINE_PLACE.map.setZoom(window.FINDALINE_PLACE.map.getZoom() + by, {animate: false})"
+# Where the focus is after "Clear the place": [the place box's text field, a text field at all, the chosen mode, the
+# page's body, the button still shown]
+FOCUS_JS = """() => { const a = document.activeElement; return [a.matches('.s-placebox input'),
+  a.matches('input[type=text], input[type=search], textarea'), a.matches('.s-where [role=radio][aria-checked=true]'),
+  a === document.body, [...document.querySelectorAll('.s-where button')].some((b) => b.textContent.trim() === 'Clear the place')]; }"""
+# (the last item: the font of the "Data coverage" button, null where there is none: on a phone since step 3c, whose
+# coverage is a row of the layers' box (PlaceMap.ts' phone arrangement, the user's pick A2 of 2026-11-19; the row's
+# words: tests/test_shell_c_search_page.py))
+WHERE_JS = """() => [document.querySelector('.s-point')?.textContent.trim(), document.querySelector('.s-placebox input').placeholder,
+  [...document.querySelectorAll('.s-where button')].some((b) => b.textContent.trim() === 'Clear the place'),
+  document.querySelector('.s-bar').textContent, document.querySelector('.n-coverage-btn') && getComputedStyle(document.querySelector('.n-coverage-btn')).fontSize]"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_search_form_words_and_corners_by_device(tmp_path):
+    """The search form on a desktop and on a phone (touch) in Playwright's Edge (report defects 2, 7 and 10): the
+    texts name a click and the Enter key on the desktop, a tap and no key on the phone; "Clear the place" shows only
+    with a place set (a centre, an OSM area's name), and after it is clicked the focus stays in the block: with a
+    mouse or the keyboard on the place box, on a touch screen on the chosen mode however it was pressed (a tap, a key,
+    a click of detail 0 as a screen reader's: no text field, no on-screen keyboard); on the desktop the scale is
+    raised once its line (as a zoom widens it) reaches under the credits and back once clear; the place map's scale right above its credits on the phone, where the two lines of credits
+    run under the scale's corner, also after a zoom out and in (the scale's width changes); the "Data coverage" button
+    at its own 13 px on the desktop (the phone has none since step 3c: WHERE_JS), and no control whose own font rule
+    loses to the base rule."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for kind, context in (("desktop", DESKTOP), ("phone", PHONE)):
+                page = _basic_page(tmp_path, port, browser, **context)
+                page.wait_for_function("() => /OpenTopoMap/.test(document.querySelector('.leaflet-control-attribution')"
+                                       "?.textContent)", timeout=WAIT)
+                r[f"{kind}_touch"] = page.evaluate("() => matchMedia('(pointer: coarse)').matches")
+                r[f"{kind}_empty"] = page.evaluate(WHERE_JS)
+                page.wait_for_function(CORNERS_CLEAR, timeout=WAIT)  # the observer's frame after the credits came
+                r[f"{kind}_corners"] = page.evaluate(CORNERS_JS)
+                for name, by in (("out", -3), ("in", 3)):
+                    page.evaluate(PLACE_ZOOM, by)
+                    page.wait_for_function(CORNERS_CLEAR, timeout=WAIT)
+                    r[f"{kind}_zoom_{name}"] = page.evaluate(CORNERS_JS)
+                if kind == "desktop":  # one line of credits at the right, clear of the scale
+                    r["scale_clear"] = page.evaluate(SCALE_STATE)
+                    page.evaluate(SCALE_WIDTH, None)  # the scale reaches under the credits: raised above them
+                    page.wait_for_function("() => document.querySelector('.leaflet-bottom.leaflet-left').style.bottom",
+                                           timeout=WAIT)
+                    r["scale_wide"] = page.evaluate(SCALE_STATE)
+                    page.evaluate(SCALE_WIDTH, 60)  # clear again: back in its place
+                    page.wait_for_function("() => !document.querySelector('.leaflet-bottom.leaflet-left').style.bottom",
+                                           timeout=WAIT)
+                    r["scale_back"] = page.evaluate(SCALE_STATE)
+                r[f"{kind}_shrunk"] = page.evaluate(SHRUNK_JS)
+                page.evaluate(POINT_JS)
+                page.wait_for_selector(".s-point .u-ic", timeout=WAIT)
+                r[f"{kind}_point"] = page.evaluate(WHERE_JS)
+                # a mouse click on the desktop, a tap on the phone
+                (page.click if kind == "desktop" else page.tap)(BUTTON % "Clear the place")
+                page.wait_for_selector(".s-point .u-ic", state="detached", timeout=WAIT)
+                r[f"{kind}_cleared"] = page.evaluate(FOCUS_JS)
+                # by keyboard (no pointer: the event's detail 0)
+                page.evaluate(POINT_JS)
+                page.wait_for_selector(".s-point .u-ic", timeout=WAIT)
+                page.focus(BUTTON % "Clear the place")
+                page.keyboard.press("Enter")
+                page.wait_for_selector(".s-point .u-ic", state="detached", timeout=WAIT)
+                r[f"{kind}_keyboard"] = page.evaluate(FOCUS_JS)
+                # a click of detail 0 from a script (as a screen reader's activation comes in Chromium)
+                page.evaluate(POINT_JS)
+                page.wait_for_selector(".s-point .u-ic", timeout=WAIT)
+                page.evaluate(CLEAR_BY_SCRIPT)
+                page.wait_for_selector(".s-point .u-ic", state="detached", timeout=WAIT)
+                r[f"{kind}_script"] = page.evaluate(FOCUS_JS)
+                # an OSM area's name is a place too
+                page.click(".s-where [role=radio]:text-is('Area')")
+                page.click(".s-where [role=radio]:text-is('Named OSM area')")
+                r[f"{kind}_area_empty"] = page.evaluate(FOCUS_JS)[4]
+                page.fill(".s-where input[placeholder='e.g. Gozo']", "Gozo")
+                page.wait_for_selector(BUTTON % "Clear the place", timeout=WAIT)
+                page.focus(BUTTON % "Clear the place")
+                page.keyboard.press("Enter")
+                page.wait_for_selector(BUTTON % "Clear the place", state="detached", timeout=WAIT)
+                r[f"{kind}_area"] = [page.input_value(".s-where input[placeholder='e.g. Gozo']"), page.evaluate(FOCUS_JS)]
+                page.close()
+        finally:
+            browser.close()
+    assert r["desktop_touch"] is False and r["phone_touch"] is True, r
+    hint, placeholder, clear, bar, size = r["desktop_empty"]
+    assert (hint, placeholder, clear) == ("Click the map to set the centre of the search.", "Go to a place (Enter)", False)
+    assert "Select the centre of the search: click the map." in bar and size == "13px", r
+    hint, placeholder, clear, bar, size = r["phone_empty"]
+    assert (hint, placeholder, clear) == ("Tap the map to set the centre of the search.", "Go to a place", False)
+    # no "Data coverage" button on a phone since step 3c (its row in the layers' box; was: the button at 13px)
+    assert "Select the centre of the search: tap the map." in bar and size is None, r
+    assert r["desktop_point"][0].endswith("click elsewhere to move it") and r["desktop_point"][2] is True, r
+    assert r["phone_point"][0].endswith("tap elsewhere to move it") and r["phone_point"][2] is True, r
+    # [place box, a text field, the chosen mode, body, button shown]
+    assert r["desktop_cleared"] == [True, True, False, False, False], r  # a mouse: the place box
+    assert r["phone_cleared"] == [False, False, True, False, False], r  # a tap: the mode, no text field
+    # where the pointer is fine the place box; on a touch screen the mode whatever the click's detail
+    assert r["desktop_keyboard"] == r["desktop_script"] == [True, True, False, False, False], r
+    assert r["phone_keyboard"] == r["phone_script"] == [False, False, True, False, False], r
+    assert r["desktop_area_empty"] is False and r["desktop_area"] == ["", [True, True, False, False, False]], r
+    assert r["phone_area_empty"] is False and r["phone_area"] == ["", [False, False, True, False, False]], r
+    # the scale's corner observed (its width follows the zoom): raised right above the credits once it reaches under
+    # them, back in its place once clear of them again
+    assert r["scale_clear"][:2] == ["", False] and r["scale_back"][:2] == ["", False], r
+    bottom, under, gap = r["scale_wide"]
+    assert bottom.endswith("px") and under and 0 <= gap <= 10, r
+    # the phone's credits run under the scale's corner (else the check would hold by itself), and the scale is clear
+    scale, attribution = r["phone_corners"]["scale"], r["phone_corners"]["attribution"]
+    assert attribution[0] < scale[2] and attribution[3] - attribution[1] > 0, r
+    assert 0 <= attribution[1] - scale[3] <= 10, r  # right above the credits, not elsewhere on the map
+    for name in ("out", "in"):  # and after each zoom
+        found = r[f"phone_zoom_{name}"]
+        assert found["attribution"][0] < found["scale"][2] and 0 <= found["attribution"][1] - found["scale"][3] <= 10, r
+    for kind in ("desktop", "phone"):
+        assert r[f"{kind}_shrunk"]["rule"] and r[f"{kind}_shrunk"]["shrunk"] == [], r
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")

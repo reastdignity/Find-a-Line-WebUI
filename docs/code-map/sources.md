@@ -26,7 +26,7 @@ mirror's copies; `old_encoding`: a one-band float GeoTIFF that is not LERC, from
 `tools/area_download.py`) and by `relief.fetch_relief_tiles`) and `download_layers` (the tiles of all layers of a
 search in one pool of `DOWNLOAD_THREADS`, an entry (layer, label, grid) a layer over a grid of its own (the country
 prefetch's neighbours), the layers' indexes asked at once (`each_layer`; `estimate_layers` the same for
-`Layer.estimate`); a `serial` layer's tiles in `squares` of `SERIAL_SQUARE` blocks, one task each, its tiles one after
+`Layer.estimate`); the groups of `group_m` given in metres and laid on each layer's own grid (`crs_length`: degrees of latitude for a geographic CRS, 3DEP's 1/3 arc-second DEM, whose blocks of a whole state were one group until 2026-11-18); a `serial` layer's tiles in `squares` of `SERIAL_SQUARE` blocks, one task each, its tiles one after
 another (GDAL's cache of ranges finds the tiles neighbours share); `group_m` (the country prefetch): the layers whose
 `groups` is true in squares of group_m, `ComposedLayer._download_group` each (the reader's `fetch_group` under one
 host slot and no lock, then each tile under its `tile_lock` if still due, recorded as `_download_and_record` records
@@ -36,7 +36,7 @@ it; a group that cannot be read: its tiles one by one), each under `tile_lock` a
 outline; `Source.coverage_boxes`: the `offline` boxes and `bbox`, without `border_boxes`, which may hold a neighbour's
 land, what an area download clips its outline to; `rough_boxes` adds the border boxes) (`wms_version`: 1.3.0, or 1.1.1
 for a WMS taking EPSG:4326 in lon-lat order only (GURS); `wms_crs`: EPSG:4326, or EPSG:3857 for a WMS serving Web
-Mercator only (gis.natt.is), each tile's own Mercator box: `orthophoto._get_map`, `data.js`'s `ortho.wms_version` /
+Mercator only (gis.natt.is), each tile's own Mercator box: `orthophoto._get_map`, the store's head's (data.js's before store wave 4) `ortho.wms_version` /
 `ortho.wms_crs`, `viewer/src/layers.ts`); `vertical.py` `Geoid` (a geoid grid from PROJ's CDN downloaded once into
 `cache/geoid/<model>/` under a lock, checked against its sha256 and read by rasterio, bilinear on its points; never
 through PROJ: pyproj gives N = 0 without a word when it lacks the grid; `undulation` of a block on a lattice of
@@ -614,7 +614,11 @@ start with a ZIP's local header) for `S3SheetSets`, first in `STRATEGIES` (as an
 
 Data folder (`cache/`, `runs/`, `work/`), cache layout, `index.sqlite` per top-level folder (`due` of one file on one
 connection, `due_many` of a layer's tiles on one per top-level folder: `Layer.missing`; the answers of before,
-`tests/test_units.py::test_cache_due_many_answers_as_due`; `states` likewise for `state`: `prepare_layer`,
+`tests/test_units.py::test_cache_due_many_answers_as_due`; its `exists`, how the files are asked about: None,
+`os.path.exists` of each, for every search, or a callable for all of a top-level folder's at once, which
+`Layer.missing` takes from `sources.layer.EXISTING` and only a pass of `tools/area_download.py` sets, to
+`versions.existing`, one listing per folder: the tiles of a whole area on a share, docs/performance.md, "The check
+of cached tiles"; `states` likewise for `state`: `prepare_layer`,
 `water_body_mask`); `migrate` (schema versions of the SQLite databases, `PRAGMA user_version`); `reencoded` (a tile
 written again in the current encoding: the row's sha256 only, its times kept); `runs_lock` (`runs/_runs.lock`, a
 filelock: `mapping.install_viewer` and `runs.write_index` take it, one process at a time; two compute slots saving

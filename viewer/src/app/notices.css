@@ -1,18 +1,22 @@
 /* The dialogs of the public site (BetaNotice, ReportDialog): native <dialog> elements with the kit's look
-   (their own .ui root, beside the shell's); the theme of the system. */
-.ui.u-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; padding: 22px 24px;
-  border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); color: var(--ink); background: var(--surface); }
-.ui.u-dialog::backdrop { background: rgb(10 15 12 / .45); }
+   (their own .ui root, beside the shell's); the theme of the system. Raised (R8): the surface and its shadow, no edge. */
+.ui.u-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; padding: 24px;
+  border: 0; border-radius: var(--r-3); box-shadow: var(--shadow); color: var(--ink); background: var(--surface); }
+/* the scrim: ::backdrop takes the dialog's custom properties only since Safari 17.4, Chrome 122 and Firefox 120;
+   before, the token's value written out (tests/test_viewer.py keeps the two the same) */
+.ui.u-dialog::backdrop { background: var(--scrim, rgb(10 15 12 / .45)); }
 .ui.u-dialog > *, .ui.u-dialog form > * { margin: 0 0 12px; }
 .ui.u-dialog ul { padding-left: 1.2em; }
-.ui.u-dialog li { margin: 2px 0; }
-.ui .n-head { display: flex; align-items: center; gap: 10px; }
-.ui .n-warn { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--warn-soft); }
-.ui .n-warn > .u-ic { color: var(--warn); margin-top: 2px; }
-.ui .n-ways { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
-.ui .n-ways a, .ui .n-ways span, .ui .n-ways button { display: inline-flex; align-items: center; gap: 6px; }
-.ui .n-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 0 !important; }
-.ui .n-field { display: flex; flex-direction: column; gap: 6px; }
+.ui.u-dialog li { margin: 4px 0; }
+.ui .n-head { display: flex; align-items: center; gap: 12px; }
+.ui .n-warn { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: var(--r-2); background: var(--warn-soft); }
+.ui .n-warn > .u-ic { color: var(--warn); margin-top: 2px; }  /* centred on the first line (off R7: a place, not a gap) */
+.ui .n-ways { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.ui .n-ways a, .ui .n-ways span, .ui .n-ways button { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; }
+@media (pointer: coarse) { .ui .n-ways a, .ui .n-ways button { min-height: 44px; } }
+/* the actions wrap onto a second row where one row is too narrow for them ("Stay in Advanced" was cut at 390 px) */
+.ui .n-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-bottom: 0 !important; }
+.ui .n-field { display: flex; flex-direction: column; gap: 8px; }
 .ui .n-text { min-height: 140px; padding: 8px 12px; resize: vertical; font: inherit; line-height: 1.45; }
 .ui .n-count { align-self: flex-end; }
 .ui .n-attached { color: var(--ink-2); }
@@ -22,23 +26,22 @@
   padding: 0; overflow: hidden; }
 .ui.u-dialog.n-intro:not([open]) { display: none; }
 .ui.u-dialog.n-intro > * { margin: 0; }
-.ui .n-intro > .u-h { padding: 20px 24px 8px; }
+.ui .n-intro > .u-h { padding: 24px 24px 8px; }
 .ui .n-intro-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 24px 8px; line-height: 1.5; }
 .ui .n-intro-body > * { margin: 0 0 12px; }
-.ui .n-intro-body h3 { margin: 16px 0 4px; font-size: 15px; }
+.ui .n-intro-body h3 { margin: 16px 0 4px; font-size: var(--fs-4); }
 .ui .n-intro-body h3:first-child { margin-top: 4px; }
 .ui .n-intro-body ul { padding-left: 1.2em; }
 .ui .n-intro-body li { margin: 4px 0; }
-.ui .n-intro-foot { flex-wrap: wrap; align-items: center; padding: 12px 24px 16px; border-top: 1px solid var(--line); }
-.ui .n-again { display: inline-flex; align-items: center; gap: 8px; margin-right: auto; color: var(--ink-2); cursor: pointer; }
-.ui .n-again input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.ui .n-intro-foot { flex-wrap: wrap; align-items: center; padding: 12px 24px 16px; border-top: 1px solid var(--rule); }
+.ui .n-again { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; margin-right: auto; color: var(--ink-2); cursor: pointer; }
+.ui .n-again > .u-check { margin: 0; }
+@media (pointer: coarse) { .ui .n-again { min-height: 44px; } }
 .ui .n-colours { list-style: none; padding-left: 0 !important; }
 .ui .n-colours li { display: flex; align-items: flex-start; gap: 8px; }
 .ui .n-colours li .r-sw { margin-top: .6em; }
-.ui .n-intro-link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
-.ui .n-intro-link:hover { text-decoration: underline; }
 @media (max-width: 560px) {
-  .ui .n-intro > .u-h { padding: 16px 16px 6px; }
+  .ui .n-intro > .u-h { padding: 16px 16px 8px; }
   .ui .n-intro-body { padding: 4px 16px 8px; }
-  .ui .n-intro-foot { padding: 10px 16px 14px; }
+  .ui .n-intro-foot { padding: 12px 16px 16px; }
 }

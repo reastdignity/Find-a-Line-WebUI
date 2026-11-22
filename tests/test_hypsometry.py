@@ -160,11 +160,9 @@ def test_water_with_data_is_fill_waters_rule(tmp_path):
 
 
 def test_terrain_in_the_map_and_not_in_runs_js(tmp_path):
-    """The terrain goes into the headers of data.js and lines.js (right before "lines", with the shore between
-    them in data.js); runs.js
-    leaves it out."""
+    """The terrain goes into the run's head (mapping.map_head: the store's, data.js's before store wave 4), the shore
+    right after it; runs.js leaves it out."""
     from shapely.geometry import Point
-    import helpers as sh
     import mapping as mp
     import runs as rn
 
@@ -178,17 +176,9 @@ def test_terrain_in_the_map_and_not_in_runs_js(tmp_path):
     terrain = {"mean": 803.0, "quantiles": [float(p) for p in range(101)], "km2": 12.34}
     for value in (terrain, None):
         run = {"id": "r", "name": "Test", "created": "2026-11-03T10:00:00+00:00", "terrain": value}
-        mp.save_map(sh.LineTable({"length": np.zeros(0)}), Area, str(tmp_path), str(tmp_path / "runs"), run,
-                    "EPSG:2180")
-        for name in ("data.js", "lines.js"):
-            text = (tmp_path / name).read_text(encoding="utf-8")
-            head = json.loads(text[text.index("= {") + 2:].rstrip().rstrip(";"))
-            # data.js carries the uncertain shore after the terrain (None here: the run has none); lines.js not
-            tail = ["terrain", "shore", "lines"] if name == "data.js" else ["terrain", "lines"]
-            assert head["terrain"] == value and list(head)[-len(tail):] == tail, name
-            assert name != "data.js" or head["shore"] is None
-        assert list(json.loads((tmp_path / "lines.js").read_text(encoding="utf-8").partition("] = ")[2]
-                               .rstrip().rstrip(";"))) == ["crs", "area", "terrain", "lines"]
+        head = mp.map_head(Area, str(tmp_path / "map.html"), run, "EPSG:2180")  # the store's head
+        # the uncertain shore after the terrain (None here: the run has none)
+        assert head["terrain"] == value and list(head)[-2:] == ["terrain", "shore"] and head["shore"] is None
     meta = {"id": "r", "name": "Test", "summary": {"lines": 0}, "terrain": terrain}
     assert "terrain" not in rn._listed(meta)
 

@@ -1,7 +1,7 @@
 import type { Geometry } from "geojson";
 
-// The data of one run, written by mapping.save_map into <run>/data.js
-// (window.FINDALINE_RUN), and the list of runs in runs/runs.js (window.FINDALINE_RUNS).
+// The data of one run, its store (lines.arrow, profiles.arrow: linestore.write; result/load.ts readStore), and the
+// list of runs in runs/runs.js (window.FINDALINE_RUNS).
 
 export interface Rigging {
   pretension: number;      // kN
@@ -30,20 +30,8 @@ export interface Profile {
   lift?: number;
 }
 
-// One line as an array (compact):
-// [lat1, lon1, lat2, lon2, x1, y1, x2, y2, length, clearance, clearance_nmpt, elev1, elev2, over,
-//  metres over water, metres over filled gaps, largest and mean height of the webbing above the
-//  terrain, % of the line at least high_above, wall angle at anchor 1 and 2 (degrees from the
-//  downslope direction), prominence of anchor 1 and 2, drop below anchor 1 and 2 (null: not
-//  known), then the values its head's `ends` names (in a run with an end zone or A-frames END_VALUES, in a
-//  run made with the access mark ACCESS, in a run made with the square rule STANDS_FOR last), profile]
-//  (lines.js leaves out the profile)
-export type LineRow = [number, number, number, number, number, number, number, number, number, number,
-  number | null, number, number, boolean, number, number, number, number, number, number, number,
-  number | null, number | null, number | null, number | null, ...(number | Profile | null)[]];
-
 /** The values of a row before its profile (LineRow: after the drop below anchor 2). */
-const ROW_VALUES = 25;
+export const ROW_VALUES = 25;
 /** The extra values of a run with an end zone or A-frames, in the order its head's `ends` gives them
  *  (helpers.END_VALUES): the A-frame height each line needs with the run's zone, and without a zone. */
 export const END_VALUES = ["lift_needed", "lift_no_zone"];
@@ -98,17 +86,6 @@ export interface Terrain {
   km2: number;          // land with data
 }
 
-/** <run>/lines.js: window.FINDALINE_LINES[id], the lines without profiles. */
-export interface RunLines {
-  crs: string;
-  area: Geometry;
-  terrain?: Terrain | null;  // runs saved before 2026-11-03 have none
-  ends?: string[];  // the names of the rows' values before the profile (RunData.ends)
-  square?: number;  // RunData.square
-  found?: number;   // RunData.found
-  lines: LineRow[];  // without the profile at the end
-}
-
 export interface Ortho {
   name: string;
   url: string | null;   // WMS; null: the base tiles only
@@ -135,7 +112,7 @@ export interface Credit {
 
 /** run.json's block `store` (linestore.write): the run keeps its lines as an Arrow store (lines.arrow, profiles.arrow),
  *  which the page reads (result/load.ts); a run without it (saved before 2026-11-15, or whose store failed or was
- *  left by a stopped save) is read from its data.js. */
+ *  left by a stopped save) has its store's files asked for directly all the same (load.ts STORE_PROBE). */
 export interface StoreInfo {
   format: number;  // linestore.FORMAT; a page reads up to load.ts STORE_FORMAT
   lines: number;
@@ -149,7 +126,7 @@ export interface RunInfo {
   created: string;
   description: string;
   has_map?: boolean;
-  has_lines?: boolean;  // lines.arrow or lines.js (runs.list_runs)
+  has_lines?: boolean;  // lines.arrow (runs.list_runs)
   center?: {lat: number; lon: number};
   bbox?: [number, number, number, number] | null;  // west, south, east, north
   store?: StoreInfo;    // in runs.js (runs._listed keeps run.json's block)
@@ -181,7 +158,7 @@ export interface TerrainSources {
   totals: {fallback_km2: number; listed_km2: number};
 }
 
-/** A run's head: everything of its data.js but the lines. */
+/** A run's head: the store's metadata (mapping.map_head; data.js's head before store wave 4). */
 export interface RunHead {
   run: RunInfo;
   center: [number, number];
@@ -208,23 +185,42 @@ export interface RunHead {
   // "memory": the search was asked to mark the anchors' access (--access) and ran without it, its area too wide for
   // the access grid (search.py; mapping.map_heads): a run as one made without the mark, and the page says so
   access_skipped?: string;
+  // The result view's keys (mapping.view_columns' head, linestore.VIEW_HEAD: in a store's head only, never in
+  // data.js; a run saved before the view's columns has none):
+  // the sectors in their order, each with its word ("north-west", "centre") and how many spots it holds: sector s
+  // holds a run of the spots' numbers, after the spots of the sectors before it
+  sectors?: {word: string; spots: number}[];
+  // [x min, y min, x max, y max] of every anchor, m in the run's grid CRS; null: a run without lines
+  box?: [number, number, number, number] | null;
+  // [shortest, longest] line, m; null: a run without lines
+  lengths?: [number, number] | null;
 }
 
-/** data.js's value (window.FINDALINE_RUN) as the file holds it: the head and a row per line. */
-export interface RunScript extends RunHead {
-  lines: LineRow[];
-}
+/** The result view's columns of a run's store (linestore.VIEW, mapping.view_columns), one value per line but
+ *  `bySpot`: `spot` the number of the line's spot (from 0, by sector, then by the spot's first line's mean height);
+ *  `top` 1 when the line is top level (0: it hangs lower on the same face); `bySpot` the rows in the view's order: by
+ *  spot, inside a spot by mean height, clearance, length (each highest first, NaN last), then the row, so a spot's
+ *  lines are one run of it and the first is the spot's shown line. The store's own arrays, never copied. */
+export interface ViewColumns { spot: Uint32Array; top: Uint8Array; bySpot: Uint32Array }
 
-/** A run as the page keeps it (result/load.ts): the head and its lines as columns (lineColumns), the rows dropped. */
+/** A run as the page keeps it (result/load.ts): the head and its lines as columns (lineColumns), the rows dropped;
+ *  `view`: the result view's columns, of a run whose store holds them (hasView). */
 export interface RunData extends RunHead {
   columns: LineColumns;
+  view?: ViewColumns;
+  fromStore?: boolean;  // read from the run's store (load.ts fromServer), not made up (a demo): RunActions mayExport
+}
+
+/** Does a run carry what the result view reads: the store's three columns, each of one value per line, and the
+ *  head's sectors. A run saved before them has none and opens in today's page. */
+export function hasView(d: RunData): boolean {
+  const v = d.view, n = d.columns.length;
+  return !!v && v.spot.length === n && v.top.length === n && v.bySpot.length === n && Array.isArray(d.sectors);
 }
 
 declare global {
   interface Window {
-    FINDALINE_RUN?: RunScript;
     FINDALINE_RUNS?: RunInfo[];
-    FINDALINE_LINES?: Record<string, RunLines>;
     // Set by the server's runs.js (web.py): whether this map may compute profiles and measure, and mark
     // favourite lines (the public site; undefined: from disk no, from a local server yes), and the
     // operator's key of the satellite map (esri_key: settings.WebKeys; none from disk)
@@ -244,34 +240,11 @@ export function percentileRank(z: number, q: number[]): number {
   return lo;
 }
 
-/** A row of data.js or lines.js as a Line. The profile is the row's last value when that is an object or
- *  null (data.js; lines.js has none); the values between the drop below anchor 2 and it are named by `ends`
- *  (the run's head; a row longer than ROW_VALUES read without it takes END_VALUES, the only such values). */
-export function toLine(d: LineRow, run?: OtherRun, terrain?: Terrain | null, ends: string[] = END_VALUES): Line {
-  const q = terrain ? terrain.quantiles : null;
-  const last = d.length > ROW_VALUES ? d[d.length - 1] : undefined;
-  const profiled = last === null || typeof last === "object";
-  const extras = d.slice(ROW_VALUES, profiled ? d.length - 1 : d.length);
-  const extra = (name: string): number | null => {
-    const at = extras.length ? ends.indexOf(name) : -1;
-    const value = at >= 0 && at < extras.length ? extras[at] : null;
-    return typeof value === "number" ? value : null;
-  };
-  return {lat1: d[0], lon1: d[1], lat2: d[2], lon2: d[3], x1: d[4], y1: d[5], x2: d[6], y2: d[7],
-          len: d[8], clr: d[9], clrN: d[10], e1: d[11], e2: d[12], over: d[13], water: d[14], filled: d[15],
-          hmax: d[16], hmean: d[17], highPct: d[18], angle1: d[19], angle2: d[20], prom1: d[21], prom2: d[22],
-          drop1: d[23], drop2: d[24],
-          pct1: q ? percentileRank(d[11], q) : null, pct2: q ? percentileRank(d[12], q) : null,
-          lift_needed: extra("lift_needed"), lift_no_zone: extra("lift_no_zone"), stands_for: extra(STANDS_FOR),
-          access1: extra(ACCESS[0]), access2: extra(ACCESS[1]),
-          prof: profiled ? (last as Profile | null) || null : null, run};
-}
-
 // --- A run's lines as columns (docs/line-volume/spec-store.md 1.2: store wave 1) ---
-// The page keeps a run's lines as one typed array per value, not as an object per line: lineColumns reads them from
-// data.js's or lines.js's rows, which are dropped then. A Line is made (lineAt) only for a line the page draws, lists,
-// selects, opens or saves as a favourite; the filters, the grouping and the counts read the columns through a
-// LineCursor. Every value reads back as the very double the row held (null, NaN and a value past a short row's end
+// The page keeps a run's lines as one typed array per value, not as an object per line: storedColumns over its store
+// (the tests' lineColumns, viewer/test/rows.ts, from data.js's rows). A Line is made (lineAt) only for a line the
+// page draws, lists, selects, opens or saves as a favourite; the filters, the grouping and the counts read the columns
+// through a LineCursor. Every value reads back as the very double the row held (null, NaN and a value past a short row's end
 // as toLine gives them), so the page shows the same numbers and keys.lineCoords gives the same keys as from the rows.
 // One difference: a row of before 2026-10-27 has its profile where `hmax` is now, which toLine reads as `hmax` (an
 // object) and the columns as NaN, which compares, groups, filters and shows ("–") as that object does.
@@ -329,7 +302,7 @@ export class NumberColumn {
  *  (k / scale is the very double), else as doubles from then on; `finish` narrows the integers to Int16 or Int8 when
  *  they fit. `undefined` is a value the row does not have; anything else that is not a number is null (toLine's
  *  extra values; the rows hold numbers or null). */
-class ColumnBuilder {
+export class ColumnBuilder {
   private ints: Int32Array | null;
   private floats: Float64Array | null;
   private nulls: Uint8Array | null = null;
@@ -402,7 +375,8 @@ class ColumnBuilder {
 /** The values of a line kept as numbers (all of LineValues but `over`). */
 export type NumberField = Exclude<keyof LineValues, "over">;
 
-/** A run's saved profiles by row: data.js's (a Map), or the store's profiles.arrow, each made when it is asked for. */
+/** A run's saved profiles by row: the store's profiles.arrow, each made when it is asked for (a Map: the tests'
+ *  rows, viewer/test/rows.ts). */
 export interface ProfileSource {
   get(row: number): Profile | undefined;
 }
@@ -417,44 +391,15 @@ export type LineColumns = {readonly [K in NumberField]: NumberColumn} & {
 
 // The values of a row (toLine) by their place, and the scale an integer column tries: the decimals mapping.map_rows
 // writes (a value that is not exact at it makes its column doubles); 0: a value used for grouping, kept as doubles
-const ROW_FIELDS: [NumberField, number, number][] = [
+export const ROW_FIELDS: [NumberField, number, number][] = [
   ["lat1", 0, 1e7], ["lon1", 1, 1e7], ["lat2", 2, 1e7], ["lon2", 3, 1e7], ["x1", 4, 0], ["y1", 5, 0], ["x2", 6, 0],
   ["y2", 7, 0], ["len", 8, 0], ["clr", 9, 0], ["clrN", 10, 100], ["e1", 11, 100], ["e2", 12, 100], ["water", 14, 10],
   ["filled", 15, 10], ["hmax", 16, 0], ["hmean", 17, 100], ["highPct", 18, 10], ["angle1", 19, 10], ["angle2", 20, 10],
   ["prom1", 21, 10], ["prom2", 22, 10], ["drop1", 23, 10], ["drop2", 24, 10]];
-const OVER = 13;
+export const OVER = 13;
 // The values a head's `ends` names (END_VALUES, ACCESS, then STANDS_FOR) and their scales
-const EXTRA_FIELDS: [NumberField, number][] = [["lift_needed", 100], ["lift_no_zone", 100], [ACCESS[0], 1],
+export const EXTRA_FIELDS: [NumberField, number][] = [["lift_needed", 100], ["lift_no_zone", 100], [ACCESS[0], 1],
                                                      [ACCESS[1], 1], [STANDS_FOR as NumberField, 1]];
-
-/** The rows of data.js or lines.js as columns, with the values toLine reads from each row: the anchors' percentile
- *  ranks from `terrain`, the values `ends` names, the profile (data.js) by its row. The rows are left as they are. */
-export function lineColumns(rows: LineRow[], terrain?: Terrain | null, ends: string[] = END_VALUES): LineColumns {
-  const n = rows.length, q = terrain ? terrain.quantiles : null;
-  const values = ROW_FIELDS.map(([, , scale]) => new ColumnBuilder(n, scale));
-  const extras = EXTRA_FIELDS.map(([name, scale]) => ({at: ends.indexOf(name), column: new ColumnBuilder(n, scale)}));
-  const pct1 = new ColumnBuilder(n, 1), pct2 = new ColumnBuilder(n, 1);
-  const over = new Uint8Array(n), profiles = new Map<number, Profile>();
-  for (let i = 0; i < n; i++) {
-    const d = rows[i];
-    for (let f = 0; f < ROW_FIELDS.length; f++) {
-      const v = d[ROW_FIELDS[f][1]];
-      values[f].set(i, v !== null && typeof v === "object" ? NaN : v);  // a profile in a short row's place (above)
-    }
-    over[i] = d[OVER] ? 1 : 0;
-    const last = d.length > ROW_VALUES ? d[d.length - 1] : undefined;
-    const profiled = last === null || typeof last === "object";
-    const extra = (profiled ? d.length - 1 : d.length) - ROW_VALUES;
-    for (const x of extras) x.column.set(i, x.at >= 0 && x.at < extra ? d[ROW_VALUES + x.at] : null);
-    if (profiled && last) profiles.set(i, last as Profile);
-    pct1.set(i, q ? percentileRank(d[11], q) : null);
-    pct2.set(i, q ? percentileRank(d[12], q) : null);
-  }
-  const columns: Record<string, unknown> = {length: n, over, profiles, pct1: pct1.finish(), pct2: pct2.finish()};
-  ROW_FIELDS.forEach(([name], f) => { columns[name] = values[f].finish(); });
-  EXTRA_FIELDS.forEach(([name], f) => { columns[name] = extras[f].column.finish(); });
-  return columns as LineColumns;
-}
 
 /** A column of a run's store as result/load.ts reads it: its array as the file holds it (no copy), the scale
  *  10^decimals (the field's `decimals`; 0: float64 as it is), its validity bits (null: none missing) and the rows
@@ -466,7 +411,7 @@ export interface StoredColumn {
   negZero: number[];
 }
 
-// The values data.js writes as null when they miss (mapping.map_rows' empty_nan: clrN, prom1/2, drop1/2), so toLine
+// The values data.js wrote as null when they missed (map_rows' empty_nan: clrN, prom1/2, drop1/2), so toLine
 // reads null; any other value that misses (hmean, highPct, angle1/2: null in the store; e1 in a float64 column) is
 // NaN in data.js. A store's missing value reads as data.js shows it.
 export const NULL_WHEN_MISSING: readonly NumberField[] = ["clrN", "prom1", "prom2", "drop1", "drop2"];
@@ -556,8 +501,11 @@ export class LineCursor implements LineValues {
   get access2() { return this.c.access2.at(this.i); }
 }
 
-/** A run as the page keeps it: data.js's head and its rows as columns (the caller drops the rows). */
-export function runData(script: RunScript): RunData {
-  const {lines, ...head} = script;
-  return {...head, columns: lineColumns(lines, script.terrain, script.ends)};
+/** A run's lines as columns with no line (the model's cursors before they are pointed at a run's columns). */
+export function emptyColumns(): LineColumns {
+  const columns: Record<string, unknown> = {length: 0, over: new Uint8Array(0), profiles: new Map<number, Profile>()};
+  for (const name of [...ROW_FIELDS.map(([f]) => f), ...EXTRA_FIELDS.map(([f]) => f), "pct1", "pct2"]) {
+    columns[name] = new NumberColumn(new Float64Array(0), 0);
+  }
+  return columns as LineColumns;
 }

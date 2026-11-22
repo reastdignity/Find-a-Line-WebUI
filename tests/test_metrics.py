@@ -361,6 +361,31 @@ def test_parts_that_are_missing(tmp_path):
     assert {name for name, _ in samples(scrape(tmp_path))} == {"findaline_build_info", "findaline_free_disk_bytes"}
 
 
+def test_removed_searches_still_counted(tmp_path):
+    """The privacy page says a removed search (its owner's Remove…, or its run deleted: jobs.removed_at) still counts
+    toward "the site's statistics": the metrics read the jobs without that mark, so removing changes no value."""
+    jobs = jb.Jobs(str(tmp_path))
+    done = jobs.add({"params": {}}, "Done", 3)
+    jobs.set_area(done, 2.5, "pl")
+    jobs.set_search(done, "test", 1.0)
+    jobs.set(done, "done", run_id="2026-11-17_100000_Done_0000000000000001")
+    cancelled = jobs.add({"params": {}}, "Cancelled", 3)
+    assert jobs.request_cancel(cancelled)
+    shown = [("findaline_jobs_finished_total", {"status": "done", "error": ""}),
+             ("findaline_jobs_finished_total", {"status": "cancelled", "error": ""}),
+             ("findaline_job_duration_seconds_count", {"status": "cancelled"}),
+             ("findaline_area_km2_total", {"country": "pl"}), ("findaline_searches_total", {"country": "pl"}),
+             ("findaline_users_searched_in", {"country": "pl"})]
+    before = samples(scrape(tmp_path))
+    assert all(value(before, name, **labels) > 0 for name, labels in shown), before
+    assert jobs.remove(cancelled)
+    jobs.delete_run("2026-11-17_100000_Done_0000000000000001", str(tmp_path / "runs"))
+    assert jobs.get(done)["removed_at"] and jobs.get(cancelled)["removed_at"]
+    after = samples(scrape(tmp_path))
+    assert [value(after, name, **labels) for name, labels in shown] == [value(before, name, **labels)
+                                                                         for name, labels in shown]
+
+
 def test_housekeeping_measures_the_cache(tmp_path):
     """The worker's housekeeping writes work/cache-sizes.json: the bytes of each top-level cache folder."""
     os.makedirs(tmp_path / "cache" / "osm" / "theme")

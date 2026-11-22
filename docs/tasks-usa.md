@@ -159,6 +159,7 @@ below is the task as it was handed over.
 - 9 of 30 files have no vertical CRS.
 - Tiles of 0.75–2.5 km and 1–27 MB. One 3.4 GB file (eastern Minnesota).
 - All tiled GeoTIFFs, so window reads work.
+- USGS's table of surveys (usa-data.md, "WESM") names each survey's year, CRS code and the unit of its heights, and the 357 lidar surveys that have an OPR DEM and no 1 m DEM (found 2026-11-22, after this task was written: it answers decision 3 below for all but 7 of them).
 
 **Decisions for the user.**
 1. **An OPR layer in the fallback chain** (`usa`: 1 m → OPR → 1/3″) or only where the 1 m layer has no data? Keep the 1 m DEM first wherever it exists?

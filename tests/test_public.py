@@ -692,8 +692,7 @@ def clip_run(tmp_path_factory):
 
 
 def copy_run(clip_run, data_dir, run_id: str, name: str):
-    """The clip's run as another run of a data folder (its id and name changed; its id in data.js and in its
-    store's head too, as the page reads either)."""
+    """The clip's run as another run of a data folder (its id and name changed; its id in its store's head too)."""
     import hashlib
     import shutil
     import pyarrow as pa
@@ -702,8 +701,6 @@ def copy_run(clip_run, data_dir, run_id: str, name: str):
     shutil.copytree(clip_run, folder)
     meta = json.loads((folder / "run.json").read_text("utf-8"))
     meta.update(id=run_id, name=name)
-    data = (folder / "data.js").read_text("utf-8").replace(clip_run.name, run_id)
-    (folder / "data.js").write_text(data, "utf-8")
     if meta.get("store"):
         path = folder / linestore.LINES_FILE
         with pa.OSFile(str(path), "rb") as f:
@@ -723,7 +720,8 @@ RUN_A, RUN_B, RUN_OLD = "2026-10-01_100000_A_00000000000000aa", "2026-10-01_1000
 @pytest.fixture
 def run_people(tmp_path, clip_run, settings, account_settings, providers):
     """A public app over a data folder with a run of A, one of B and one from before the public mode
-    (no row: given to the first administrator when the app starts), with a client per person."""
+    (no row: given to the first administrator when the app starts), with a client per person. The runs hold every
+    file of web.RUN_FILES (a run's files since store wave 4)."""
     from jobs import Jobs
     for run_id, name in ((RUN_A, "A's run"), (RUN_B, "B's run"), (RUN_OLD, "Old run")):
         copy_run(clip_run, tmp_path, run_id, name)
@@ -773,10 +771,14 @@ def test_run_files_behind_access_control(run_people, tmp_path):
     assert run_people["anonymous"].get("/runs/_viewer/viewer.js").status_code == 200
     assert a.get("/runs/_viewer/../jobs.sqlite").status_code == 404
 
-    whole = a.get(f"/runs/{RUN_A}/lines.csv")
-    part = a.get(f"/runs/{RUN_A}/lines.csv", headers={"range": "bytes=0-9"})
+    whole = a.get(f"/runs/{RUN_A}/lines.arrow")
+    part = a.get(f"/runs/{RUN_A}/lines.arrow", headers={"range": "bytes=0-9"})
     assert part.status_code == 206 and part.content == whole.content[:10]
-    assert a.get(f"/runs/{RUN_A}/lines.csv", headers={"if-none-match": whole.headers["etag"]}).status_code == 304
+    assert a.get(f"/runs/{RUN_A}/lines.arrow", headers={"if-none-match": whole.headers["etag"]}).status_code == 304
+    # the files of runs of before store wave 4 are no run's files since its item 5, even where one is left
+    (tmp_path / "runs" / RUN_A / "data.js").write_text("window.FINDALINE_RUN = {};", "utf-8")
+    for name in ("data.js", "lines.js", "lines.csv", "lines.geojson"):
+        assert name not in web.RUN_FILES and a.get(f"/runs/{RUN_A}/{name}").status_code == 404, name
 
     listed = a.get("/runs/runs.js")
     assert listed.status_code == 200 and listed.headers["content-type"].startswith("text/javascript")
@@ -806,11 +808,11 @@ def test_run_file_path_tricks(run_people, tmp_path):
     for path in tricks:
         assert a.get(path).status_code == 404, path
     try:
-        os.symlink(tmp_path / "secret.txt", tmp_path / "runs" / RUN_A / "lines.geojson.tmp")
-        os.replace(tmp_path / "runs" / RUN_A / "lines.geojson.tmp", tmp_path / "runs" / RUN_A / "lines.geojson")
+        os.symlink(tmp_path / "secret.txt", tmp_path / "runs" / RUN_A / "ATTRIBUTION.txt.tmp")
+        os.replace(tmp_path / "runs" / RUN_A / "ATTRIBUTION.txt.tmp", tmp_path / "runs" / RUN_A / "ATTRIBUTION.txt")
     except OSError:  # Windows without the privilege of symbolic links
         pytest.skip("no symbolic links here")
-    answer = a.get(f"/runs/{RUN_A}/lines.geojson")
+    answer = a.get(f"/runs/{RUN_A}/ATTRIBUTION.txt")  # a name the site serves
     assert answer.status_code == 404 and "secret" not in answer.text
 
 
@@ -1254,6 +1256,94 @@ def test_profiles_and_deleting_runs(run_people, tmp_path):
     with TestClient(web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False), base_url=LOCAL) as local:
         assert local.delete(f"/api/runs/{RUN_B}", headers={"x-findaline-token": TOKEN}).status_code == 404
     assert (tmp_path / "runs" / RUN_B).exists()
+
+
+def test_removing_searches(run_people, tmp_path):
+    """A cancelled search is removed by its owner only (POST /api/jobs/<id>/remove: another user, an
+    administrator, a visitor not signed in, one with only a share link, a pending or blocked account cannot); it
+    leaves the owner's list, an administrator's keeps it marked; the audit log records job_remove; the row
+    stays, so it counts toward the daily quota and the usage as before. Deleting a run marks the job that saved
+    it removed with the time (the privacy page's words), and it leaves the owner's list (its card was a "done"
+    with no run before)."""
+    import audit
+    from jobs import QuotaExceeded
+    from settings import Limits
+    a, b, admin, anonymous = run_people["a"], run_people["b"], run_people["admin"], run_people["anonymous"]
+    ids, jobs = run_people["ids"], run_people["jobs"]
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    cancelled, failed, saved = (jobs.add(request, name, ids["a"]) for name in ("Cancelled", "Failed", "Saved"))
+    assert a.delete(f"/api/jobs/{cancelled}").status_code == 200
+    jobs.set(failed, "failed", error="x")
+    jobs.set_area(saved, 2.5, "pl")
+    jobs.set(saved, "done", run_id=RUN_A)
+    limits = Limits(jobs_day_max=3)
+    used = jobs.usage(ids["a"], limits)["usage"]["jobs_day"]
+    assert used == {"used": 3, "limit": 3}
+
+    link = a.post(f"/api/runs/{RUN_A}/share").json()["url"]
+    path = urlsplit(link).path
+    assert anonymous.get(path).status_code == 200  # the share link opens the map, and nothing else
+    for who, code in [("anonymous", 401), ("pending", 403), ("blocked", 403), ("b", 404), ("admin", 404)]:
+        assert run_people[who].post(f"/api/jobs/{cancelled}/remove").status_code == code, who
+    refused = a.post(f"/api/jobs/{failed}/remove")
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "job_not_cancelled"
+    assert a.post(f"/api/jobs/{saved}/remove").status_code == 409
+
+    ids_of = lambda client: {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}  # noqa: E731
+    assert cancelled in ids_of(a) and not ids_of(a)[cancelled]["removed_at"]
+    assert a.post(f"/api/jobs/{cancelled}/remove").json() == {"ok": True}
+    assert a.post(f"/api/jobs/{cancelled}/remove").json() == {"ok": True}  # a second removal: harmless
+    assert set(ids_of(a)) == {failed, saved}
+    assert ids_of(admin)[cancelled]["removed_at"] and not ids_of(admin)[failed]["removed_at"]
+    log = [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "job_remove"]
+    assert [(e["user_id"], e["target"], e["detail"]) for e in log] == [(ids["a"], cancelled, None)]
+
+    # it still counts: the day's searches, and the quota refuses the next one as before
+    assert jobs.usage(ids["a"], limits)["usage"]["jobs_day"] == used
+    assert a.get("/api/usage").json()["usage"]["jobs_day"]["used"] == 3
+    with pytest.raises(QuotaExceeded):
+        jobs.precheck(jobs.admission(ids["a"], limits, limited=True))
+
+    assert a.delete(f"/api/runs/{RUN_A}").status_code == 200
+    assert set(ids_of(a)) == {failed}
+    assert ids_of(admin)[saved]["run_gone"] and ids_of(admin)[saved]["removed_at"]  # marked with the time
+    assert jobs.get(saved)["status"] == "done" and jobs.get(saved)["removed_at"]
+    assert jobs.usage(ids["a"], limits)["usage"]["jobs_day"] == used
+    # and toward the area searched (the privacy page's words): the user's totals and everyone's
+    area = a.get("/api/usage").json()["area"]
+    assert (area["total_km2"], area["searches"], [km2 for _, km2 in area["recent"]]) == (2.5, 1, [2.5]), area
+    assert jobs.area_of_everyone() == (2.5, 1)
+
+
+def test_listed_jobs_say_whose(public, people, tmp_path):
+    """/api/jobs gives each job `own` by own_job's rule (edit, run again, remove): a user's list all own; an
+    administrator's list (every job) own only for their own and those from before the accounts, so the page offers
+    Remove… on those only."""
+    from jobs import Jobs
+    jobs = Jobs(str(tmp_path))
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    ids = people["ids"]
+    mine, theirs, old = jobs.add(request, "Admin's", ids["admin"]), jobs.add(request, "A's", ids["a"]), \
+        jobs.add(request, "from before the accounts")
+    own = lambda who: {j["id"]: j["own"] for j in people[who].get("/api/jobs").json()["jobs"]}  # noqa: E731
+    assert own("admin") == {mine: True, theirs: False, old: True}
+    assert own("a") == {theirs: True}
+
+
+def test_two_removals_at_once(public, people, tmp_path, monkeypatch):
+    """Two removals of one cancelled job at the same moment (both read it not removed yet): one writes the mark and
+    the audit row, the other answers ok and records nothing."""
+    import audit
+    from jobs import Jobs
+    jobs = Jobs(str(tmp_path))
+    job = jobs.add({"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}, "A's", people["ids"]["a"])
+    assert jobs.request_cancel(job)
+    read = Jobs.get
+    monkeypatch.setattr(Jobs, "get", lambda self, job_id: {**read(self, job_id), "removed_at": None})  # read before
+    for _ in range(2):
+        assert people["a"].post(f"/api/jobs/{job}/remove").json() == {"ok": True}
+    assert read(jobs, job)["removed_at"]
+    assert [e["target"] for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "job_remove"] == [job]
 
 
 FAVOURITE = {"len": 120.5, "clr": 1.2, "clrN": None, "e1": 330.0, "e2": 328.5, "over": False, "water": 0.0,
@@ -1715,6 +1805,13 @@ def test_privacy_and_about_pages(run_people):
     assert "<dt>Elevation data from the project&#x27;s data server</dt><dd>" + web.html.escape(
         "The elevation data of some regions come from a data server run by the project. This site's server asks it "
         "for them; your browser and your address never reach it.") + "</dd>" in text
+    # a removed search (the user's approved wording, 2026-11-17)
+    assert web.html.escape(
+        "the search itself is kept: in your list until you remove it (a cancelled search) or delete its run, then "
+        "marked removed with the time. A removed search still counts toward your searches of the day, the area "
+        "searched and the site's statistics, and administrators can still see it.") in text
+    assert "searches started, cancelled and removed" in text
+    assert "stays in your queue" not in text and "searches started and cancelled" not in text
     for source in src.SOURCES.values():
         for credit in source.credits:
             assert web.html.escape(credit.data) in about.text, credit.data
@@ -1877,7 +1974,8 @@ def test_signed_in_app_and_shared_map_in_edge(tmp_path, clip_run, account_settin
         dom = _edge(f"{site}/s/{token}/map.html", tmp_path / "edge-anonymous")
         result = json.loads(re.search(r'<pre id="result">(.*?)</pre>', dom, re.S).group(1).replace("&quot;", '"'))
         assert result["map"] and result["runs"] and result["app"] == {"profiles": False, "favourites": False}, result
-        assert not result["measure"] and not result["compare"] and result["download"], result
+        # No Download: the run has a store, and a share link's page cannot ask for an export (store U9)
+        assert not result["measure"] and not result["compare"] and not result["download"], result
         assert result["back"] == [] and result["lines"] > 0, result
         assert _violations(dom) == []
         Jobs(str(data)).set_visibility(RUN_A, "demo")  # a demo: the anonymous page and the map
@@ -1889,6 +1987,7 @@ def test_signed_in_app_and_shared_map_in_edge(tmp_path, clip_run, account_settin
         result = json.loads(re.search(r'<pre id="result">(.*?)</pre>', dom, re.S).group(1).replace("&quot;", '"'))
         assert result["map"] and result["app"] == {"profiles": False, "favourites": False}, result
         assert not result["measure"] and not result["compare"] and result["back"] == ["Find-a-Line"], result
+        assert not result["download"], result  # a visitor who is not signed in: no export either
         assert result["lines"] > 0 and _violations(dom) == []
     finally:
         server.should_exit = True
@@ -2021,6 +2120,46 @@ RIG = {"pretension": 2.5, "stretch": 5.0, "webbing_weight": 70.0, "athlete_mass"
        "end_zone": 5.0, "anchor_lift": 0.0}  # the Basic form's starting rig
 
 
+def test_jobs_database_gets_removed_column(tmp_path):
+    """jobs.sqlite of version 18 gets migration 19: the column removed_at, NULL for every job (nothing else is
+    written). A finished job whose run is gone (no run.json in runs/) is told at listing: the owner's list leaves
+    it out, everyone's marks it run_gone; its run folder away and back brings it back; a job whose run is there,
+    a cancelled, a failed one (its run_id as it may be) and one without a run are listed as they are."""
+    import shutil
+    import sqlite3
+
+    import cache
+    import jobs as jb
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    cache.migrate(db, jb.MIGRATIONS[:18])
+    rows = [("kept", "done", "here"), ("gone", "done", "deleted"), ("cancelled", "cancelled", None),
+            ("failed", "failed", "deleted"), ("norun", "done", None)]
+    for job_id, status, run_id in rows:
+        db.execute("INSERT INTO jobs (id, created, status, request, title, run_id, user_id) "
+                   "VALUES (?, '', ?, '{}', ?, ?, 3)", (job_id, status, job_id, run_id))
+    db.commit()
+    db.close()
+    (tmp_path / "runs" / "here").mkdir(parents=True)
+    (tmp_path / "runs" / "here" / "run.json").write_text("{}")
+    (tmp_path / "runs" / "deleted").mkdir()  # a folder without run.json is no run
+    jobs = jb.Jobs(str(tmp_path))
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) == 19
+    assert db.execute("SELECT COUNT(*) FROM jobs WHERE removed_at IS NOT NULL").fetchone()[0] == 0
+    db.close()
+    marks = lambda: {j["id"]: (bool(j["removed_at"]), j["run_gone"]) for j in jobs.all()}  # noqa: E731
+    assert marks() == {"kept": (False, False), "gone": (False, True), "cancelled": (False, False),
+                       "failed": (False, False), "norun": (False, False)}
+    assert {j["id"] for j in jobs.all(3)} == {"kept", "cancelled", "failed", "norun"}
+
+    # the run's folder away (moved, half copied) and back: its job leaves the owner's list and comes back
+    shutil.move(tmp_path / "runs" / "here", tmp_path / "aside")
+    assert {j["id"] for j in jobs.all(3)} == {"cancelled", "failed", "norun"} and marks()["kept"] == (False, True)
+    shutil.move(tmp_path / "aside", tmp_path / "runs" / "here")
+    assert {j["id"] for j in jobs.all(3)} == {"kept", "cancelled", "failed", "norun"} and marks()["kept"] == (False,
+                                                                                                         False)
+
+
 def test_jobs_database_gets_rigs(tmp_path):
     """jobs.sqlite of version 17 gets the table of saved rigs (migration 18, an empty table); its jobs,
     runs, favourites and folders stay. A rig's name is once per user compared casefolded (the local
@@ -2041,7 +2180,7 @@ def test_jobs_database_gets_rigs(tmp_path):
     db.close()
     jobs = jb.Jobs(str(tmp_path))
     db = sqlite3.connect(tmp_path / "jobs.sqlite")
-    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) == 18
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) >= 18
     assert db.execute("SELECT COUNT(*) FROM rigs").fetchone()[0] == 0
     db.close()
     assert [(j["id"], j["title"], j["user_id"]) for j in jobs.all()] == [("old", "Old", 3)]
@@ -2798,31 +2937,37 @@ def test_odd_input_is_no_server_error(tmp_path, settings, account_settings, prov
     with TestClient(web.create_app(str(tmp_path / "local"), token=TOKEN, start_scheduler=False),
                     base_url="http://testserver") as local:
         assert local.get("/").status_code == 400
-    assert a.get(f"/runs/{RUN_A}/data.js").status_code == 200
-    assert a.get(f"/runs//{RUN_A}/data.js").status_code == 404
+    assert a.get(f"/runs/{RUN_A}/lines.arrow").status_code == 200
+    assert a.get(f"/runs//{RUN_A}/lines.arrow").status_code == 404
     token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
     anonymous = run_people["anonymous"]
-    assert anonymous.get(f"/s/{token}/data.js").status_code == 200
-    assert anonymous.get(f"/s//{token}/data.js").status_code == 404
+    assert anonymous.get(f"/s/{token}/lines.arrow").status_code == 200
+    assert anonymous.get(f"/s//{token}/lines.arrow").status_code == 404
 
 
-def test_run_scripts_carry_their_size(run_people):
-    """A run's data.js, also by its share link, carries its size before compression (web.SIZE_HEADER: nginx
-    gzips it on the fly and drops Content-Length, the page's progress bar counts against it); map.html none."""
+def test_run_store_carries_its_size(run_people):
+    """A run's store, also by its share link, carries its size before compression (web.SIZE_HEADER: nginx gzips it on
+    the fly and drops Content-Length, the page's progress bar counts against it): web.SIZED_FILES are the store's two
+    files alone since store wave 4's item 5; map.html none."""
     a, anonymous = run_people["a"], run_people["anonymous"]
+    assert web.SIZED_FILES == ("lines.arrow", "profiles.arrow")
     token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
-    for client, path in ((a, f"/runs/{RUN_A}/data.js"), (anonymous, f"/s/{token}/data.js")):
-        answer = client.get(path)
-        assert answer.status_code == 200 and answer.headers[web.SIZE_HEADER] == str(len(answer.content)), path
+    for name in web.SIZED_FILES:
+        for client, path in ((a, f"/runs/{RUN_A}/{name}"), (anonymous, f"/s/{token}/{name}")):
+            answer = client.get(path)
+            assert answer.status_code == 200 and answer.headers[web.SIZE_HEADER] == str(len(answer.content)), path
     assert web.SIZE_HEADER not in a.get(f"/runs/{RUN_A}/map.html").headers
 
 
 def test_run_store_for_its_owner(run_people, tmp_path):
     """A run's store (lines.arrow, profiles.arrow) goes to its owner (and by the owner's share link) as a run's
     other files, with its media type and its size before compression (web.SIZE_HEADER); to no one else. A run
-    of before, without a store, answers 404 for it and opens as before (its data.js; listed with its lines)."""
+    of before, without a store, answers 404 for it and for its data.js (store wave 4's item 5: no reader of it), and is
+    listed without lines (has_lines: lines.arrow alone)."""
     a, b, anonymous = run_people["a"], run_people["b"], run_people["anonymous"]
     token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    import old_scripts
+    old_scripts.write_scripts(tmp_path / "runs" / RUN_B)  # what a run of before held
     for name in ("lines.arrow", "profiles.arrow"):
         stored = (tmp_path / "runs" / RUN_A / name).read_bytes()
         for client, path in ((a, f"/runs/{RUN_A}/{name}"), (anonymous, f"/s/{token}/{name}")):
@@ -2834,9 +2979,9 @@ def test_run_store_for_its_owner(run_people, tmp_path):
             assert run_people[who].get(f"/runs/{RUN_A}/{name}").status_code == 404, (who, name)
         os.remove(tmp_path / "runs" / RUN_B / name)
         assert b.get(f"/runs/{RUN_B}/{name}").status_code == 404
-    assert b.get(f"/runs/{RUN_B}/data.js").status_code == 200
+    assert b.get(f"/runs/{RUN_B}/data.js").status_code == 404 and (tmp_path / "runs" / RUN_B / "data.js").is_file()
     import runs as rn
-    assert {r["id"]: r["has_lines"] for r in rn.list_runs(str(tmp_path / "runs"))}[RUN_B] is True  # its lines.js
+    assert {r["id"]: r["has_lines"] for r in rn.list_runs(str(tmp_path / "runs"))}[RUN_B] is False  # no lines.arrow
 
 
 def test_referrer_is_the_origin_only(run_people):
@@ -2856,7 +3001,7 @@ def test_cache_control(run_people, tmp_path):
     token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
     expected = [(a, "/", "no-store"), (anonymous, "/", "no-cache"), (a, "/api/jobs", "no-store"),
                 (anonymous, "/api/jobs", "no-store"), (a, "/runs/runs.js", "no-store"),
-                (a, f"/runs/{RUN_A}/map.html", "private, no-cache"), (a, f"/runs/{RUN_A}/data.js", "private, no-cache"),
+                (a, f"/runs/{RUN_A}/map.html", "private, no-cache"), (a, f"/runs/{RUN_A}/lines.arrow", "private, no-cache"),
                 (anonymous, f"/s/{token}/map.html", "private, no-cache"), (anonymous, "/s/runs.js", "no-cache"),
                 (anonymous, "/runs/_viewer/viewer.js", "no-cache"), (anonymous, "/app/app.js", "no-cache"),
                 (anonymous, "/privacy", "no-cache"), (a, "/view3d", "no-store")]
@@ -2903,8 +3048,10 @@ def test_web_process_keeps_off_the_workers_files(tmp_path, settings, account_set
             "h = {'x-findaline-token': 't'}\n"
             "c.get('/api/schema'); c.get('/api/runs'); c.post('/api/estimate', json={'params': {'lat': 50, 'lon': 19}}, "
             "headers=h)\n"
-            "c.post('/api/jobs', json={'params': {}, 'geometry': {'type': 'Polygon', 'coordinates': "
-            "[[[19, 50], [19.01, 50], [19.01, 50.01], [19, 50]]]}}, headers=h)\n"
+            "j = c.post('/api/jobs', json={'params': {}, 'geometry': {'type': 'Polygon', 'coordinates': "
+            "[[[19, 50], [19.01, 50], [19.01, 50.01], [19, 50]]]}}, headers=h).json()['id']\n"
+            "assert c.delete(f'/api/jobs/{j}', headers=h).status_code == 200\n"  # cancelled, then removed
+            "assert c.post(f'/api/jobs/{j}/remove', headers=h).status_code == 200\n"
             "print(json.dumps(sorted(m for m in sys.modules if m.split('.')[0] in ('numba', 'linesearch', 'search'))))")
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
@@ -2923,8 +3070,11 @@ def test_names_paths_and_profiles(run_people, clip_run, tmp_path, account_settin
     assert users.sign_in("github", "99", "Eve‮gnp.exe").name == "Evegnp.exe"
 
     folder = os.path.join(REPO, "tests", "data")
-    for name in ("lines.geojson", "ATTRIBUTION.txt", "data.js", "map.html"):
-        text = (clip_run / name).read_text("utf-8")
+    import clip_runs  # the run's own files, its store (the head data.js had before store wave 4) and its exports
+    texts = {name: (clip_run / name).read_bytes().decode("utf-8", "replace")
+             for name in ("ATTRIBUTION.txt", "lines.arrow", "profiles.arrow", "map.html")}
+    texts["export.geojson"] = clip_runs.export_text(clip_run, "geojson").decode("utf-8")
+    for name, text in texts.items():
         for form in (folder, folder.replace("\\", "/"), json.dumps(folder)[1:-1]):
             assert form not in text, (name, form)
     meta = json.loads((clip_run / "run.json").read_text("utf-8"))
@@ -3360,10 +3510,13 @@ def test_lines_refused_for_memory(tmp_path, monkeypatch):
         assert error.value.code == code and error.value.params["max"] == 4, error.value
     import gc
     gc.collect()
-    # A circle keeps the profile of every line: 10 lines fit without their profiles, 4 with them
+    # A circle keeps the profile of every line: 10 lines fit without their profiles, 5 with them (each profile as
+    # large as its line: 5 lines and their profiles take 2 x 5 x LINE_BYTES and the sectors' 8 B x 5², less than
+    # 10 lines and 8 B x 10²; 6 lines more)
     plan = SimpleNamespace(limits=None, memory=int(search.memory_needed(0, 10)), params=pm.SearchParams(lat=50, lon=19))
     search._check_lines(plan, 10)
     points = 10 * (search.LINE_BYTES // search.PROFILE_POINT_BYTES)  # each profile as large as its line
+    assert plan.memory == 10 * search.LINE_BYTES + search.WARD_SPOT_BYTES * 10 ** 2
     with pytest.raises(search.SearchError) as error:
         search._check_lines(plan, 10, 0, points)
     assert error.value.params["max"] == 5, error.value.params
@@ -3392,14 +3545,18 @@ def test_large_circle_keeps_the_spots_profiles(tmp_path, monkeypatch):
 
 def test_memory_warning(monkeypatch):
     """The worker warns at its start when the largest search the limits allow does not fit."""
+    import mapping
     import search
     from settings import Limits
     limits = Limits(grid_mpx_max=36, lines_max=20_000_000)
     monkeypatch.setattr(search, "available_memory", lambda: 8 * 2 ** 30)
     warning = search.memory_warning(limits)
-    fits = int((8 * 2 ** 30 - 36e6 * search.PIXEL_BYTES) // search.LINE_BYTES)
+    sectors = search.WARD_SPOT_BYTES * mapping.SECTOR_WARD_SPOTS ** 2  # Ward's clustering at its cap: 800 MB
+    fits = int((8 * 2 ** 30 - 36e6 * search.PIXEL_BYTES - sectors) // search.LINE_BYTES)
+    assert fits > mapping.SECTOR_WARD_SPOTS
     assert warning and f"FINDALINE_LIMIT_LINES_MAX={fits}" in warning, warning
     assert search.memory_warning(Limits(grid_mpx_max=36, lines_max=fits)) is None
+    assert search.memory_warning(Limits(grid_mpx_max=36, lines_max=fits + 1))
     assert search.memory_warning(Limits()) is None and search.memory_warning(None) is None
 
 
@@ -3560,9 +3717,9 @@ def test_no_server_paths_in_public_events(tmp_path, monkeypatch):
 
 
 def test_runs_list_written_locally_only(tmp_path, monkeypatch):
-    """runs.write_index (runs.js and index.html of the runs folder, which only the local app and maps
-    opened from disk read) after a local job's run, not after a public one's; the viewer is installed
-    once a run (by its map)."""
+    """runs.write_index (runs.js of the runs folder, which only the local app and maps read; no index.html since
+    store wave 4) after a local job's run, not after a public one's; the viewer is installed once a run (by its
+    map)."""
     import jobs as jb
     import mapping
     _phase_in_this_process(monkeypatch)
@@ -3580,11 +3737,43 @@ def test_runs_list_written_locally_only(tmp_path, monkeypatch):
             jb.run_phase(str(data), job, phase, None, public)
         assert jobs.get(job)["status"] == "done", jobs.get(job)["error"]
         runs = data / "runs"
-        assert os.path.exists(runs / "runs.js") == os.path.exists(runs / "index.html") == (not public)
+        assert os.path.exists(runs / "runs.js") == (not public) and not os.path.exists(runs / "index.html")
+        # the run's files as the worker saves them since store wave 4: the store, map.html, ATTRIBUTION.txt and
+        # run.json, no text file (the public worker and the local app's alike)
+        run_folder = runs / jobs.get(job)["run_id"]
+        assert set(os.listdir(run_folder)) == {"lines.arrow", "profiles.arrow", "map.html", "ATTRIBUTION.txt",
+                                               "run.json"}, (public, os.listdir(run_folder))
         assert os.path.exists(runs / "_viewer" / "viewer.js") and installed == [str(runs)]
         installed.clear()
     listed = (tmp_path / "local" / "runs" / "runs.js").read_text("utf-8")
     assert jobs.get(job)["run_id"] in listed
+
+
+@pytest.mark.parametrize("public", [True, False], ids=["public", "local"])
+def test_a_run_not_saved_fails_its_job(tmp_path, monkeypatch, public):
+    """A run that cannot be saved (its store's write failing) in the worker's compute phase: the job is "failed" with
+    the code run_not_saved and the catalogue's text (no path of the server in it), and no run folder is left."""
+    import jobs as jb
+    import linestore
+    import messages
+    _phase_in_this_process(monkeypatch)
+
+    def failing(run_path, lines, head, view=None):
+        raise OSError(28, r"No space left on device: C:\secret\path")
+    monkeypatch.setattr(linestore, "write", failing)
+    jobs = jb.Jobs(str(tmp_path), public=public)
+    job = jobs.add({"params": {**CLIP, "northing": 254608, "easting": 553966, "radius": 100}, "geometry": None},
+                   "clip", user_id=7 if public else None)
+    for phase, waiting in (("download", "queued"), ("compute", "ready")):
+        jobs.claim(waiting, jb.PHASE_STATUS[phase], "w1")
+        jb.run_phase(str(tmp_path), job, phase, None, public)
+    row = next(j for j in jobs.all() if j["id"] == job)
+    assert row["status"] == "failed" and row["error_info"] == {"code": "run_not_saved", "params": {}}, row
+    from test_store_only import RUN_NOT_SAVED
+    assert row["error"] == RUN_NOT_SAVED and "secret" not in row["error"]
+    runs = tmp_path / "runs"
+    assert not runs.exists() or not [d for d in os.listdir(runs) if not d.startswith(("_", "."))
+                                      and (runs / d).is_dir()], os.listdir(runs)
 
 
 def test_scheduler_warms_numba_up(tmp_path, monkeypatch):
@@ -3959,7 +4148,7 @@ def test_view3d_permissions_policy(tmp_path, settings, account_settings, provide
 
 def test_satellite_key_in_no_saved_file(tmp_path):
     """A search run with the satellite map's key in its environment writes it nowhere: not into the run's files
-    (map.html, data.js, ATTRIBUTION.txt, ...), the runs' list, the cache or the work folders."""
+    (map.html, the store, ATTRIBUTION.txt, ...), the runs' list, the cache or the work folders."""
     import subprocess
     env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
            "ESRI_API_KEY": ESRI_KEY}
@@ -3971,7 +4160,112 @@ def test_satellite_key_in_no_saved_file(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert ESRI_KEY not in result.stdout + result.stderr
     files = [os.path.join(top, name) for top, _, names in os.walk(tmp_path) for name in names]
-    assert any(f.endswith("data.js") for f in files) and any(f.endswith("ATTRIBUTION.txt") for f in files)
+    assert any(f.endswith("lines.arrow") for f in files) and any(f.endswith("ATTRIBUTION.txt") for f in files)
     for path in files:
         with open(path, "rb") as f:
             assert ESRI_KEY.encode() not in f.read(), path
+
+
+def test_exports_of_the_public_site(run_people, tmp_path, monkeypatch):
+    """Exports (store wave 3, store U9): the owner, an administrator and a signed-in visitor of a demo run make
+    one (POST /api/runs/<run>/export through the public quick lane, whose answer passes Redact as it is) and
+    download it once; another user, a pending or blocked one, a visitor without a session and a share link's
+    visitor are refused, and another user's GET leaves the file; each export made (not one refused) is a `run_export` event of the
+    audit log with its format; one waiting quick task at most per user; the runs row's bytes stay."""
+    import audit
+    from test_export import exported, exports_of, quick_lane
+    from settings import Limits
+    a, b, admin, anonymous = run_people["a"], run_people["b"], run_people["admin"], run_people["anonymous"]
+    jobs, ids = run_people["jobs"], run_people["ids"]
+    csv = exported(tmp_path / "runs" / RUN_A, "csv", tmp_path / "expected")
+    token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    for who, code in (("anonymous", 401), ("pending", 403), ("blocked", 403), ("b", 404)):
+        assert run_people[who].post(f"/api/runs/{RUN_A}/export", json={"format": "csv"}).status_code == code, who
+    shared = TestClient(a.app, base_url=URL)  # a share link's visitor: the link, no session
+    shared.headers["origin"] = URL
+    assert shared.get(f"/s/{token}/map.html").status_code == 200
+    assert shared.post(f"/api/runs/{RUN_A}/export", json={"format": "csv"}).status_code == 401
+    assert shared.post(f"/s/{token}/export", json={"format": "csv"}).status_code in (401, 404, 405)
+    assert a.post(f"/api/runs/{RUN_A}/export", json={"format": "csv"}).status_code == 503  # no worker
+    jobs.register("busy-worker")
+    jobs.quick_add("estimate", {}, ids["a"], one_waiting=True)
+    waiting = a.post(f"/api/runs/{RUN_A}/export", json={"format": "csv"})
+    assert waiting.status_code == 429 and waiting.json()["detail"]["code"] == "quick_waiting"
+    jobs._db().execute("DELETE FROM quick").connection.commit()
+    jobs.unregister("busy-worker")
+    jobs.set_visibility(RUN_B, "demo")
+    with quick_lane(tmp_path, monkeypatch, public=True, limits=Limits()):
+        url = a.post(f"/api/runs/{RUN_A}/export", json={"format": "csv"}).json()["url"]
+        name = url.rsplit("/", 1)[1]
+        for who in ("b", "anonymous", "pending"):
+            assert run_people[who].get(url).status_code in (401, 403, 404), who
+        assert shared.get(url).status_code == 401
+        assert exports_of(tmp_path) == [f"{RUN_A}-{name}"]  # still there for its owner
+        sent = a.get(url)
+        assert sent.status_code == 200 and sent.content == csv
+        assert sent.headers["content-disposition"].startswith("attachment; filename=\"A's run.csv\"")
+        assert a.get(url).status_code == 404 and exports_of(tmp_path) == []
+        by_admin = admin.post(f"/api/runs/{RUN_A}/export", json={"format": "geojson"}).json()["url"]
+        assert admin.get(by_admin).content == exported(tmp_path / "runs" / RUN_A, "geojson", tmp_path)
+        demo = a.post(f"/api/runs/{RUN_B}/export", json={"format": "csv"}).json()["url"]  # a demo run of B's
+        assert a.get(demo).content == exported(tmp_path / "runs" / RUN_B, "csv", tmp_path / "expected")
+        assert anonymous.post(f"/api/runs/{RUN_B}/export", json={"format": "csv"}).status_code == 401
+    events = [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "run_export"]
+    assert [(e["user_id"], e["target"], e["detail"]) for e in events] == [
+        (ids["a"], RUN_A, {"format": "csv"}), (ids["admin"], RUN_A, {"format": "geojson"}),
+        (ids["a"], RUN_B, {"format": "csv"})]
+    assert jobs.run(RUN_A)["bytes"] == 100 and jobs.run(RUN_B)["bytes"] == 100
+
+
+def test_export_rate(run_people, monkeypatch):
+    """Exports have their rate (Limits.export_rate, the public default 4 a minute and 30 an hour, the user's
+    choice of 2026-11-16): a limited user's fifth in a minute is refused (429 rate_export) before the quick lane
+    is asked, a user without limits is not; each user counts alone."""
+    _hold_rate_clock(monkeypatch)
+    from settings import Limits
+    assert Limits.load(public=True).export_rate == "4/minute;30/hour"
+    a, unlimited, b = run_people["a"], run_people["unlimited"], run_people["b"]
+    export = lambda client, run=RUN_A: client.post(f"/api/runs/{run}/export", json={"format": "csv"})  # noqa: E731
+    assert [export(a).status_code for _ in range(5)] == [503] * 4 + [429]  # on to the (missing) worker, then the rate
+    refused = export(a).json()["detail"]
+    assert refused["code"] == "rate_export" and refused["message"] == messages.text("error.rate_export") == (
+        "Too many downloads in a short time. Wait a minute and try again.")
+    run_people["jobs"].set_visibility(RUN_B, "demo")
+    assert [export(unlimited, RUN_B).status_code for _ in range(6)] == [503] * 6
+    assert export(b, RUN_B).status_code == 503  # B's own count
+
+
+def test_privacy_page_names_the_exports(run_people):
+    """The privacy page states the exports as the user approved the words (2026-11-16): the audit log's event and
+    the file kept until it is fetched, for one hour at most (jobs.EXPORT_KEEP_SECONDS)."""
+    import jobs as jb
+    text = run_people["anonymous"].get("/privacy").text
+    assert web.html.escape("deleted runs, exports of a run's lines made (CSV or GeoJSON: the format, not the "
+                           "content), the demo flag") in text
+    assert "A file made for a download is kept on the server until it is fetched, for one hour at most." in text
+    assert jb.EXPORT_KEEP_SECONDS == 3600 and 0 < jb.EXPORT_SWEEP < jb.EXPORT_KEEP_SECONDS
+
+
+def test_delete_route_in_use_and_a_leftover(run_people, monkeypatch, capsys):
+    """The public site's Delete: the runs lock not taken in time (filelock.Timeout, an OSError) answers 409 and keeps
+    the run; a folder left after the rename is logged by the run id alone (no user data) and the run is gone."""
+    import filelock
+    import jobs as jb
+    a = run_people["a"]
+    real = jb.Jobs.delete_run
+
+    def timeout(self, run_id, runs_dir):
+        raise filelock.Timeout(os.path.join(runs_dir, "_runs.lock"))
+    monkeypatch.setattr(jb.Jobs, "delete_run", timeout)
+    assert a.delete(f"/api/runs/{RUN_A}").status_code == 409
+    assert run_people["jobs"].run(RUN_A)
+
+    def left(self, run_id, runs_dir):
+        real(self, run_id, runs_dir)
+        return os.path.join(runs_dir, "_removing-" + run_id)
+    monkeypatch.setattr(jb.Jobs, "delete_run", left)
+    capsys.readouterr()
+    assert a.delete(f"/api/runs/{RUN_A}").status_code == 200 and not run_people["jobs"].run(RUN_A)
+    said = capsys.readouterr().err
+    assert f"run_delete: the folder of run {RUN_A} could not be deleted yet" in said
+    assert "A's run" not in said and "@" not in said

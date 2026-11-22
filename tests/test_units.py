@@ -202,20 +202,72 @@ def test_cache_due_many_answers_as_due(tmp_path):
                 if name in ("missing", "lost"):
                     path.unlink()
             kinds[str(path)] = name
-    second, third = tmp_path / "second", tmp_path / "third"
-    shutil.copytree(first, second)
-    shutil.copytree(first, third)
+    second, third, fourth, fifth = (tmp_path / name for name in ("second", "third", "fourth", "fifth"))
+    for folder in (second, third, fourth, fifth):
+        shutil.copytree(first, folder)
     paths = list(kinds)[::-1]  # not grouped by folder
     moved = lambda folder: [p.replace(str(first), str(folder)) for p in paths]  # noqa: E731
+    # `exists`: the files asked about by one listing of each folder (the tiles of a whole area on a share, as
+    # tools/area_download.py asks), or file by file through the same helper: the same answers, the same adoption
+    from sources.indexes import versions
+    asked = []
+
+    def by_folder(some):
+        asked.append(len(some))
+        return versions.existing(some, 1)
     for update, ttl in ((None, 730), ("stale", 730), ("all", 730), ("stale", None), ("all", None)):
         for processing in (1, 2):
             expected = [due_before(str(first), p, processing, update, ttl) for p in paths]
             assert cache.due_many(str(second), moved(second), processing, update, ttl) == expected, (update, ttl)
             assert [cache.due(str(third), p, processing, update, ttl) for p in moved(third)] == expected
-    assert cache.due_many(str(second), []) == []
-    for folder in (second, third):
+            assert cache.due_many(str(fourth), moved(fourth), processing, update, ttl, by_folder) == expected
+            assert cache.due_many(str(fifth), moved(fifth), processing, update, ttl,
+                                  lambda some: versions.existing(some, 10 ** 9)) == expected
+    assert asked == [6, 6] * 10    # every file of a top-level folder in one question, each top-level folder apart
+    assert cache.due_many(str(second), []) == [] and cache.due_many(str(second), [], exists=by_folder) == []
+    for folder in (second, third, fourth, fifth):
         assert cache.info(str(folder), str(folder / "spain" / "live" / "adopted.tif"))["status"] == "ok"
     assert [kinds[p] for p, due in zip(paths, cache.due_many(str(first), paths)) if due] ==         ["lost", "new"] * 2
+
+
+def test_cache_due_many_takes_the_callers_word_for_the_files(tmp_path):
+    """With `exists`, due_many asks no file itself: the caller's answers decide (so a whole area's files are asked
+    by folder, not one by one again), and a file the caller listed that is gone before its turn, with no row to
+    adopt it by, is due, not an error (another process deleted it during the minute between the listing of an
+    area's folders and this file's turn)."""
+    cache_dir = str(tmp_path)
+    paths = {}
+    for name in ("ok", "ok-gone", "adopted", "listed-gone", "new", "hidden"):
+        path = tmp_path / "land" / "tiles" / f"{name}.tif"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if name not in ("listed-gone", "new"):
+            path.write_bytes(b"a")
+        if name.startswith("ok"):
+            cache.record(cache_dir, str(path))
+        paths[name] = str(path)
+    os.remove(paths["ok-gone"])
+    said = {"ok": True, "ok-gone": True, "adopted": True, "listed-gone": True, "new": False, "hidden": False}
+    asked = []
+
+    def exists(some):
+        asked.append(list(some))
+        return [said[os.path.basename(p)[:-4]] for p in some]
+    real = os.path.exists
+    probed = []
+    os.path.exists = lambda p: probed.append(p) or real(p)
+    try:
+        due = cache.due_many(cache_dir, list(paths.values()), exists=exists)
+    finally:
+        os.path.exists = real
+    assert asked == [list(paths.values())] and not [p for p in probed if p.endswith(".tif")]
+    # ok-gone: its row says ok and the caller says there: not due until the next question; hidden: a file the
+    # caller did not see is due, whatever the disk says
+    assert dict(zip(paths, due)) == {"ok": False, "ok-gone": False, "adopted": False, "listed-gone": True,
+                                     "new": True, "hidden": True}
+    assert cache.info(cache_dir, paths["adopted"])["status"] == "ok"
+    assert cache.info(cache_dir, paths["listed-gone"]) is None and cache.info(cache_dir, paths["hidden"]) is None
+    # without `exists` a file is asked about and its time read in one breath: nothing to catch, as ever
+    assert cache.due_many(cache_dir, [paths["listed-gone"], paths["hidden"]]) == [True, False]
 
 
 def test_cache_states_answers_as_state(tmp_path):
@@ -2524,37 +2576,24 @@ def _fake_lines(n):
 
 
 def test_chunked_writes_match_one_dump(tmp_path, monkeypatch):
-    """Results, the map data and tile files written in chunks: the same text, the same lines."""
+    """Results and tile files written in chunks: the same text, the same lines (a run keeps no data.js or lines.js
+    since store wave 4's item 5)."""
     import json
-    from shapely.geometry import Point
     import helpers as sh
     import mapping as mp
     import runs as rn
     import search
 
-    class Area:
-        center = (50.0, 19.1)
-
-        @staticmethod
-        def shape_wgs84():
-            return Point(19.1, 50.0).buffer(0.01)
-
     lines = _fake_lines(10)
     groups = mp.Groups(np.array([4, 0]), np.array([4, 5, 6, 7, 8, 9, 3, 0, 1, 2]), np.array([0, 6, 10]))
     meta = {"name": "Żabi Koń", "summary": {"lines": 10}}
-    run = {"id": "r", "name": "Żabi Koń", "created": "2026-10-31T10:00:00+00:00"}
     for chunk, folder in ((3, tmp_path / "small"), (10_000, tmp_path / "one")):
         monkeypatch.setattr(rn, "LINES_CHUNK", chunk)
-        monkeypatch.setattr(mp, "LINES_CHUNK", chunk)
         folder.mkdir()
         counts = []
         rn.save_results(str(folder), lines, groups, meta, lambda n, file: counts.append(n))
         assert sum(counts) == len(lines)
-        counts = []
-        mp.save_map(lines, Area, str(folder), str(tmp_path / "runs"), run, "EPSG:2180",
-                    on_lines=lambda n, file: counts.append(n))
-        assert sum(counts) == len(lines)
-    for name in ("lines.csv", "lines.geojson", "run.json", "data.js", "lines.js"):
+    for name in ("lines.csv", "lines.geojson", "run.json"):
         assert (tmp_path / "small" / name).read_bytes() == (tmp_path / "one" / name).read_bytes()
     text = (tmp_path / "small" / "lines.geojson").read_text(encoding="utf-8")
     assert text == json.dumps(json.loads(text), ensure_ascii=False)
@@ -2562,14 +2601,6 @@ def test_chunked_writes_match_one_dump(tmp_path, monkeypatch):
     rows = (tmp_path / "small" / "lines.csv").read_text(encoding="utf-8-sig").splitlines()[1:]
     assert [r.split(",")[:3] for r in rows][:3] == [["1", "True", "6"], ["1", "False", "6"], ["1", "False", "6"]]
     assert [int(float(r.split(",")[3]) * 7 - 700 + 0.5) for r in rows] == [4, 5, 6, 7, 8, 9, 0, 3, 1, 2]
-    for name in ("data.js", "lines.js"):
-        text = (tmp_path / "small" / name).read_text(encoding="utf-8")
-        value = json.loads(text[text.index("= {") + 2:-2])
-        assert text.endswith("};\n") and len(value["lines"]) == 10
-    data = (tmp_path / "small" / "data.js").read_text(encoding="utf-8")
-    run_value = json.loads(data[data.index("= {") + 2:-2])
-    assert [row[-1] for row in run_value["lines"]][:5] == [{"d": [0, 0], "z": [1.5, None]}, None, None, None,
-                                                           {"d": [0, 4], "z": [1.5, None]}]
 
     path = str(tmp_path / "0.table.pkl.gz")
     search._save_tile(path, lines)
@@ -2781,7 +2812,7 @@ def test_replacing(tmp_path):
 
 
 def test_shared_run_files_one_process_at_a_time(tmp_path):
-    """The viewer and the index of the runs folder are written by one process at a time
+    """The viewer and the list of the runs folder (runs.js) are written by one process at a time
     (cache.runs_lock): a run saved while another process holds the lock waits for it, then writes
     them. Two compute slots installing the viewer at once failed on Windows (PermissionError of
     os.replace while the other process had the file open), seen in test_two_jobs_computing_at_once."""
@@ -2791,6 +2822,7 @@ def test_shared_run_files_one_process_at_a_time(tmp_path):
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     code = ("import sys; sys.path.insert(0, sys.argv[1]); import mapping, runs\n"
             "open(sys.argv[3], 'w').close()\n"
+            "mapping.install_viewer(sys.argv[2])\n"  # as save_run's map.html, then the list
             "runs.write_index(sys.argv[2])\n")
     started = tmp_path / "started"
     with cache.runs_lock(str(runs_dir)):
@@ -2806,7 +2838,7 @@ def test_shared_run_files_one_process_at_a_time(tmp_path):
         assert not (runs_dir / "runs.js").exists() and not (runs_dir / "_viewer" / "viewer.js").exists()
     assert child.wait(timeout=120) == 0
     assert (runs_dir / "runs.js").read_text(encoding="utf-8") == "window.FINDALINE_RUNS = [];\n"
-    assert (runs_dir / "index.html").exists() and (runs_dir / "_viewer" / "viewer.js").exists()
+    assert (runs_dir / "_viewer" / "viewer.js").exists() and not (runs_dir / "index.html").exists()  # store wave 4
 
 
 def test_labels_topics_and_presets():
@@ -2901,7 +2933,7 @@ def _error_codes() -> dict:
     from the source."""
     import ast
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    kinds = {"rate_": ["estimate", "profile", "patch", "reach", "place", "report", "time_zone", "job"],  # web.RATE_NAMES
+    kinds = {"rate_": ["estimate", "profile", "patch", "reach", "place", "report", "time_zone", "job", "export"],  # web.RATE_NAMES
              "quota_use_": ["km2", "mpx", "nominatim", "download_mb"]}           # jobs.USAGE
     position = {"UserError": 1, "SearchError": 1, "Note": 1, "ServiceError": 1, "QuotaExceeded": 2,
                 "OverpassDayMax": 1}
@@ -3208,10 +3240,11 @@ def _old_map_rows(lines, profiles: bool):
                                                   (True, True, False), (False, False, True), (True, True, True)],
                          ids=["plain", "end-zone", "square", "end-zone-square", "access", "all"])
 def test_saved_text_as_before(tmp_path, monkeypatch, ends, square, access):
-    """lines.csv, lines.geojson, data.js and lines.js built column by column: the same text as
-    csv.DictWriter and json.dumps of the rows of Python values wrote, for values hard to round
-    (halves, negative zero, NaN, infinities, very large and small), a missing clearance and
-    non-ASCII names; with an end zone and A-frames (ends) also the two A-frame heights (after
+    """lines.csv, lines.geojson (runs.save_results, the export's text) and data.js and lines.js (tests/old_scripts.py,
+    the frozen copy of the writers of before store wave 4's item 5, which the tools' tests of old runs use) built
+    column by column: the same text as csv.DictWriter and json.dumps of the rows of Python values wrote, for values
+    hard to round (halves, negative zero, NaN, infinities, very large and small), a missing clearance and non-ASCII
+    names; with an end zone and A-frames (ends) also the two A-frame heights (after
     clearance_nmpt_m, before the profile) and the heads' "ends"; with the square rule (square) the found
     lines each line stands for (the last column, the last value before the profile and of "ends") and the
     heads' "square" and "found"; with the access mark (access) each anchor's answer (uint8: after the anchors'
@@ -3255,10 +3288,12 @@ def test_saved_text_as_before(tmp_path, monkeypatch, ends, square, access):
         run["summary"] = {"lines": n, "found": int(lines.columns["stands_for"].sum())}
     if access:
         run.setdefault("params", {})["access"] = True
+    import old_scripts
     monkeypatch.setattr(rn, "LINES_CHUNK", 5)
-    monkeypatch.setattr(mp, "LINES_CHUNK", 5)
+    monkeypatch.setattr(old_scripts, "LINES_CHUNK", 5)
     rn.save_results(str(tmp_path), lines, groups, meta)
-    mp.save_map(lines, Area, str(tmp_path), str(tmp_path / "runs"), run, "EPSG:2180")
+    head = mp.map_head(Area, str(tmp_path / "map.html"), run, "EPSG:2180")
+    old_scripts.write_map_scripts(lines, str(tmp_path), old_scripts.heads_of(head, run))
 
     table, features = _old_csv_and_features(lines, groups)
     assert (tmp_path / "lines.csv").read_bytes() == table.encode("utf-8-sig")
@@ -3538,99 +3573,3 @@ def _batch_profiles(n: int, rng) -> "sh.Profiles":
     for k, (lo, hi) in enumerate(zip(offsets[:-1].tolist(), offsets[1:].tolist())):
         flags[k] = (1 if w[lo:hi].any() else 0) | (2 if g[lo:hi].any() else 0) | (4 if np.isnan(z[lo:hi]).any() else 0)
     return sh.Profiles(offsets, d, z, s, w, g, small, flags)
-
-
-def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
-    """saving.py: the line files of a run written by child processes (one per file, or the
-    results' apart from the map's) are byte for byte those save_results and save_map write in
-    one process, for 50 000 lines with the profiles of a batch, of a batch with an end zone and
-    a lift ("zone", "lift"), the A-frame heights of a run with those options, the found lines each
-    line stands for of a run with the square rule (an int64 column), the access mark of a run with --access
-    (two uint8 columns), profiles that
-    are dicts, lines without one and values hard to round; the children's progress reaches the Compute bars
-    "saving results" and "saving the map" with the lines as their totals; the hand-over folder is
-    removed; a failing child raises RuntimeError naming its file."""
-    import os
-    from shapely.geometry import Point
-    import mapping as mp
-    import runs as rn
-    import saving
-    from progress import progress
-
-    class Area:
-        center = (50.0, 19.1)
-
-        @staticmethod
-        def shape_wgs84():
-            return Point(19.1, 50.0).buffer(0.01)
-
-    rng = np.random.default_rng(7)
-    n = 50_000
-    lines = _fake_lines(n)
-    hard = np.array(HARD_FLOATS)
-    for shift, name in enumerate(["length", "clearance", "clearance_nmpt", "height_max", "high_pct", "prom1", "drop2"]):
-        lines.columns[name][:len(hard)] = np.roll(hard, shift)
-    lines.columns["anchor1"][:len(hard)] = np.column_stack([np.roll(hard, 1), np.roll(hard, -2)])
-    # a run with --end-zone and --anchor-lift: the A-frame heights of every line, hard ones among them
-    lines.columns["lift_needed"] = np.round(rng.random(n) * 2, 3)
-    lines.columns["lift_no_zone"] = lines.columns["lift_needed"] + rng.random(n) * 5
-    lines.columns["lift_no_zone"][:len(hard)] = np.roll(hard, 3)
-    lines.columns["stands_for"] = np.random.default_rng(8).integers(1, 5000, n).astype(np.int64)  # --same-line-square
-    for name in ("access1", "access2"):  # --access: each anchor's answer, 0 to 2 (uint8)
-        lines.columns[name] = rng.integers(0, 3, n).astype(np.uint8)
-    batch = _batch_profiles(n, rng)
-    zoned = _batch_profiles(n, rng)  # a search with --end-zone and --anchor-lift: the zone of each line, the lift
-    zoned.zone, zoned.lift = np.round(np.minimum(5.0, rng.random(n) * 30), 1), 2.0
-    lines.profiles = {k: (zoned if k % 3 == 0 else batch)[k] for k in range(n) if k % 7}
-    assert "zone" in lines.profiles[3].as_dict() and "zone" not in lines.profiles[1].as_dict()
-    lines.profiles[7] = {"d": [0.0, -0.0, 1e300], "z": [float("nan"), None], "name": "Żabi"}
-    members = rng.permutation(n).astype(np.int64)
-    start = np.concatenate([[0], np.sort(rng.integers(0, n + 1, 3000)), [n]]).astype(np.int64)
-    rep = np.array([members[rng.integers(a, b)] if b > a else n + g for g, (a, b) in enumerate(zip(start[:-1], start[1:]))],
-                   dtype=np.int64)
-    groups = mp.Groups(rep, members, start)
-    meta = {"id": "r", "name": "Żabi Koń „ß”", "created": "2026-10-31T10:00:00+00:00",
-            "summary": {"lines": n, "found": int(lines.columns["stands_for"].sum())},
-            "attribution": [], "source": {"id": "files"},
-            "params": {"x": 1.5, "end_zone": 5, "anchor_lift": 2, "same_line_side": 5, "access": True},
-            "data": [{"file": "C:/a/b.tif"}]}
-    one = tmp_path / "one"
-    one.mkdir()
-    rn.save_results(str(one), lines, groups, meta)
-    mp.save_map(lines, Area, str(one), str(tmp_path / "runs"), meta, "EPSG:2180")
-    files = ("lines.csv", "lines.geojson", "data.js", "lines.js", "run.json", "ATTRIBUTION.txt", "map.html")
-    assert sorted(os.listdir(one)) == sorted(files)
-    assert (one / "lines.csv").read_text(encoding="utf-8-sig").splitlines()[0].endswith(",access1,access2,stands_for")
-
-    work = tmp_path / "work"
-    for count in (4, 2):
-        folder = tmp_path / f"children{count}"
-        folder.mkdir()
-        heads = mp.map_heads(Area, str(folder / "map.html"), meta, "EPSG:2180")
-        states = []
-        progress.subscribe(states.append)
-        try:
-            saving.save(str(work), str(folder), lines, groups, meta, heads, saving.plan(count),
-                        lambda: rn.save_results(str(folder), lines, groups, meta, files=("ATTRIBUTION.txt", "run.json")))
-        finally:
-            progress.unsubscribe(states.append)
-        mp.save_map(lines, Area, str(folder), str(tmp_path / "runs"), meta, "EPSG:2180", files=("map.html",))
-        for name in files:
-            assert (folder / name).read_bytes() == (one / name).read_bytes(), (count, name)
-        assert b"lift_no_zone_m" in (folder / "lines.csv").read_bytes()
-        assert b'"ends":["lift_needed","lift_no_zone","access1","access2","stands_for"]' in (folder / "lines.js").read_bytes()
-        assert (folder / "lines.csv").read_bytes().splitlines()[0].endswith(b",stands_for")
-        assert sorted(os.listdir(folder)) == sorted(files) and not (work / saving.FOLDER).exists()
-        # by the stage: after a test's progress.bars() the Compute bar's label is "" (its finally)
-        bars = [(s["stage"], s["count"], s["total"], s["done"]) for s in states if s["stage"].startswith("saving")]
-        assert [b for b in bars if b[3]] == [("saving results", n, n, True), ("saving the map", n, n, True)]
-        for stage in ("saving results", "saving the map"):
-            counts = [c for name, c, total, done in bars if name == stage and not done]
-            assert counts and counts == sorted(counts) and 0 <= counts[0] and counts[-1] <= n, stage
-    assert saving.plan(1) == [] and saving.plan(2) == [saving.RESULT_FILES, saving.MAP_FILES]
-    assert saving.plan(3, map_files=False) == [("lines.csv",), ("lines.geojson",)] and len(saving.plan(4)) == 4
-    assert [saving.processes(t) for t in (1, 2, 3, 4, 24)] == [1, 2, 2, 4, 4]
-    with pytest.raises(RuntimeError, match="saving lines"):  # the run folder missing: every child fails
-        saving.save(str(work), str(tmp_path / "missing"), lines, groups, meta, heads, [("lines.csv",), ("lines.js",)],
-                    lambda: None)
-    assert not (work / saving.FOLDER).exists()

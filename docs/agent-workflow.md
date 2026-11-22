@@ -46,7 +46,10 @@ it may make itself. The mechanics of branches, tags and the test lock are in [wo
     (`C:\fal\<name>`) and removed at the end. Searches use `--no-plot --yes` and are never piped into `head`.
   - The user's `runs/`, the cache and the app on port 8765 are read-only. Scratch data goes in a folder of the
     agent's own (`C:\fal\<task>-<agent>`) with the cache linked by a junction, removed at the end with
-    `cmd /c rmdir`, never through the link.
+    `cmd /c rmdir`, never through the link. A junction never lies under a pytest `--basetemp`: the basetemp is
+    removed recursively.
+  - Paths are absolute: from PowerShell a relative path given to a .NET call resolves against the process's folder,
+    not the shell's.
   - Private data: no coordinates of production cases, known highlines only as counts through the project's tools,
     keys and personal data never in a file, a text or a log.
   - No new dependency, no change outside the owned files: stop and report instead.
@@ -56,7 +59,8 @@ it may make itself. The mechanics of branches, tags and the test lock are in [wo
   - The report (the final message, at most about 120 lines): what changed (files, functions), the commits, the tests
     and their last lines, the stored-data line, every "must stay in step" pair touched, what was not done or not
     tested, every choice the brief does not settle, anything noticed outside the task. A measurement's report: the
-    tables, how each number was made, what is indicative, what the agent re-derived to check itself.
+    tables, how each number was made, what is indicative, what the agent re-derived to check itself. A harness may
+    refuse a worker's write of a report file: the final message is the report, and the session saves it.
 - **A brief per agent** (`local/<task>-<date>/briefs/<agent>.md`): what to read (the rules of its area by name: an
   agent gets a rule only when it opens one of its files), the user's decisions it builds (quoted, "do not widen
   them"), what must hold (each with a test), what to measure, tests and builds, docs, commits, its milestones with an
@@ -70,10 +74,12 @@ it may make itself. The mechanics of branches, tags and the test lock are in [wo
   pitfalls or the change touches the search, stored data or a "must stay in step" pair). Fable only where the
   session judges it necessary (a hard design core). An agent may start subagents of its own, on Opus 5.5 at most,
   for clearly separable work, and says what it delegated.
-- **Progress and limits:** each agent keeps `local/<task>-<date>/<agent>/progress.md` current and commits small. An
-  agent stopped by a usage limit is resumed with `SendMessage` after the reset (not a new agent); its runs in the
-  test lock survive it. Waiting in the lock is normal, not stuck. `SendMessage` resumes an agent on its own model: a
-  dead agent of another model is replaced by a new agent given its notes, its worktree and its running processes.
+- **Progress and limits:** each agent keeps `local/<task>-<date>/<agent>/progress.md` current and commits small.
+  Waiting in the lock is normal, not stuck, but an agent never ends its turn while a command of its own waits in
+  the lock's queue: the command ends with the agent. An agent stopped by a usage limit is resumed with `SendMessage`
+  after the reset; check which of its commands still run. `SendMessage` resumes an agent on its own model: when that
+  model's limit lasts, or the agent is dead, a new agent on another model continues from its progress file and a
+  fix-round file (what is done, what is left), with its worktree and its running processes.
 - **Stuck** means one of four things: it says it cannot meet a point of its brief; it fails the review on the same
   point twice; it is at twice its expected time without a new milestone; it repeats a failing step three times.
   Cause in the brief or the environment: fix it and resume the same agent. Cause in capability: one replacement by
@@ -81,8 +87,8 @@ it may make itself. The mechanics of branches, tags and the test lock are in [wo
   reported to the user with its cause.
 
 ## 4. Reviews before any merge
-The steps after every hand-back: worker → scope reviewer, and for a build also the code reviewer → the session's
-review → merge. The two reviewers run in parallel. Each is a separate Opus agent that reads the output, never the
+The steps after every hand-back: worker → scope reviewer, for a build also the code reviewer, for a change of a
+screen also the design reviewer → the session's review → merge. The reviewers run in parallel. Each is a separate Opus agent that reads the output, never the
 worker's report. A requirement "not met" or a finding "fix before merge" goes back to the same worker first.
 - **Scope reviewer** (every task, builds, measurements and mock-ups): compares the contract, the brief, the
   specification and the user's words with the output itself (the branch's diff and files, a measurement's scripts
@@ -94,6 +100,12 @@ worker's report. A requirement "not met" or a finding "fix before merge" goes ba
   of every changed function to the test that runs it ("no test" named); tests that do not test (pass with the change
   reverted, fixed waits, loosened assertions); a one-line verdict. Its instructions: appendix B. The project has no
   coverage tool; adding one is a new dependency (libraries compared, the user decides).
+- **Design reviewer** (every change of a screen, of a text the user reads or of a style, and every mock-up; the
+  user's decision of 2026-11-17): reads docs/PRODUCT.md, docs/DESIGN.md, the task's user's words, the screenshots
+  before and after (desktop and both phones, light and dark) and the numbers of `tools/ui_metrics.py` and
+  `tools/ui_walks.py` before and after, never the worker's report, and writes `<agent>/design-review.md` with its
+  verdict ("conforms", "conforms with findings", "does not conform"). What it checks, what it writes and what it
+  must not do: [design-review.md](design-review.md).
 - **An independent reference** for the riskiest changes (a rule that drops results, a kernel): an agent writes its
   own reference from the brief's words before it reads the code, and compares results on a real search.
 - **The session's review:** read the core of the diff, re-derive two or three numbers from the raw outputs, run the
@@ -104,6 +116,11 @@ worker's report. A requirement "not met" or a finding "fix before merge" goes ba
 - `main` moves only on the user's word, item by item (an "ok" on screenshots, a gate's answer). One squash commit per
   task with its commits under `history/<branch>` ([workflow.md](workflow.md)), the full pytest on that tree first.
   Nothing is pushed or deployed unless the user asks.
+- Branches that go in together are stacked as their squash commits and the full pytest runs on the top of the
+  stack: a test can fail on the combined tree that passes on each branch.
+- When `main` moves during a long test run, the stack is rebuilt on the new `main` and tested again, and `main` is
+  fast-forwarded only to the commit tested, guarded by its hash and by `main`'s expected one. When the move touched
+  docs alone, equal patch-ids of the rebuilt commits stand in for the second full run.
 - A change that other sessions must act on (a default, a migration number, a cube's meaning): tell their sessions
   directly, or leave the note in memory when none is running.
 - The close: roadmap (decisions, parked ideas), known bugs, the area's rules, a handoff in `local/<task>-<date>/`,

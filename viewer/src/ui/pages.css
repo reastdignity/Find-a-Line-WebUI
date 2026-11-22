@@ -2,26 +2,34 @@
    the kit's look: no script, so the theme follows the system (tokens.css); classes p-*, under .ui. */
 
 .ui.p-body { height: 100%; overflow-y: auto; }
-.ui .p-page { max-width: 760px; margin: 0 auto; padding: 40px 16px 24px; display: flex; flex-direction: column; gap: 20px; }
+.ui .p-page { max-width: 760px; margin: 0 auto; padding: 32px 16px 24px; display: flex; flex-direction: column; gap: 24px; }
 .ui .p-signin { max-width: 680px; }
-.ui .p-brand { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
-.ui .p-brand .u-logo { font-size: 30px; text-decoration: none; }
+.ui .p-brand { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.ui .p-brand .u-logo { font-size: var(--fs-7); text-decoration: none; }
 .ui .p-doc .p-brand { align-items: flex-start; }
-.ui .p-doc .p-brand .u-logo { font-size: 22px; }
-.ui .p-lead { margin: 0; color: var(--ink-2); font-size: 15px; }
-.ui .p-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
-  padding: 22px 24px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ui .p-doc .p-brand .u-logo { font-size: 22px; }  /* off R5: the logo is a drawing sized by its font size, not text */
+.ui .p-lead { margin: 0; color: var(--ink-2); font-size: var(--fs-4); }
+.ui .p-card { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-3); box-shadow: var(--shadow);
+  padding: 24px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .ui .p-card > * { margin: 0; }
-.ui .p-signin .p-card { align-self: center; width: 100%; max-width: 400px; align-items: stretch; text-align: center; }
-.ui .p-error { color: var(--bad); background: var(--bad-soft); border-radius: 8px; padding: 8px 12px; text-align: left; }
-.ui .p-providers { display: flex; flex-direction: column; gap: 10px; }
+/* the sign-in page's one group lies on the ground: no box (R8; step 3c, 2026-11-19) */
+.ui .p-signin .p-card { align-self: center; width: 100%; max-width: 400px; align-items: stretch; text-align: center;
+  background: none; border: 0; box-shadow: none; padding: 0; }
+/* the privacy and about pages' text lies on the ground as the sign-in page's group: no raised card (R8; group D,
+   option b); the line gains the card's 24 px padding on each side */
+.ui .p-doc .p-card { background: none; border: 0; box-shadow: none; padding: 0; }
+.ui .p-error { color: var(--bad); background: var(--bad-soft); border-radius: var(--r-2); padding: 8px 12px; text-align: left; }
+.ui .p-providers { display: flex; flex-direction: column; gap: 12px; }
 .ui .p-card form { display: flex; justify-content: center; }
 
 /* Sign-in buttons with the providers' marks. Google's follows its branding guidelines (white or dark
    fill, its grey stroke, the four-colour G unchanged, 40 px high), Microsoft's its own (white with a
    grey stroke or dark grey, the four squares unchanged, Segoe UI); GitHub's mark is monochrome. */
-.ui .p-provider { display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 40px; padding: 0 12px;
+/* off the scales (height, corners, gap, the type's 14 px written out): the providers' own button guidelines. On a
+   touch screen the target is 44 px (R2) without a change of the 40 px button: 2 px more above and under it */
+.ui .p-provider { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 40px; padding: 0 12px;
   border-radius: 4px; font: 500 14px/20px Roboto, var(--font); text-decoration: none; cursor: pointer; }
+@media (pointer: coarse) { .ui .p-provider::after { content: ""; position: absolute; inset: -3px -1px; } }
 .ui .p-provider svg { width: 20px; height: 20px; flex: none; }
 .ui .p-google { background: #ffffff; border: 1px solid #747775; color: #1f1f1f; }
 .ui .p-google:hover { background: #f2f2f2; }
@@ -40,22 +48,36 @@
 }
 
 /* The demo runs as cards (as C's Home) */
-.ui .p-examples { display: flex; flex-direction: column; gap: 10px; }
+.ui .p-examples { display: flex; flex-direction: column; gap: 12px; }
 .ui .p-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.ui .p-ex { height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; background: var(--surface);
-  border: 1px solid var(--line); border-radius: 14px; color: var(--ink); text-decoration: none; min-width: 0; }
+.ui .p-ex { height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; background: var(--surface);
+  border: 1px solid var(--rule); border-radius: var(--r-3); color: var(--ink); text-decoration: none; min-width: 0; }
 .ui .p-ex b { overflow-wrap: anywhere; }
-.ui a.p-ex:hover { border-color: var(--accent); box-shadow: var(--shadow); }
-.ui .p-open { margin-top: auto; padding-top: 6px; color: var(--accent); font-weight: 500; }
+.ui a.p-ex:hover { border-color: var(--accent); background: var(--hover); }
+.ui .p-open { margin-top: auto; padding-top: 8px; color: var(--accent); font-weight: 500; display: flex; align-items: center; gap: 4px; }
+.ui .p-open .u-ic { width: 16px; height: 16px; }  /* the kit's arrow (web.py NEXT_ICON), not the character "›" (R9) */
 
-/* Privacy and about: text */
-.ui .p-prose { line-height: 1.55; }
-.ui .p-prose h2 { font: 600 18px/1.2 var(--display); margin: 10px 0 0; }
-.ui .p-prose ul { padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
-.ui .p-facts dt { font-weight: 600; margin-top: 10px; }
-.ui .p-facts dt:first-child { margin-top: 0; }
-.ui .p-facts dd { margin: 2px 0 0; color: var(--ink-2); }
+/* Privacy and about: text (PAGE_HTML's .p-doc; the sign-in page shares this file and none of these rules). Headings
+   on the type scale: about's sections as the app's section titles (the display font, 20 px), privacy's facts named
+   as the pilot's section heads (the display font, 16 px); a word longer than the line (an address in a link or in a
+   credit's notice) breaks inside it, other words do not. The text at most about 75 characters a line (the user,
+   2026-11-20): the whole column (logo, text, footer and its rule) 63ch wide plus the page's 16 px sides, centred as
+   the 760 px column was; a `ch` is a digit's width (measured: privacy 75 characters a line, about 67); phones keep
+   their full width */
+.ui .p-page.p-doc { max-width: calc(63ch + 32px); }
+.ui .p-doc .p-prose { line-height: 1.55; overflow-wrap: anywhere; }
+.ui .p-doc .p-prose h2 { font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; margin: 12px 0 0; }
+.ui .p-doc .p-prose ul { padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+.ui .p-doc .p-facts dt { font: 600 var(--fs-4)/20px var(--display); letter-spacing: .01em; margin-top: 16px; }
+.ui .p-doc .p-facts dt:first-child { margin-top: 0; }
+.ui .p-doc .p-facts dd { margin: 4px 0 0; color: var(--ink-2); }
 
-.ui .p-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; padding-top: 12px; border-top: 1px solid var(--line);
-  color: var(--muted); font-size: 12.5px; }
-.ui .p-footer a { color: var(--ink-2); }
+.ui .p-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 8px; padding-top: 12px; border-top: 1px solid var(--rule);
+  color: var(--muted); font-size: var(--fs-2); }
+/* privacy and about: the footer's links start at the text's left edge, as its logo, headings and text (the text
+   is narrower than the page since 63ch: centred links stood apart from it); the sign-in page keeps them centred */
+.ui .p-doc .p-footer { justify-content: flex-start; }
+.ui .p-footer a { display: inline-flex; align-items: center; justify-content: center; min-height: 24px; color: var(--ink-2); }
+/* the brand's link and the line's one link under the lead ("Where the data is detailed"): controls of their own */
+.ui .p-brand a.u-logo, .ui .p-brand p > a:only-child { display: inline-flex; align-items: center; min-height: 24px; }
+@media (pointer: coarse) { .ui .p-footer a, .ui .p-brand a.u-logo, .ui .p-brand p > a:only-child { min-height: 44px; min-width: 44px; } }

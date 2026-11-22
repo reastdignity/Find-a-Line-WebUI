@@ -40,6 +40,7 @@ import { ProfileDock, profileShown } from "./ProfileDock";
 import { AccessLegend, ResultSummary } from "./ResultSummary";
 import { RunActions, type RunActionsProps } from "./RunActions";
 import { RunLoading } from "./RunLoading";
+import { opensView, SpotColumns } from "./SpotColumns";
 import { useLayout, type LayoutState } from "./useLayout";
 import "./columns.css";
 
@@ -62,9 +63,9 @@ export interface ResultColumnsProps {
   view3dOf?(model: ResultModel, line: Line): string;
   /** Buttons before the run's actions (e.g. "Edit & run again"); `compact` on phones (icons only). */
   actions?(compact: boolean): ComponentChildren;
-  /** The run's data when the caller has it (a run's map.html: its data.js); else loaded from `base`. */
+  /** The run's data when the caller has it (a run's map.html: its store); else loaded from `base`. */
   data?: RunData;
-  /** The folder of the runs' folders (default "/runs/") and of this run's files (RunActionsProps). */
+  /** The folder of the runs' folders (default "/runs/") and of this run's files (credits.ts `runFolder`). */
   base?: string;
   folder?: string;
   /** The run's actions that can work here (default all). */
@@ -325,7 +326,7 @@ function Desktop({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, 
       <Title data={data} />
       <span class="u-grow" />
       {actions?.(false)}
-      <RunActions model={model} view={view} onMeasured={setMeasured} show={show} base={base} folder={folder} />
+      <RunActions model={model} view={view} onMeasured={setMeasured} show={show} base={base} />
     </header>
     <div class="c-cols" ref={colsRef}>
       <ResultPanel side="list" class="c-col-list" label="Lines" column={fit.list} max={maxColumnWidth("list", width, fit)}
@@ -394,7 +395,7 @@ function Phone({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, ac
         <span class="u-grow c-pill-name">{data.run.name}</span>
         {actions?.(true)}
       </div>
-      <RunActions model={model} view={view} onMeasured={measuredNow} compact show={phoneShow} base={base} folder={folder} />
+      <RunActions model={model} view={view} onMeasured={measuredNow} compact show={phoneShow} base={base} />
     </div>
     <Sheet label="Results" snap={snap} onSnap={setSnap} peek={132} top={64}
            header={model.selected ? <LineDetails model={model} part="head" onStep={reveal} />
@@ -426,7 +427,8 @@ export function ResultColumns(props: ResultColumnsProps) {
     setProgress(null);
     setError("");
     (props.data ? Promise.resolve(props.data) : loadRun(props.runId, props.base, report))
-      .then((d) => live ? buildModel(d, {list: {sort: "hmean", desc: true}}, report) : null)
+      // The result view (SpotColumns: built beside this page, behind a flag) reads the store's spots: no grouping
+      .then((d) => live ? buildModel(d, {list: {sort: "hmean", desc: true}, ungrouped: opensView(d)}, report) : null)
       .then((m) => { if (live && m) setModel(m); }, (e) => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [props.runId]);
@@ -435,5 +437,6 @@ export function ResultColumns(props: ResultColumnsProps) {
   }
   const data = model.data;
   const view = {...props, model, data};
+  if (model.ungrouped) return <SpotColumns {...view} />;
   return props.wide ? <Desktop key="wide" {...view} /> : <Phone key="phone" {...view} />;
 }

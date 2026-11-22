@@ -28,13 +28,19 @@ pytestmark = pytest.mark.skipif(
     reason="needs Node and `npm install` in viewer/")
 
 
+# The modules whose units read made-up rows (data.js's, lines.js's): bundled with the tests' rows reader
+# (viewer/test/rows.ts: toLine, lineColumns, runData; the page reads a run from its store alone since store wave 4)
+ROW_ENTRIES = {"types": "test/types_rows.ts", "result/model": "test/model_rows.ts"}
+
+
 def run_ts(tmp_path, module: str, script: str, bundles=None):
     """Bundle viewer/src/<module>.ts for Node and run script with it as `m`; returns its JSON output.
     bundles: more modules bundled beside it ({name: module}: <tmp_path>/<name>.cjs)."""
     bundle = tmp_path / f"{module}.cjs"
     for name, source in [(module, module), *(bundles or {}).items()]:
         out = tmp_path / f"{name}.cjs"
-        subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: ['src/{source}.ts'], bundle: true, "
+        entry = ROW_ENTRIES.get(source, f"src/{source}.ts")
+        subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: ['{entry}'], bundle: true, "
                                       f"format: 'cjs', platform: 'node', outfile: {json.dumps(str(out))}}})"],
                        cwd=VIEWER, check=True)
     path = tmp_path / f"{module}-test.cjs"
@@ -316,7 +322,7 @@ console.log(JSON.stringify(out));""")
 
 def test_basic_receipt_size_word_and_rigs(tmp_path):
     """The receipt (spec-search 1.2, the accepted mock-up's parts) of each goal with the starting and a saved rig, a
-    rig changed for one search, "+ N more settings" (the square rule at 5 covered), the name; the phone's short
+    rig changed for one search, "N more settings" (the square rule at 5 covered), the name; the phone's short
     line; the size word of every state; the rig's words, names, checks; the rig in use kept per browser; where "Sea
     cliffs" moves Where and back."""
     from settings import Limits
@@ -389,7 +395,7 @@ console.log(JSON.stringify(out));""")
     marked = "access marked[, no line filtered out]→access"
     assert found["best"] == ["30–300 m→min_length", "anchors within 10 m of height→max_anchor_diff_m",
                              "trees marked*→nmpt", "Rig: sag, no-fall zone 5 m, no A-frames→end_zone", marked]
-    assert found["unmarked"] == found["best"][:-1]  # the mark off (Advanced): no part, and no "+ 1 more setting"
+    assert found["unmarked"] == found["best"][:-1]  # the mark off (Advanced): no part, and no "1 more setting"
     # too wide for the access grid: "access not marked", on a desktop ": area too wide"; with the mark off no part
     assert found["skipped"] == ["access not marked[: area too wide]→access", len(found["best"]) - 1, True, False, False,
                                 False, "access_skipped"]
@@ -402,7 +408,7 @@ console.log(JSON.stringify(out));""")
                                 "My rig: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked,
                                 "named “Il-Bahrija”→name"]
     assert found["forOne"][-2:] == ["Rig for this search: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked]
-    assert found["more"][2] == "trees not checked→nmpt" and found["more"][-2:] == [marked, "+ 2 more settings→more"]
+    assert found["more"][2] == "trees not checked→nmpt" and found["more"][-2:] == [marked, "2 more settings→more"]  # G5: no "+ "
     assert found["formula"][-2] == "Rig: simple formula, no-fall zone 5 m, no A-frames→model"
     assert found["short"] == ["Long and exposed · 100–600 m · My rig", "Custom · 30–300 m · Rig for this search"]
     # (3: the word, the level and the causes; the "Lighter" hint is gone, the user's 2026-11-15 "2. ok c")
@@ -414,7 +420,7 @@ console.log(JSON.stringify(out));""")
                              ["Very heavy", 3, "sag, no-fall zone 5 m, lines up to 1000 m", 3],
                              ["Heavy", 2, "no-fall zone 5 m, an area of 4 km²", 3],  # the formula: no sag step
                              ["Very heavy", 3, "sag, no-fall zone 3 m, A-frames 2 m", 3]]
-    assert found["summary"] == ["sag · no-fall zone 5 m · no A-frames", "simple formula, no-fall zone 3 m, A-frames 2 m",
+    assert found["summary"] == ["sag, no-fall zone 5 m, no A-frames", "simple formula, no-fall zone 3 m, A-frames 2 m",
                                 "2.5 kN pretension, 5 % stretch at 10 kN, 70 g/m webbing, athlete 80 kg, 6 m leash fall space"]
     assert found["names"] == ["My rig", "Rig 3", "Rig 2", True, False, True, "a b"]
     assert found["problems"] == ["", "No-fall zone at the ends is 0 to 20 m.", "A-frame height is 0 to 3 m.",
@@ -536,8 +542,8 @@ def test_bundle_is_built_from_sources(tmp_path):
 
 
 def test_ortho_attribution_url(tmp_path):
-    """data.js names the orthophoto's attribution link when its service has one (layers.ts makes the
-    attribution a link to it), and leaves the field out otherwise, as in the maps of before."""
+    """The run's head (mapping.map_head: its store's) names the orthophoto's attribution link when its service has
+    one (layers.ts makes the attribution a link to it), and leaves the field out otherwise, as in the maps of before."""
     from types import SimpleNamespace
 
     from shapely.geometry import Point
@@ -556,10 +562,7 @@ def test_ortho_attribution_url(tmp_path):
                                   base_max_zoom=18, **({"attribution_url": url} if url else {}))
         folder = tmp_path / ("with" if url else "without")
         folder.mkdir()
-        mapping.save_map(helpers.LineTable.empty(), Area, str(folder), str(tmp_path / "runs"), run, "EPSG:2180",
-                         ortho_service=service)
-        text = (folder / "data.js").read_text(encoding="utf-8")
-        found.append(json.loads(text.partition(" = ")[2].rstrip().rstrip(";"))["ortho"])
+        found.append(mapping.map_head(Area, str(folder / "map.html"), run, "EPSG:2180", ortho_service=service)["ortho"])
     assert found[0]["attribution_url"] == "https://example.org/terms" and found[0]["attribution"] == "© Test"
     assert "attribution_url" not in found[1]
 
@@ -768,7 +771,7 @@ def test_result_model(tmp_path, clip_data):
     data_path = tmp_path / "data.json"
     data_path.write_text(text, encoding="utf-8")
     bundle = tmp_path / "model.cjs"
-    subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['src/result/model.ts'], bundle: true, "
+    subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['test/model_rows.ts'], bundle: true, "
                                   f"format: 'cjs', platform: 'node', outfile: {json.dumps(str(bundle))}}})"],
                    cwd=VIEWER, check=True)
     script = tmp_path / "model-test.cjs"
@@ -918,7 +921,7 @@ def test_elevation_and_percentile_filters(tmp_path, clip_data):
     data_path.write_text(json.dumps(data), encoding="utf-8")
     entry = tmp_path / "entry.ts"
     src = os.path.join(VIEWER, "src").replace("\\", "/")
-    entry.write_text(f'export * from "{src}/result/model";\nexport {{ lineFacts, ordinal }} from '
+    entry.write_text(f'export * from "{src}/../test/model_rows";\nexport {{ lineFacts, ordinal }} from '
                      f'"{src}/result/view/LineDetails";\n', encoding="utf-8")
     bundle = tmp_path / "filters.cjs"
     subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
@@ -959,7 +962,7 @@ def test_elevation_and_percentile_filters(tmp_path, clip_data):
 def _columns_bundle(tmp_path):
     entry = tmp_path / "columns_entry.ts"
     src = os.path.join(VIEWER, "src").replace("\\", "/")
-    entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
+    entry.write_text(f'export * from "{src}/../test/model_rows";\n'
                      f'export {{ lineCoords }} from "{src}/keys";\nexport {{ groupLines }} from "{src}/grouping";\n'
                      f'export {{ formatValue, sortKey, sortRows }} from "{src}/list";\n'
                      f'export {{ passes, range, needClass, liftNeed, dh, lowerAnchor, upperAnchor, wallAngle, prominence, '
@@ -1296,11 +1299,12 @@ def _store_bundle(tmp_path):
     """The columns' bundle (_columns_bundle) with result/load.ts's store reader."""
     entry = tmp_path / "store_entry.ts"
     src = os.path.join(VIEWER, "src").replace("\\", "/")
-    entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
+    entry.write_text(f'export * from "{src}/../test/model_rows";\n'
                      f'export {{ lineCoords }} from "{src}/keys";\nexport {{ groupLines }} from "{src}/grouping";\n'
                      f'export {{ passes, range, dh, lowerAnchor, upperAnchor, wallAngle, prominence, drop }} '
                      f'from "{src}/filters";\n'
-                     f'export {{ readStore, storedProfiles, storeOf, parseLoose, loadOtherRun, loadRun, NewerStore, '
+                     f'export {{ readStore, storedProfiles, storeOf, parseLoose, loadOtherRun, loadRun, loadRunLines, '
+                     f'NewerStore, '
                      f'StoreFailed, TooLarge, STORE_FORMAT }} '
                      f'from "{src}/result/load";\n', encoding="utf-8")
     bundle = tmp_path / "store.cjs"
@@ -1328,14 +1332,16 @@ def _store_head(lines, ends: bool, square: bool, nan_mean: bool = False) -> dict
 
 
 def _store_and_script(folder, lines, head) -> dict:
-    """lines.arrow and profiles.arrow (linestore.write) and data.js (mapping.write_map_scripts) of one LineTable
-    in `folder`; returns run.json's block "store"."""
+    """lines.arrow and profiles.arrow (linestore.write) and data.js (tests/old_scripts.py, the frozen writer of
+    before store wave 4's item 5: the rows the tests read into columns) of one LineTable in `folder`; returns
+    run.json's block "store"."""
     import linestore
+    import old_scripts
     folder.mkdir(parents=True, exist_ok=True)
     block = linestore.write(str(folder), lines, head)
-    heads = (mapping._script_head("window.FINDALINE_RUN", {**head, "lines": None}),
-             mapping._script_head("window.X", {"lines": None}))
-    mapping.write_map_scripts(lines, str(folder), heads, files=("data.js",))
+    heads = (old_scripts._script_head("window.FINDALINE_RUN", {**head, "lines": None}),
+             old_scripts._script_head("window.X", {"lines": None}))
+    old_scripts.write_map_scripts(lines, str(folder), heads, files=("data.js",))
     return block
 
 
@@ -1401,13 +1407,28 @@ function same(a, b) {
 }
 const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
 const key = (l) => m.lineCoords(l);
+// Python's reading of each store (linestore.read): a store column's values by its name, NaN, ±Infinity and -0 as text
+const reference = JSON.parse(fs.readFileSync(process.argv[3], "utf-8"));
+const decode = (v) => v === "NaN" ? NaN : v === "Infinity" ? Infinity : v === "-Infinity" ? -Infinity : v === "-0" ? -0 : v;
 const out = {};
 for (const [name, folder] of Object.entries(cases)) {
   const linesBytes = bytes(folder + "/lines.arrow");
   const store = m.readStore(linesBytes, bytes(folder + "/profiles.arrow"));
   const data = script(folder + "/data.js"), cols = store.columns, bad = [], cursor = new m.LineCursor(cols);
-  // The view's keys (view B1: sectors, box, lengths) are in a new run's store only, not in its data.js
-  const {columns, sectors, box, lengths, ...head} = store, {lines, ...want} = data;
+  // every value the page reads is Python's (null where data.js wrote null for a missing value: NULL_WHEN_MISSING)
+  const python = [];
+  for (const [column, values] of Object.entries(reference[name])) {
+    values.forEach((v, i) => {
+      let want = decode(v);
+      if (column === "over") want = want === true || want === 1;
+      else if (m.NULL_WHEN_MISSING.includes(column) && Number.isNaN(want)) want = null;
+      const got = m.lineAt(cols, i)[column];
+      if (!Object.is(got, want)) python.push([i, column, String(want), String(got)]);
+    });
+  }
+  // The view's keys (view B1: sectors, box, lengths) are in a new run's store only, not in its data.js, and so are
+  // the view's columns as the reader hands them on (`view`, step 3b: test_view_columns.py says what it holds)
+  const {columns, sectors, box, lengths, view, ...head} = store, {lines, ...want} = data;
   data.lines.forEach((row, i) => {
     const expected = m.toLine(row, undefined, data.terrain, data.ends), got = m.lineAt(cols, i);
     if (JSON.stringify(Object.keys(got)) !== JSON.stringify(Object.keys(expected))) bad.push([i, "keys"]);
@@ -1424,7 +1445,8 @@ for (const [name, folder] of Object.entries(cases)) {
   // Without a copy: the columns are views of the downloaded bytes (only int64/uint64 ones are copied)
   const shared = Object.entries(cols).filter(([, v]) => v && v.values && v.values.length && v.values.buffer === linesBytes)
     .map(([k]) => k).concat(cols.over.buffer === linesBytes ? ["over"] : []);
-  out[name] = {bad: bad.slice(0, 20), n: data.lines.length, length: cols.length, head: same(head, want), types, shared,
+  out[name] = {bad: bad.slice(0, 20), python: python.slice(0, 20), columns: Object.keys(reference[name]).length,
+               n: data.lines.length, length: cols.length, head: same(head, want), types, shared,
                profiles: data.lines.filter((r) => r[r.length - 1] !== null && typeof r[r.length - 1] === "object").length};
   if (!data.lines.length) continue;
   // The page's model on the store and on data.js's rows (the columns of wave 1): the same spots, lines and counts
@@ -1473,29 +1495,64 @@ def clip_folder(tmp_path_factory):
 
 
 def _clip_folder(tmp_path_factory, name: str):
-    """A copy of the folder of clip_data's run (the search runs once per session)."""
+    """A copy of the folder of clip_data's run (the search runs once per session) with its data.js and lines.js
+    beside its store, as the search wrote them before store wave 4 (tests/old_scripts.py): the rows these tests read
+    into columns (viewer/test/rows.ts) as the reference of the page's store reader."""
     import clip_runs
+    import old_scripts
     tests_data = os.path.join(REPO, "tests", "data")
     data = clip_runs.data_copy(tmp_path_factory, name, [
         "--elevation-file", os.path.join(tests_data, "zabi_kon_nmt.tif"),
         "--surface-file", os.path.join(tests_data, "zabi_kon_nmpt.tif"), "--northing", "254608",
         "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
         "--ortho", "never"])
-    return next((data / "runs").glob("*/data.js")).parent
+    folder = next((data / "runs").glob("*/run.json")).parent
+    if not (folder / "data.js").is_file():
+        old_scripts.write_scripts(folder)
+    return folder
+
+
+def python_reference(cases: dict, tmp_path):
+    """Python's reading of each case's store (linestore.read, Q5-3: the page's reference since store wave 4's item 5)
+    as a JSON file for STORE_SCRIPT: {case: {the store's column: its values}}, NaN, ±Infinity and -0 as text."""
+    import math
+    import linestore
+
+    def text(v):
+        v = v.item() if hasattr(v, "item") else v
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v) or (v == 0 and math.copysign(1, v) < 0)):
+            return "NaN" if math.isnan(v) else "-0" if v == 0 else ("Infinity" if v > 0 else "-Infinity")
+        return v
+    reference = {}
+    for name, folder in cases.items():
+        lines, _ = linestore.read(str(folder), profiles=False)
+        reference[name] = {}
+        for store_name, column, index, _, _ in linestore.COLUMNS:
+            if column in lines.columns:
+                values = lines.columns[column] if index is None else lines.columns[column][:, index]
+                reference[name][store_name] = [text(v) for v in values]
+    path = tmp_path / "reference.json"
+    path.write_text(json.dumps(reference), encoding="utf-8")
+    return path
 
 
 def test_store_gives_the_rows_values(tmp_path, store_cases):
-    """result/load.ts readStore: a run's store (lines.arrow, profiles.arrow) gives every Line value, the profile
+    """result/load.ts readStore: a run's store (lines.arrow, profiles.arrow) gives every value Python's reading of it
+    gives (linestore.read: the reference since store wave 4's item 5, Q5-3), and every Line value, the profile
     and the head data.js of the same lines gives (Object.is: -0, NaN, null as data.js shows them: clrN, prom, drop
     null, hmean, highPct, angles NaN), the same keys.lineCoords (favourites, links), the columns as views of the
     downloaded bytes; the page's model on it gives data.js's spots, lines and counts under every filter and
     grouping, and its ranges: for the hard floats, the A-frames' columns, the square rule's count, a run without a
-    surface model, values no int32 holds (float64, int64, uint64 columns), no lines, and the clip's run."""
+    surface model, values no int32 holds (float64, int64, uint64 columns), no lines, and the clip's run. Its data.js
+    is made from the store (tests/old_runs.py), so the store's fidelity to the search is held by test_linestore's
+    test_store_round_trip_of_the_clip (the in-memory clip reference), test_store_round_trip and
+    test_units.py::test_saved_text_as_before."""
     cases_path = tmp_path / "cases.json"
     cases_path.write_text(json.dumps({name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}),
                           encoding="utf-8")
-    out = _run_node(tmp_path, _store_bundle(tmp_path), STORE_SCRIPT, cases_path)
+    out = _run_node(tmp_path, _store_bundle(tmp_path), STORE_SCRIPT, cases_path, python_reference(store_cases, tmp_path))
     for name, case in out.items():
+        assert case["python"] == [] and case["columns"] >= 25, (name, case["python"])
         assert case["bad"] == [], (name, case["bad"])
         assert case["head"], name
         assert case["n"] == case["length"], name
@@ -1588,28 +1645,29 @@ globalThis.window = globalThis;
 globalThis.XMLHttpRequest = FakeXHR;
 globalThis.location = {protocol: "http:", href: "http://test/app/", origin: "http://test"};
 globalThis.requestAnimationFrame = (f) => setTimeout(f, 0);
-// data.js that JSON.parse refuses (NaN) is loaded as a script: evaluated here
-globalThis.document = {createElement: () => ({remove() {}}), head: {appendChild(s) {
-  const [, run, file] = /\/runs\/([^/]+)\/([^/]+)$/.exec(s.src);
-  setTimeout(() => { new Function("window", fs.readFileSync(cases[run] + "/" + file, "utf-8"))(window); s.onload(); });
-}}};
 const block = {format: 1, lines: 0, bytes: 0, sha256: ""};
 const info = (id, store) => ({id, name: id, created: "", description: "", ...(store ? {store} : {})});
-// the page's list of runs (map.html's ../runs.js): every case listed with its block, "older" with a newer format
-window.FINDALINE_RUNS = Object.keys(cases).filter((id) => id !== "older").map((id) => info(id, block))
+// the page's list of runs (map.html's ../runs.js): every case listed with its block but "wide" (listed without it),
+// "older" with a newer format
+window.FINDALINE_RUNS = Object.keys(cases).filter((id) => id !== "older").map((id) => info(id, id === "wide" ? null : block))
   .concat([info("older", {...block, format: m.STORE_FORMAT + 1})]);
-const linesJs = (id) => Promise.resolve({lines: [], crs: "", area: null, from: "lines.js of " + id});
+// the console's warnings (StoreFailed's detail: load.ts writes it once for every failed load)
+const warned = [];
+console.warn = (...args) => warned.push(args.join(" "));
 const outcome = async (f) => {
   asked.splice(0);
-  try { const d = await f(); return {ok: d.columns ? d.columns.length : d.from, asked: asked.splice(0)}; }
-  catch (e) { return {error: e.name, message: e.message, asked: asked.splice(0)}; }
+  warned.splice(0);
+  try { const d = await f(); return {ok: d.columns.length, asked: asked.splice(0), warned: warned.splice(0)}; }
+  catch (e) { return {error: e.name, message: e.message, asked: asked.splice(0), warned: warned.splice(0)}; }
 };
 (async () => {
   const out = {};
   out.store = await outcome(() => m.loadRun("zone"));
+  out.withoutBlock = await outcome(() => m.loadRun("wide"));  // listed without the block: its store asked for all the same
   gone.add("lines.arrow");
-  out.linesGone = await outcome(() => m.loadRun("square"));  // a listed store whose lines.arrow is missing: data.js
-  out.compareGone = await outcome(() => m.loadOtherRun(info("square", block), "/runs/", linesJs));
+  out.linesGone = await outcome(() => m.loadRun("square"));  // a listed store whose lines.arrow is missing: no data.js
+  out.compareGone = await outcome(() => m.loadOtherRun(info("square", block), "/runs/"));
+  out.thumbGone = await outcome(() => m.loadRunLines("square", undefined, "/runs/"));  // a mini map's, unlisted
   gone.clear();
   gone.add("profiles.arrow");
   out.profilesGone = await outcome(() => m.loadRun("both"));
@@ -1620,7 +1678,7 @@ const outcome = async (f) => {
   broken.add("lines.arrow");
   out.serverError = await outcome(() => m.loadRun("nosurface"));
   broken.clear();
-  out.newer = await outcome(() => m.loadRun("older"));       // a newer store: refused, never data.js
+  out.newer = await outcome(() => m.loadRun("older"));       // a newer store: refused
   out.texts = {tooLarge: new m.TooLarge().message, newer: new m.NewerStore().message};
   console.log(JSON.stringify(out));
 })();
@@ -1629,24 +1687,43 @@ const outcome = async (f) => {
 
 def test_store_failures_and_fallbacks(tmp_path, store_cases):
     """load.ts over http with a made-up XMLHttpRequest: a run whose listed store is read asks for lines.arrow and
-    profiles.arrow only; a missing lines.arrow or profiles.arrow (404) falls back to data.js (Compare: to lines.js)
-    while runs keep it; a 200 with a null response (the browser could not allocate the body) is TooLarge with its
-    text; a server error is a StoreFailed, not data.js; a newer format is refused without any download and no
-    fallback."""
+    profiles.arrow only, and so does a run listed without the block; a missing lines.arrow or profiles.arrow (404) is
+    a StoreFailed (Compare's too) with no other file asked for (store wave 4's item 5: no data.js, no lines.js); a 200
+    with a null response (the browser could not allocate the body) is TooLarge with its text; a server error is a
+    StoreFailed; a newer format is refused without any download. A StoreFailed (a run's own, Compare's, a mini map's:
+    loadRunLines) shows the catalogue's words and writes its detail to the console once."""
     cases = {name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}
     cases["older"] = cases["plain"]
     cases_path = tmp_path / "cases.json"
     cases_path.write_text(json.dumps(cases), encoding="utf-8")
     out = _run_node(tmp_path, _store_bundle(tmp_path), LOAD_PATHS_SCRIPT, cases_path)
-    assert out["store"] == {"ok": 3000, "asked": ["/runs/zone/lines.arrow", "/runs/zone/profiles.arrow"]}
-    assert out["linesGone"] == {"ok": 3000, "asked": ["/runs/square/lines.arrow", "/runs/square/profiles.arrow",
-                                                      "/runs/square/data.js"]}
-    assert out["compareGone"] == {"ok": "lines.js of square", "asked": ["/runs/square/lines.arrow"]}
-    assert out["profilesGone"]["ok"] == 3000 and out["profilesGone"]["asked"][-1] == "/runs/both/data.js"
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)["ui.result.store_failed"]
+    assert out["store"] == {"ok": 3000, "asked": ["/runs/zone/lines.arrow", "/runs/zone/profiles.arrow"], "warned": []}
+    assert out["withoutBlock"] == {"ok": 3000, "asked": ["/runs/wide/lines.arrow", "/runs/wide/profiles.arrow"],
+                                   "warned": []}
+    # every failed store load writes its detail to the console once (load.ts StoreFailed): the run's own, Compare's,
+    # a mini map's; the page shows the catalogue's words (the message)
+    for name, run, why in (("linesGone", "square", "404"), ("compareGone", "square", "404"),
+                           ("thumbGone", "square", "404"), ("profilesGone", "both", "404"),
+                           ("serverError", "nosurface", "500")):
+        assert out[name]["warned"] == [f"could not load the store of the run {run} ({why})"], (name, out[name])
+        assert out[name]["message"] == words, (name, out[name])
+    assert out["thumbGone"]["error"] == "StoreFailed" and out["thumbGone"]["asked"] == ["/runs/square/lines.arrow"]
+    assert out["nullBody"]["warned"] == [] and out["newer"]["warned"] == []
+    assert out["linesGone"]["error"] == "StoreFailed", out
+    assert out["linesGone"]["asked"] == ["/runs/square/lines.arrow", "/runs/square/profiles.arrow"], out
+    assert out["compareGone"]["error"] == "StoreFailed" and out["compareGone"]["asked"] == ["/runs/square/lines.arrow"]
+    assert out["profilesGone"]["error"] == "StoreFailed", out
+    assert out["profilesGone"]["asked"] == ["/runs/both/lines.arrow", "/runs/both/profiles.arrow"], out
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        too_large = json.load(f)["ui.result.too_large"]
+    assert too_large == out["texts"]["tooLarge"] == "This result is too large for this browser."
     assert out["nullBody"]["error"] == "TooLarge" and out["nullBody"]["message"] == out["texts"]["tooLarge"]
-    assert "/runs/plain/data.js" not in out["nullBody"]["asked"]
-    assert out["serverError"]["error"] == "StoreFailed" and "/runs/nosurface/data.js" not in out["serverError"]["asked"]
-    assert out["newer"] == {"error": "NewerStore", "message": out["texts"]["newer"], "asked": []}
+    assert out["nullBody"]["asked"] == ["/runs/plain/lines.arrow", "/runs/plain/profiles.arrow"], out
+    assert out["serverError"]["error"] == "StoreFailed", out
+    assert out["serverError"]["asked"] == ["/runs/nosurface/lines.arrow", "/runs/nosurface/profiles.arrow"], out
+    assert out["newer"] == {"error": "NewerStore", "message": out["texts"]["newer"], "asked": [], "warned": []}
 
 
 COMPARE_GROUPS_SCRIPT = r"""
@@ -1701,37 +1778,37 @@ const block = {format: 1, lines: 5, bytes: 100, sha256: "0123456789abcdef"};
 const run = (id, store) => ({id, name: id, created: "", description: "", ...(store ? {store} : {})});
 (async () => {
   const out = {};
-  const ask = async (name, url) => { loads = []; out[name] = {store: await m.storeOf(url), loads: loads.slice()}; };
+  const ask = async (name, folder) => { loads = []; out[name] = {store: await m.storeOf(folder), loads: loads.slice()}; };
   listed = [run("a", block), run("b")];
-  await ask("withStore", "/runs/a/data.js");          // the list loaded once: its block
-  await ask("without", "/runs/b/data.js");            // the list the page has: no store (a store without the block)
+  await ask("withStore", "/runs/a/");          // the list loaded once: its block
+  await ask("without", "/runs/b/");            // the list the page has, without the block: its store asked for directly
   listed = [run("a", block), run("b"), run("new id", block)];
-  await ask("savedSince", "/runs/new%20id/data.js");  // not in the page's list: read afresh, then found
-  await ask("unlisted", "../x/data.js");             // a share link's runs.js lists no runs: read afresh, none there
-  await ask("notDataJs", "/runs/a/other.js");
-  await ask("shareLink", "/s/AbCdEf0123456789/data.js");  // a share link: its runs.js lists no runs, none asked for
-  window.FINDALINE_RUNS = [run("own", block)];           // map.html's own ../runs.js, loaded before the bundle
-  await ask("fromTag", "/runs/own/data.js");
+  await ask("savedSince", "/runs/new%20id/");  // not in the page's list: its store asked for, no list again
+  await ask("unlisted", "../x/");             // another user's run (an administrator): the same
+  await ask("shareLink", "/s/AbCdEf0123456789/");  // a share link: its runs.js lists no runs, none asked for
+  window.FINDALINE_RUNS = [run("own", block)];    // map.html's own ../runs.js, loaded before the bundle
+  await ask("ownList", "/runs/own/");
   console.log(JSON.stringify(out));
 })();
 """
 
 
 def test_which_file_a_run_is_read_from(tmp_path):
-    """load.ts storeOf: a run is read from its store when its entry in runs.js (beside its folder) holds run.json's
-    block "store"; a run listed without it (saved before the store, its store failed, or a store left by a stopped
-    save) from data.js; a run missing from the page's list (saved since the page loaded it) is looked for in runs.js
-    read afresh; a run not listed at all reads data.js. The list the page has (map.html's own runs.js) is used as it
-    is, with no request; a share link (/s/<token>/: its runs.js lists no runs) asks for none."""
+    """load.ts storeOf, by the run's folder (store wave 4's item 5: no data.js): a run is read from the store its entry
+    in the page's list of runs (beside its folder) names with run.json's block "store"; a run listed without it, a run
+    the list does not name (saved since the page loaded it, another user's run an administrator opens) and a share
+    link (/s/<token>/: its runs.js lists no runs) get the probe: the store's files asked for directly
+    (tests/test_store_share.py). The list is loaded once at most: the list the page has (map.html's own runs.js) is
+    used as it is, and no list is read again for a run it lacks; a share link asks for none."""
     out = _run_node(tmp_path, _store_bundle(tmp_path), WHICH_FILE_SCRIPT)
     block = {"format": 1, "lines": 5, "bytes": 100, "sha256": "0123456789abcdef"}
+    probe = {"format": 1, "lines": 0, "bytes": 0, "sha256": ""}
     assert out["withStore"] == {"store": block, "loads": ["http://test/runs/runs.js"]}
-    assert out["without"] == {"store": None, "loads": []}
-    assert out["savedSince"] == {"store": block, "loads": ["http://test/runs/runs.js"]}
-    assert out["unlisted"] == {"store": None, "loads": ["http://test/runs.js"]}
-    assert out["notDataJs"] == {"store": None, "loads": []}
-    assert out["shareLink"] == {"store": None, "loads": []}
-    assert out["fromTag"] == {"store": block, "loads": []}
+    assert out["without"] == {"store": probe, "loads": []}
+    assert out["savedSince"] == {"store": probe, "loads": []}
+    assert out["unlisted"] == {"store": probe, "loads": []}
+    assert out["shareLink"] == {"store": probe, "loads": []}
+    assert out["ownList"] == {"store": block, "loads": []}
 
 
 PRUNE_SCRIPT = r"""
@@ -1780,64 +1857,11 @@ def test_made_lines_dropped_after_regrouping(tmp_path):
     assert regrouped["spots"] == out["spots"] and regrouped["kept"] <= 2 * out["spots"] + 2
 
 
-TOO_LARGE_SCRIPT = r"""
-// result/load.ts over http with a fake XMLHttpRequest and document: what a body makes of the load
-globalThis.window = globalThis;
-globalThis.location = {protocol: "http:", href: "http://test/app/"};
-const made = [], lists = [];
-globalThis.document = {querySelector: () => null, head: {appendChild(s) {
-  if (s.src.endsWith("/runs.js")) {  // the list of runs (load.ts storeOf): none of these runs has a store
-    lists.push(s.src);
-    setTimeout(() => { window.FINDALINE_RUNS = [{id: "big"}, {id: "ok"}, {id: "nan"}]; s.onload(); });
-    return;
-  }
-  made.push(s.src);  // a script: data.js as the script would set it
-  setTimeout(() => { window.FINDALINE_RUN = {run: {id: "nan"}, lines: [[1, 2]]}; s.onload(); });
-}}, createElement: () => ({remove() {}})};
-let answer = {body: "", loaded: 0};
-globalThis.XMLHttpRequest = class {
-  static HEADERS_RECEIVED = 2;
-  open() {} setRequestHeader() {} getResponseHeader() { return null; }
-  send() { setTimeout(() => { this.status = 200; this.response = answer.body; this.onload({loaded: answer.loaded}); }); }
-};
-(async () => {
-  const out = {};
-  answer = {body: "", loaded: 600e6};  // Chromium: the text of a body over its string limit is ""
-  const e = await m.loadRun("big").then(() => null, (e) => e);
-  out.big = {name: e && e.name, message: e && e.message, tooLarge: e instanceof m.TooLarge, scripts: made.length};
-  answer = {body: 'window.FINDALINE_RUN = {"run":{"id":"ok"},"lines":[[1,2],[3,4]]};\n', loaded: 60};
-  const ok = await m.loadRun("ok");
-  out.ok = {columns: ok.columns.length, lines: "lines" in ok, scripts: made.length};
-  answer = {body: 'window.FINDALINE_RUN = {"a":NaN,"lines":[]};\n', loaded: 40};  // JSON.parse refuses: the script
-  const nan = await m.loadRun("nan");
-  out.nan = {columns: nan.columns.length, scripts: made.length, cleared: window.FINDALINE_RUN === undefined};
-  out.words = [m.tooLarge("", 1), m.tooLarge("", 0), m.tooLarge("x", 1)];
-  out.lists = lists;
-  console.log(JSON.stringify(out));
-})();
-"""
-
-
-def test_too_large_body(tmp_path):
-    """result/load.ts: over http a body that arrives empty although its bytes came (Chromium's string limit) fails the
-    load with TooLarge, whose message is the catalogue's text the page shows, and starts no script; a body JSON.parse
-    reads gives the columns without the rows; one it refuses (NaN) is still loaded as a script, into columns."""
-    found = run_ts(tmp_path, "result/load", TOO_LARGE_SCRIPT)
-    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
-        text = json.load(f)["ui.result.too_large"]
-    assert text == "This result is too large for this browser."
-    assert found["big"] == {"name": "TooLarge", "message": text, "tooLarge": True, "scripts": 0}
-    assert found["ok"] == {"columns": 2, "lines": False, "scripts": 0}
-    assert found["nan"] == {"columns": 1, "scripts": 1, "cleared": True}
-    assert found["words"] == [True, False, False]
-    assert found["lists"] == ["http://test/runs/runs.js"]  # runs.js read once: no store, data.js read
-
-
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_result_map_in_edge(tmp_path, clip_data):
+def test_result_map_in_edge(tmp_path, clip_data, clip_folder):
     """result/ResultMap and loadRun in headless Edge, on a test page of a run served by the app (its CSP):
     the run downloaded and parsed, lines drawn, a selection with its variants, a click on a variant shows it,
     measuring (two clicks, Esc cancels), onMove, and destroy() leaves the map without a layer of it."""
@@ -1847,7 +1871,9 @@ def test_result_map_in_edge(tmp_path, clip_data):
     run_id = data["run"]["id"]
     folder = tmp_path / "runs" / run_id
     folder.mkdir(parents=True)
-    (folder / "data.js").write_text(f"window.FINDALINE_RUN = {text};\n", encoding="utf-8")
+    import linestore
+    for name in linestore.FILES:  # the run's store: not in a list of runs, so loadRun asks for its files directly
+        shutil.copyfile(clip_folder / name, folder / name)
     subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['test/resultmap_page.ts'], "
                                   "bundle: true, format: 'iife', target: 'es2020', "
                                   "loader: {'.png': 'dataurl', '.svg': 'text'}, "
@@ -1862,7 +1888,7 @@ def test_result_map_in_edge(tmp_path, clip_data):
     assert found, dom[-2000:]
     out = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
     assert "error" not in out, out["error"]
-    assert out["load"] == {"failed": True, "lines": len(data["lines"]), "cleared": True, "cached": True}
+    assert out["load"] == {"failed": True, "lines": len(data["lines"]), "cached": True}
     assert out["drawn"] > 0 and out["selectedLayers"] > out["drawn"]
     assert out["clicked"] == ["variant"] and out["variantShown"] is True
     assert out["measured"] is True and out["escaped"] is True and out["moves"] == 1
@@ -1927,9 +1953,11 @@ def test_shore_chip_in_edge(tmp_path):
     assert {k: moved[k] for k in opened} == opened and "0 m: the foot" in moved["text"]
     assert moved["chipText"] == "Uncertain shore1.8 km" and moved["swatches"] == ["sea"]
     hint = phone["help"]  # the "?" text inside the box, the box above the scale, within the map
-    assert hint["open"] is True and hint["overflow"] == "auto" and hint["scrolls"] is True
+    # the scale's corner raised 180 px (shore_page.ts): the box too short for the help, which scrolls inside, up under
+    # the title (shoreLayer.ts `fit` and the help's onclick)
+    assert hint["open"] is True and hint["overflow"] == "auto"
     assert hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
-    assert hint["textUp"] is True and hint["titleTop"] <= 1
+    assert hint["scrolls"] is True and hint["textUp"] is True and hint["titleTop"] <= 1, hint
     # a bottom corner raised without a map event (corners.ts above the sheet): the opened box ends above it
     assert phone["raised"]["bottom"] <= phone["raised"]["cornerTop"] < hint["scaleTop"]
     folded = phone["folded"]
@@ -1945,6 +1973,8 @@ def test_shore_chip_in_edge(tmp_path):
         assert {k: desktop[step][k] for k in always} == always, step
     hint = desktop["help"]  # within the map too (a desktop's map in a low window is short)
     assert hint["overflow"] == "auto" and hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
+    # it scrolls too; whether the help comes up under the title there is not checked (the phone's case is, above)
+    assert hint["scrolls"] is True and hint["titleTop"] <= 1, hint
     assert desktop["raised"]["bottom"] <= desktop["raised"]["cornerTop"] < hint["scaleTop"]  # a card raised it
     assert desktop["away"]["holder"] is False
 
@@ -2615,7 +2645,7 @@ console.log(JSON.stringify(out));""")
 
 def test_view3d_imagery_counts_in_the_pill(tmp_path):
     """view3d/imagery.ts (round 2, point 2): the tiles loaded are counted in the stage's activity pill (entry
-    "imagery": "Imagery 3 / 12" and the fraction), no more often than COUNT_MS and ending at all of them; the entry
+    "imagery": "Imagery 3 of 12" and the fraction), no more often than COUNT_MS and ending at all of them; the entry
     is cleared when the loading ends, when Shaded or Edges replaces it, and on dispose; a kind started over another
     keeps one entry."""
     from test_view3d_tiles import AFFINE, CX, CY, FAKE_DOM, GEOPORTAL
@@ -2650,9 +2680,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     loaded = found["loaded"]
     sets = [e for e in loaded if e[0] == "set"]
     assert sets and loaded[-1] == ["clear", "imagery"] and all(e[1] == "imagery" for e in loaded)
-    total = int(re.search(r"/ (\d+)$", sets[0][2]).group(1))
-    assert total > 3 and sets[0][2] == f"Imagery 0 / {total}" and sets[0][3] == 0
-    assert sets[-1][2] == f"Imagery {total} / {total}" and sets[-1][3] == 1  # all of them, whatever the throttle
+    total = int(re.search(r" of (\d+)$", sets[0][2]).group(1))
+    assert total > 3 and sets[0][2] == f"Imagery 0 of {total}" and sets[0][3] == 0
+    assert sets[-1][2] == f"Imagery {total} of {total}" and sets[-1][3] == 1  # all of them, whatever the throttle
     fractions = [e[3] for e in sets]
     assert fractions == sorted(fractions) and len(sets) < total  # at most every COUNT_MS: fewer than the tiles
     assert [e[0] for e in found["second"]][-1] == "clear" and found["second"][0][0] == "set"
@@ -2695,7 +2725,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const state = () => {{
   const log = activity.splice(0), mine = log.filter((e) => e[1] === "imagery-failed").at(-1) || null;
   return {{notice: mine && mine[0] === "notice" ? mine.slice(2) : mine && "cleared", loads: loads.splice(0).length,
-          total: Number((log.find((e) => e[0] === "set") || [0, 0, "/ 0"])[2].split("/ ")[1]),
+          total: Number((log.find((e) => e[0] === "set") || [0, 0, " of 0"])[2].split(" of ")[1]),
           last: [0, 1].map((k) => (textures.filter((x) => x[0] === k).at(-1) || [k, "none"])[1])}};
 }};
 (async () => {{
@@ -2981,19 +3011,9 @@ console.log(JSON.stringify({{available: im.available, texts: row.children.map((c
     assert found["buttons"] == ["Shaded", "Edges"]
 
 
-def test_run_script_parsed_and_body_sized(tmp_path):
-    """result/load.ts: a data.js's text read by JSON.parse (null for NaN, for another script, for a file cut
-    short: those are loaded as a script); download.ts: the bytes a body will read, web.SIZE_HEADER first,
-    Content-Length only when nothing compressed the body."""
-    found = run_ts(tmp_path, "result/load", r"""
-const ok = m.parseRunScript('window.FINDALINE_RUN = {"run":{"id":"r"},"lines":[[1,2],[3,4]]};\n');
-console.log(JSON.stringify({
-  lines: ok && ok.lines.length,
-  nan: m.parseRunScript('window.FINDALINE_RUN = {"a":NaN,"lines":[]};\n'),
-  other: m.parseRunScript('(window.FINDALINE_LINES = window.FINDALINE_LINES || {})["r"] = {"lines":[]};\n'),
-  cut: m.parseRunScript('window.FINDALINE_RUN = {"lines":[[1,2'),
-}));""")
-    assert found == {"lines": 2, "nan": None, "other": None, "cut": None}
+def test_body_sized(tmp_path):
+    """download.ts: the bytes a body will read, web.SIZE_HEADER first, Content-Length only when nothing compressed the
+    body (a run's store's files: web.SIZED_FILES)."""
     sizes = run_ts(tmp_path, "download", r"""
 const size = (h) => m.bodySize((name) => new Headers(h).get(name));
 console.log(JSON.stringify({
@@ -3136,7 +3156,7 @@ def _access_bundle(tmp_path):
     table of the result page."""
     entry = tmp_path / "access_entry.ts"
     src = os.path.join(VIEWER, "src").replace("\\", "/")
-    entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
+    entry.write_text(f'export * from "{src}/../test/model_rows";\n'
                      f'export {{ lineCoords }} from "{src}/keys";\n'
                      f'export {{ readStore }} from "{src}/result/load";\n'
                      f'export * from "{src}/access";\n'
@@ -3305,7 +3325,567 @@ def test_access_marks_from_rows_and_store(tmp_path):
     assert texts["basic.access.note"] == "The result marks anchors you can walk to. No line is filtered out."
     assert texts["basic.receipt.access"] + texts["basic.receipt.access_wide"] == "access marked, no line filtered out"
     assert texts["ui.access.hard_means"].startswith("no walk reaches the anchor, even over steep ground.")
-    assert "paths, fences, private land or trees" in texts["ui.access.help"] and "amber mark" in texts["ui.access.help"]
+    # the help within R10 (the user's answer of 2026-11-21, step 3d G5): its amber sentence went into the amber row
+    assert "paths, fences, private land or trees" in texts["ui.access.help"]
+    assert texts["ui.access.cannot_tell_means"].endswith("the data end nearby: often on alpine walls.")
     assert texts["anchor"] == "Anchor 2" and texts["anchor_state"] == "Anchor 1: cannot tell"
     assert not any(word in text.lower() for text in texts.values() for word in ("walker", "slackliner"))
     assert all(text and not text.startswith(("ui.", "basic.")) for text in texts.values())  # every key is in the catalogue
+
+
+# ---- Contrast of the interface's colours (WCAG 2's formula, AA: 4.5:1 for text) -------------------------------------
+
+def _css_blocks(path: str) -> dict:
+    """The custom properties of each block of a CSS file that sets some ({selector: {name: value}}), comments out."""
+    text = re.sub(r"/\*.*?\*/", "", open(path, encoding="utf-8").read(), flags=re.S)
+    blocks = {}
+    for selector, body in re.findall(r"([^{};]+)\{([^{}]*--[^{}]*)\}", text):
+        found = dict(re.findall(r"(--[\w-]+)\s*:\s*([^;]+?)\s*(?:;|$)", body))
+        if found:
+            blocks.setdefault(" ".join(selector.split()), {}).update(found)
+    return blocks
+
+
+def _luminance(colour: str) -> float:
+    """The relative luminance of a #rrggbb colour."""
+    channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def contrast(a: str, b: str) -> float:
+    """WCAG 2's contrast ratio of two #rrggbb colours (1 to 21)."""
+    high, low = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+TOKENS_CSS = os.path.join(VIEWER, "src", "ui", "tokens.css")
+
+
+def _dark_blocks(blocks: dict, under: str = "") -> list:
+    """The dark theme's blocks of _css_blocks: the one that follows the system and the one set by data-theme (of the
+    root .ui, or with `under` those of that descendant)."""
+    return [v for k, v in blocks.items() if ('data-theme="dark"' in k or 'not([data-theme="light"])' in k)
+            and (k.endswith(under) if under else k.endswith(")") or k.endswith("]"))]
+
+
+def _themes() -> dict:
+    """The tokens of the light theme and of the dark one (ui/tokens.css: .ui, then the dark block that follows the
+    system and the one set by data-theme, which must agree)."""
+    blocks = _css_blocks(TOKENS_CSS)
+    dark = _dark_blocks(blocks)
+    assert len(dark) == 2 and dark[0] == dark[1], "the two dark blocks of tokens.css differ"
+    return {"light": blocks[".ui"], "dark": {**blocks[".ui"], **dark[0]}}
+
+
+# The app's surfaces (the pilot's of 2026-11-18, app-wide since step 3c): the ground (the page, side panels), raised
+# (cards, over the map, the sheet), inset (tiles, the segmented track), a row under the mouse, the selected row
+SURFACES = ("--bg", "--surface", "--surface-2", "--hover", "--accent-soft")
+
+
+def test_contrast_of_contrast_helper():
+    """The helper gives WCAG's numbers: black on white 21, a colour on itself 1, #767676 on white about 4.54."""
+    assert contrast("#000000", "#ffffff") == pytest.approx(21)
+    assert contrast("#6c7a73", "#6c7a73") == pytest.approx(1)
+    assert contrast("#767676", "#ffffff") == pytest.approx(4.54, abs=0.01)
+
+
+def test_secondary_text_contrast():
+    """The secondary text (--muted) reads at 4.5:1 or more on the page (--bg), the cards (--surface), the second
+    surface (--surface-2), a row under the mouse (--hover) and the selected row (--accent-soft; a spot's label "1.1"
+    there is --muted) in both themes (axe's color-contrast, report defect 1: 3.83:1 on --surface-2 before); so do the
+    state colours on the fills their texts stand on."""
+    for theme, tokens in _themes().items():
+        for ground in SURFACES:
+            assert contrast(tokens["--muted"], tokens[ground]) >= 4.5, (theme, ground, tokens["--muted"], tokens[ground])
+        # the states' texts (step 3c, group A): a status chip and a size word on its soft fill, an error or a warning
+        # line on the ground, a card or a hovered row. Not on --surface-2: --ok is 4.43 there in the light theme, and
+        # no text in --ok stands on it (ui.css .u-st.u-done and search.css .sz-0 on --ok-soft, profile.css on --surface)
+        for state in ("ok", "warn", "bad"):
+            for ground in ("--bg", "--surface", "--hover", f"--{state}-soft"):
+                assert contrast(tokens[f"--{state}"], tokens[ground]) >= 4.5, (theme, state, ground)
+        for state in ("warn", "bad"):
+            assert contrast(tokens[f"--{state}"], tokens["--surface-2"]) >= 4.5, (theme, state)
+    # the selected fill (--accent-soft) takes --ink-2 for its secondary text where the app drew grey on it before the
+    # neutrals moved (--muted was 4.46 light and 3.79 dark there: the accent-soft check of the pilot, 2026-11-18)
+    for theme, tokens in _themes().items():
+        assert contrast(tokens["--ink-2"], tokens["--accent-soft"]) >= 4.5, theme
+    for path, rule in ((("app", "c", "c.css"), ".ui .c-tree-row.u-on .u-small, .ui .c-drop-over .u-small { color: var(--ink-2); }"),
+                       (("result", "view", "result.css"), ".ui .r-row.r-sel .r-muted { color: var(--ink-2); }"),
+                       # the table's selected row; no `td::before` since step 3c, group C (a phone's list is rows of
+                       # buttons, AreaList.tsx, whose grey words are --ink-2 always: .cov-rdet, .cov-rparent)
+                       (("coverage", "page", "page.css"), ".cov .cov-row-on .cov-muted { color: var(--ink-2); }"),
+                       (("search", "search.css"), ".ui .s-placebox-list li.u-on .u-small, .ui .s-placebox-list li:hover .u-small { color: var(--ink-2); }")):
+        with open(os.path.join(VIEWER, "src", *path), encoding="utf-8") as f:
+            assert rule in f.read(), (path, rule)
+
+
+def test_view_tokens():
+    """The pilot's tokens (2026-11-18, docs/DESIGN.md "The pilot's look"): the accent family in each of the three theme
+    blocks of ui/tokens.css (the whole app's), the tight tile's three colours there too, the neutrals in the same
+    three blocks (the app's since step 3c: no block of the view's own), and the scales of R5 and R6 as tokens of their steps. Every
+    text the view draws reads at 4.5:1 or more on the surfaces it stands on, in both themes (R3), and the graphics a
+    person must see at 3:1 (WCAG 1.4.11): the selected row's edge, the tight tile's edge against a tile."""
+    blocks = _css_blocks(TOKENS_CSS)
+    family = ("--accent", "--accent-ink", "--accent-soft", "--on-accent", "--tight-bg", "--tight-edge", "--tight-ink",
+              "--accent-map", "--status-run")
+    for name, block in [(".ui", blocks[".ui"])] + [("dark", d) for d in _dark_blocks(blocks)]:
+        assert all(n in block for n in family), (name, [n for n in family if n not in block])
+        # what is drawn on the map's tiles in the accent takes the light theme's in every theme: the tiles stay light
+        assert block["--accent-map"] == blocks[".ui"]["--accent"], name
+    # the running status: its own fill (the user's c of 2026-11-18), its ink the accent's
+    for theme, tokens in _themes().items():
+        assert contrast(tokens["--accent-ink"], tokens["--status-run"]) >= 4.5, theme
+    light = blocks[".ui"]
+    # the view has no neutrals of its own since step 3c (2026-11-19: the pilot's became the app's), so the ring's 2 px
+    # gap (--surface, resolved where --focus is declared) is the same everywhere and is no longer declared again there
+    assert not [k for k in blocks if "v-result" in k], [k for k in blocks if "v-result" in k]
+    neutrals = ("--bg", "--surface", "--surface-2", "--hover", "--ink", "--ink-2", "--muted", "--rule", "--line", "--shadow")
+    for name, block in [(".ui", light)] + [("dark", d) for d in _dark_blocks(blocks)]:
+        assert all(n in block for n in neutrals), (name, [n for n in neutrals if n not in block])
+    assert light["--value"] == "var(--ink)"
+    assert [light[f"--fs-{k}"] for k in range(1, 8)] == ["12px", "13px", "14px", "16px", "20px", "24px", "30px"]
+    assert [light[f"--r-{k}"] for k in range(1, 5)] == ["3px", "8px", "14px", "20px"]
+    view = _themes()
+    texts = {"--ink": SURFACES + ("--tight-bg",), "--ink-2": SURFACES + ("--tight-bg",), "--muted": SURFACES,
+             "--accent": ("--bg", "--surface", "--surface-2", "--hover", "--accent-soft"), "--accent-ink": ("--accent-soft",),
+             "--on-accent": ("--accent",), "--tight-ink": SURFACES + ("--tight-bg",)}
+    for theme, tokens in view.items():
+        for text, grounds in texts.items():
+            for ground in grounds:
+                assert contrast(tokens[text], tokens[ground]) >= 4.5, (theme, text, ground, tokens[text], tokens[ground])
+        assert contrast(tokens["--accent"], tokens["--accent-soft"]) >= 3, theme
+        assert contrast(tokens["--tight-edge"], tokens["--surface-2"]) >= 3, theme
+    # the app's own surfaces with the new accent: links, buttons, chips and segments that are on
+    for theme, tokens in _themes().items():
+        for ground in SURFACES:
+            assert contrast(tokens["--accent"], tokens[ground]) >= 4.5, (theme, ground)
+        assert contrast(tokens["--accent-ink"], tokens["--accent-soft"]) >= 4.5 and contrast(tokens["--on-accent"], tokens["--accent"]) >= 4.5, theme
+
+
+def test_view3d_icons_are_the_kits():
+    """view3d/icon.ts keeps copies of the kit's icons it draws (ui/icons.tsx imports the logo's SVG files, which the
+    Node tests' bundles of the 3D view's modules cannot load): each copy is the kit's path, character for character."""
+    import re
+    kit = open(os.path.join(VIEWER, "src", "ui", "icons.tsx"), encoding="utf-8").read()
+    copy = open(os.path.join(VIEWER, "src", "view3d", "icon.ts"), encoding="utf-8").read()
+    copies = dict(re.findall(r"^  (\w+): '([^']*)',$", copy.split("KIT_ICONS = {")[1].split("}")[0], re.M))
+    assert set(copies) == {"close", "info", "sort", "star"}, copies
+    for name, path in copies.items():
+        assert f"  {name}: '{path}'," in kit, name
+
+
+def test_3d_view_doc_accent_in_step():
+    """docs/3d-view.html (a page of its own, no bundle) copies the accent: its three theme blocks (light, dark by the
+    system, dark chosen) hold `ui/tokens.css`'s --accent and --accent-soft (docs/DESIGN.md "The pilot's look", choice 1:
+    a switch of the accent edits both), and its keyboard ring is the app's shape, 2 px of the accent 2 px off."""
+    with open(os.path.join(REPO, "docs", "3d-view.html"), encoding="utf-8") as f:
+        page = f.read()
+    blocks = _css_blocks(TOKENS_CSS)
+    want = [blocks[".ui"]] + _dark_blocks(blocks)
+    for name in ("--accent", "--accent-soft"):
+        assert re.findall(rf"{name}:\s*(#[0-9a-fA-F]{{6}})", page) == [b[name] for b in want], name
+    assert "outline: 2px solid var(--accent); outline-offset: 2px;" in page
+
+
+def test_neutrals_copies_in_step():
+    """The copies of the app's neutrals outside ui/tokens.css hold its values (step 3c, 2026-11-19: the pilot's neutrals
+    app-wide; docs/DESIGN.md "The pilot's look", choice 11: a switch of a neutral edits these too): docs/3d-view.html's
+    three theme blocks (its --line is the app's --rule: the page draws only rules and boxes' edges with it), the
+    coverage map's palette (the canvas reads no token), the coverage page's body (outside .ui), and the fallbacks of
+    `var(--name, #…)` in the CSS and of `cellsLayer.ts`'s ink (the light theme's)."""
+    blocks = _css_blocks(TOKENS_CSS)
+    light, darks = blocks[".ui"], _dark_blocks(blocks)
+    want = [light] + darks
+    with open(os.path.join(REPO, "docs", "3d-view.html"), encoding="utf-8") as f:
+        page = f.read()
+    for name, token in (("--bg", "--bg"), ("--surface", "--surface"), ("--surface-2", "--surface-2"), ("--ink", "--ink"),
+                        ("--ink-2", "--ink-2"), ("--muted", "--muted"), ("--line", "--rule")):
+        assert re.findall(rf"{name}:\s*(#[0-9a-fA-F]{{6}})", page) == [b[token] for b in want], name
+    with open(os.path.join(VIEWER, "src", "coverage", "palette.ts"), encoding="utf-8") as f:
+        palette = f.read()
+    for theme, tokens, extra in (("light", light, {"tint": "--surface-2"}), ("dark", darks[0], {"edge": "--bg"})):
+        row = re.search(rf"\b{theme}: \{{(.*?)\}},", palette, flags=re.S).group(1)
+        held = dict(re.findall(r"(\w+): \"(#[0-9a-f]{6})\"", row))
+        for key, token in {"bg": "--bg", "surface": "--surface", "surface2": "--surface-2", "ink": "--ink", "ink2": "--ink-2",
+                           "muted": "--muted", "line": "--rule", **extra}.items():
+            assert held[key] == tokens[token], (theme, key)
+    with open(os.path.join(VIEWER, "src", "coverage", "page", "page.css"), encoding="utf-8") as f:
+        assert re.findall(r"body\.cov-body \{ background: (#[0-9a-f]{6}); \}", f.read()) == [light["--bg"], darks[0]["--bg"]]
+    fallbacks = 0
+    for folder, _, names in os.walk(os.path.join(VIEWER, "src")):
+        for name in names:
+            if name.endswith(".css"):
+                with open(os.path.join(folder, name), encoding="utf-8") as f:
+                    for token, colour in re.findall(r"var\((--[\w-]+), (#[0-9a-fA-F]{3,6})\)", f.read()):
+                        if token in light and light[token].startswith("#") and len(colour) == 7:
+                            assert colour == light[token], (name, token, colour)
+                            fallbacks += 1
+    assert fallbacks >= 5, fallbacks  # app/coverageLayer.css (6 before step 3d G2: its swatch's --line edge went)
+    # the dark halo is the dark ground; the profile chart's frame colour (Profile.tsx PROFILE, the value outside .ui,
+    # where profile.css gives --r-frame: var(--ink-2)) is the light second ink
+    assert all(d["--halo"] == d["--bg"] for d in darks)
+    with open(os.path.join(VIEWER, "src", "Profile.tsx"), encoding="utf-8") as f:
+        assert re.findall(r'frame: "(#[0-9a-f]{6})"', f.read()) == [light["--ink-2"]]
+    with open(os.path.join(VIEWER, "src", "app", "c", "cellsLayer.ts"), encoding="utf-8") as f:
+        assert re.findall(r'getPropertyValue\("--ink"\)\.trim\(\) \|\| "(#[0-9a-f]{6})"', f.read()) == [light["--ink"]] * 2
+
+
+def test_search_form_css_on_the_scales():
+    """The search page's forms and the dialogs (search/search.css, app/notices.css) in the pilot's look (step 3c,
+    2026-11-19): every font size is a step of R5's scale (a token --fs-*), no label in the monospace or in capitals, no
+    character drawn by the CSS as an icon (R9: `content` is empty), every corner a step of R6 (--r-*). And the kit's
+    choices that the first-timer's screens rest on (ui/ui.css): a page's section lies on the ground with no box (R8),
+    a status chip is not in capitals, a segment and a chip are 44 px on a touch screen (R2)."""
+    src = os.path.join(VIEWER, "src")
+    for path in (("search", "search.css"), ("app", "notices.css")):
+        with open(os.path.join(src, *path), encoding="utf-8") as f:
+            text = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+        for size in re.findall(r"font-size:\s*([^;}]+)", text):
+            assert size.strip().startswith("var(--fs-"), (path, size)
+        for font in re.findall(r"[{;\s]font:\s*([^;}]+)", text):
+            assert "var(--fs-" in font or font.strip() == "inherit", (path, font)
+        assert "var(--mono)" not in text and "uppercase" not in text, path
+        assert [c for c in re.findall(r"content:\s*\"([^\"]*)\"", text) if c] == [], path
+        for radius in re.findall(r"border-radius:\s*([^;}]+)", text):
+            assert all(part.startswith("var(--r-") or part == "0" for part in radius.split()), (path, radius)
+    with open(os.path.join(src, "ui", "ui.css"), encoding="utf-8") as f:
+        kit = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+
+    def rule(selector):
+        found = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", kit)
+        assert found, selector
+        return found.group(1)
+
+    ground = rule(".ui .u-panel.u-ground")
+    assert "background: none" in ground and "box-shadow: none" in ground and "border-top: 1px solid var(--rule)" in ground
+    assert "border:" not in rule(".ui .u-panel ") and "var(--shadow)" in rule(".ui .u-panel ")  # raised: no edge
+    assert "uppercase" not in rule(".ui .u-st ") and "var(--mono)" not in rule(".ui .u-st ")
+    # the keyboard's ring beside a selected control's own shadow (the design review's F2: one replaced the other)
+    assert "var(--focus)" in rule(".ui .u-seg button.u-on:focus-visible")
+    with open(os.path.join(src, "search", "search.css"), encoding="utf-8") as f:
+        assert ".ui .s-card.u-on:focus-visible { box-shadow: inset 0 0 0 1px var(--accent), var(--focus); }" in f.read()
+    assert "@media (pointer: coarse) { .ui .u-seg button { min-height: 44px; } }" in kit
+    assert "@media (pointer: coarse) { .ui .u-chip { min-height: 44px;" in kit
+    with open(os.path.join(src, "ui", "components.tsx"), encoding="utf-8") as f:
+        assert 'cx("u-panel", !raised && "u-ground"' in f.read()  # `raised`: the one over the kit demo's map
+
+
+def test_admin_and_doc_pages_css():
+    """Group D of step 3c (2026-11-19): the admin page's checkbox and its words are one target, 24 px and 44 px on a
+    touch screen (R2), its badges start with a capital (as the status chips); the privacy and about pages' text rules
+    are scoped to .p-doc (the accepted sign-in page shares pages.css and none of them), their sizes from R5's tokens,
+    also inside an @media block. The row is the checkbox's target only while the input sits inside its label
+    (AdminC.tsx): every .c-check label holds its checkbox. On a touch screen the checkbox takes a line of its own
+    (the user's "Both", 2026-11-19; tests/test_shell_c.py::test_admin_block_asks_and_checkbox_apart taps it)."""
+    src = os.path.join(VIEWER, "src")
+    with open(os.path.join(src, "app", "c", "c.css"), encoding="utf-8") as f:
+        c = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    check = re.search(r"\.ui \.c-check \{([^}]*)\}", c)
+    assert check and "min-height: 24px" in check.group(1) and "var(--fs-2)" in check.group(1)
+    coarse = {s: b for s, b, m in _css_rules(c) if "pointer: coarse" in m}
+    assert "min-height: 44px" in coarse.get(".ui .c-check", ""), coarse
+    assert "flex-basis: 100%" in coarse.get(".ui .c-admin-tools > .c-check", ""), coarse
+    assert ".ui .c-admin .u-badge::first-letter { text-transform: uppercase; }" in c
+    with open(os.path.join(src, "app", "c", "AdminC.tsx"), encoding="utf-8") as f:
+        labels = re.findall(r'<label class="c-check">(.*?)</label>', f.read(), flags=re.S)
+    assert len(labels) == 2 and all('<input type="checkbox"' in label for label in labels), labels
+    with open(os.path.join(src, "ui", "pages.css"), encoding="utf-8") as f:
+        pages = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    prose = [(s, b) for s, b, _ in _css_rules(pages) if re.search(r"p-prose|p-facts", s)]
+    assert len(prose) >= 5
+    for selector, body in prose:
+        assert all(part.strip().startswith(".ui .p-doc ") for part in selector.split(",")), selector
+        for font in re.findall(r"font(?:-size)?:\s*([^;}]+)", body):
+            assert "var(--fs-" in font, (selector, font)
+    prose_rule = next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-prose")
+    assert "overflow-wrap: anywhere" in prose_rule
+    # about 75 characters a line (the user, 2026-11-20; DESIGN.md row 57): the whole doc column, centred
+    assert "max-width: calc(63ch + 32px)" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-page.p-doc")
+    assert "justify-content: flex-start" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-footer")
+
+
+# ---- The free CSS on the scales and the tokens (step 3d, group G2; docs/DESIGN.md rows 87 to 91) -------------------
+
+# Not free: line volume's round 6 and today's result page (everything under result/ by folder, so a file round 6 adds
+# there passes; profile.css by name) and today's side panels; in ui/ui.css the shore's and the coarser terrain's block
+# (round 6 edits it), by its rules' selectors. The kit's demo pages (?ui=kit, ?ui=kit-search: developers' pages) keep
+# their own sizes and spacing; their layers and colours are checked.
+NOT_FREE_CSS = ("result/", "profile.css", "ui/sidepanel.css")
+NOT_FREE_RULES = (".u-shore", ".u-coarse")  # a rule left out only when each of its selectors names one of these
+DEMO_RULES = (".u-gal-", ".u-stub", ".ui.s-kit")
+RADIUS_KEPT = {"0", "0px", "50%", "999px", "inherit"}  # none, round and full, written out (R6)
+# What is off a scale or the tokens on purpose: (file under viewer/src, the rule's selector, kind, the value; the
+# shadows' and colours' without one) -> why. A row no longer needed fails the test as a value put back does.
+OFF_THE_SCALES = {
+    # font sizes (R5: the --fs-* tokens)
+    ("app/base.css", "html, body", "font", "13px"): "outside .ui: no token reaches html and body (Leaflet's rem sizes)",
+    ("app/c/c.css", ".ui .c-thumb-credit", "font", "11px"): "a map's credits: R1's named exception (10 px or more)",
+    ("coverage/page/page.css", ".cov .leaflet-control-attribution", "font", "11px"): "a map's credits (R1's exception)",
+    ("ui/ui.css", ".ui .leaflet-control-attribution", "font", "10px"): "a map's credits on a phone: R1's floor for them",
+    ("ui/ui.css", ".ui .u-logo", "font", "22px"): "the logo: a drawing sized by its font size, not text",
+    ("ui/pages.css", ".ui .p-doc .p-brand .u-logo", "font", "22px"): "the logo: a drawing",
+    ("ui/pages.css", ".ui .p-provider", "font", "14px"): "the sign-in providers' own button guidelines",
+    # radii (R6: the --r-* tokens, none, round, full)
+    ("ui/pages.css", ".ui .p-provider", "radius", "4px"): "the sign-in providers' own button guidelines",
+    # spacing (R7: 0, 4, 8, 12, 16, 24, 32 px)
+    ("access.css", ".ui .ac-pair", "space", "3px"): "one mark of two dots, a drawing (as the coverage stars' 2 px)",
+    ("app/c/c.css", ".ui .c-layer-hist-bars", "space", "2px"): "between a chart's bars: a drawing's marks",
+    ("app/c/c.css", ".ui .c-layer-bar", "space", "1px"): "a bar's fill 1 px in from its button: a drawing's marks",
+    ("app/c/c.css", ".ui .c-searched-bars", "space", "2px"): "between a chart's bars: a drawing's marks",
+    ("app/notices.css", ".ui .n-warn > .u-ic", "space", "2px"): "the icon centred on the first line: a place, not a gap",
+    ("coverage/page/page.css", ".cov .cov-stars", "space", "2px"): "one mark of three stars (DESIGN.md row 63)",
+    ("search/search.css", ".ui .s-reset", "space", "14px"): "a 44 px target that keeps the row's height (row 25)",
+    ("search/search.css", ".ui .s-reset", "space", "6px"): "the same target, under the word",
+    ("search/search.css", ".ui .s-topic-body", "space", "7px"): "7 px and the rule: the middle of the 16 px arrow",
+    ("search/search.css", ".ui .s-heavy", "space", "2px"): "a pill 20 px high, as the status chips",
+    ("search/search.css", ".ui .s-panel .u-field-name", "space", "20px"): "the room of the \"?\"'s target after it",
+    ("ui/pages.css", ".ui .p-provider", "space", "10px"): "the sign-in providers' own button guidelines",
+    ("ui/ui.css", ".ui .u-range::-webkit-slider-thumb", "space", "7px"): "the thumb centred on the 4 px track",
+    ("ui/ui.css", ".ui .u-range::-webkit-slider-thumb", "space", "11px"): "the touch screen's thumb centred on it",
+    ("ui/ui.css", ".ui .u-st", "space", "2px"): "a pill 20 px high: its 16 px line and 2 px",
+    ("ui/ui.css", ".ui .leaflet-control-attribution a:focus-visible", "space", "1px"): "the ring clear of the letters "
+                                                                                      "inside the credits (row 81)",
+    ("ui/ui.css", ".ui .leaflet-control-attribution a:focus-visible", "space", "1.5px"): "the same ring",
+    ("ui/ui.css", ".ui .leaflet-control-attribution a:focus-visible", "space", "3px"): "the same ring, given back",
+    ("view3d/point.css", ".v3-opt-dot", "space", "9px"): "a dot centred on its point (a mark over the picture)",
+    ("view3d/view3d.css", ".v3-handle", "space", "11px"): "a handle centred on its point",
+    # shadows that are drawings, not a level (R8; the three elevation tokens are --shadow, --shadow-track, --shadow-up)
+    ("app/c/c.css", ".ui .c-card-new", "shadow", ""): "a ring of the accent around a new run's card",
+    ("app/c/c.css", ".ui .c-layer-hist-open", "shadow", ""): "a ring of the accent around the open chart",
+    ("ui/ui.css", ".ui .u-legend-sw", "shadow", ""): "a legend's swatch: its inset edge of the ink (rows 68, 90)",
+    ("app/c/c.css", ".ui .c-layer-bar-fill", "shadow", ""): "a bar's inset edge of the ink (row 68)",
+    ("search/search.css", ".ui .s-card.u-on", "shadow", ""): "the selected card's second px of edge",
+    ("search/search.css", ".ui .s-card.u-on:focus-visible", "shadow", ""): "that edge beside the keyboard's ring",
+    ("ui/ui.css", ".ui .u-sheet.u-scrolled .u-sheet-head", "shadow", ""): "a drawing: a cue that the sheet's body "
+                                                                           "scrolls under its head, not a raised surface",
+    ("app/coverageLayer.css", ".ui .n-coverage-legend .n-coverage-sw3", "shadow", ""): "the place box's transparent "
+        "\"Everywhere else\" drawn by the controls' --line edge, 1.85:1 on the box (the user, 2026-11-22)",
+    ("view3d/others.css", ".v3-other", "shadow", ""): "a label over the picture: a lighter drop shadow (35 %, not "
+                                                      "--shadow-mark's 45 %: the same pixels kept)",
+    ("view3d/others.css", ".v3-other:focus-visible", "shadow", ""): "that label's shadow beside the keyboard's ring",
+    ("view3d/point.css", ".v3-point-marker::before", "shadow", ""): "a mark's dark rim (its drop shadow --shadow-mark)",
+    ("view3d/point.css", ".v3-opt-dot::before", "shadow", ""): "a dot's dark edge over the picture",
+    ("view3d/point.css", ".v3-opt-row.v3-on td:first-child", "shadow", ""): "the selected row's 3 px edge",
+    ("view3d/view3d.css", ".v3-handle", "shadow", ""): "a handle's dark rim (its drop shadow --shadow-mark)",
+    ("view3d/view3d.css", ".v3-pin", "shadow", ""): "the pin's rim and shadow (turned: the offset points down on "
+                                                    "screen, which --shadow-mark cannot)",
+    ("view3d/view3d.css", ".v3-leader", "shadow", ""): "the pin's leader: a half-pixel edge",
+    # colours outside the tokens: the providers' marks (their guidelines) and the copies a test binds
+    ("ui/pages.css", ".ui .p-google", "colour", ""): "Google's button guidelines",
+    ("ui/pages.css", ".ui .p-google:hover", "colour", ""): "Google's button guidelines",
+    ("ui/pages.css", ".ui .p-github", "colour", ""): "GitHub's mark",
+    ("ui/pages.css", ".ui .p-github:hover", "colour", ""): "GitHub's mark",
+    ("ui/pages.css", ".ui .p-microsoft", "colour", ""): "Microsoft's button guidelines",
+    ("ui/pages.css", ".ui .p-microsoft:hover", "colour", ""): "Microsoft's button guidelines",
+    ("coverage/page/page.css", "body.cov-body", "colour", ""): "the page's --bg outside .ui (test_neutrals_copies_in_step)",
+}
+
+
+def _free_css() -> list:
+    """(the path under viewer/src, a rule of ui_metrics.css_rules) of every free CSS rule (NOT_FREE_* left out)."""
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import ui_metrics
+    out = []
+    for folder, _, names in os.walk(os.path.join(VIEWER, "src")):
+        for name in sorted(names):
+            path = os.path.join(folder, name)
+            rel = os.path.relpath(path, os.path.join(VIEWER, "src")).replace(os.sep, "/")
+            if not name.endswith(".css") or rel == "ui/tokens.css" or rel.startswith(NOT_FREE_CSS):
+                continue
+            with open(path, encoding="utf-8") as f:
+                for rule in ui_metrics.css_rules(f.read()):
+                    if not all(any(part in sel for part in NOT_FREE_RULES) for sel in rule["selectors"]):
+                        out.append((rel, rule))
+    return out
+
+
+def _off_the_scales() -> dict:
+    """{(file, selector, kind, value): [lines]} of every value of the free CSS off R5, R6, R7, the layers' and the
+    elevation's tokens or the colour tokens; a colour in a var()'s fallback is the token's copy, checked apart."""
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import ui_metrics
+    found = {}
+
+    def off(rel, rule, kind, value=""):
+        found.setdefault((rel, rule["prelude"], kind, value), []).append(rule["line"])
+    for rel, rule in _free_css():
+        demo = any(part in rule["prelude"] for part in DEMO_RULES)
+        for prop, value in rule["decls"]:
+            if prop.startswith("--"):
+                if ui_metrics.CSS_COLOUR.search(value):
+                    off(rel, rule, "colour")
+                continue
+            if prop == "z-index" and not re.fullmatch(r"var\(--z-[\w-]+\)", value):
+                off(rel, rule, "z", value)
+            if prop == "box-shadow" and value != "none" and not all(
+                    re.fullmatch(r"var\(--[\w-]+\)", layer) for layer in ui_metrics._split_top(value, ",")):
+                off(rel, rule, "shadow")
+            # a colour of a shadow belongs to the shadow (checked above); one in a var()'s fallback is a bound copy
+            if prop not in ("box-shadow", "text-shadow") and ui_metrics.CSS_COLOUR.search(
+                    re.sub(r"var\(--[\w-]+,[^()]*(\([^()]*\))?[^()]*\)", "", value)):
+                off(rel, rule, "colour")
+            if demo:
+                continue
+            size = ui_metrics.font_size_of(prop, value)
+            if size and re.fullmatch(r"\d*\.?\d+px", size):
+                off(rel, rule, "font", size)
+            if prop == "border-radius" or re.fullmatch(r"border-(top|bottom)-(left|right)-radius", prop):
+                for part in value.replace("/", " ").split():
+                    if not part.startswith("var(--r-") and part not in RADIUS_KEPT:
+                        off(rel, rule, "radius", part)
+            if ui_metrics.SPACING_PROPS.fullmatch(prop):
+                for part in value.split():
+                    m = re.fullmatch(r"-?(\d*\.?\d+)px", part)
+                    if m and float(m.group(1)) <= 32 and float(m.group(1)) not in ui_metrics.R7_STEPS:  # over 32: a layout's
+                        off(rel, rule, "space", m.group(1) + "px")
+    return found
+
+
+def test_free_css_on_the_scales():
+    """Every font size, radius, spacing, layer, shadow and colour of the free CSS (every file of viewer/src but round 6's
+    and today's result page, ui.css's shore block aside) is a step of DESIGN.md's scales or a token of ui/tokens.css
+    (R5 --fs-*, R6 --r-*, R7's 4 px grid, the layers --z-*, the elevation --shadow, --shadow-track, --shadow-up), or
+    off them for the reason OFF_THE_SCALES names (docs/DESIGN.md rows 87 to 91). A layer is never a number."""
+    found = _off_the_scales()
+    unnamed = {k: v for k, v in found.items() if k not in OFF_THE_SCALES}
+    assert unnamed == {}, unnamed
+    assert sorted(set(OFF_THE_SCALES) - set(found)) == [], "a row of OFF_THE_SCALES no longer needed: remove it"
+    assert not [k for k in found if k[2] == "z"]  # no exception for a layer
+
+
+def test_free_css_names_tokens_that_exist():
+    """Every var(--name) of the free CSS names a custom property that exists: a token of ui/tokens.css, one a CSS file
+    declares, one the code sets by its name, or the coverage palette's --cov-<key> (coverage/palette.ts applyPalette).
+    An unknown name (a typo) would make a layer `auto` and a shadow `none` without a sound. And a colour written as a
+    var()'s fallback is the token's light value: the coverage layer's copies, the dialogs' scrim (::backdrop takes the
+    dialog's custom properties only since Safari 17.4, Chrome 122 and Firefox 120)."""
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import ui_metrics
+    src = os.path.join(VIEWER, "src")
+    light = _css_blocks(TOKENS_CSS)[".ui"]
+    known = {name for block in _css_blocks(TOKENS_CSS).values() for name in block}
+    for folder, _, names in os.walk(src):
+        for name in names:
+            with open(os.path.join(folder, name), encoding="utf-8") as f:
+                text = f.read()
+            if name.endswith(".css"):
+                known |= set(re.findall(r"[{;\s](--[\w-]+)\s*:", re.sub(r"/\*.*?\*/", "", text, flags=re.S)))
+            elif name.endswith((".ts", ".tsx")):
+                known |= set(re.findall(r"[\"'`](--[\w-]+)[\"'`]", text))
+    with open(os.path.join(src, "coverage", "palette.ts"), encoding="utf-8") as f:
+        palette = re.search(r"\blight: \{(.*?)\},", f.read(), flags=re.S).group(1)
+    known |= {"--cov-" + key for key in re.findall(r"(\w+): \"", palette)}
+    used, fallbacks = set(), []
+    for rel, rule in _free_css():
+        for _, value in rule["decls"]:
+            used |= {(rel, name) for name in re.findall(r"var\((--[\w-]+)", value)}
+            for name, fallback in re.findall(r"var\((--[\w-]+),\s*([^()]*(?:\([^()]*\))?[^()]*)\)", value):
+                if ui_metrics.COLOUR.fullmatch(fallback.strip()):
+                    fallbacks.append((rel, name, ui_metrics._colour(fallback.strip())))
+    assert sorted((rel, name) for rel, name in used if name not in known) == []
+    assert {"--z-up", "--z-bar", "--z-head", "--shadow-track", "--shadow-up", "--scrim", "--mark-rim"} <= {n for _, n in used}
+    wrong = [(rel, name, colour) for rel, name, colour in fallbacks if colour != ui_metrics._colour(light[name])]
+    assert wrong == [], wrong
+    assert ("app/notices.css", "--scrim", "rgb(10 15 12 / .45)") in fallbacks
+
+
+def _css_rules(text: str) -> list:
+    """The style rules of a stylesheet without comments, also those inside @media (or any @-block): (selector, body,
+    the enclosing @-rules' preludes joined)."""
+    rules, stack, start = [], [], 0
+    for i, ch in enumerate(text):
+        if ch == "{":
+            stack.append(text[start:i].strip())
+            start = i + 1
+        elif ch == "}":
+            prelude = stack.pop() if stack else ""
+            if not prelude.startswith("@"):
+                rules.append((prelude, text[start:i], " ".join(stack)))
+            start = i + 1
+    return rules
+
+
+def test_placeholder_contrast():
+    """Every text input's placeholder takes its colour from a token (ui/ui.css `.ui ::placeholder`, at full opacity:
+    Firefox dims it otherwise) that reads at 4.5:1 or more on the fields' background (--surface, .u-input) in both
+    themes (report defect 3: the browser's own grey, 3.75:1 in the dark theme)."""
+    text = re.sub(r"/\*.*?\*/", "", open(os.path.join(VIEWER, "src", "ui", "ui.css"), encoding="utf-8").read(), flags=re.S)
+    rule = re.search(r"\.ui ::placeholder\s*\{([^}]*)\}", text)
+    assert rule, "no placeholder rule in ui.css"
+    token = re.search(r"color:\s*var\((--[\w-]+)\)", rule.group(1))
+    assert token and re.search(r"opacity:\s*1\s*(;|$)", rule.group(1)), rule.group(1)
+    assert re.search(r"\.ui \.u-input\s*\{[^}]*background:\s*var\(--surface\)", text)
+    for theme, tokens in _themes().items():
+        assert contrast(tokens[token.group(1)], tokens["--surface"]) >= 4.5, (theme, token.group(1))
+
+
+def test_profile_label_contrast():
+    """The profile chart's coloured labels (highest, over trees, min. clearance; profile.css) read at 4.5:1 or more on
+    the card's --surface in both themes, each from its own colour per theme, while the curves keep Profile.tsx's
+    PROFILE colours (report defect 4: 2.26:1 and 3.96:1 in the dark theme, 4.04:1 and 4.37:1 in the light one)."""
+    path = os.path.join(VIEWER, "src", "profile.css")
+    blocks = _css_blocks(path)
+    dark = _dark_blocks(blocks)
+    names = ("--r-highest-label", "--r-trees-label", "--r-min-label")
+    assert len(dark) == 2 and all(d[n] == dark[0][n] for d in dark for n in names)
+    light = blocks[".ui"]
+    text = open(path, encoding="utf-8").read()
+    for cls, name in zip(("highest", "trees", "min"), names):
+        assert re.search(rf"\.fal-label-{cls}\s*\{{\s*fill:\s*var\({name}\)", text), cls
+    themes = _themes()
+    for theme, colours in (("light", light), ("dark", dark[0])):
+        for name in names:
+            assert contrast(colours[name], themes[theme]["--surface"]) >= 4.5, (theme, name, colours[name])
+    profile = open(os.path.join(VIEWER, "src", "Profile.tsx"), encoding="utf-8").read()
+    assert all(c in profile for c in ('envelope: "#6a3d9a"', 'trees: "#3f8f35"', 'terrain: "#8a7656"'))
+
+
+def _mix(a: str, b: str, share: float) -> str:
+    """CSS color-mix(in srgb, a share, b) of two #rrggbb colours."""
+    channels = [round(int(a[i:i + 2], 16) * share + int(b[i:i + 2], 16) * (1 - share)) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(channels)
+
+
+def test_view3d_trees_text_contrast():
+    """The 3D view's readout over trees (view3d.css --v3-trees-text) reads at 4.5:1 or more on the bar's --surface:
+    the line's orange darkened towards the ink in the light theme, the orange itself in the dark one, while --trees
+    (the line's colour) stays (report defect 14: 2.65:1 in the light theme)."""
+    text = open(os.path.join(VIEWER, "src", "view3d", "view3d.css"), encoding="utf-8").read()
+    light = re.search(r"#view3d \{ --v3-trees-text: color-mix\(in srgb, var\(--trees\) (\d+)%, var\(--ink\)\); \}", text)
+    assert light and len(re.findall(r"--v3-trees-text: var\(--trees\)", text)) == 2
+    assert ".v3-read.v3-trees { color: var(--v3-trees-text); }" in text
+    themes = _themes()
+    shown = {"light": _mix(themes["light"]["--trees"], themes["light"]["--ink"], int(light.group(1)) / 100),
+             "dark": themes["dark"]["--trees"]}
+    for theme, colour in shown.items():
+        assert contrast(colour, themes[theme]["--surface"]) >= 4.5, (theme, colour)
+    assert themes["light"]["--trees"] == "#ef8300" and themes["dark"]["--trees"] == "#ff9f30"
+
+
+def test_viewer_media_queries_older_webkit():
+    """The viewer's CSS asks its media in the old syntax (min-width, max-width), never the range syntax ("width >
+    600px"): WebKit before Safari 16.4 (an iPhone kept on iOS 15) knows no range syntax and drops the whole query
+    (the code review's N1: it dropped the 3D view's one row held sideways, which keys on a class since: chrome.ts
+    oneRow, whose matchMedia asks for the negation of "(max-width: 600px)")."""
+    found = []
+    for folder, _, names in os.walk(os.path.join(VIEWER, "src")):
+        for name in (n for n in names if n.endswith(".css")):
+            text = re.sub(r"/\*.*?\*/", "", open(os.path.join(folder, name), encoding="utf-8").read(), flags=re.S)
+            found += [(name, query.strip()) for query in re.findall(r"@media([^{]*)\{", text) if re.search("[<>]", query)]
+    assert found == [], found
+    chrome = open(os.path.join(VIEWER, "src", "view3d", "chrome.ts"), encoding="utf-8").read()
+    assert 'narrow: "(max-width: 600px)"' in chrome and "!narrow.matches" in chrome
+
+
+def test_result_intro_names_the_default_line_of_a_spot():
+    """"How to read the result" says which line a spot shows as the page does: by default the highest on average
+    (model.ts: the state's `by` starts at BY_MEAN), the others as "Show per spot" offers them (report defect 9: it
+    said "the most clearance")."""
+    import messages
+    model = open(os.path.join(VIEWER, "src", "result", "model.ts"), encoding="utf-8").read()
+    assert re.search(r"this\.state = \{group: true, distance: this\.data\.distance, by: BY_MEAN,", model)
+    spots = messages.text("intro.result.spots")
+    assert "the line that is highest above the ground on average" in spots and "most clearance" in spots, spots
+    choices = [messages.text("ui.filter.by_mean"), messages.text("ui.filter.by_height")]
+    assert choices == ["Highest on average", "Highest point"] and "<b>Show per spot</b>" in spots, spots

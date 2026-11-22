@@ -88,7 +88,9 @@ LIST = """() => { const $ = (s) => document.querySelector(s), $$ = (s) => [...do
             // the cell's content stays inside the cell (no overlap with its neighbours)
             inside: cell ? cell.scrollWidth <= cell.clientWidth + 1 : null}; });
   return {classes: table.className.split(' ').sort(), width: Math.round(table.getBoundingClientRect().width),
-          head: $$('.r-table .r-head > *').map((c) => [c.tagName, c.textContent.replace(/[\\u00a0 ]*[↓↑]$/, ''), c.classList.contains('r-cell-acc')]),
+          // the heading as shown: its visually hidden part (the sorted column's order, said in its name) left out
+          head: $$('.r-table .r-head > *').map((c) => [c.tagName, [...c.childNodes]
+            .filter((n) => !n.classList?.contains('u-sr')).map((n) => n.textContent).join('').trim().replace(/[\\u00a0 ]*[↓↑]$/, ''), c.classList.contains('r-cell-acc')]),
           rows, hasAccess: model.hasAccess, legend: !!$('.r-legend-acc'),
           scroll: [document.documentElement.scrollWidth, innerWidth]}; }"""
 
@@ -175,7 +177,15 @@ LEGEND = """() => { const $ = (s) => document.querySelector(s), $$ = (s) => [...
           hint: [hint.getAttribute('aria-label'), hint.getAttribute('aria-expanded'), hint.textContent],
           // the "?" stands in the last state's item and on its line: never alone on a line of its own
           hintWithLast: last.contains(hint) && Math.abs(top(hint) - top(last.querySelector('svg.ac'))) <= 4,
-          lines: new Set(items.map((e) => Math.round(e.getBoundingClientRect().top / 8))).size,
+          // the row's visual lines: items whose vertical ranges overlap stand on one line. (Until 2026-11-19 the
+          // count was the distinct Math.round(top / 8): the label's top is 0.94 px under the dots' on the same line,
+          // and with the row 0.72 px lower (step 3c's sizes: tops 132.09 and 131.16) the two fell on both sides of a
+          // rounding, 3 for a row of 2 lines; measured on both codes, local/ux-design-2026-11-16/3c-a/legend.)
+          lines: (() => { let n = 0, bottom = -1e9;
+            for (const b of items.map((e) => e.getBoundingClientRect()).sort((a, c) => a.top - c.top)) {
+              if (b.top >= bottom - 1) n++;
+              bottom = Math.max(bottom, b.bottom); }
+            return n; })(),
           beforeFilters: !!(filters && (legend.compareDocumentPosition(filters) & 4)), beforeList: !!(legend.compareDocumentPosition(table) & 4),
           inSheet: !!sheet, inHead: !!head, inSummary: !!legend.closest('.r-summary'),
           colours: $$('.r-legend:not(.r-legend-acc)').filter((e) => e.getClientRects().length).length,
@@ -459,7 +469,9 @@ def test_receipt_of_a_search_too_wide_for_the_mark(tmp_path):
     assert r["desktop"][0].endswith("no A-frames · access not marked: area too wide"), r
     assert r["phone"][0].endswith("no A-frames · access not marked"), r
     assert r["marked"][0].endswith("no A-frames · access marked, no line filtered out"), r
-    assert all("1 warning(s)" in r[name][1] and r[name][2] is True for name in ("desktop", "phone", "marked")), r
+    # "1 warning" by the count (the user's answer of 2026-11-21, step 3d G5)
+    assert all("1 warning" in r[name][1] and "warning(s)" not in r[name][1] and r[name][2] is True
+               for name in ("desktop", "phone", "marked")), r
     assert r["field"] == ["advanced", True], r
 
 
@@ -469,13 +481,9 @@ def test_run_whose_mark_was_left_out(tmp_path, plain_clip):
     stands (a desktop: the list's head, under the colours' legend; a phone: above the filters, also while nothing is
     selected), and nothing else of the mark: no "?", no column, no block, no marks on the map."""
     from playwright.sync_api import sync_playwright
-    from test_shell_c import drop_store
+    from test_web import store_with
     folder, page_path = _data(tmp_path, plain_clip)
-    drop_store(folder, SMALL)  # the page reads the head from data.js
-    script = folder / "runs" / SMALL / "data.js"
-    text = script.read_text("utf-8")
-    assert text.count('"crs":') == 1
-    script.write_text(text.replace('"crs":', '"access_skipped": "memory", "crs":'), "utf-8")
+    store_with(folder / "runs" / SMALL, head={"access_skipped": "memory"})  # the store's head the page reads
     state = """() => { const $ = (s) => document.querySelector(s), $$ = (s) => [...document.querySelectorAll(s)];
         const lines = $$('.r-acc-skipped').filter((e) => e.getClientRects().length), line = lines[0];
         const filters = $('.r-filters'), colours = $$('.r-legend').filter((e) => e.getClientRects().length)[0];

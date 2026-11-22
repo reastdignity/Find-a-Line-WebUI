@@ -6,7 +6,6 @@
 """
 
 import collections
-import csv
 import glob
 import json
 import os
@@ -19,6 +18,8 @@ import pytest
 import rasterio as rio
 from rasterio.transform import from_origin
 
+import clip_runs
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(REPO, "tests", "data")
 OFFLINE_ENV = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
@@ -26,17 +27,40 @@ OFFLINE_ENV = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.
 
 
 def run_search(tmp_path, *args) -> tuple:
-    """Run findaline.py offline; return (output, rows of lines.csv)."""
+    """Run findaline.py offline; return (output, rows of the run's CSV export: its lines.csv before store wave 4)."""
     env = {**os.environ, **OFFLINE_ENV}
     result = subprocess.run(
         [sys.executable, "findaline.py", *args, "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
          "--data-dir", str(tmp_path)],
         cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8", timeout=600)
     assert result.returncode == 0, result.stdout + result.stderr
-    runs = glob.glob(str(tmp_path / "runs" / "*" / "lines.csv"))
+    runs = glob.glob(str(tmp_path / "runs" / "*" / "run.json"))
     assert len(runs) == 1, runs
-    with open(runs[0], encoding="utf-8-sig") as f:
-        return result.stdout, list(csv.DictReader(f))
+    return result.stdout, clip_runs.export_rows(os.path.dirname(runs[0]))
+
+
+def _store_lines(folder) -> list:
+    """The lines of a run's store as data.js held them before store wave 4: each a dict of its anchors (lat1, lon1,
+    lat2, lon2: the store's int32 of 1e-7 degree, the doubles of data.js's 7-decimal text), its A-frame heights (the
+    2-decimal values data.js printed) when the run has them, and its profile as data.js's JSON (None without)."""
+    import helpers
+    import linestore
+    lines, _ = linestore.read(str(folder))
+    encoder = json.JSONEncoder(separators=(",", ":"))
+    c = lines.columns
+    found = []
+    for k in range(len(c["length"])):
+        profile = lines.profiles.get(k)
+        found.append({"anchors": (*c["anchor1"][k].tolist(), *c["anchor2"][k].tolist()),
+                      "ends": tuple(c[name][k].item() for name in ("lift_needed", "lift_no_zone") if name in c),
+                      "profile": None if profile is None else json.loads(encoder.encode(helpers.profile_dict(profile)))})
+    return found
+
+
+def _head(folder) -> dict:
+    """The head of a run's store (data.js's head before store wave 4, with the result view's keys)."""
+    import linestore
+    return linestore.read(str(folder), profiles=False)[1]
 
 
 def write_raster(path, band, left, top):
@@ -132,7 +156,7 @@ def test_zabi_kon_clip(tmp_path):
     read = lambda name: (tmp_path / "runs" / os.path.basename(folder) / name).read_text(encoding="utf-8")  # noqa: E731
     assert json.loads(read("run.json"))["attribution"] == []
     assert "zabi_kon_nmt.tif" in read("ATTRIBUTION.txt") and "as their own licences require" in read("ATTRIBUTION.txt")
-    assert json.loads(read("data.js").partition(" = ")[2].rstrip().rstrip(";"))["attribution"] == []
+    assert _head(folder)["attribution"] == []
 
 
 def _lines(rows):
@@ -274,6 +298,13 @@ def test_area_in_tiles(tmp_path):
     assert one == tiled  # every column, the order of the anchors too (their pixels depend on it)
     tile_files = glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.pkl.gz"))
     assert len(tile_files) > 1
+    # a tiled run's files since store wave 4: the store, map.html, ATTRIBUTION.txt, run.json and its work state, no
+    # text file (data.js, lines.js, lines.csv, lines.geojson)
+    tiled_folder = os.path.dirname(os.path.dirname(tile_files[0]))
+    saved = set(os.listdir(tiled_folder))
+    assert {"lines.arrow", "profiles.arrow", "map.html", "ATTRIBUTION.txt", "run.json", "tiles"} <= saved, saved
+    assert not {"data.js", "lines.js", "lines.csv", "lines.geojson"} & saved, saved
+    assert json.load(open(os.path.join(tiled_folder, "progress.json"), encoding="utf-8"))["status"] == "done"
     # The terrain of the area (hypsometry.py) from the tiles' cores: exactly that of one grid
     assert sorted(f.replace(".table.pkl.gz", "") for f in tile_files) == sorted(
         f.replace(".terrain.npz", "") for f in glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.npz")))
@@ -286,18 +317,11 @@ def test_area_in_tiles(tmp_path):
     assert one_limited and one_limited == tiled_limited and len(one_limited) < len(one)
     # The map of an area keeps the profiles of the lines shown for the groups, no others
     for name, rows in (("one", one), ("tiled", tiled)):
-        data = glob.glob(str(tmp_path / name / "runs" / "*" / "data.js"))[0]
-        lines = json.loads(open(data, encoding="utf-8").read().partition(" = ")[2].rstrip().rstrip(";"))["lines"]
-        with_profile = {tuple(round(v, 7) for v in line[:4]) for line in lines if line[-1]}
+        folder = os.path.dirname(glob.glob(str(tmp_path / name / "runs" / "*" / "run.json"))[0])
+        with_profile = {tuple(round(v, 7) for v in line["anchors"]) for line in _store_lines(folder) if line["profile"]}
         reps = {tuple(float(r[k]) for k in ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon"))
                 for r in rows if r["representative"] == "True"}
         assert with_profile == reps, name
-
-
-def _script(path) -> dict:
-    """The object of a run's data.js or lines.js (from its first " = {")."""
-    text = open(path, encoding="utf-8").read()
-    return json.loads(text[text.index(" = {") + 3:].rstrip().rstrip(";"))
 
 
 ENDS = ["--end-zone", "5", "--anchor-lift", "2"]
@@ -305,7 +329,7 @@ ENDS = ["--end-zone", "5", "--anchor-lift", "2"]
 
 def test_end_zone_and_lift(tmp_path):
     """--end-zone and --anchor-lift: the lines of the search without them and more, the same anchors; the
-    rule printed, recorded in run.json (params, description) and in the heads of data.js and lines.js, the
+    rule printed, recorded in run.json (params, description) and in the store's head, the
     saved profiles carrying "zone" and "lift"; a profile computed again (search.profile_of_line) applies the
     run's rule and equals the saved one. Without them none of it is there."""
     import search
@@ -326,18 +350,17 @@ def test_end_zone_and_lift(tmp_path):
     assert metas["ends"]["description"].endswith(", no-fall zone 5 m at the ends, A-frames 2 m")
     ends_keys = {"end_zone": 5, "lift": 2, "ends": ["lift_needed", "lift_no_zone"]}
     for name, keys in (("plain", {}), ("ends", ends_keys)):
-        for script in ("data.js", "lines.js"):
-            head = _script(os.path.join(folders[name], script))
-            assert {k: head[k] for k in ("end_zone", "lift", "ends") if k in head} == keys, (name, script)
-            assert {len(line) for line in head["lines"]} == {25 + len(keys.get("ends", [])) + (script == "data.js")}
-    # The A-frame heights each line needs, with the run's zone and without one: in all four files of the run
-    # with the options (after clearance_nmpt_m; before the profile in the scripts), in none of the other's
+        head = _head(folders[name])
+        assert {k: head[k] for k in ("end_zone", "lift", "ends") if k in head} == keys, name
+        assert {len(line["ends"]) for line in _store_lines(folders[name])} == {len(keys.get("ends", []))}, name
+    # The A-frame heights each line needs, with the run's zone and without one: in the store and both exports of
+    # the run with the options (after clearance_nmpt_m), in none of the other's
     assert "lift_needed_m" not in plain[0] and "lift_no_zone_m" not in plain[0]
-    header = open(os.path.join(folders["ends"], "lines.csv"), encoding="utf-8-sig").readline().strip().split(",")
+    header = clip_runs.export_text(folders["ends"]).decode("utf-8-sig").split("\r\n", 1)[0].split(",")
     at = header.index("clearance_nmpt_m")
     assert header[at + 1:at + 3] == ["lift_needed_m", "lift_no_zone_m"]
-    features = json.load(open(os.path.join(folders["ends"], "lines.geojson"), encoding="utf-8"))["features"]
-    plain_features = json.load(open(os.path.join(folders["plain"], "lines.geojson"), encoding="utf-8"))["features"]
+    features = json.loads(clip_runs.export_text(folders["ends"], "geojson"))["features"]
+    plain_features = json.loads(clip_runs.export_text(folders["plain"], "geojson"))["features"]
     assert "lift_needed_m" not in plain_features[0]["properties"]
     key = lambda values: tuple(round(float(v), 7) for v in values)  # noqa: E731
     lifts = {key(r[k] for k in ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon")):
@@ -346,8 +369,7 @@ def test_end_zone_and_lift(tmp_path):
     assert lifts == {key((f["properties"]["anchor1_lat"], f["properties"]["anchor1_lon"], f["properties"]["anchor2_lat"],
                           f["properties"]["anchor2_lon"])): (f["properties"]["lift_needed_m"],
                                                              f["properties"]["lift_no_zone_m"]) for f in features}
-    for script in ("data.js", "lines.js"):
-        assert lifts == {key(line[:4]): (line[25], line[26]) for line in _script(os.path.join(folders["ends"], script))["lines"]}
+    assert lifts == {key(line["anchors"]): line["ends"] for line in _store_lines(folders["ends"])}
     # with A-frames of 2 m the rule's clearance is 2 less the height needed (exactly so before rounding), and
     # the lines of the search without the options need none; some lines need the zone (more than 2 m without it)
     anchors_of = lambda r: key(r[k] for k in ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon"))  # noqa: E731
@@ -360,13 +382,14 @@ def test_end_zone_and_lift(tmp_path):
         if anchors_of(r) in standing:
             assert needed == no_zone == 0, r
     assert any(no_zone > 2 for _, no_zone in lifts.values()) and any(needed > 0 for needed, _ in lifts.values())
-    for line in _script(os.path.join(folders["ends"], "data.js"))["lines"]:  # and the profiles' smallest value
-        if line[-1]:
-            assert consistent(line[25], line[-1]["min"][1]), line[:4]
-    # the profiles the map keeps (of the spots' lines here: those of every line would be too many)
-    lines = [line for line in _script(os.path.join(folders["ends"], "data.js"))["lines"] if line[-1]]
+    for line in _store_lines(folders["ends"]):  # and the profiles' smallest value
+        if line["profile"]:
+            assert consistent(line["ends"][0], line["profile"]["min"][1]), line["anchors"]
+    # the profiles the map keeps (of the spots' lines here: those of every line would be too many), as data.js's
+    # rows were: the anchors, then the profile last
+    lines = [[*line["anchors"], line["profile"]] for line in _store_lines(folders["ends"]) if line["profile"]]
     assert lines
-    assert all("zone" not in line[-1] for line in _script(os.path.join(folders["plain"], "data.js"))["lines"] if line[-1])
+    assert all("zone" not in line["profile"] for line in _store_lines(folders["plain"]) if line["profile"])
     for line in lines:
         assert line[-1]["lift"] == 2 and 0 < line[-1]["zone"] <= 5, line[-1]
     # Profiles computed again: those of lines only the rule finds, and others, equal the saved ones
@@ -404,20 +427,27 @@ def test_end_zone_in_tiles(tmp_path):
     assert one and one == tiled and "lift_needed_m" in one[0]
     ties = collections.Counter((r["clearance_m"], r["length_m"]) for r in one)
     assert max(ties.values()) > 1  # the case the order is fixed for
-    for name in ("data.js", "lines.js", "lines.geojson"):  # the files too, from their lines on
-        texts = []
-        for run in ("one", "tiled"):
-            text = open(glob.glob(str(tmp_path / run / "runs" / "*" / name))[0], encoding="utf-8").read()
-            texts.append(text[text.index('"lines":['):] if name.endswith(".js") else text[:text.index('"findaline"')])
-        assert texts[0] == texts[1], name
+    folders = {run: os.path.dirname(glob.glob(str(tmp_path / run / "runs" / "*" / "run.json"))[0])
+               for run in ("one", "tiled")}
+    texts = [clip_runs.export_text(folders[run], "geojson").decode("utf-8") for run in ("one", "tiled")]
+    assert texts[0][:texts[0].index('"findaline"')] == texts[1][:texts[1].index('"findaline"')]
+    # the store too, row by row and column by column (data.js and lines.js from their lines on before wave 4)
+    tables = [_store_table(folders[run]) for run in ("one", "tiled")]
+    assert tables[0].equals(tables[1])
     assert len(glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.pkl.gz"))) > 1
     # the profiles of the groups' lines in the map, those at tile edges too (profile_of_line), carry the rule
     profiles = {}
     for name in ("one", "tiled"):
-        lines = _script(glob.glob(str(tmp_path / name / "runs" / "*" / "data.js"))[0])["lines"]
-        profiles[name] = {tuple(line[:4]): line[-1] for line in lines if line[-1]}
+        profiles[name] = {line["anchors"]: line["profile"] for line in _store_lines(folders[name]) if line["profile"]}
         assert profiles[name] and all(p["lift"] == 2 for p in profiles[name].values())
     assert profiles["one"] == profiles["tiled"]
+
+
+def _store_table(folder):
+    """lines.arrow of a run without its schema's metadata (the head names the run)."""
+    import pyarrow as pa
+    with pa.OSFile(os.path.join(folder, "lines.arrow"), "rb") as f:
+        return pa.ipc.open_file(f).read_all().replace_schema_metadata(None)
 
 
 def test_search_hash_without_the_ends():
@@ -437,13 +467,12 @@ def test_search_hash_without_the_ends():
 
 
 def _terrain(data_dir) -> dict:
-    """The terrain of the one run in data_dir as run.json, data.js and lines.js have it (all equal)."""
+    """The terrain of the one run in data_dir as run.json and the store's head have it (equal; before store wave 4
+    data.js and lines.js too)."""
     folder = glob.glob(str(data_dir / "runs" / "*" / "run.json"))[0].rsplit(os.sep, 1)[0]
-    read = lambda name: open(os.path.join(folder, name), encoding="utf-8").read()  # noqa: E731
-    found = {"run.json": json.loads(read("run.json"))["terrain"],
-             "data.js": json.loads(read("data.js").partition(" = ")[2].rstrip().rstrip(";"))["terrain"],
-             "lines.js": json.loads(read("lines.js").partition("] = ")[2].rstrip().rstrip(";"))["terrain"]}
-    assert found["run.json"] == found["data.js"] == found["lines.js"]
+    found = {"run.json": json.loads(open(os.path.join(folder, "run.json"), encoding="utf-8").read())["terrain"],
+             "store": _head(folder)["terrain"]}
+    assert found["run.json"] == found["store"]
     return found
 
 
@@ -513,7 +542,7 @@ def test_two_points(tmp_path):
 
 def test_year_of_the_run_in_credits(tmp_path, monkeypatch):
     """A credit, orthophoto or note naming sources.YEAR gets the year of the run (LGLN's
-    "© GeoBasis-DE/LGLN <year>"): in run.json, ATTRIBUTION.txt, lines.geojson and the map's data.js;
+    "© GeoBasis-DE/LGLN <year>"): in run.json, ATTRIBUTION.txt, the GeoJSON export and the store's head;
     a credit without it is recorded as it is. The run's time is patched to another year."""
     from datetime import datetime as real_datetime
     import search
@@ -556,9 +585,9 @@ def test_year_of_the_run_in_credits(tmp_path, monkeypatch):
     text = read("ATTRIBUTION.txt")
     assert "Notice: © Someone 2031, changed" in text and "Got 2031." in text and src.YEAR not in text
     assert f"Notice: {plain.attribution}" in text
-    geojson = json.loads(read("lines.geojson"))["findaline"]
+    geojson = json.loads(clip_runs.export_text(folder, "geojson"))["findaline"]
     assert geojson["attribution"] == meta["attribution"]
-    js = json.loads(read("data.js").partition(" = ")[2].rstrip().rstrip(";"))
+    js = _head(folder)
     assert js["attribution"] == meta["attribution"]
     assert js["ortho"]["attribution"] == "LGLN (2031), CC BY 4.0"
     assert src.SOURCES["lower_saxony"].ortho.attribution == f"LGLN ({src.YEAR}), CC BY 4.0"  # the catalogue unchanged
@@ -940,25 +969,28 @@ def test_area_in_tiles_with_water_and_gaps(tmp_path, monkeypatch):
         if plan.tiles:
             assert not glob.glob(os.path.join(paths.work, "*.npy"))  # the area's grids are gone after the tiles
     read = lambda name, file: open(os.path.join(runs[name], file), "rb").read()  # noqa: E731
-    assert read("one", "lines.csv") == read("tiled", "lines.csv")
-    # The map's rows come in the table's order (the tiles' one after another for a tiled run): the
+    assert clip_runs.export_text(runs["one"]) == clip_runs.export_text(runs["tiled"])
+    # The store's rows come in the table's order (the tiles' one after another for a tiled run): the
     # same rows, and the profiles of the same lines (one of a group joining two tiles computed
-    # again on its own grid may differ a little: not here)
-    for file in ("data.js", "lines.js"):
-        rows = {}
-        for name in ("one", "tiled"):
-            text = read(name, file).decode("utf-8")
-            rows[name] = json.loads(text[text.index(" = {") + 3:].rstrip().rstrip(";"))["lines"]
-        assert sorted(map(json.dumps, rows["one"])) == sorted(map(json.dumps, rows["tiled"])), file
+    # again on its own grid may differ a little: not here); data.js and lines.js before store wave 4
+    import linestore
+    rows = {}
+    for name in ("one", "tiled"):
+        table = _store_table(runs[name]).drop_columns([n for n, _ in linestore.VIEW])  # the view's: by row index
+        rows[name] = sorted(json.dumps(row) for row in table.to_pylist())
+    assert rows["one"] == rows["tiled"]
+    profiles = [sorted(json.dumps([line["anchors"], line["profile"]]) for line in _store_lines(runs[name]))
+                for name in ("one", "tiled")]
+    assert profiles[0] == profiles[1]
     one, tiled = (json.loads(read(name, "run.json")) for name in ("one", "tiled"))
     assert one["terrain"] == tiled["terrain"] and one["summary"]["lines"] == tiled["summary"]["lines"]
     assert len(glob.glob(os.path.join(runs["tiled"], "tiles", "*.table.pkl.gz"))) > 1
     # Where the land's terrain came from: the same counted once on the whole grid in strips; the two gaps
-    # filled from the fallback, a small share (no warning), in the head of data.js too
+    # filled from the fallback, a small share (no warning), in the store's head too
     origins = one["terrain_sources"]
     assert origins == tiled["terrain_sources"] and 0 < origins["fallback_share"] < search.FALLBACK_WARN_SHARE
     assert [layer["role"] for layer in origins["layers"]] == ["source", "fallback"]
-    assert '"terrain_sources":' in read("tiled", "data.js").decode("utf-8")
+    assert _head(runs["tiled"])["terrain_sources"] == origins
 
 
 def _fake_orthophoto(http_server, monkeypatch, folder: str = "fake/ortho/live"):
@@ -1012,7 +1044,7 @@ def test_orthophoto_after_the_run(tmp_path, monkeypatch, http_server):
     folder = result.run["path"]
     read = lambda name: open(os.path.join(folder, name), "rb").read()  # noqa: E731
     files = {name: read(name) for name in os.listdir(folder) if os.path.isfile(os.path.join(folder, name))}
-    data = json.loads(files["data.js"].decode("utf-8").partition(" = ")[2].rstrip().rstrip(";"))
+    data = _head(folder)
     assert data["ortho"]["cache"] == "../../cache/fake/ortho/live/wm256" and data["ortho"]["base"]["max_zoom"] == 19
 
     # One line per group, the best groups first: a circle every group, --ortho-detail or the
@@ -1157,15 +1189,15 @@ def test_funnel_of_the_line_search(tmp_path, monkeypatch):
     assert tiled["valid"] >= tiled["lines"]  # the tiles' overlaps find some lines twice
 
 
-def test_run_saved_by_children_as_in_process(tmp_path, monkeypatch):
-    """search.save_run with the line files written by child processes (saving.py) gives every
-    file of the run byte for byte as the search's own process writes it, on the Żabi Koń clip
-    (the profiles of lineprofiles' batch, every line's for a circle), without and with the access mark
-    (--access: its two uint8 columns)."""
+def test_run_of_a_circle_keeps_every_profile(tmp_path, monkeypatch):
+    """search.save_run on the Żabi Koń clip (a circle: every line's profile kept, store U6), without and with the
+    access mark: the run's files are the store's, map.html, ATTRIBUTION.txt and run.json; profiles.arrow has a
+    profile of every line; the access mark's two columns are in the store and the CSV export with the option only.
+    (Before store wave 4 the children of saving.py wrote the text files: their test went with them.)"""
     import dataclasses
     from datetime import datetime
 
-    import saving
+    import linestore
     import search
     from params import SearchParams
     for name, value in OFFLINE_ENV.items():
@@ -1179,23 +1211,16 @@ def test_run_saved_by_children_as_in_process(tmp_path, monkeypatch):
         plan = dataclasses.replace(plan, index_runs=False)
         lines = search.find_lines(plan, search.prepare_data(plan))
         assert len(lines.results) == ZABI_KON["lines"] and len(lines.results.profiles) == ZABI_KON["lines"]
-        created = datetime(2026, 11, 3, 12, 0, 0)
-        saved = {}
-        for count in (1, 4, 2):
-            folder = tmp_path / "runs" / f"by{count}-{access}"
-            folder.mkdir(parents=True)
-            monkeypatch.setattr(saving, "MIN_LINES", 10 ** 9 if count == 1 else 0)
-            monkeypatch.setattr(saving, "processes", lambda threads, count=count: count)
-            result = search.save_run(plan, lines, {"id": "r", "path": str(folder), "created": created,
-                                                   "name": "clip"})
-            assert result.map_path == str(folder / "map.html")
-            saved[count] = {name: (folder / name).read_bytes() for name in os.listdir(folder)}
-            assert not (tmp_path / "work" / saving.FOLDER).exists()
-        assert set(saved[1]) == {"map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "run.json",
-                                 "ATTRIBUTION.txt", "lines.arrow", "profiles.arrow"}  # and the store (linestore)
-        assert saved[4] == saved[1] and saved[2] == saved[1]
-        assert saved[1]["data.js"].count(b"null]") == 0  # a circle: every line with its profile
-        assert (b",access1,access2\r\n" in saved[1]["lines.csv"][:1000]) == access
+        folder = tmp_path / "runs" / f"clip-{access}"
+        folder.mkdir(parents=True)
+        result = search.save_run(plan, lines, {"id": "r", "path": str(folder), "created": datetime(2026, 11, 3, 12),
+                                               "name": "clip"})
+        assert result.map_path == str(folder / "map.html")
+        assert set(os.listdir(folder)) == {"map.html", "run.json", "ATTRIBUTION.txt", "lines.arrow", "profiles.arrow"}
+        stored, _ = linestore.read(str(folder))
+        assert len(stored.profiles) == ZABI_KON["lines"]  # a circle: every line with its profile
+        assert ("access1" in stored.columns) == access
+        assert (b",access1,access2\r\n" in clip_runs.export_text(folder)[:1000]) == access
 
 
 def test_terrain_fallback_warning(monkeypatch):

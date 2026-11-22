@@ -1,4 +1,4 @@
-// Where the terrain of a run's land came from (data.js `terrain_sources`, sources.filling.terrain_origins): the
+// Where the terrain of a run's land came from (the head's `terrain_sources`, sources.filling.terrain_origins): the
 // source's own data, a neighbour's, and the coarser fallbacks that filled where the source has none, with the
 // regions they filled. The pure parts: the shares as text, whether the result warns, the km² of each fallback in a
 // map's view (coarserLayer.ts draws them with Leaflet, tested in Node: tests/test_viewer.py).

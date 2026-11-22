@@ -223,6 +223,7 @@ INTERACT_SCRIPT = _with_until("""
     out.walking = [root.dataset.walk, button.textContent];
     document.querySelector(".v3-speed").click();
     out.speed4 = document.querySelector(".v3-speed").textContent;
+    out.speed4Name = document.querySelector(".v3-speed").getAttribute("aria-label");
     button.click();
     out.stopped = [root.dataset.walk, button.textContent];
     done();
@@ -236,6 +237,7 @@ INTERACT_SCRIPT = _with_until("""
     out.walkHidden = document.querySelector(".v3-walk").classList.contains("v3-hidden");
     out.reducedNote = !document.querySelector(".v3-reduced").classList.contains("v3-hidden");
     out.speed = (document.querySelector(".v3-speed") || {}).textContent;
+    out.speedName = (document.querySelector(".v3-speed") || {getAttribute: () => null}).getAttribute("aria-label");
     out.hint = document.querySelectorAll(".v3-hint").length;
     out.pin = root.dataset.pin;
     out.edit = root.dataset.edit;
@@ -261,6 +263,8 @@ INTERACT_SCRIPT = _with_until("""
     out.reset = !document.querySelector(".v3-reset").classList.contains("v3-hidden");
     pointer("pointerup", handle, x1, y1);
     out.released = root.dataset.edit;
+    out.resetAfter = !document.querySelector(".v3-reset").classList.contains("v3-hidden");
+    out.releasedText = readout();
     until(() => root.dataset.edit === "checked" || root.dataset.edit === "error", 20000, () => {
       out.checked = root.dataset.edit;
       out.edited = readout();
@@ -331,6 +335,8 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level, reduced):
     assert abs(leader["pinBottom"] - leader["tipY"]) <= 1.5 and leader["pinTop"] < leader["tipY"], leader  # the pin ends in its tip
     assert leader["opacity"].startswith("rgba(255, 255, 255, 0.65"), leader
     assert result["walkButton"] == 1 and result["speed"] == "×1"
+    # the speed's accessible name holds its shown text (axe's label-content-name-mismatch: report defect 15)
+    assert result["speedName"] == "Speed ×1" and result["speed4Name"] == "Speed ×4", result
     assert result["reduced"] is reduced, result
     assert result["walkHidden"] is reduced and result["reducedNote"] is reduced, result
     walking = ["0", "Walk"] if reduced else ["1", "Stop"]
@@ -339,8 +345,11 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level, reduced):
         assert result["handles"] == 0 and result["hint"] == 0
     else:
         assert result["handles"] == 2 and result["hint"] == 1
-        assert result["moving"] == "moving" and result["reset"] and result["released"] == "waiting"
-        assert "Anchors moved: not saved" in result["dragged"] and "clear of the terrain" not in result["dragged"]
+        # the bar's new row ("Back to the found line", "Anchors moved: not saved") at the release, not during the drag
+        # (step 3d, DESIGN.md row 84: the bar keeps its size while a handle is dragged)
+        assert result["moving"] == "moving" and not result["reset"] and result["released"] == "waiting"
+        assert "Anchors moved: not saved" not in result["dragged"] and "clear of the terrain" not in result["dragged"]
+        assert result["resetAfter"] and "Anchors moved: not saved" in result["releasedText"], result
         assert result["checked"] == "checked" and result["filled"] == "1", result
         # the moved line of the clip runs into the terrain (about -2.8 m): it does not fit, in --bad
         assert "Anchors moved: not saved" in result["edited"] and "Does not fit: the clearance is -" in result["edited"]
@@ -583,7 +592,7 @@ def test_view3d_narrow_bar(clip_data, tmp_path, monkeypatch, level):
     # the walker's views (docs/3d-view-contract.md, "Wave P"): nothing clipped, overlapping or outside, the zoom's
     # -, indicator and + shown, the walker's slider at least 40% of the window wide in every view (the switch on a
     # row of its own, in the walker's views with the zoom; at 412 px about 190 px, before about 74 px) and as wide as
-    # in the orbit; at the phone level the bar as high in every view (its note and the look hint take turns)
+    # in the orbit; at the phone level the bar as high in every view (no note stands in it there: row 39)
     orbit = result["orbit"]
     assert orbit["view"] == "orbit" and orbit["slider"] >= 0.4 * result["width"], result
     for name in ("eyes", "behind"):
@@ -668,8 +677,9 @@ VIEWS_SCRIPT = _with_until("""
 @pytest.mark.parametrize("level", ["full", "phone"])
 def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
     """The walker's views (docs/3d-view-contract.md, "Wave F"): the switch (orbit first and chosen), the walker's
-    eyes (data-view="eyes", its field of view 60° wide, no anchor's handle, no grip and no edit hint, the look hint, at
-    the phone level in place of its note), a drag on the canvas turns the gaze and keeps the eyes where they are, the walker's slider moves the
+    eyes (data-view="eyes", its field of view 60° wide, no anchor's handle, no grip and no edit hint, the look hint;
+    at the phone level neither that hint nor the level's note stands in the bar: both are behind "About this view",
+    DESIGN.md row 39, tests/test_view3d_layout.py), a drag on the canvas turns the gaze and keeps the eyes where they are, the walker's slider moves the
     camera with it, behind the walker another camera and field of view, back to the orbit its camera exactly as it
     was and the handles back at level full; each step draws, and nothing more while nothing changes; no motion
     button without a touch screen, no violation of the CSP."""
@@ -699,9 +709,12 @@ def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
     full = level == "full"
     assert orbit["view"] == "orbit" and orbit["checked"] == ["true", "false", "false"]
     assert orbit["handles"] == (2 if full else 0) and orbit["hint"] == (1 if full else 0) and orbit["lookHint"] == 0
-    assert orbit["grips"] == (1 if full else 0) and orbit["motion"] == 0 and orbit["phoneNote"] == (0 if full else 1)
+    # the phone level's note and the look hint were 1 in the bar at the phone level until row 39 (2026-11-19): there the
+    # notes that explain are out of the bar, in the box of "About this view" (measured: 0 shown at ?level=phone)
+    assert orbit["grips"] == (1 if full else 0) and orbit["motion"] == 0 and orbit["phoneNote"] == 0
     assert eyes["view"] == "eyes" and eyes["checked"] == ["false", "true", "false"] and cam["eyes"][7] == 60
-    assert eyes["handles"] == eyes["grips"] == eyes["hint"] == eyes["phoneNote"] == 0 and eyes["lookHint"] == 1
+    assert eyes["handles"] == eyes["grips"] == eyes["hint"] == eyes["phoneNote"] == 0
+    assert eyes["lookHint"] == (1 if full else 0)
     assert eyes["motion"] == 0  # no touch screen here
     assert eyes["lookText"] == "Drag to look around, scroll to zoom."  # a fine pointer (the wheel), at both levels
     assert cam["eyes"][4] < 0  # a little down at first
@@ -923,7 +936,8 @@ def test_view3d_credits_and_pill(clip_data, tmp_path, monkeypatch, level):
     assert start["toggle"] and start["expanded"] == "true" and start["body"] and start["stored"] is None, result
     assert start["text"].startswith("Data: Test survey"), result
     box = result["box"]
-    assert box["fontSize"] == "12.5px" and box["border"] == "1px" and box["shadow"] and box["first"], result
+    # 13 px (R5's step for 12.5) and raised without an edge (docs/DESIGN.md, the pilot's look, rows 41 and 46)
+    assert box["fontSize"] == "13px" and box["border"] == "0px" and box["shadow"] and box["first"], result
     assert box["parent"] == "v3-bottom" and box["inStage"], result
     assert box["background"].startswith("rgb("), result  # the surface's full colour, not a translucent one
     folded = result["folded"]

@@ -2,6 +2,8 @@
 // through the CSSOM: the CSP allows no style attributes), the place map's layer and the canvas of the
 // animations and images. Levels 1 and 2 were checked for colour-blind readers against `bg`, light and
 // dark (the dataviz validator, 2026-11-02); the 30 m base stays neutral and is named in the legend.
+// The neutrals (bg, surface, surface2, ink, ink2, muted; line = the app's --rule; the light tint = --surface-2; the
+// dark edge = --bg) are copies of ui/tokens.css, kept in step by tests/test_viewer.py::test_neutrals_copies_in_step.
 import type { Level } from "./types";
 
 export interface Theme {
@@ -12,13 +14,13 @@ export interface Theme {
 
 export const THEMES: Record<"light" | "dark", Theme> = {
   light: {
-    bg: "#f3f5f2", surface: "#ffffff", surface2: "#e9eee9", ink: "#17201c", ink2: "#45524b", muted: "#6c7a73",
-    line: "#d2dad4", sea: "#e6edef", land: "#d3dbd5", l1: "#c40cba", l2: "#e98be3", edge: "#f7f9f7",
-    clear: "#e10fd6", lineMap: "#ff10f0", trees: "#ff8c00", tint: "#e9eee9",
+    bg: "#f2f5f5", surface: "#ffffff", surface2: "#e5ebeb", ink: "#16262a", ink2: "#3c4e52", muted: "#56686c",
+    line: "#d3dcdc", sea: "#e6edef", land: "#d3dbd5", l1: "#c40cba", l2: "#e98be3", edge: "#f7f9f7",
+    clear: "#e10fd6", lineMap: "#ff10f0", trees: "#ff8c00", tint: "#e5ebeb",
   },
   dark: {
-    bg: "#0e1311", surface: "#161c19", surface2: "#1f2723", ink: "#e5ebe7", ink2: "#b1bcb6", muted: "#85928b",
-    line: "#2c3631", sea: "#0b1114", land: "#26302a", l1: "#ff4cf4", l2: "#8f3489", edge: "#0e1311",
+    bg: "#121a1b", surface: "#1a2425", surface2: "#222d2e", ink: "#e2ebeb", ink2: "#b2c0c1", muted: "#8fa1a2",
+    line: "#2a3738", sea: "#0b1114", land: "#26302a", l1: "#ff4cf4", l2: "#8f3489", edge: "#121a1b",
     clear: "#ff4cf4", lineMap: "#ff10f0", trees: "#ff9f30", tint: "#7d8c84",
   },
 };

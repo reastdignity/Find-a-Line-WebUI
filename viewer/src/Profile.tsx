@@ -3,7 +3,8 @@
 // estimator (webbing, envelope, fall zone, athlete under the cursor). The same panel shows
 // two points measured on the map, with their anchors at a height above the ground. Compact (a card that
 // can be made low: ProfileCard): no head row (its title goes to the caller's bar, `onTitle`), the legend
-// and the 1:1 scale with the controls of "Rigging and layers", the readout one line.
+// and the 1:1 scale with the controls of "Rigging and layers", the readout wrapping in a box of steady height (the
+// room of the longest text it can show: readoutRoom).
 // A run with a no-fall zone or A-frames (helpers.end_zone_rule): the anchors on A-frames of the run's height (the
 // webbing, the sag and the limit start from their tops), the zone as shaded bands at both ends with the limit
 // stepping up inside them (endzone.ts limits), and what the line needs rigged above the chart. The labels are placed
@@ -23,7 +24,7 @@ export const PROFILE = {terrain: "#8a7656", terrainFill: "#e3d8c3", trees: "#3f8
                         treesFill: "rgba(76,153,60,0.45)", limit: "#d62728", envelope: "#6a3d9a",
                         fallFill: "rgba(214,39,40,0.12)", athlete: "#222", water: "#2f6fc0",
                         waterFill: "rgba(47,111,192,0.45)", zone: "#2350c8", zoneFill: "rgba(35,80,200,0.11)",
-                        frame: "#45524b"};
+                        frame: "#3c4e52"};
 const RIGGING: [keyof Rigging, string, number][] = [
   ["pretension", "kN pretension", 0.1], ["stretch", "% stretch @ 10 kN", 0.5],
   ["webbing_weight", "g/m webbing", 5], ["athlete_mass", "kg athlete", 5], ["fall_zone", "m fall zone", 0.5]];
@@ -52,13 +53,13 @@ export interface ProfileProps {
   slope: number;
   leashFall: number;
   rigging: Rigging;                      // initial values (the run's)
-  /** The run's no-fall zone at the ends and A-frame height, metres (data.js "end_zone", "lift"; the patch meta's);
+  /** The run's no-fall zone at the ends and A-frame height, metres (the head's "end_zone", "lift"; the patch meta's);
    *  none: off (a run without them, or before them). */
   endZone?: number;
   lift?: number;
   measured?: boolean;                    // two points measured on the map, not a found line
   fill?: boolean;                        // the chart takes its box's height (at least 120 px) instead of 170 px
-  compact?: boolean;                     // no head row: the legend and the scale with the controls, one readout line
+  compact?: boolean;                     // no head row: the legend and the scale with the controls, a steady readout
   onTitle?(title: string, facts: string): void;  // the title (as the head has it) and its facts after the length
   onClose(): void;
   onHover(at: [number, number] | null): void;   // (lat, lon) under the cursor
@@ -281,6 +282,45 @@ export function ProfilePanel(props: ProfileProps) {
     }
   }
 
+  // The compact readout keeps one height while the cursor moves (the card around it does not jump): its box holds,
+  // hidden, the longer of the summary and the cursor's readout made of the widest value of each part along the line
+  // (the digits are tabular, so the widest has the most characters) with every part the line can show
+  const room = compact ? readoutRoom() : "";
+  function readoutRoom(): string {
+    const widest = (values: number[], digits: number) => values.reduce((w, v) => {
+      const text = isFinite(v) ? v.toFixed(digits) : "";
+      return text.length > w.length ? text : w;
+    }, "0");
+    const zs: number[] = [], ss: number[] = [], limits: number[] = [], clear: number[] = [], over: number[] = [];
+    const above: number[] = [], maxSag = est ? Math.max(...est.sag) : 0;
+    p.d.forEach((d, i) => {
+      const z = p.z[i], s = p.s ? p.s[i] : null, here = limit(d);
+      if (z !== null) { zs.push(z); above.push(chord(d) - z, chord(d) - z - maxSag); }  // the athlete's height range
+      if (s !== null && s !== undefined) ss.push(s);
+      if (isFinite(here)) {
+        limits.push(here);
+        if (z !== null) clear.push(here - z);
+        if (s !== null && s !== undefined && z !== null) over.push(here - Math.max(s, z));
+      }
+    });
+    let text = l.len.toFixed(0) + " m from A1";
+    if (zs.length) text += " · terrain " + widest(zs, 1) + " m";
+    if (p.w && p.w.some(Boolean)) text += " (water)";
+    if (p.g && p.g.some(Boolean)) text += " (filled gap)";
+    if (ss.length) text += " · trees/buildings " + widest(ss, 1) + " m";
+    if (limits.length) {
+      text += " · safety limit " + widest(limits, 1) + " m";
+      if (clear.length) text += " · clearance " + widest(clear, 1) + " m";
+      if (over.length) text += " (over trees/buildings " + widest(over, 1) + " m)";
+    }
+    if (zone > 0) text += " " + t("ui.profile.in_zone");
+    if (est && show.athlete) {
+      text += " · athlete here: sag " + widest(est.sag, 2) + " m, tension " + widest(est.H.map((h) => h / 1e3), 1) + " kN";
+      if (above.length) text += ", " + widest(above, 1) + " m above terrain";
+    }
+    return text.length > summary.length ? text : summary;
+  }
+
   const onMove = (e: MouseEvent) => {
     const box = (e.currentTarget as SVGElement).ownerSVGElement!.getBoundingClientRect();
     const d = Math.max(0, Math.min(l.len, (e.clientX - box.left - M.l - xoff) / sx));
@@ -464,6 +504,7 @@ export function ProfilePanel(props: ProfileProps) {
               onKeyDown={onKey} onBlur={onLeave} />
       </svg>
     </div>
-    <div class="fal-profile-readout" title={compact && readout ? readout : undefined}>{readout}</div>
+    <div class="fal-profile-readout" title={compact && readout ? readout : undefined} data-room={room || undefined}>
+      <span class="fal-readout-text">{readout}</span></div>
   </div>;
 }

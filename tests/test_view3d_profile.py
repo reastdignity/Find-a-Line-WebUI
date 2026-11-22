@@ -186,7 +186,7 @@ PROFILE_SCRIPT = _with_until("""
       out.stored = localStorage.getItem("findaline.view3d.profile");
       out.pressed = tool("profile").getAttribute("aria-pressed");
       out.legend = !!document.querySelector(".v3-card .fal-key");
-      out.order = [...document.querySelectorAll(".v3-tool")].map((b) => [b.dataset.tool, getComputedStyle(b).order]);
+      out.order = [...document.querySelectorAll(".v3-tool")].map((b) => [b.dataset.tool, b.dataset.order]);
       const span = Number(slider().max), hover = document.querySelector(".v3-card .fal-hover");
       const r = hover.getBoundingClientRect();
       out.span = span;
@@ -359,7 +359,8 @@ def test_view3d_profile_card_and_saving(clip_data, tmp_path, monkeypatch, level)
     r = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
     print(level, r)
     assert r["ready"] and r["settled"] and "error" not in r, r
-    # the two tools of this file among the strip's (the others of round 2 have tests of their own)
+    # the two tools of this file among the strip's (the others of round 2 have tests of their own), in the DOM in their
+    # order (chrome.ts createTools: the Tab order is the order on screen)
     assert [t for t in r["tools"] if t in ("profile", "save")] == ["profile", "save"], r
     assert [o for o in r["order"] if o[0] in ("profile", "save")] == [["profile", "5"], ["save", "6"]], r
     assert r["cardEmpty"], r  # folded by default
@@ -392,3 +393,94 @@ def test_view3d_profile_card_and_saving(clip_data, tmp_path, monkeypatch, level)
         assert r["movedAgain"] == ["Save moved line", "Anchors moved: not saved"] and r["copy"], r
         assert r["copyText"] in ("Copy link", "Link copied") and "copyError" not in r, r
     assert _violations(dom) == []
+
+
+# The 3D card's text cut short: every leaf of its head and readout whose text is wider than its box; the chart's height
+CARD_CUT = """() => { const card = document.querySelector('.v3-card');
+  const cut = [...card.querySelectorAll('.v3-pcard-head *, .fal-profile-readout')]
+    .filter((e) => e.children.length === 0 && !e.closest('.u-sr') && e.textContent.trim() && e.getClientRects().length
+                   && e.scrollWidth > e.clientWidth + 1)  // .u-sr: for screen readers only, 1 px by design
+    .map((e) => [e.className, e.textContent.trim()]);
+  const chart = card.querySelector('.fal-profile-chart').getBoundingClientRect();
+  // the card's text outside what can be seen: below the profile's box (which clips), or outside the card's scrollable
+  // area (the card scrolls inside when it is at its highest)
+  const pcard = card.querySelector('.v3-pcard'), c = pcard.getBoundingClientRect();
+  const profile = card.querySelector('.r-profile').getBoundingClientRect();
+  const outside = [...pcard.querySelectorAll('*')].filter((e) => e.children.length === 0 && !e.closest('.u-sr')
+      && e.textContent.trim() && e.getClientRects().length).filter((e) => { const r = e.getBoundingClientRect();
+    const inProfile = !e.closest('.r-profile') || r.bottom <= profile.bottom + 1;
+    const top = r.top - c.top + pcard.scrollTop, bottom = r.bottom - c.top + pcard.scrollTop;
+    return !inProfile || top < -1 || bottom > pcard.scrollHeight + 1 || r.left < c.left - 1 || r.right > c.right + 1; })
+    .map((e) => e.textContent.trim().slice(0, 40));
+  // the card's box beyond the stage's (top, bottom, left, right; px), which clips: no scroll reaches what lies there
+  const s = document.querySelector('.v3-stage').getBoundingClientRect();
+  const stage = [s.top - c.top, c.bottom - s.bottom, s.left - c.left, c.right - s.right].map(Math.round);
+  return {cut, outside, stage, chart: Math.round(chart.height),
+          readout: card.querySelector('.fal-profile-readout').textContent}; }"""
+# The chart has measured its box (Profile.tsx `measure`: the svg as wide as the chart's box, as high as it but at least
+# 120 px). The chart comes in at its first size, 800 × 170 px, and measures in an effect, which Preact runs a frame
+# later: read before it, a phone's card had the chart's right-hand labels beyond its edge (a full parallel run,
+# 2026-11-17: "100 m", "150 m", "highest …", "min. clearance …", "A2 …" outside; ready implies the profile, so the
+# click draws the chart at once and its svg is there before that frame)
+CARD_FITTED = """() => { const chart = document.querySelector('.v3-card .fal-profile-chart');
+  const svg = chart && chart.querySelector('svg');
+  return !!svg && Number(svg.getAttribute('width')) === chart.clientWidth
+    && Number(svg.getAttribute('height')) === Math.max(120, chart.clientHeight); }"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_view3d_card_text_whole(clip_data, tmp_path, monkeypatch):
+    """The 3D view's profile card in Playwright's Edge, on a desktop and on a touch phone in portrait (390 × 844) and in
+    landscape (844 × 390): the line's facts on a row of their own and the readout wrapping, nothing of the head or the
+    readout cut short, and no text of the card outside what it shows (the profile's box grows with its readout, the
+    card scrolls inside at its highest; code review 3 F2), with the summary, with the long readout under the cursor
+    and with "Rigging and layers" open, for the clip's first line and its longest (report defect 8, the user's "b");
+    the chart keeps its 120 px and the card lies inside the stage. Held sideways the stage is 219 px high: the box
+    shrank to the card's 60 % limit with the controls open (149 px of 224, the chart's foot and the readout clipped)
+    and the card's head lay above the stage."""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+    from test_web import DESKTOP, PHONE
+    import math
+    data, meta = clip_data
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    rows = _lines_of(data, meta["id"])
+    span = lambda r: math.hypot((r[2] - r[0]) * 111320, (r[3] - r[1]) * 111320 * math.cos(math.radians(r[0])))  # noqa: E731
+    lines = {"first": rows[0], "longest": max(rows, key=span)}
+    found = {}
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            landscape = {**PHONE, "viewport": {"width": 844, "height": 390}}
+            for kind, context in (("desktop", DESKTOP), ("phone", PHONE), ("landscape", landscape)):
+                for which, row in lines.items():
+                    page = browser.new_page(**context)
+                    line = ",".join(str(v) for v in row[:4])
+                    page.goto(f"http://127.0.0.1:{port}/view3d#run={meta['id']}&line={line}")
+                    page.wait_for_function("() => document.getElementById('view3d')?.dataset.ready === '1'", timeout=90000)
+                    if not page.query_selector(".v3-card .fal-profile-chart"):
+                        page.click(".v3-tool[data-tool=profile]")
+                    page.wait_for_selector(".v3-card .fal-profile-chart svg", timeout=30000)
+                    page.wait_for_function(CARD_FITTED, timeout=30000)
+                    found[(kind, which, "summary")] = page.evaluate(CARD_CUT)
+                    page.evaluate("""() => { const h = document.querySelector('.v3-card .fal-hover'), r = h.getBoundingClientRect();
+                        h.dispatchEvent(new MouseEvent('mousemove', {clientX: r.left + r.width * 0.4, clientY: r.top + 5, bubbles: true})); }""")
+                    page.wait_for_function("() => / from A1 /.test(document.querySelector('.v3-card .fal-profile-readout').textContent)",
+                                           timeout=30000)
+                    found[(kind, which, "cursor")] = page.evaluate(CARD_CUT)
+                    # "Rigging and layers" open: the controls above the chart, the box higher than the card's limit
+                    # held sideways (the chart measures its box again)
+                    page.click(".v3-pcard-head .u-chip")
+                    page.wait_for_function("() => !!document.querySelector('.v3-card .v3-pcard.r-rigging')", timeout=30000)
+                    page.wait_for_function(CARD_FITTED, timeout=30000)
+                    found[(kind, which, "rigging")] = page.evaluate(CARD_CUT)
+                    page.close()
+        finally:
+            browser.close()
+    print({"|".join(k): (v["chart"], v["cut"], v["stage"]) for k, v in found.items()})
+    failed = [f"{'|'.join(k)}: cut {v['cut']}, outside {v['outside']}, chart {v['chart']} px, beyond the stage "
+              f"{v['stage']} px" for k, v in found.items()
+              if v["cut"] or v["outside"] or v["chart"] < 120 or max(v["stage"]) > 1]
+    assert not failed, "\n".join(failed)
+

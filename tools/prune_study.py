@@ -10,9 +10,10 @@ The command line (fixed for the study):
         [--radius M] [--known DIR] [--pictures] --out <folder>
         [--cache DIR | --no-cache] [--threads N] [--picture-places N] [--terrain F.npz]
 
-<table folder>: a run's folder with lines.csv and run.json as a search saves them (read only). The
-columns are parsed once and kept as .npz under --cache (default: prune_study_cache in the system's
-temporary folder), never beside the run. Writes <out>/audit.json (every count), <out>/audit.md (a
+<table folder>: a run's folder as a search saves it (read only): its store (lines.arrow) and run.json,
+or, for a run saved before the store (2026-11-15), its lines.csv and run.json (lines.js beside them when
+there). The columns are parsed once and kept as .npz under --cache (default: prune_study_cache in the
+system's temporary folder), never beside the run. Writes <out>/audit.json (every count), <out>/audit.md (a
 table for a report and one row for a table of cases), <out>/violations.csv (the dropped lines
 without a keeper) and, with --pictures, <out>/pictures/place-<k>.png (plan views of the largest
 places before and after). The same table, rule and parameters give the same files on every run and
@@ -47,7 +48,8 @@ place the search saved; length, clearance, clearance_nmpt (NaN: not measured), l
 lift_no_zone (only runs with a no-fall zone or A-frames), over_obstacles (bool), water_m, filled_m,
 height_max, height_mean, high_pct; per anchor (1, 2): lat, lon, elev_a, y (northing), x (easting),
 angle, prom, drop (lat1 ... drop2). The names are helpers.LineTable's, the anchors' coordinates
-apart. Values are what lines.csv holds: rounded as a user reads them.
+apart. Values are what lines.csv holds: rounded as a user reads them (a run's store is read through
+linestore.export's CSV, the run's lines.csv byte for byte, written into a temporary folder outside the run).
 
 The terrain under the anchors, for rules that judge an anchor by the ground around it:
 table.terrain is None when the table has none, else a Terrain: z (the elevation as the search used
@@ -79,9 +81,10 @@ rule read table.terrain there.
 
 Places come from production's grouping, never from a copy of it: before the rule they are the
 table's saved places (the `group` column, when the run was grouped at the app's default distance,
-max(20 m, 2 pixels), by clearance); the kept lines are grouped again by mapping.group_lines. With
-lines.js beside the table its unrounded values and the search's order of the lines are used, as
-the search itself would group: exact. Without it (a table of lines.csv and run.json alone) the
+max(20 m, 2 pixels), by clearance); the kept lines are grouped again by mapping.group_lines. From a
+run's store (Table.source "store") or lines.js beside the table (Table.source "lines.js": a run
+saved before the store) its unrounded values and the search's order of the lines are used, as
+the search itself would group: exact. Without them (a table of lines.csv and run.json alone) the
 lines are grouped in the order the file's rows imply (Table.file_rank): every line together gives
 the saved places again, but the kept lines of a rule may group differently than in the search
 where lines of different places tie in the rounded clearance (four audits of two tables of the
@@ -133,7 +136,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
@@ -172,7 +175,8 @@ for _k in ("1", "2"):
                         f"anchor{_k}_prominence_m": "prom" + _k, f"anchor{_k}_drop_m": "drop" + _k})
 INT_COLUMNS = ("group", "group_size")
 BOOL_COLUMNS = ("representative", "over_obstacles")
-# A row of lines.js (mapping.map_rows): the positions of the values the grouping reads, unrounded
+# A row of lines.js (mapping.map_rows of before store wave 4's item 5, tests/old_scripts.py): the positions of the
+# values the grouping reads, unrounded
 JS_COLUMNS = {4: "x1", 5: "y1", 6: "x2", 7: "y2", 8: "length", 9: "clearance", 16: "height_max"}
 # A capture's lines.npz (tools/truth_study.py save_lines): its names that differ from the table's
 CAPTURE_COLUMNS = {"over": "over_obstacles", "rep": "representative"}
@@ -363,7 +367,7 @@ class Table:
 
     table[name] gives a column (KeyError when the table has none: `name in table`, table.get(name)).
     meta: the run's run.json ({} without one); name: the run's name; source: what the grouping
-    reads ("lines.js", "lines.csv" or "capture"). A rule reads the table and never writes into it.
+    reads ("store", "lines.js", "lines.csv" or "capture"). A rule reads the table and never writes into it.
     terrain: the grid under the anchors (a Terrain; None: the table has none), read when first asked
     for (terrain_read tells that a rule asked).
     """
@@ -376,7 +380,7 @@ class Table:
         self.name = name
         self.path = path
         self.source = source
-        self.order = order        # the rows in the search's order (lines.js), None: the table's own order
+        self.order = order        # the rows in the search's order (the store, lines.js), None: the table's own order
         self.exact = exact or {}  # unrounded values of the grouping, by the table's rows
         self._saved = None
         self._grouped = {}
@@ -479,13 +483,36 @@ def _read_csv(path: str) -> Dict[str, np.ndarray]:
     return {CSV_COLUMNS[h]: np.ascontiguousarray(frame[h].to_numpy()) for h in use}
 
 
+def _match_order(search: Dict[str, np.ndarray], columns: Dict[str, np.ndarray]):
+    """The search's order of the lines and the grouping's unrounded values (`search`: JS_COLUMNS' names, each in
+    the search's order, from lines.js or the store) matched to the table's rows by the anchors' coordinates
+    rounded as lines.csv rounds them: (order, exact) with order[k] the table's row of the search's k-th line and
+    exact[name] by the table's rows; (None, {}) when they are not exactly the table's lines."""
+    import runs
+    n = len(columns["x1"])
+    if len(search["x1"]) != n:
+        return None, {}
+    names = ("x1", "y1", "x2", "y2")
+    theirs = [runs.round_floats(search[name], 2) for name in names]  # as lines.csv rounds them
+    mine = [columns[name] for name in names]
+    a, b = np.lexsort(theirs[::-1]), np.lexsort(mine[::-1])
+    if any(not np.array_equal(t[a], m[b]) for t, m in zip(theirs, mine)):
+        return None, {}
+    order = np.empty(n, dtype=np.int64)
+    order[a] = b  # the search's line a[i] is the table's row b[i]
+    exact = {}
+    for name in JS_COLUMNS.values():
+        values = np.empty(n, dtype=np.float64)
+        values[b] = np.asarray(search[name], dtype=np.float64)[a]
+        exact[name] = values
+    return order, exact
+
+
 def _read_lines_js(path: str, columns: Dict[str, np.ndarray]):
     """The unrounded values of the grouping and the search's order of the lines from a run's lines.js:
-    (order, exact) with order[k] the table's row of the search's k-th line and exact[name] by the
-    table's rows; (None, {}) when the file does not hold exactly the table's lines."""
+    (order, exact) of _match_order; (None, {}) when the file does not hold exactly the table's lines."""
     import pandas as pd
 
-    import runs
     with open(path, "rb") as f:
         text = f.read()
     start, end = text.find(b'"lines":['), text.rfind(b"]}")
@@ -505,43 +532,59 @@ def _read_lines_js(path: str, columns: Dict[str, np.ndarray]):
     del body
     if len(frame) != n:
         return None, {}
-    names = ("x1", "y1", "x2", "y2")
-    at = {name: position for position, name in JS_COLUMNS.items()}
-    theirs = [runs.round_floats(frame[at[name]].to_numpy(), 2) for name in names]  # as lines.csv rounds them
-    mine = [columns[name] for name in names]
-    a, b = np.lexsort(theirs[::-1]), np.lexsort(mine[::-1])
-    if any(not np.array_equal(t[a], m[b]) for t, m in zip(theirs, mine)):
-        return None, {}
-    order = np.empty(n, dtype=np.int64)
-    order[a] = b  # the search's line a[i] is the table's row b[i]
-    exact = {}
-    for position, name in JS_COLUMNS.items():
-        values = np.empty(n, dtype=np.float64)
-        values[b] = frame[position].to_numpy()[a]
-        exact[name] = values
-    return order, exact
+    return _match_order({name: frame[position].to_numpy() for position, name in JS_COLUMNS.items()}, columns)
+
+
+# A run's store (linestore.read): the LineTable's columns of the grouping's values (JS_COLUMNS' names), unrounded
+STORE_COLUMNS = {"x1": ("a1_xy", 0), "y1": ("a1_xy", 1), "x2": ("a2_xy", 0), "y2": ("a2_xy", 1),
+                 "length": ("length", None), "clearance": ("clearance", None), "height_max": ("height_max", None)}
+
+
+def _read_store(folder: str) -> Tuple[Dict[str, np.ndarray], Optional[np.ndarray], Dict[str, np.ndarray]]:
+    """The table's columns of a run's store (linestore.export's CSV, written into a temporary folder outside the
+    run, parsed as lines.csv is) and the search's order and the grouping's unrounded values (linestore.read: the
+    values lines.js held, in its order): (arrays, order, exact)."""
+    import linestore
+    with tempfile.TemporaryDirectory(prefix="prune-study-") as tmp:
+        path = os.path.join(tmp, "lines.csv")
+        linestore.export(folder, "csv", path)
+        arrays = _read_csv(path)
+    lines, _ = linestore.read(folder, profiles=False)
+    search = {name: (lines.columns[column] if index is None else lines.columns[column][:, index])
+              for name, (column, index) in STORE_COLUMNS.items()}
+    del lines
+    order, exact = _match_order(search, arrays)
+    if order is None:  # never: the export is made of the same lines
+        raise ValueError(f"{folder}: the store's lines do not match its CSV export")
+    return arrays, order, exact
 
 
 def load_table(folder: str, cache=None) -> Table:
-    """The table of lines of a run's folder (lines.csv, run.json; lines.js when it is there).
+    """The table of lines of a run's folder: its store (lines.arrow) and run.json (Table.source "store"), or
+    for a run saved before the store, its lines.csv, run.json and lines.js when it is there (source
+    "lines.js", else "lines.csv").
 
     cache: the folder of the parsed columns (None: prune_study_cache in the system's temporary
-    folder; False: no cache). A cached table is taken when lines.csv (and lines.js) have the size
-    and time they had; nothing is ever written into the run's folder.
+    folder; False: no cache). A cached table is taken when lines.arrow (or lines.csv and lines.js)
+    have the size and time they had; nothing is ever written into the run's folder.
     """
     folder = os.path.abspath(folder)
     if os.path.isfile(folder):
         folder = os.path.dirname(folder)
     path, js = os.path.join(folder, "lines.csv"), os.path.join(folder, "lines.js")
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"{folder}: no lines.csv")
+    store = os.path.join(folder, "lines.arrow")
+    from_store = os.path.isfile(store)
+    if from_store:
+        path, js = store, None
+    elif not os.path.exists(path):
+        raise FileNotFoundError(f"{folder}: no lines.arrow and no lines.csv")
     meta = {}
     if os.path.exists(os.path.join(folder, "run.json")):
         with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
             meta = json.load(f)
     stamp = [f"v{CACHE_VERSION}", path]
     for file in (path, js):
-        if os.path.exists(file):
+        if file and os.path.exists(file):
             s = os.stat(file)
             stamp.append(f"{s.st_size}|{s.st_mtime_ns}")
     tag = hashlib.sha1("|".join(stamp).encode("utf-8")).hexdigest()[:16]
@@ -551,8 +594,11 @@ def load_table(folder: str, cache=None) -> Table:
         with np.load(cached) as z:
             arrays = {k: z[k] for k in z.files}
     else:
-        arrays = _read_csv(path)
-        order, exact = _read_lines_js(js, arrays) if os.path.exists(js) else (None, {})
+        if from_store:
+            arrays, order, exact = _read_store(folder)
+        else:
+            arrays = _read_csv(path)
+            order, exact = _read_lines_js(js, arrays) if os.path.exists(js) else (None, {})
         if order is not None:
             arrays["order__"] = order
             arrays.update({"exact__" + k: v for k, v in exact.items()})
@@ -563,8 +609,9 @@ def load_table(folder: str, cache=None) -> Table:
             os.replace(partial, cached)
     order = arrays.pop("order__", None)
     exact = {k[len("exact__"):]: arrays.pop(k) for k in [k for k in arrays if k.startswith("exact__")]}
+    source = "store" if from_store else "lines.js" if order is not None else "lines.csv"
     table = Table(arrays, meta, name=str(meta.get("name") or os.path.basename(folder)), path=folder,
-                  source="lines.js" if order is not None else "lines.csv", order=order, exact=exact)
+                  source=source, order=order, exact=exact)
     table._tag, table._cache = tag, cache_dir
     return table
 
@@ -621,7 +668,7 @@ def places_of(table: Table, keep: Optional[np.ndarray] = None, distance: Optiona
     Without `keep` and with saved=True the table's own places are returned when the run saved them at
     that distance and rule (production's result as it stands in lines.csv). Otherwise the lines are
     grouped here by mapping.group_lines: in the search's order with lines.js's unrounded values when the
-    table has them (Table.source "lines.js", or a capture), else in the order that lines.csv's rows
+    table has them (Table.source "store" or "lines.js", or a capture), else in the order that lines.csv's rows
     imply (Table.file_rank: exact for every line together, an estimate for a part of them).
     """
     distance = table.distance if distance is None else float(distance)
@@ -1196,7 +1243,7 @@ class Audit:
         names = [c for c in ("length", "clearance", "height_max", "high_pct", "x1", "y1", "x2", "y2") if c in t]
         with open(files[2], "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["line", "csv_row", "place"] + names)  # csv_row: the line's row in lines.csv (2: the first)
+            writer.writerow(["line", "csv_row", "place"] + names)  # csv_row: the line's row in lines.csv (2: the first; the export's of a store)
             for i in rows.tolist():
                 writer.writerow([i, i + 2, int(self.places.place[i]) + 1] + [repr(float(t[c][i])) for c in names])
         if pictures:
@@ -1398,7 +1445,7 @@ def parse_params(items: Sequence[str]) -> Dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="What a pruning rule keeps of a saved table of lines, and an "
                                                  "audit of what it drops.")
-    parser.add_argument("table", help="a run's folder with lines.csv and run.json (read only)")
+    parser.add_argument("table", help="a run's folder: its store (lines.arrow) or lines.csv, and run.json (read only)")
     parser.add_argument("--rule", required=True, help="the rule's registered name")
     parser.add_argument("--param", action="append", default=[], metavar="K=V", help="a parameter of the rule")
     parser.add_argument("--rules-file", action="append", default=[], metavar="F",
@@ -1412,7 +1459,7 @@ def main(argv=None) -> int:
     parser.add_argument("--out", required=True, help="the folder of audit.json, audit.md, violations.csv")
     parser.add_argument("--cache", metavar="DIR", help="the folder of the parsed columns (default: "
                                                        f"{CACHE_FOLDER} in the temporary folder)")
-    parser.add_argument("--no-cache", action="store_true", help="parse lines.csv every time, keep nothing")
+    parser.add_argument("--no-cache", action="store_true", help="parse the lines every time, keep nothing")
     parser.add_argument("--threads", type=int, help="numba's threads (the results do not depend on them)")
     parser.add_argument("--terrain", metavar="F.npz", help="the grid under the table's anchors for rules that read "
                                                            "table.terrain: an .npz with z, res, left, top (water)")

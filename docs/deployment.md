@@ -83,14 +83,15 @@ timer, SSH, the free disk, the monitoring; a timer runs it daily, section 15).
   meanwhile. One computing search keeps only about 1.5 cores busy (docs/performance.md), so a
   larger machine runs several: `WORKER_COMPUTE_SLOTS` and `WORKER_DOWNLOAD_SLOTS` in `.env`.
   With more than one compute slot each search gets an equal share of the memory free at the
-  worker's start, after about 1.8 GB for the quick lane (a profile measured on a map) and 0.5 GB
+  worker's start, after about 1.8 GB for the quick lane (a profile measured on a map) and 0.8 GB
   per download slot: the largest public search (a tile of 64 million pixels and 1.5 million
-  lines) needs about 3.9 GB, and the worker warns at its start (`docker compose logs worker`)
-  when it does not fit into a slot. For the 8-core, 24 GB VPS: `WORKER_CPUS=7`,
-  `WORKER_MEMORY=20g`, `WORKER_COMPUTE_SLOTS=3` (about 6.2 GB each), `WORKER_DOWNLOAD_SLOTS=2`;
-  each computing search keeps all `WORKER_CPUS` numba threads (`NUMBA_NUM_THREADS`), which only
-  its line search uses. Each user's oldest waiting search goes first when that user has the
-  fewest searches running, so one user's queue does not hold the others back.
+  lines, with the sectors of its spots) needs about 5.35 GB, and the worker warns at its start
+  (`docker compose logs worker`) when it does not fit into a slot. For the 8-core, 24 GB VPS:
+  `WORKER_CPUS=7`, `WORKER_MEMORY=20g`, `WORKER_COMPUTE_SLOTS=3` (about 6.0 GB each),
+  `WORKER_DOWNLOAD_SLOTS=2`; each computing search keeps all `WORKER_CPUS` numba threads
+  (`NUMBA_NUM_THREADS`), which only its line search uses. Each user's oldest waiting search
+  goes first when that user has the fewest searches running, so one user's queue does not hold
+  the others back.
 - **Disk.** The data volume holds the cache of elevation data, orthophotos and OpenStreetMap
   extracts and the saved runs; it grows with every new area searched. The site accepts no new
   searches below 20 GB free (`FINDALINE_LIMIT_FREE_DISK_GB_MIN`), but the cache has no automatic
@@ -332,7 +333,7 @@ and 40 connections, for orthophoto tiles (`/cache/`) 100 requests/s with a burst
 connections (zooming a map asks for a few hundred tiles within seconds), 10 requests/minute with a
 burst of 10 for `/login/` and `/auth/` (beyond them: 429); `/api/events` (the live event stream)
 without buffering and with a read timeout of an hour, other requests 620 s (an estimate may wait
-for the worker's quick lane); gzip for scripts, JSON, CSS and CSV (a run's `data.js` shrinks about
+for the worker's quick lane); gzip for scripts, JSON, CSS and CSV (a run's `data.js` of before shrank about
 4.7 times) and for a run's store (`lines.arrow`, `profiles.arrow`, `application/vnd.apache.arrow.file`: about 2.3
 times, BAH's 207.8 MB to 89.5 MB, docs/performance.md "From the store"); HTTP/2; HSTS; no nginx version in the `Server` header; `www.` + the site's name sent
 to the site's name with 301 (on port 80 directly to https). A request for any other name (or
@@ -617,8 +618,8 @@ faces the visitors. Neither may plant what the other trusts:
   the VPS: `warmup.py` does it at the worker's start, in a process of its own, while the jobs
   are already claimed; `FINDALINE_WARM_UP=0` leaves it to the first search).
 
-An accepted residual risk: the worker writes the runs, including each run's `data.js`, which
-its map page loads as a script. A compromised worker can therefore change what the map of a run
+An accepted residual risk: the worker writes the runs, including each run's `map.html` and store, which
+its map page shows and reads. A compromised worker can therefore change what the map of a run
 shows or does in the visitor's browser (its own origin, with the page's Content-Security-Policy),
 and change or delete the runs, the cache and the queue. The viewer itself (its scripts and
 styles) comes from the image, not from the volume. Keeping the worker from being compromised
@@ -895,6 +896,29 @@ migrate` converts all the others at once and so frees their disk space right awa
 only counts them; `cache status` says how many are left). It can run while the site is used and
 be stopped at any tile; with nothing left it only reads the tiles' headers. `deploy/vps.sh update`
 runs it after the services started; a failure is listed at the end and leaves the site running.
+
+**Old runs: removed in two deploys** (store wave 4, docs/line-volume/spec-store.md section 2; the user's word of
+2026-11-14, "old runs removed - both on server and on this pc"). Since the first deploy a new run keeps its lines
+only in its store (`lines.arrow`, `profiles.arrow`, with `map.html`, `ATTRIBUTION.txt`, `run.json`), and the page
+still reads the `data.js` of the runs saved before, so every run opens. The old runs (every run without a store of
+the current format with the result view's columns) are then removed **only on the user's word, after the user has
+seen the list**; `deploy/vps.sh update` never removes a run:
+```sh
+docker compose exec -T worker python findaline.py runs remove-old --dry-run   # the list: deletes nothing
+docker compose exec -T worker python findaline.py runs remove-old --yes       # on the user's word
+```
+The list names each old run by its id, its time, its lines, its size, its owner's user id (never a name or an
+e-mail), whether it is shared or a demo and how many favourite lines point into it, with the totals. `--yes`
+deletes those folders with their rows (their share links and demo marks go with them) and their favourite lines;
+the searches that saved them leave their owners' list on Home (an administrator still sees them, marked); jobs,
+reports, folders of favourites, quotas and the cache stay. A user who wants to keep favourite lines saves them first
+with *Export for the trip*. Then the **demo** is made again: an administrator runs the demo search with the new code
+and marks its run (`POST /api/runs/<id>/demo`, the admin page), since the sign-in page shows no demo until then.
+Only after the removal on this server does the **second deploy** (store wave 4's item 5: the page without the
+reader of `data.js`, `web.RUN_FILES` without the text files) come here; until then old runs must stay readable. Its
+update is the usual `deploy/vps.sh update` once `main` holds it, and nothing more: no data changes, and a run of
+before left on the server (one the removal skipped: a file held, a store it could not read) shows on its map that its
+data could not be loaded, and its share link the same; run `runs remove-old --dry-run` again to list it.
 
 **Moving the checkout** (e.g. after the repository was renamed): stop the services
 (`docker compose down`, the volumes stay), move the folder, point `git remote set-url origin` at

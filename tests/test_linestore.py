@@ -198,7 +198,9 @@ def test_store_round_trip(tmp_path, ends, square, by, access):
 
 def _clip_run(tmp_path, monkeypatch, elevation: str, surface=None, radius: float = 290):
     """A search of the clip's place saved by search.save_run into <tmp_path>/runs/clip: (the folder, its
-    LineTable, the events (kind, text) the search emitted)."""
+    LineTable, the events (kind, text) the search emitted). Its `expected` folder beside: lines.csv and
+    lines.geojson as the search wrote them from its own lines and groups before store wave 4 (runs.save_results of
+    the LineTable, with run.json's values without its block "store"), and data.js's head (mapping.map_head)."""
     import dataclasses
     from datetime import datetime
     import search
@@ -215,42 +217,52 @@ def _clip_run(tmp_path, monkeypatch, elevation: str, surface=None, radius: float
     lines = search.find_lines(plan, search.prepare_data(plan))
     folder = tmp_path / "runs" / "clip"
     folder.mkdir(parents=True)
-    search.save_run(plan, lines, {"id": "clip", "path": str(folder), "created": datetime(2026, 11, 15, 12),
-                                  "name": "clip"})
+    result = search.save_run(plan, lines, {"id": "clip", "path": str(folder), "created": datetime(2026, 11, 15, 12),
+                                           "name": "clip"})
+    expected = tmp_path / "expected"
+    expected.mkdir()
+    meta = {k: v for k, v in result.meta.items() if k != "store"}
+    rn.save_results(str(expected), lines.results, lines.spot_groups, meta, files=("lines.csv", "lines.geojson"))
+    import mapping
+    p = plan.params
+    head = mapping.map_head(plan.area, str(folder / "map.html"), meta, plan.crs, plan.group_distance, p.group_by,
+                            None, None, p.model, plan.rigging, p.high_above)
+    (expected / "head.json").write_text(json.dumps(head), encoding="utf-8")
     return folder, lines.results, events
 
 
 def test_store_round_trip_of_the_clip(tmp_path, monkeypatch):
     """The Żabi Koń clip (a circle with a surface model: every line's profile, of lineprofiles' batch) through
-    search.save_run: the store beside the text files, its head data.js's, its lines read back as the search's
-    and exported as the run's lines.csv and lines.geojson byte for byte; run.json's block "store" (written
-    after the text files: lines.geojson has none)."""
+    search.save_run: the store (the run's only copy of its lines since store wave 4), its head data.js's
+    (mapping.map_head), its lines read back as the search's and exported byte for byte as the lines.csv and
+    lines.geojson the search wrote from its own lines and groups before wave 4; run.json's block "store" (never in
+    the GeoJSON export)."""
     folder, results, _ = _clip_run(tmp_path, monkeypatch, os.path.join(DATA, "zabi_kon_nmt.tif"),
                                    os.path.join(DATA, "zabi_kon_nmpt.tif"))
     back, head = linestore.read(str(folder))
     _assert_read_back(results, back)
     assert len(back.profiles) == len(results) and back.profiles == {
         k: sh.profile_dict(p) for k, p in results.profiles.items()}
-    text = (folder / "data.js").read_text(encoding="utf-8")
     assert set(linestore.VIEW_HEAD) <= set(head)  # the view's keys: in the store's head only (test_view_columns)
-    assert {k: v for k, v in head.items() if k not in linestore.VIEW_HEAD} == {
-        k: v for k, v in json.loads(text[text.index(" = {") + 3:].rstrip().rstrip(";")).items() if k != "lines"}
+    assert {k: v for k, v in head.items() if k not in linestore.VIEW_HEAD} == json.loads(
+        (tmp_path / "expected" / "head.json").read_text(encoding="utf-8"))
     for fmt, name in linestore.EXPORTS.items():
         linestore.export(str(folder), fmt, str(tmp_path / name))
-        assert (tmp_path / name).read_bytes() == (folder / name).read_bytes(), name
+        assert (tmp_path / name).read_bytes() == (tmp_path / "expected" / name).read_bytes(), name
     meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
     assert meta["store"] == {"format": 1, "lines": len(results), "sha256": meta["store"]["sha256"],
                              "bytes": sum((folder / n).stat().st_size for n in linestore.FILES)}
     import hashlib
     assert meta["store"]["sha256"] == hashlib.sha256((folder / linestore.LINES_FILE).read_bytes()).hexdigest()[:16]
-    assert b'"store"' not in (folder / "lines.geojson").read_bytes()
+    assert b'"store"' not in (tmp_path / "lines.geojson").read_bytes()
 
 
 def test_store_of_values_no_integer_holds(tmp_path, monkeypatch):
     """Undeclared no-data of float32's largest value (3.4e38) in two stripes of the clip's terrain: lines
     between them have e1/e2/prom/drop near 3.4e38 (the code review's input). The run saves with its store:
-    those columns float64 as they are (no `decimals`), read back as written, and the export is the run's
-    lines.csv and lines.geojson byte for byte; the float64 columns hold round(value, decimals), data.js's values."""
+    those columns float64 as they are (no `decimals`), read back as written, and the export is the lines.csv and
+    lines.geojson the search wrote from its own lines before store wave 4, byte for byte; the float64 columns hold
+    round(value, decimals), data.js's values."""
     import rasterio
     with rasterio.open(os.path.join(DATA, "zabi_kon_nmt.tif")) as src:
         profile, z = src.profile, src.read(1)
@@ -275,8 +287,8 @@ def test_store_of_values_no_integer_holds(tmp_path, monkeypatch):
     _assert_read_back(results, back)
     for fmt, name in linestore.EXPORTS.items():
         linestore.export(str(folder), fmt, str(tmp_path / name))
-        assert (tmp_path / name).read_bytes() == (folder / name).read_bytes(), name
-    assert b"e+38" in (folder / "lines.csv").read_bytes()
+        assert (tmp_path / name).read_bytes() == (tmp_path / "expected" / name).read_bytes(), name
+    assert b"e+38" in (tmp_path / "lines.csv").read_bytes()
 
 
 def test_store_access_mark_kind(tmp_path):
@@ -316,21 +328,21 @@ def test_store_written_whole_or_not_at_all(tmp_path, monkeypatch):
     assert sorted(os.listdir(tmp_path)) == sorted(linestore.FILES) and store["lines"] == 40
 
 
-def test_a_store_that_fails_never_costs_the_run(tmp_path, monkeypatch):
-    """A store that cannot be written (here linestore.write raising) leaves the run saved as a run of before:
-    its text files and map, run.json without "store", no lines.arrow or profiles.arrow (a half-written one
-    removed), and a warning."""
+def test_a_store_that_fails_keeps_no_run(tmp_path, monkeypatch):
+    """A store that cannot be written (here linestore.write raising, a half-written file left) fails the search
+    since store wave 4 (a run without its store has no lines at all: the user's answer, 2026-11-17): SearchError
+    "run_not_saved" with the error on the command line, and the run's folder removed with what was written."""
+    import search
+
     def failing(run_path, lines, head, view=None):
         (tmp_path / "runs" / "clip" / linestore.LINES_FILE).write_bytes(b"half")
         raise MemoryError("no memory for the store")
     monkeypatch.setattr(linestore, "write", failing)
-    folder, results, events = _clip_run(tmp_path, monkeypatch, os.path.join(DATA, "zabi_kon_nmt.tif"), radius=150)
-    assert sorted(os.listdir(folder)) == ["ATTRIBUTION.txt", "data.js", "lines.csv", "lines.geojson", "lines.js",
-                                          "map.html", "run.json"]
-    meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
-    assert "store" not in meta and meta["summary"]["lines"] == len(results) > 0
-    assert ("warning", "The run is saved without its store (lines.arrow): MemoryError: no memory for the store") \
-        in events
+    with pytest.raises(search.SearchError) as error:
+        _clip_run(tmp_path, monkeypatch, os.path.join(DATA, "zabi_kon_nmt.tif"), radius=150)
+    assert error.value.code == "run_not_saved"
+    assert str(error.value) == "The run could not be saved (MemoryError: no memory for the store)"
+    assert not (tmp_path / "runs" / "clip").exists()
 
 
 def test_store_schema(tmp_path):
@@ -470,8 +482,10 @@ def test_store_schema(tmp_path):
 def test_web_process_never_imports_the_store(tmp_path_factory, tmp_path):
     """The web process serves a run's store (the local app: its media type) without importing linestore or
     pyarrow (the store is read by the page, exported by the worker), as it never imports search or numba;
-    list_runs: a run with the store has its lines, an old run (lines.js only) too, a run without both not."""
+    list_runs: a run with the store has its lines, an old run (no store: tests/old_runs.py; its lines.js, which no
+    page reads since store wave 4's item 5, does not count) and a run without either not."""
     import clip_runs
+    import old_runs
     import runs
     data = clip_runs.data_copy(tmp_path_factory, "clip", [
         "--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"),
@@ -480,15 +494,15 @@ def test_web_process_never_imports_the_store(tmp_path_factory, tmp_path):
     run_id = next(d for d in os.listdir(data / "runs") if (data / "runs" / d / "run.json").is_file())
     folder = data / "runs" / run_id
     assert all((folder / name).is_file() for name in linestore.FILES)
+    import old_scripts
     for name, remove in (("old", linestore.FILES), ("bare", linestore.FILES + ("lines.js",)),
                          ("store", ("lines.js",))):
-        shutil.copytree(folder, data / "runs" / name)
-        meta = json.loads((data / "runs" / name / "run.json").read_text(encoding="utf-8"))
-        (data / "runs" / name / "run.json").write_text(json.dumps({**meta, "id": name}), encoding="utf-8")
+        old_runs.make_old(old_runs.copy_run(folder, data / "runs", name), "with_text")
+        old_scripts.write_scripts(data / "runs" / name)  # what an old run held
         for file in remove:
             os.remove(data / "runs" / name / file)
     listed = {r["id"]: r["has_lines"] for r in runs.list_runs(str(data / "runs"))}
-    assert listed == {run_id: True, "old": True, "bare": False, "store": True}  # lines.arrow or lines.js (2b-C)
+    assert listed == {run_id: True, "old": False, "bare": False, "store": True}  # lines.arrow alone
     code = (f"import json, sys; sys.path.insert(0, {REPO!r}); import web\n"
             "from fastapi.testclient import TestClient\n"
             f"c = TestClient(web.create_app({str(data)!r}, token='t', start_scheduler=False), "
@@ -506,4 +520,6 @@ def test_web_process_never_imports_the_store(tmp_path_factory, tmp_path):
     assert answers[0][0] == 200
     arrow = (folder / linestore.LINES_FILE).stat().st_size, (folder / linestore.PROFILES_FILE).stat().st_size
     assert answers[1] == [200, linestore.MEDIA_TYPE, arrow[0]] and answers[2] == [200, linestore.MEDIA_TYPE, arrow[1]]
-    assert [a[0] for a in answers[3:]] == [200, 404, 404, 200]  # an old run: no store, its data.js as before
+    # the new run keeps no data.js (store wave 4); an old run: no store; the local app serves its folder as it is
+    # (its data.js too, which no page asks for since item 5)
+    assert [a[0] for a in answers[3:]] == [404, 404, 404, 200]

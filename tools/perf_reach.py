@@ -18,18 +18,22 @@ Engines (`reach`):
          helpers.evaluate_line / max_safe_elevation / sag.EnvelopeTable (identical results, see `check`)
   numba  linesearch.evaluate_lines, the search's kernel, on the pairs (fixed anchor, sample)
 
-    uv run tools/perf_reach.py measure --out <scratch> --data <data folder> --case poland-1m --case poland-2m
+    uv run tools/perf_reach.py measure --out <scratch> --data <data folder> [--reference-dir <folder>] --case poland-1m
     uv run tools/perf_reach.py numba-cost --out <scratch>
     uv run tools/perf_reach.py report --out <scratch>
 
 `measure` writes <out>/results-<case>.json (a case's step 1, the engines per lattice step, the equality with
 helpers.evaluate_line, the representatives of a fixed point, the answer sizes) and prints the tables. Each case
+A named case's run (CASES) is looked for in <data>/runs/, then in the reference folder (--reference-dir, default
+<data>/local/reference-runs: the runs kept there since the old runs left the data folder's runs/, 2026-11-18;
+read only); `find_run` says where it was looked for when neither holds it. Each case
 works in <out>/<case>/ with a data folder whose cache is a link to the real one (nothing is written to the real
 runs/); the process runs offline (a dead HTTP proxy) unless --online. Remove a case's folder with its links
 first (a junction: os.rmdir("<out>/<case>/data/cache"), never rmtree through it).
 """
 
 import argparse
+import contextlib
 import dataclasses
 import gc
 import json
@@ -38,6 +42,7 @@ import os
 import statistics
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import zlib
@@ -62,7 +67,8 @@ BORDER_M = 1.0
 OTHER_POINTS = 3              # steep points beside the line's two anchors
 CASES = {
     "clip": {"kind": "clip"},
-    # the real runs of the data folder, each its longest line (lines.csv): 1 m, 2 m (the Gozo coast: sea and cliffs;
+    # the real runs of the data folder (or its reference folder: find_run), each its longest line (their lines.csv: saved before the store, which a run
+    # holds since 2026-11-15, they never get one; a run with a store is read from it, see run_rows): 1 m, 2 m (the Gozo coast: sea and cliffs;
     # the 2 m Polish run of 2026-10-23 is older than the grid alignment and is not reproduced by today's code), 1 m with sag
     "poland-1m": {"run": "2026-10-25_085353_Kobylanka-Borynia"},
     "malta-2m": {"run": "2026-10-25_205659_coast-100-m-within-osm-Gozo"},
@@ -626,8 +632,8 @@ def check_search(z: np.ndarray, s: Optional[np.ndarray], res: float, fixed: Tupl
 
 
 def line_reproduced(patch: Patch, row: Dict) -> Dict:
-    """Whether today's code gives a run's line (its lines.csv row) the clearances the run saved: a run made
-    by older code (another grid alignment, a changed model) does not reproduce, and a reach computed on its
+    """Whether today's code gives a run's line (its row as lines.csv holds it: run_rows) the clearances the run
+    saved: a run made by older code (another grid alignment, a changed model) does not reproduce, and a reach computed on its
     patch says nothing about its lines."""
     import helpers as sh
     a, b = sorted(patch.anchors)
@@ -663,28 +669,65 @@ def case_data_folder(out: str, name: str, real_data: Optional[str]) -> str:
     return data
 
 
-def longest_row(run_dir: str) -> Dict:
-    """The row of the longest line of a run's lines.csv."""
+@contextlib.contextmanager
+def run_rows(run_dir: str):
+    """The rows of a run's lines as lines.csv holds them (csv.DictReader's dicts, in the file's order) and which
+    file they come from: (rows, "store") for a run with a store (lines.arrow: linestore.export's CSV, written into
+    a temporary folder outside the run: the text and the order of the run's own lines.csv, so a tie on the longest
+    line is broken as before), else (rows, "lines.csv") for a run saved before the store (2026-11-15), as the
+    named cases are. Nothing is written into the run's folder. The export runs in a child process (EXPORT_CHILD):
+    its reading of the store, the grouping's numba code and save_results never enter this process, whose step 1
+    (measure_case's PeakRss and seconds) then starts as it did when the clip's lines.csv was read with the csv
+    module only, comparable with the records made before. The child gets the run's absolute folder (it works in the
+    temporary folder); a child that fails raises a RuntimeError with the last lines of its stderr."""
     import csv
+    if os.path.isfile(os.path.join(run_dir, "lines.arrow")):
+        with tempfile.TemporaryDirectory(prefix="perf-reach-") as tmp:
+            path = os.path.join(tmp, "lines.csv")
+            done = subprocess.run([sys.executable, "-c", EXPORT_CHILD, HERE, os.path.abspath(run_dir), path],
+                                  cwd=tmp, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                  timeout=3600, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+            if done.returncode:
+                last = "\n".join((done.stderr or "").strip().splitlines()[-CHILD_LINES:])
+                raise RuntimeError(f"the export of {run_dir}'s store failed (exit {done.returncode}):\n{last}")
+            with open(path, encoding="utf-8-sig", newline="") as f:
+                yield csv.DictReader(f), "store"
+        return
     with open(os.path.join(run_dir, "lines.csv"), encoding="utf-8-sig", newline="") as f:
-        return max(csv.DictReader(f), key=lambda r: float(r["length_m"]))
+        yield csv.DictReader(f), "lines.csv"
+
+
+CHILD_LINES = 8  # the last lines of a failed export's stderr in run_rows' error
+# run_rows' child: linestore.export of a run's store into a file (argv: the repository, the run, the file)
+EXPORT_CHILD = ("import sys; sys.path.insert(0, sys.argv[1]); import linestore; "
+                "linestore.export(sys.argv[2], 'csv', sys.argv[3])")
+
+
+def lines_read(run_dir: str) -> str:
+    """Which file run_rows reads of a run: "store" or "lines.csv"."""
+    return "store" if os.path.isfile(os.path.join(run_dir, "lines.arrow")) else "lines.csv"
+
+
+def longest_row(run_dir: str) -> Dict:
+    """The row of the longest line of a run (run_rows: its store, or lines.csv)."""
+    with run_rows(run_dir) as (rows, _):
+        return max(rows, key=lambda r: float(r["length_m"]))
 
 
 def longest_line(run_dir: str) -> Tuple[Tuple[float, float], Tuple[float, float], float]:
-    """The anchors (lat, lon) x 2 and the length of the longest line of a run's lines.csv."""
+    """The anchors (lat, lon) x 2 and the length of the longest line of a run (run_rows)."""
     best = longest_row(run_dir)
     return ((float(best["anchor1_lat"]), float(best["anchor1_lon"])),
             (float(best["anchor2_lat"]), float(best["anchor2_lon"])), float(best["length_m"]))
 
 
 def busiest_anchor(run_dir: str, inside=None) -> Tuple[float, float, int]:
-    """The anchor (lat, lon) that most lines of a run's lines.csv start or end at, and how many; with
+    """The anchor (lat, lon) that most lines of a run (run_rows) start or end at, and how many; with
     inside(lat, lon), the busiest one for which it is true (an anchor within a patch)."""
     import collections
-    import csv
     count = collections.Counter()
-    with open(os.path.join(run_dir, "lines.csv"), encoding="utf-8-sig", newline="") as f:
-        for row in csv.DictReader(f):
+    with run_rows(run_dir) as (rows, _):
+        for row in rows:
             count[(row["anchor1_lat"], row["anchor1_lon"])] += 1
             count[(row["anchor2_lat"], row["anchor2_lon"])] += 1
     for (lat, lon), n in count.most_common():
@@ -712,8 +755,24 @@ def offline_env() -> Dict:
     return {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
 
 
-def load_case(name: str, out: str, real_data: Optional[str]):
-    """(run.json, data folder, the line's anchors, side_m or None, the line's length, the run's folder)."""
+REFERENCE_DIR = os.path.join("local", "reference-runs")  # the reference folder of a data folder (find_run)
+
+
+def find_run(run: str, real_data: str, reference: Optional[str] = None) -> str:
+    """The folder of a named case's run: <real_data>/runs/<run> when it has a run.json, else <reference>/<run>
+    (reference: --reference-dir, default <real_data>/local/reference-runs); SystemExit naming both places when
+    neither holds it."""
+    reference = reference or os.path.join(real_data, REFERENCE_DIR)
+    places = [os.path.join(real_data, "runs", run), os.path.join(reference, run)]
+    for folder in places:
+        if os.path.isfile(os.path.join(folder, "run.json")):
+            return folder
+    raise SystemExit(f"the run {run} is in neither {places[0]} nor {places[1]} (give --reference-dir)")
+
+
+def load_case(name: str, out: str, real_data: Optional[str], reference: Optional[str] = None):
+    """(run.json, data folder, the line's anchors, side_m or None, the line's length, the run's folder);
+    reference: find_run's reference folder."""
     spec = CASES[name]
     data = case_data_folder(out, name, real_data if spec.get("run") else None)
     if spec.get("kind") == "clip":
@@ -722,7 +781,7 @@ def load_case(name: str, out: str, real_data: Optional[str]):
         return meta, data, a1, a2, CLIP_SIDE_M, length, os.path.join(data, "runs", meta["id"])
     if not real_data:
         raise SystemExit("--data (the real data folder) is needed for " + name)
-    run_dir = os.path.join(real_data, "runs", spec["run"])
+    run_dir = find_run(spec["run"], real_data, reference)
     with open(os.path.join(run_dir, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
     a1, a2, length = longest_line(run_dir)
@@ -730,11 +789,12 @@ def load_case(name: str, out: str, real_data: Optional[str]):
 
 
 def measure_case(name: str, out: str, real_data: Optional[str], reps: int = 3, obstacles: str = "rule",
-                 skip_numpy_at_1: bool = False) -> Dict:
+                 skip_numpy_at_1: bool = False, reference: Optional[str] = None) -> Dict:
     """Everything the report needs of one case (see the module's docstring)."""
     import numba
-    meta, data, a1, a2, side_m, line_m, run_dir = load_case(name, out, real_data)
-    result = {"case": name, "run": meta["id"], "model": meta["params"]["model"], "nmpt": meta["params"]["nmpt"],
+    meta, data, a1, a2, side_m, line_m, run_dir = load_case(name, out, real_data, reference)
+    result = {"case": name, "run": meta["id"], "lines_read": lines_read(run_dir), "model": meta["params"]["model"],
+              "nmpt": meta["params"]["nmpt"],
               "resolution": meta["params"]["resolution"], "line_m": line_m, "obstacles": obstacles,
               "recorded_obstacles": meta["params"].get("obstacles") is not None,
               "limits": limits_of(meta["params"]), "cpu_count": os.cpu_count(), "numba_threads": numba.config.NUMBA_NUM_THREADS}
@@ -928,7 +988,8 @@ def tables(results: List[Dict], cost: Optional[Dict] = None) -> str:
             lines.append(f"| {kind} | {c['import_numba_s']:.2f} | {c['import_linesearch_s']:.2f} | "
                          f"{f['formula_with_surface']:.2f} | {f['formula_no_surface']:.2f} | {f['sag_with_surface']:.2f} | "
                          f"{c['repeat_call_s']:.3f} | {(c['rss_after_import'] - c['rss_base']) / 2**20:.0f} |")
-    lines += ["", "The run's longest line (the patch is centred on it) evaluated by today's code against the run's lines.csv", "",
+    lines += ["", "The run's longest line (the patch is centred on it) evaluated by today's code against the run's saved values "
+              "(its lines.csv, or the CSV export of its store: results' lines_read)", "",
               "| case | run | clearance csv / now | over the surface csv / now | valid now |", "| --- | --- | --- | --- | --- |"]
     for r in results:
         c = r.get("line_reproduced")
@@ -975,6 +1036,8 @@ def main(argv: Optional[Sequence[str]] = None):
     parser.add_argument("command", choices=("measure", "numba-cost", "report"))
     parser.add_argument("--out", required=True, help="scratch folder for the cases' folders and results")
     parser.add_argument("--data", help="the real data folder (runs/ read, cache/ linked)")
+    parser.add_argument("--reference-dir", help="where a named case's run is looked for after <data>/runs/ "
+                        "(default: <data>/local/reference-runs)")
     parser.add_argument("--case", action="append", choices=sorted(CASES), default=[])
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--obstacles", choices=("run", "rule", "none"), default="rule",
@@ -1001,7 +1064,8 @@ def main(argv: Optional[Sequence[str]] = None):
     else:
         for name in args.case or ["clip"]:
             print(f"--- {name}", flush=True)
-            result = measure_case(name, args.out, args.data, args.reps, args.obstacles, args.skip_numpy_at_1)
+            result = measure_case(name, args.out, args.data, args.reps, args.obstacles, args.skip_numpy_at_1,
+                                  args.reference_dir)
             with open(os.path.join(args.out, f"results-{name}.json"), "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=1)
             print(tables([result]), flush=True)

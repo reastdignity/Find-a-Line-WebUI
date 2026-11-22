@@ -1,6 +1,6 @@
 # USA: elevation products, coverage and the surface model
 
-What USGS 3DEP offers beyond the 1 m DEM the `usa` source reads today: the lidar DEMs at their original resolution (OPR), the point clouds (LPC) and the ways to get a surface model (DSM). Measured on 2026-11-07/08 after a user reported five US places where expected lines were missing. The fixes are written up as tasks in [tasks-usa.md](tasks-usa.md). What the `usa`, `alaska`, `alaska_ifsar` and `usgs10m` sources do now is in the roadmap, "United States (USGS 3DEP)".
+What USGS 3DEP offers beyond the 1 m DEM the `usa` source reads today: the lidar DEMs at their original resolution (OPR), the point clouds (LPC) and the ways to get a surface model (DSM). Measured on 2026-11-07/08 after a user reported five US places where expected lines were missing; USGS's table of surveys (WESM) and the Seamless 1 m DEM on 2026-11-22. The fixes are written up as tasks in [tasks-usa.md](tasks-usa.md). What the `usa`, `alaska`, `alaska_ifsar` and `usgs10m` sources do now is in the roadmap, "United States (USGS 3DEP)".
 
 ## Summary
 
@@ -9,6 +9,8 @@ What USGS 3DEP offers beyond the 1 m DEM the `usa` source reads today: the lidar
   - **Our own DSM from the point clouds (best).** The EPT copy on AWS covers 89 % of CONUS land, and a window of 9 km² is read in about 4.5 min (323 MB). The trial at the Oregon cove works, but it needs a filter on height above the terrain: the point cloud has a layer of noise at 400–500 m in class 1 (unclassified), not in the noise classes.
   - **The Planetary Computer DSM (2 m).** It covers 50 % of CONUS land, from projects of 2008–2020, often older than the 1 m DEM. It is an IDW of all points, so it stands a median 3.8 m below our maximum under trees, and it keeps the noise.
   - **Alaska's IfSAR DSM (5 m).** It covers all of Alaska, but only as ZIP files of 0.8–1.6 GB.
+- **The table of surveys (WESM).** USGS publishes one row per survey with its dates, pixel size, CRS codes and the status of each product ([below](#wesm-usgss-table-of-surveys)). It names the 357 lidar surveys that have an OPR DEM and no 1 m DEM, and it says which of them are in feet.
+- **The Seamless 1 m DEM (S1M) is not used** (the user, 2026-11-22): it is built from the same surveys as the 1 m DEM, beyond them it is backfill from coarser DEMs, and where both exist it is the worse input ([below](#why-the-seamless-1-m-dem-s1m-is-not-used)).
 - **Libraries for the point clouds:** laspy 2.7.0 (BSD-2, 2026-01) with lazrs 0.8.2 (MIT, 2026-07). Both have wheels up to Python 3.14 (lazrs 0.8.2 none for 3.15 on 2026-11-13, the Docker image's Python since that day) and no OSV advisories. The PDAL Python package is a source distribution that needs the native PDAL library.
 
 ## Coverage of the products
@@ -50,6 +52,78 @@ A sample of 30 OPR files, the newest at every 12th point:
 | Layout | GeoTIFF, tiled 256 or 512 px, so they can be read in windows by HTTP range requests like the 1 m DEM |
 
 **Pixel origin.** At the Oregon coast (`CA_West_Coast_LiDAR_2016_B16`, 0.5 m) the pixel edges lie on whole metres. Other projects were not checked.
+
+## WESM: USGS's table of surveys
+
+USGS keeps one table of every lidar and IfSAR survey of 3DEP, the "Work unit Extent Spatial Metadata" (WESM): a row per work unit, which is a survey or one block of a large one. Read in full on 2026-11-22; nothing in the app uses it yet.
+
+- **Where.** `https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/metadata/WESM.csv` (2.3 MB, 3308 rows) and, with the outlines, `WESM.gpkg` in the same folder (3.8 GB). Both carried that day's date: USGS says "A new WESM is written almost daily as more lidar projects are processed and published" (https://www.usgs.gov/ngp-standards-and-specifications/3dep-spatial-metadata).
+- **Which row a file belongs to.** An OPR file's URL holds `/OPR/Projects/<project>/<workunit>/`, the row's `project` and `workunit`.
+- **The 28 columns:** `workunit`, `workunit_id`, `project`, `project_id`, `collect_start`, `collect_end`, `ql`, `spec`, `p_method`, `dem_gsd_meters`, `horiz_crs`, `vert_crs`, `geoid`, then for the point cloud (`lpc_`) and the OPR DEM (`sourcedem_`) a `pub_date`, `update`, `category` and `reason` each, for the 1 m DEM (`onemeter_`) and the seamless DEM (`seamless_`) a `category` and `reason` each, and `lpc_link`, `sourcedem_link`, `metadata_link`.
+
+**What it answers that the files and the TNM API do not, or only one file at a time:**
+
+| Question | Column | Found on 2026-11-22 |
+| --- | --- | --- |
+| The survey's year | `collect_start`, `collect_end` | Filled for every row with an OPR link. The TNM API gives OPR products the publication date 1899-12-30 (the four files at the Oregon cove), so the year cannot come from there |
+| How it was measured | `p_method` | linear-mode lidar 2773, IfSAR 432 (429 of them Alaska), Geiger-mode 60, topobathymetric 32, bathymetric 6, single photon 4, flash 1 |
+| The horizontal CRS | `horiz_crs` (an EPSG code) | Among the 357 surveys below: 68 different ones; 2 are not EPSG codes (`102218`, an ESRI code, and `Custom`) |
+| The unit of the heights | `vert_crs` (an EPSG code) | 5703 (NAVD88, metres), 6360 (NAVD88, US survey feet), 8228 (NAVD88, feet), and for the islands 6640 to 6642 (metres); a few rows say `Unknown`, `Ellipsoidal` or a local sea level |
+| The OPR DEM's pixel | `dem_gsd_meters` | See the table below; empty in 113 rows with an OPR link |
+| The point density | `ql` | Of all lidar rows with an OPR link: QL 2 1164, QL 1 801, QL 3 230, QL 0 9 |
+| Which products the survey qualifies for | `sourcedem_category`, `onemeter_category`, `seamless_category` | "Meets", "Meets with variance", "Does not meet", "Pending publication" ("Expected to meet" for the OPR DEM), each with a reason |
+
+**The surveys with an OPR DEM and no 1 m DEM.** A lidar row with a `sourcedem_link` whose `onemeter_category` is neither "Meets" nor "Meets with variance":
+
+| | All lidar surveys with an OPR link (2207) | Of them without a 1 m DEM (357) |
+| --- | --- | --- |
+| Why no 1 m DEM | – | "LPC does not meet" 277; "Pending publication" (awaiting the vertical accuracy assessment) 54; "Source DEM does not meet" 23; others 3 |
+| Heights in feet (`vert_crs` 6360 or 8228) | 767 | 184 |
+| Vertical CRS unknown, ellipsoidal or local | – | 7 |
+| Pixel | finer than 1 m 1118; 1 m 832; over 1 to 2 m 98; over 2 m 46; not given 113 | up to 0.76 m 77; to 1 m 98; to 2 m 97; over 2 m 46; not given 39 |
+| Point density | QL 2 1164; QL 1 801; QL 3 230 | QL 3 230; QL 1 78; QL 2 45; other 4 |
+| Flown (`collect_end`) | – | 2003 to 2016: 261; 2017 to 2023: 45; 2024 to 2026: 51 |
+| Most rows | – | Indiana 70, Illinois 61, Minnesota 37, Kansas 15, Oklahoma 13, Missouri 13, Montana 12, North Carolina 11, Oregon 10 |
+
+- The 277 are mostly old county lidar of the sparsest class. Much of it lies under newer surveys that have a 1 m DEM, so a row of this table does not mean a hole in the 1 m DEM: only the 1 m DEM's own coverage says where OPR adds terrain.
+- The 54 pending ones are new surveys whose 1 m DEM USGS has not published yet. Western Oregon's `OR_Western_D23` (2024, 0.5 m) is among them; the Oregon cove's own survey, `CA_WestCoastElNinoUTM10_2016`, is "LPC does not meet".
+
+**What it does not tell:**
+
+- **"Meets" is not "published".** The surveys of 2021 to 2023 at Mount Juneau (`AK_Juneau_Landslide_*_2021`, `AK_SELandslides_2_D22`) are "Meets" or "Meets with variance" for the 1 m DEM, and the TNM API lists no file of the 1 m DEM anywhere in Alaska (0 in the box −170..−130, 54..71.5). A status is a hint; what exists is what the TNM API lists.
+- **Where a survey lies.** The CSV has no outlines; they are in the 3.8 GB GeoPackage, or follow from the boxes of the survey's files in the TNM API.
+- **The pixel of every file.** At the Oregon cove the files measured 0.5 m (above) and the row says 1 m. Not yet checked survey by survey: a file's header stays the authority.
+
+**Alaska's lidar** is published as OPR only: 53 lidar rows with an OPR link, flown 2013 to 2025, at 0.5 m (22), 1 m (13), 3 feet (9) and 1.5 feet (7), two without a pixel size, QL 1 or QL 2 but for three. They cover Anchorage, the Fairbanks borough, the Matanuska-Susitna borough, Juneau and the south-east (Glacier Bay, Prince of Wales Island, the Tongass landslide surveys), blocks of the North Slope, the Yukon-Kuskokwim delta, Lake Peninsula, the west coast after typhoon Merbok, and native villages. Eleven older surveys (2007 to 2012) have no OPR link.
+
+## Why the Seamless 1 m DEM (S1M) is not used
+
+Decided by the user on 2026-11-22, on the findings below. What S1M is, its file names and how its tiles change: the roadmap, "United States (USGS 3DEP)", *Seamless 1 m DEM*.
+
+**How USGS builds it** (a tile's own metadata, `S1M_<tile>_<date>.xml`, read 2026-11-22):
+- "Only lidar projects that were Quality Level 2 (QL2) or better were used as the primary data source." The inputs are those surveys' OPR DEMs ("gathers the Original Product Resolution Source DEMs"), brought to NAVD88 with GEOID18 and to EPSG:6350 (Albers).
+- "Large data voids, wider than 10 m, are backfilled with 1/9 arc-second or 1/3 arc-second DEMs", small ones interpolated bilinearly.
+- Where surveys meet or a void was backfilled, the heights are blended over 10 m (a linear blend) or 50 m (the "backfill blend").
+- Each tile comes with a small GeoPackage (`.gpkg`, 0.1 to 0.3 MB). Its layer `s1m_source_inputs` holds one outline per input with `workunit_name`, `data_type` ("linear-mode lidar", "1/9 Arc Second", …), `source_resolution_meters`, `percent_area`, `priority_rank` and the dates. A second layer, `s1m_blending_area_statistics`, gives the height differences of each pair of blended surveys. So the backfilled areas are marked, per tile.
+
+**It covers no lidar the 1 m DEM lacks.**
+- The 1 m DEM is made of the same surveys (QL2 or better). S1M has 17 030 tiles on 2026-11-22 (16 093 on 2026-10-30, 16 665 on 2026-11-14) of about 80 000 for CONUS: the southern Sierra and the California deserts, West Virginia, North Carolina, New York and more, none at Yosemite Valley, Moab, Boulder or the Oregon cove.
+- A sample of 151 tiles spread over the whole index, each asked at its centre (the TNM API, a box of 0.01°): 146 have a 1 m DEM there. None has an OPR DEM without a 1 m DEM. Five have neither: two small tiles on the coast (3 and 9 MB), and three whole tiles in central North Carolina.
+- One of those three was opened (`n1500e1460`): its only input is `ned19_n35x50_w079x75_nc_statewide_2003`, the 1/9″ DEM (3 m, lidar of 2003), over 100 % of the tile. So where S1M reaches beyond the 1 m DEM, it is the backfill at 1 m pixels, not 1 m lidar.
+- WESM's `seamless_category` qualifies the same lidar surveys as `onemeter_category`, but for 2; whether that column means S1M or the older seamless layers was not looked up (Alaska's IfSAR qualifies in it), so it is no evidence either way.
+
+**Where both exist it is the worse input for this app.**
+- It is in Albers. The app's working grid is NAD83 UTM, onto which the per-project 1 m DEM is copied pixel for pixel; S1M would be resampled bilinearly, which smooths cliff edges (the sources rule's first pitfall: R2 lost 40 % of its lines to half a pixel of interpolation). How many lines it would cost here was not measured.
+- Its heights near a seam are blended, not measured.
+- It lags the surveys: Boulder's S1M is from the 2020 survey although 2023 and 2026 exist.
+- Its tiles are 250 to 450 MB and are made again under new dated names.
+- Putting it first would change every US result.
+
+**What it would give:** one file per place instead of composing the surveys, smoothed seams, one geoid for all heights.
+
+**The one place it has finer data than the app reads today** is its backfill from the 1/9″ DEM where no 1 m DEM exists (central North Carolina in the sample). That DEM is a TNM dataset of its own (`National Elevation Dataset (NED) 1/9 arc-second`, 8128 files in CONUS, zipped `.img` files of 0.25° that cannot be read in windows) and also lies under the Oregon cove and Indian Beach (`or_northcoast_2009`). Whether to read it, as a member between the OPR DEMs and the 1/3″ DEM, is open (not decided, not measured).
+
+**When to look again:** if USGS retires the per-project 1 m DEM in favour of S1M (its pages, read 2026-11-22, say the 1 m dataset "will be expanding as new DEMs from 3DEP quality level 2 or better lidar data are acquired" and name no end), or if S1M tiles built from lidar appear where the 1 m DEM has none.
 
 ## Ways to a surface model
 
@@ -117,6 +191,6 @@ A sample of 30 OPR files, the newest at every 12th point:
 
 - Is rockyweb's 429 a lasting block of automated downloads or a short limit? Its terms and limits are not yet looked up (docs/data-sources.md, the row on usage limits). USGS's contact for TNM is tnm_help@usgs.gov.
 - The EPT copy against TNM's projects: which newer projects are missing, by outline and year. Its own limits on requests are not known.
-- The OPR files without a vertical CRS: the vertical unit, checked against the 1 m DEM where both exist.
+- The OPR files without a vertical CRS: WESM names each survey's vertical CRS, and with it the unit; whether it holds for the files is still to be checked against the 1/3″ DEM.
 - The pixel origin of OPR projects other than the Oregon coast.
 - Noise in the point clouds of other projects: is the high layer at the cove usual? Is a cap of 100 m above the terrain safe (the tallest trees in the USA reach about 115 m)?

@@ -50,6 +50,7 @@ from typing import Callable, ClassVar, Dict, List, Optional, Tuple
 
 import pydantic
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
 import accounts as ac
@@ -328,7 +329,7 @@ def profile_problem(folder: str, points: List[float], admin: bool = False,
     return None
 
 
-# A favourite line: its anchors as the run's data.js holds them and the map joins them
+# A favourite line: its anchors as the run's store holds them (data.js's 7 decimals before) and the map joins them
 # (viewer/src/keys.ts lineCoords: JavaScript's numbers, so 1e-7 may be spelled so)
 _NUMBER = r"-?\d{1,3}(?:\.\d{1,15})?(?:e-\d{1,2})?"
 LINE_KEY = re.compile(rf"{_NUMBER}(?:,{_NUMBER}){{3}}")
@@ -486,7 +487,7 @@ SESSION_CHECK = 30  # seconds between checks of the session inside an open event
 REFUSAL_WINDOW = 600
 PLACE_CHARS_MAX = 200  # of a name the place box looks up
 RATE_NAMES = {"estimate": "estimates", "profile": "profiles", "patch": "3D views", "reach": "reach calculations",
-              "place": "place lookups",
+              "place": "place lookups", "export": "downloads",
               # Limits.<kind>_rate
               "report": "problem reports", "time_zone": "time zones sent", "job": "searches started"}
 TIME_ZONE_CHARS_MAX = 100  # of an IANA time zone's name (the longest are about 30)
@@ -548,16 +549,57 @@ WELCOME_COOKIE = "__Host-findaline-welcome"  # set by a sign-in for 10 minutes: 
 WELCOME_SECONDS = 600
 # The files of a run the public site serves (what mapping.save_map, runs.save_results and the store,
 # linestore.write, write, without run.json: its parameters and data files are the owner's); never
-# progress.json, tiles or other files
-RUN_FILES = ("map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "ATTRIBUTION.txt", "lines.arrow",
-             "profiles.arrow")
+# progress.json, tiles or other files. Since store wave 4's item 5 no data.js, lines.js or kept text file (old runs
+# are removed by `findaline.py runs remove-old`; an export lives in work/exports/)
+RUN_FILES = ("map.html", "ATTRIBUTION.txt", "lines.arrow", "profiles.arrow")
 VIEWER = "_viewer"  # mapping.VIEWER_FOLDER: the viewer bundle, the same for everyone
-# A run's scripts and its store carry their size before compression: nginx gzips them on the fly and drops
-# Content-Length, and the page's progress bar counts the bytes it reads (viewer/src/download.ts SIZE_HEADER)
+# A run's store carries its size before compression: nginx gzips it on the fly and drops Content-Length, and the
+# page's progress bar counts the bytes it reads (viewer/src/download.ts SIZE_HEADER)
 SIZE_HEADER = "X-Findaline-Bytes"
-SIZED_FILES = ("data.js", "lines.js", "lines.arrow", "profiles.arrow")
+SIZED_FILES = ("lines.arrow", "profiles.arrow")
 # A run id, a share token (token_urlsafe: may start with - or _), a file name: no leading dot (no ".."), no "/"
 SAFE_PART = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}")
+# An export waiting for its download (jobs.quick_export): <token>.<extension>, the token of jobs.EXPORT_TOKEN_BYTES
+# (token_urlsafe of 16 bytes: always 22 characters, so <run id>-<token> of one run is never that of another)
+EXPORT_NAME = re.compile(f"[A-Za-z0-9_-]{{{math.ceil(jb.EXPORT_TOKEN_BYTES * 4 / 3)}}}\\.("
+                         + "|".join(jb.EXPORT_EXTENSIONS.values()) + ")")
+EXPORT_MEDIA = {"csv": "text/csv; charset=utf-8", "geojson": "application/geo+json"}  # by extension (nginx gzips both)
+SENDING = ".sending"  # an export's name while it is sent (taken by one request: a second one finds nothing)
+FILE_NAME_UNSAFE = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*]')  # characters no file name of Windows takes
+PLAIN_UNSAFE = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*=;]')  # and in the ASCII `filename`, the header's separators
+
+
+def content_disposition(name: str, fallback: str) -> str:
+    """Content-Disposition of a download named `name` (a run's name and the extension): the name as
+    UTF-8 (RFC 6266's filename*) and an ASCII form of it for older clients (letters without their
+    accents, the rest left out; the file name `fallback` when no name is left before the extension),
+    without the characters a file name cannot hold or a quoted string would end at."""
+    import unicodedata
+    from urllib.parse import quote
+    name = FILE_NAME_UNSAFE.sub("_", name).strip()
+    # NFKD makes fullwidth forms of refused characters (＂ ＼ ／ ：) plain ones: refused again after it, with the
+    # header's own separators (= ;), which a client that reads only `filename` might take for parameters
+    plain = PLAIN_UNSAFE.sub("_", unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii"))
+    plain = plain.strip()
+    if plain.startswith("."):
+        plain = fallback
+    if name.startswith("."):
+        name = fallback
+    return f"attachment; filename=\"{plain}\"; filename*=UTF-8''{quote(name, safe='')}"
+
+
+class SentOnce(FileResponse):
+    """A file sent once and then deleted (an export, jobs.quick_export): after the whole answer and also
+    when the client breaks off (the sending is cancelled: the file is closed first, so Windows deletes it
+    too). Always the whole file: a Range request gets it whole, not a part that would delete the rest."""
+
+    async def __call__(self, scope, receive, send):
+        scope = {**scope, "headers": [(k, v) for k, v in scope.get("headers", []) if k.lower() != b"range"]}
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            with contextlib.suppress(OSError):  # left over: jobs.remove_old_exports deletes it later
+                os.remove(self.path)
 
 
 class RunFiles(StaticFiles):
@@ -1111,11 +1153,11 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
                                     {"provider": provider, "status": user.status})
         except ac.SignupClosed:
             await run_in_threadpool(record, "sign_up_refused", None, None, {"provider": provider})
-            return HTMLResponse(signin_page(accounts.providers, note="New accounts are not accepted."), 403)
+            return HTMLResponse(signin_page(accounts.providers, note=messages.text("page.signin.closed")), 403)
         except (OAuthError, JoseError, ValueError, KeyError, httpx2.HTTPError) as e:  # the ID token's checks: JoseError
             request.session.clear()
-            return HTMLResponse(signin_page(accounts.providers, note=f"Signing in failed ({type(e).__name__})."),
-                                400)
+            return HTMLResponse(signin_page(accounts.providers,
+                                            note=messages.text("page.signin.failed", error=type(e).__name__)), 400)
         next_path = ac.local_path(request.session.get("next"))
         request.session.clear()
         await run_in_threadpool(users.end_session, request.cookies.get(ac.SESSION_COOKIE))
@@ -1177,7 +1219,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         """A job its user may edit or queue again: their own (an administrator's: also those from
         before the accounts)."""
         job = jobs.get(job_id)
-        if not job or not (job["user_id"] == user.id or (user.admin and job["user_id"] is None)):
+        if not job or not owns(user, job):
             raise HTTPException(404, "no such job")
         return job
 
@@ -1419,9 +1461,15 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         """The user whose jobs a user sees (None: everyone's, for an administrator)."""
         return None if user.admin else user.id
 
+    def owns(user: ac.User, job: Dict) -> bool:
+        """own_job's rule: the user's own job (an administrator's: also those from before the accounts)."""
+        return job["user_id"] == user.id or (user.admin and job["user_id"] is None)
+
     @app.get("/api/jobs")
     def list_jobs(user: ac.User = Depends(current_user)):
-        return {"jobs": jobs.all(seen_by(user)), "seq": jobs.last_seq(seen_by(user)), "worker": jobs.worker_alive()}
+        """The jobs a user sees, each with `own` (edit, run again, remove: own_job's rule, as /api/runs's `own`)."""
+        return {"jobs": [{**job, "own": owns(user, job)} for job in jobs.all(seen_by(user))],
+                "seq": jobs.last_seq(seen_by(user)), "worker": jobs.worker_alive()}
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job: Dict = Depends(own_job)):
@@ -1452,6 +1500,19 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         if not jobs.request_cancel(job["id"]):
             raise HTTPException(409, "the job is not waiting or running")
         record("job_cancel", user, job["id"], {"owner": job["user_id"]} if job["user_id"] != user.id else None)
+        return {"ok": True}
+
+    @app.post("/api/jobs/{job_id}/remove")
+    def remove_job(job: Dict = Depends(own_job), user: ac.User = Depends(current_user)):
+        """Remove a cancelled job from its owner's list (the card goes; nothing else exists to delete). Not
+        DELETE /api/jobs/<id>, which cancels. A job removed before answers ok again; the audit log gets the
+        removal once (of two at once, the one whose write removed it)."""
+        if not job["removed_at"]:
+            if job["status"] != "cancelled":
+                raise HTTPException(409, messages.UserError("only a cancelled search can be removed",
+                                                            "job_not_cancelled").detail())
+            if jobs.remove(job["id"]):
+                record("job_remove", user, job["id"])
         return {"ok": True}
 
     @app.get("/api/events")
@@ -1575,9 +1636,12 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         if not public:
             raise HTTPException(404, "runs are deleted in the runs folder")
         try:
-            jobs.delete_run(run, runs_dir)
+            left = jobs.delete_run(run, runs_dir)
         except OSError:
             raise HTTPException(409, "the run is in use: try again in a moment")
+        if left:  # the run is deleted; its renamed folder waits for the worker's housekeeping (the run id only)
+            print(f"run_delete: the folder of run {run} could not be deleted yet; the worker's housekeeping "
+                  f"deletes it", file=sys.stderr)
         record("run_delete", user, run)
         return {"ok": True}
 
@@ -1587,6 +1651,97 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         jobs.set_share(run, None)
         record("share_revoke", user, run)
         return {"ok": True}
+
+    # --- Exports: a run's lines.csv or lines.geojson made from its store for each download, none kept
+    # (docs/line-volume/spec-store.md 1.4, store U4): the worker's quick lane writes it, this process sends it
+    # once and deletes it. Who may: run_access (the owner, an administrator, a signed-in visitor of a demo run;
+    # not a share link's visitor, who has no session; store U9) ---
+
+    exports_dir = jb.exports_folder(data_dir)
+
+    def has_store(run_id: str) -> bool:
+        """Whether a run has a store to export from (run.json's block "store": linestore.write wrote it)."""
+        with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
+            return bool(json.load(f).get("store"))
+
+    @app.post("/api/runs/{run}/export")
+    async def export_run(body: Dict, client: Request, run: str = Depends(run_access),
+                         user: ac.User = Depends(current_user)):
+        """Make a run's lines as text for one download: {"format": "csv"|"geojson"} -> {"url": the address
+        that sends it once} (jobs.quick_export in the quick lane, waited for as an estimate is: 503 without
+        a worker, 504 when the wait runs out, 429 while the user's other quick task waits). A run without a
+        store: 409 export_failed (the page downloads such a run's own text files instead)."""
+        fmt = body.get("format") if isinstance(body, dict) else None
+        if fmt not in jb.EXPORT_EXTENSIONS:
+            raise HTTPException(400, "format: csv or geojson")
+        if not await run_in_threadpool(has_store, run):
+            raise HTTPException(409, messages.UserError(f"the run {run} has no store to export from",
+                                                        "export_failed").detail(public=bool(public)))
+        await run_in_threadpool(within_rate, "export", user)  # Limits.export_rate (429 rate_export)
+        answer = await quick("export", {"run": run, "format": fmt}, user, client)
+        if not isinstance(answer, dict) or not EXPORT_NAME.fullmatch(str(answer.get("name"))):
+            raise HTTPException(500, "the worker gave no export")
+        await run_in_threadpool(record, "run_export", user, run, {"format": fmt})  # an export made
+        return {"url": f"/api/runs/{run}/export/{answer['name']}"}
+
+    def take_export(run_id: str, name: str) -> Optional[Tuple[str, str, os.stat_result]]:
+        """(the export's file, renamed for its one download, so a second request finds nothing; the name of
+        its download: run.json's name of the run, else its id, and the extension; the file's stat), or None:
+        no such export, or it cannot be taken (a rename refused on Windows while a scanner holds the file).
+        A file older than jobs.EXPORT_KEEP_SECONDS is deleted and never sent (the privacy page's "for one hour
+        at most", also while no worker sweeps). The name is read first; the taken file's mtime is set to now,
+        so no clean-up deletes it while it is sent (remove_old_exports goes by mtime); a refused mtime (Windows)
+        sends it all the same."""
+        path = os.path.join(exports_dir, f"{run_id}-{name}")
+        try:
+            made = os.stat(path)
+        except OSError:
+            return None
+        if not os.path.isfile(path):
+            return None
+        if time.time() - made.st_mtime > jb.EXPORT_KEEP_SECONDS:  # older than the hour: never sent
+            with contextlib.suppress(OSError):
+                os.remove(path)
+            return None
+        try:
+            with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
+                title = json.load(f).get("name")
+        except (OSError, ValueError):  # the run deleted or being rewritten: its id names the file
+            title = None
+        stem = title.strip() if isinstance(title, str) and title.strip() else run_id
+        taken = f"{path}.{secrets.token_hex(4)}{SENDING}"
+        try:
+            os.replace(path, taken)
+        except OSError:  # gone meanwhile (another request took it), or held by another process
+            return None
+        try:
+            os.utime(taken)
+        except FileNotFoundError:  # deleted between the rename and now
+            return None
+        except OSError:  # refused (Windows: a scanner): the file is sent all the same
+            pass
+        try:
+            return taken, f"{stem}.{name.rpartition('.')[2]}", os.stat(taken)
+        except OSError:  # deleted between the rename and now
+            with contextlib.suppress(OSError):
+                os.remove(taken)
+            return None
+
+    @app.get("/api/runs/{run}/export/{name}")
+    async def download_export(name: str, run: str = Depends(run_access), user: ac.User = Depends(current_user)):
+        """An export of this run (POST /api/runs/<run>/export's address) sent once as an attachment and
+        deleted (SentOnce: also when the client breaks off); 404 for any other name, another run's export,
+        one sent already or deleted after jobs.EXPORT_KEEP_SECONDS. Never a path out of the exports' folder:
+        the name is a token and an extension (EXPORT_NAME), the run one run_access let through."""
+        found = EXPORT_NAME.fullmatch(name)
+        if not found:
+            raise HTTPException(404, "no such export")
+        taken = await run_in_threadpool(take_export, run, name)
+        if taken is None:
+            raise HTTPException(404, "no such export")
+        path, title, stat = taken
+        return SentOnce(path, media_type=EXPORT_MEDIA[found.group(1)], stat_result=stat,
+                        headers={"Content-Disposition": content_disposition(title, f"{run}.{found.group(1)}")})
 
     # --- Favourite lines: marked on a run's map, listed in the app ---
 
@@ -2125,7 +2280,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
 
 
 APP_HTML = """<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="findaline-token" content="{token}">
 <meta name="findaline-user" content="{user}">
 <meta name="findaline-contact" content="{contact}">{keys}
@@ -2156,7 +2311,7 @@ COVERAGE_HTML = """<!doctype html>
 # The 3D view of a line (viewer/src/view3d): no token, the page only GETs; findaline-3d-ring is "off" or the
 # tile URL template of the coarse ring of terrain around the patch, HTML-escaped (settings.ViewSettings)
 VIEW3D_HTML = """<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="findaline-user" content="{user}">{keys}
 <meta name="findaline-3d-ring" content="{ring}">
 <title>Find-a-Line 3D</title>
@@ -2223,10 +2378,24 @@ PROVIDER_SVG = {
                  '<path fill="#7fba00" d="M11 1h9v9h-9z"/><path fill="#00a4ef" d="M1 11h9v9H1z"/>'
                  '<path fill="#ffb900" d="M11 11h9v9h-9z"/></svg>',
 }
-PAGE_FOOTER = ('<footer class="p-footer"><a href="/">Find-a-Line</a><a href="/coverage">Data coverage</a>'
-               '<a href="/privacy">Privacy</a><a href="/about">About / data licences</a></footer>')
+def page_text(key: str, **params) -> str:
+    """A text of the message catalogue (messages.text) for a server-rendered page, as HTML: the text's own &, < and >
+    escaped (its quotes and apostrophes written as they are, as the pages always wrote them), then its parameters put
+    in as given: markup (a link, a bold name) or values the caller escaped. `count` picks a plural form."""
+    plain = {k: v for k, v in params.items() if k != "count"}
+    form = messages.text(key, **({"count": params["count"]} if "count" in params else {}))
+    return messages.render({key: html.escape(form, quote=False)}, key, **plain)
+
+
+# The pages' footer (sign-in, privacy, about): built once, so the privacy page (its words the user's to approve, its
+# code untouched) shows the same bytes as before its links' words moved into the catalogue
+PAGE_FOOTER = ('<footer class="p-footer"><a href="/">Find-a-Line</a>'
+               f'<a href="/coverage">{page_text("page.footer.coverage")}</a>'
+               f'<a href="/privacy">{page_text("ui.app.privacy")}</a>'
+               f'<a href="/about">{page_text("page.about.title")}</a></footer>')
 # The sign-in, privacy and about pages of the public site: server-rendered, no script, no inline styles;
-# the kit's look (viewer/src/ui/pages.css, in /app/app.css), the theme of the system
+# the kit's look (viewer/src/ui/pages.css, in /app/app.css), the theme of the system; their texts from the catalogue
+# (page.*), but the privacy page's
 SIGNIN_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Find-a-Line</title>
@@ -2234,8 +2403,8 @@ SIGNIN_HTML = """<!doctype html>
 <link rel="stylesheet" href="/app/app.css">
 </head><body class="ui p-body"><main class="p-page p-signin">
 <header class="p-brand"><h1 class="u-logo">{logo}<span class="u-sr">Find-a-Line</span></h1>
-<p class="p-lead">Finds possible highlines in elevation data.</p>{total}
-<p class="u-small"><a href="/coverage">Where the data is detailed: the coverage map</a></p></header>
+<p class="p-lead">{lead}</p>{total}
+<p class="u-small"><a href="/coverage">{coverage}</a></p></header>
 {body}
 {footer}
 </main></body></html>
@@ -2278,10 +2447,14 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          f"outline and the country it lies in, its title and status (with the reason when it failed), and its "
          f"messages and progress. "
          f"Why: to run the search and show it to you. The messages are deleted {events} after the search ended; the "
-         f"search itself stays in your queue. Your totals of searched area are counted from these."),
+         f"search itself is kept: in your list until you remove it (a cancelled search) or delete its run, then "
+         f"marked removed with the time. A removed search still counts toward your searches of the day, the area "
+         f"searched and the site's statistics, and administrators can still see it. Your totals of searched area are "
+         f"counted from these."),
         ("Runs", "The results of your searches (lines, maps, parameters, the place's name from OpenStreetMap) and "
          "their size. Kept until you delete them in Runs. A share link is stored as a SHA-256 hash only; it can be "
-         "renewed or revoked."),
+         "renewed or revoked. A file made for a download is kept on the server until it is fetched, for one hour "
+         "at most."),
         ("Favourite lines", f"The lines you mark as favourites on a map: the run, the line's anchors and its values "
          f"(length, clearances, heights, angles, prominence), when you marked it and its folder; at most "
          f"{jb.FAVOURITES_MAX}. Why: to list them for you. Kept until you unmark them, delete their folder or the "
@@ -2297,8 +2470,9 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          "an administrator deletes it (ask the contact below to have yours deleted)."),
         ("Quotas", f"How many km² your searches covered (counted as pixels at their resolution), how many MB they "
          f"downloaded and how many uncached Nominatim requests they made, with the time; deleted after {2 * jb.DAY / 86400:g} days. Request rates are counted in memory only."),
-        ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started and cancelled, share links "
-         f"made, renewed and revoked, deleted runs, the demo flag, favourite lines marked, unmarked and moved, "
+        ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started, cancelled and removed, "
+         f"share links made, renewed and revoked, deleted runs, exports of a run's lines made (CSV or GeoJSON: the "
+         f"format, not the content), the demo flag, favourite lines marked, unmarked and moved, "
          f"folders of favourites made, changed and deleted (not their names), rigs saved, changed and deleted (not "
          f"their names or values), changes of your account's country, problem reports sent (not their "
          f"text), other "
@@ -2350,13 +2524,11 @@ ESRI_SOURCE = "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Com
 
 
 def esri_terms() -> str:
-    """The sentence of the about page on the satellite map (approved wording), its link escaped."""
+    """The sentence of the about page on the satellite map (approved wording: page.about.esri_terms), its link
+    escaped."""
     e = html.escape
-    return ('<p>Satellite imagery: provided by Esri through ArcGIS Location Platform ("Powered by Esri"). By using '
-            "the satellite imagery (in the map or in the 3D view of a line) you agree to comply with Esri's terms of "
-            f"use for it (<a href='{e(ESRI_TERMS_URL)}'>{e(ESRI_TERMS_URL)}</a>). In particular, it may only be "
-            "viewed in this map and in the 3D view of a line: it may not be downloaded, stored, copied or passed "
-            "on.</p>")
+    link = f"<a href='{e(ESRI_TERMS_URL)}'>{e(ESRI_TERMS_URL)}</a>"
+    return f"<p>{page_text('page.about.esri_terms', link=link)}</p>"
 
 
 # The terrain around the 3D view's patch (settings.ViewSettings.ring): Mapterhorn's attribution page
@@ -2378,42 +2550,43 @@ def about_page(contact: str, esri: bool = False, ring: bool = False) -> str:
                                              if layer is not None and layer.credit is not None):
             credits.setdefault(credit.data, credit)
     credits.setdefault(src.WATER_MASK_CREDIT.data, src.WATER_MASK_CREDIT)
+    t = page_text
     # a year of the run (sources.YEAR) reads as such: no run here
-    rows = [f"<li><b>{e(c.data)}</b>: {e(src.dated(c.attribution, src.YEAR_TEXT))}. Licence: {link(c.licence, c.url)}."
+    rows = [f"<li><b>{e(c.data)}</b>: {e(src.dated(c.attribution, src.YEAR_TEXT))}. "
+            f"{t('page.about.licence', licence=link(c.licence, c.url))}"
             + (f" <span class='u-small'>{e(src.dated(c.notice, src.YEAR_TEXT))}</span>" if c.notice else "") + "</li>"
             for c in credits.values()]
     # an orthophoto's attribution is a link where its terms ask for one (OrthoService.attribution_url)
     orthos = {s.ortho.name: link(src.dated(s.ortho.attribution, src.YEAR_TEXT), s.ortho.attribution_url or "")
               for s in src.SOURCES.values() if s.ortho is not None}
+    contributors = f"<a href='https://www.openstreetmap.org/copyright'>{t('page.about.osm_contributors')}</a>"
+    fixthemap = f"<a href='{e(src.credit.OSM_FIXTHEMAP)}'>openstreetmap.org/fixthemap</a>"
+    mapterhorn = f"<a href='{e(MAPTERHORN_ATTRIBUTION)}'>mapterhorn.com/attribution</a>"
+    licences = f"<a href='/app/{THIRD_PARTY_LICENCES}'>{THIRD_PARTY_LICENCES}</a>"
+    coverage = f"<a href='/coverage'>{t('page.about.coverage_link')}</a>"
     body = [
-        "<p>Find-a-Line finds possible highlines in elevation data: anchors on steep ground, every pair checked for "
-        "clearance under the webbing. Its results are suggestions to check on the spot, not safety advice.</p>",
-        "<h2>Elevation data</h2><p>Where each source's data is detailed: <a href='/coverage'>the coverage map</a>."
-        "</p><ul>" + "".join(rows) + "</ul>",
+        f"<p>{t('page.about.lead')}</p>",
+        f"<h2>{t('page.about.elevation')}</h2><p>{t('page.about.coverage', link=coverage)}</p><ul>"
+        + "".join(rows) + "</ul>",
         f"<p>{e(src.credit.PROCESSED_NOTE)}</p>",
-        (f"<p>Terrain around the 3D view: © Mapterhorn (<a href='{e(MAPTERHORN_ATTRIBUTION)}'>"
-         "mapterhorn.com/attribution</a>), from open elevation data under the licences of its sources.</p>"
-         if ring else ""),
-        "<h2>OpenStreetMap</h2><p>Coastlines, cliffs, named areas and place names: © "
-        "<a href='https://www.openstreetmap.org/copyright'>OpenStreetMap contributors</a>, under the Open Database "
-        "Licence (ODbL 1.0); searched with Nominatim and the Overpass API, extracts from Geofabrik. Errors in the "
-        f"map data can be reported at <a href='{e(src.credit.OSM_FIXTHEMAP)}'>openstreetmap.org/fixthemap</a>.</p>",
-        "<h2>Orthophotos and background maps</h2><ul>"
+        f"<p>{t('page.about.ring', link=mapterhorn)}</p>" if ring else "",
+        f"<h2>OpenStreetMap</h2><p>{t('page.about.osm', contributors=contributors, fixthemap=fixthemap)}</p>",
+        f"<h2>{t('page.about.orthos')}</h2><ul>"
         + "".join(f"<li>{e(name)}: {attribution}</li>" for name, attribution in orthos.items())
-        + "<li>OpenStreetMap tiles: © OpenStreetMap contributors</li><li>OpenTopoMap: © OpenTopoMap (CC-BY-SA)"
-          "</li>"
+        + f"<li>{t('page.about.osm_tiles')}</li><li>OpenTopoMap: © OpenTopoMap (CC-BY-SA)</li>"
         + (f"<li>Esri World Imagery: <a href='https://www.esri.com'>Powered by Esri</a>. {e(ESRI_SOURCE)}</li>"
            if esri else "") + "</ul>",
         esri_terms() if esri else "",
-        "<p>Each run names the data it used in its map and in its ATTRIBUTION.txt; results made from FABDEM may be "
-        "shared only for non-commercial use, under the same licence.</p>",
-        "<h2>Software</h2><p>The maps, the app and the 3D view include open-source libraries (Leaflet, Preact, "
-        "i18next, three.js and others); their licences and copyright notices: "
-        f"<a href='/app/{THIRD_PARTY_LICENCES}'>{THIRD_PARTY_LICENCES}</a>.</p>",
-        f"<p>Contact: {e(contact)}.</p>",
+        f"<p>{t('page.about.fabdem')}</p>",
+        f"<h2>{t('page.about.software')}</h2><p>{t('page.about.libraries', link=licences)}</p>",
+        f"<p>{t('page.about.contact', contact=e(contact))}</p>",
     ]
-    return PAGE_HTML.format(title="About / data licences", body="\n".join(body), logo=LOGO_SVG,
-                            footer=PAGE_FOOTER)
+    return PAGE_HTML.format(title=t("page.about.title"), body="\n".join(body), logo=LOGO_SVG, footer=PAGE_FOOTER)
+
+
+# The kit's drawn arrow after "Open map" (viewer/src/ui/icons.tsx ICONS.next, its class u-ic: ui.css): static markup
+# without a style attribute, which the pages' CSP (style-src 'self') allows
+NEXT_ICON = '<svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>'
 
 
 def demo_list(demos: List[Dict]) -> str:
@@ -2423,16 +2596,29 @@ def demo_list(demos: List[Dict]) -> str:
     e = html.escape
     if not demos:
         return ""
+
+    def counted(key: str, n) -> str:
+        # a summary's count (an int, as search.save_run writes it) picks the plural form; a number written as text
+        # counts as that number, a null as none; any other value keeps the "other" form with the value as it is,
+        # never the bare key
+        try:
+            n = n if isinstance(n, (int, float)) and not isinstance(n, bool) else float(0 if n is None else n)
+        except (TypeError, ValueError):
+            return page_text(f"{key}_other", count=n)
+        return page_text(key, count=n)
+
     items = []
     for run in demos:
         summary = run.get("summary") or {}
-        inner = (f"<b>{e(run.get('name') or run['id'])}</b><span class='u-small'>{summary.get('spots', 0)} spots · "
-                 f"{summary.get('lines', 0)} lines</span><span class='u-small'>{e(rn.params_summary(run))}</span>")
+        spots, lines = summary.get("spots", 0), summary.get("lines", 0)
+        counts = f"{counted('page.examples.spots', spots)} · {counted('page.examples.lines', lines)}"
+        inner = (f"<b>{e(run.get('name') or run['id'])}</b><span class='u-small'>{counts}</span>"
+                 f"<span class='u-small'>{e(rn.params_summary(run))}</span>")
         items.append(f"<li><a class='p-ex' href='/runs/{e(quote(run['id'], safe=''))}/map.html'>{inner}"
-                     f"<span class='p-open'>Open map ›</span></a></li>" if run.get("has_map")
-                     else f"<li><div class='p-ex'>{inner}</div></li>")
-    return ("<section class='p-examples'><h2 class='u-h'>Examples</h2><ul class='p-cards'>" + "".join(items)
-            + "</ul></section>")
+                     f"<span class='p-open'>{page_text('page.examples.open')}{NEXT_ICON}</span></a></li>"
+                     if run.get("has_map") else f"<li><div class='p-ex'>{inner}</div></li>")
+    return (f"<section class='p-examples'><h2 class='u-h'>{page_text('page.examples.title')}</h2><ul class='p-cards'>"
+            + "".join(items) + "</ul></section>")
 
 
 def thousands(value: float) -> str:
@@ -2446,8 +2632,8 @@ def area_total(total: Optional[Tuple[float, int]]) -> str:
     km2, searches = total or (0.0, 0)
     if not searches:
         return ""
-    return (f"<p class='u-small'>{thousands(km2)} km² searched in {thousands(searches)} "
-            f"search{'' if searches == 1 else 'es'}</p>")
+    words = page_text("page.signin.total", count=searches, km2=thousands(km2), searches=thousands(searches))
+    return f"<p class='u-small'>{words}</p>"
 
 
 def signin_page(providers: List[str], user=None, csrf: Optional[str] = None, note: str = "",
@@ -2456,23 +2642,22 @@ def signin_page(providers: List[str], user=None, csrf: Optional[str] = None, not
     (pending or blocked): sign-in links, or the account's state and signing out; the demo runs
     (their maps, read-only); `total`: (km², searches) of everyone (area_total). No script, and
     nothing that changes state but signing out."""
-    e = html.escape
+    e, t = html.escape, page_text
     card = [f"<p class='p-error' role='alert'>{e(note)}</p>"] if note else []
     if user is None:
-        card.append("<h2 class='u-h'>Sign in to search</h2><div class='p-providers'>" + "".join(
-            f"<a class='p-provider p-{p}' href='/login/{p}'>{PROVIDER_SVG.get(p, '')}Sign in with {ac.NAMES[p]}</a>"
-            for p in providers) + "</div>")
-        card.append("<p class='u-small'>A new account waits for an administrator's approval. The site keeps your "
-                    "provider's user id and display name, no e-mail address.</p>")
+        card.append(f"<h2 class='u-h'>{t('page.signin.title')}</h2><div class='p-providers'>" + "".join(
+            f"<a class='p-provider p-{p}' href='/login/{p}'>{PROVIDER_SVG.get(p, '')}"
+            f"{t('page.signin.with', provider=ac.NAMES[p])}</a>" for p in providers) + "</div>")
+        card.append(f"<p class='u-small'>{t('page.signin.note')}</p>")
     else:
-        state = ("is waiting for an administrator's approval" if user.status == "pending"
-                 else "is blocked")
-        card.append(f"<p>Your account <b>{e(user.name)}</b> ({e(ac.NAMES.get(user.provider, user.provider))}) "
-                    f"{state}.</p>")
+        state = "page.signin.pending" if user.status == "pending" else "page.signin.blocked"
+        card.append(f"<p>{t(state, name=f'<b>{e(user.name)}</b>', provider=e(ac.NAMES.get(user.provider, user.provider)))}"
+                    "</p>")
         card.append(f"<form method='post' action='/logout'><input type='hidden' name='csrf' value='{e(csrf or '')}'>"
-                    "<button class='u-btn' type='submit'>Sign out</button></form>")
+                    f"<button class='u-btn' type='submit'>{t('ui.app.sign_out')}</button></form>")
     parts = ["<section class='p-card'>" + "\n".join(card) + "</section>", demo_list(demos or [])]
-    return SIGNIN_HTML.format(body="\n".join(parts), logo=LOGO_SVG, footer=PAGE_FOOTER, total=area_total(total))
+    return SIGNIN_HTML.format(body="\n".join(parts), logo=LOGO_SVG, footer=PAGE_FOOTER, total=area_total(total),
+                              lead=t("page.signin.lead"), coverage=t("page.signin.coverage"))
 
 
 class EventHub:
@@ -2598,7 +2783,9 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-def main(argv: List[str]) -> int:
+def main(argv: List[str], open_path: str = "/") -> int:
+    """`findaline.py web`; open_path: the page the browser opens (`findaline.py view`: a run's result,
+    "/#run=<id>")."""
     import argparse
     parser = argparse.ArgumentParser(prog="findaline.py web", description="Find-a-Line in the browser.")
     parser.add_argument("--port", type=int, default=PORT, help=f"port (default {PORT})")
@@ -2650,7 +2837,7 @@ def main(argv: List[str]) -> int:
               f"separately (findaline.py worker --public)")
     else:
         server["proxy_headers"] = False  # no proxy in front of the local app
-        url = f"http://127.0.0.1:{args.port}/"
+        url = f"http://127.0.0.1:{args.port}{open_path}"
         print(f"Find-a-Line is running at {url} (close this window or press Ctrl+C to stop it)")
         if not args.no_browser:
             threading.Timer(1.5, webbrowser.open, args=(url,)).start()

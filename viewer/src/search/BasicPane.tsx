@@ -9,6 +9,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { ApiError, user } from "../app/api";
 import { errorText, label, t } from "../i18n";
 import { Button } from "../ui/components";
+import { Icon } from "../ui/icons";
+import { radioFocusKeys, radioStop } from "../ui/radios";
 import { useAccessHelp } from "../access";
 import {
   BASIC_ACCESS, cleanName, nameTaken, nextRigName, RIG_FIELDS, rigDetail, rigMax, rigProblem, rigSummary, STARTING_RIG,
@@ -28,11 +30,15 @@ export function GoalCards({s, basic}: {s: SearchState; basic?: boolean}) {
   const title = basic ? t("basic.goals") : t("hint.presets.label");
   const chosen = basic ? s.goal : s.preset;
   const cards = s.schema.presets.filter((p) => !basic || p.values);
-  return <div class="s-cards" role="radiogroup" aria-label={title}>
-    {cards.map((p) => {
+  // one Tab stop (none chosen, "Custom" values: the first card); the arrows move the focus only, Space or Enter
+  // chooses (ui/radios.ts: a card applies its values, reading the next one must not)
+  const stop = radioStop(cards.length, cards.findIndex((p) => p.id === chosen), (i) => cards[i].available);
+  return <div class="s-cards" role="radiogroup" aria-label={title} onKeyDown={radioFocusKeys}>
+    {cards.map((p, i) => {
       const everything = p.id === "everything";
       const text = !p.available ? p.reason : t(`goal.${p.id}.text`);
       return <button type="button" key={p.id} role="radio" aria-checked={p.id === chosen} data-goal={p.id}
+                     tabIndex={i === stop ? 0 : -1}
                      class={cx("s-card", p.id === chosen && "u-on", basic && everything && "s-wide")} disabled={!p.available}
                      title={p.reason ?? undefined} onClick={() => basic ? s.chooseGoal(p.id) : s.applyPreset(p.id)}>
         <b>{p.label}{everything && <i class="s-heavy">{t("goal.heavy")}</i>}</b>
@@ -90,18 +96,18 @@ function RigRow({s, onOpen}: {s: SearchState; onOpen(ask: RigAsk): void}) {
       <div class="s-rig-row">
         <button type="button" class="u-btn s-rig-pick u-grow" aria-expanded={open} aria-controls={listId}
                 title={t("basic.choose_rig")} onClick={() => setOpen(!open)}>
-          <span>{r.inUse.name}</span><span aria-hidden="true">▾</span></button>
+          <span>{r.inUse.name}</span><Icon name="down" /></button>
         <button type="button" ref={change} class="u-btn s-rig-change" onClick={() => onOpen({mode: "edit", values: null})}>
           {t("basic.change")}</button>
       </div>
       {open && <div class="s-rig-list" id={listId}>
-        {r.rigs.map((rig) => <button type="button" key={rig.id} class="s-rig-item" aria-pressed={rig.id === r.inUse!.id}
+        {r.rigs.map((rig) => <button type="button" key={rig.id} class="u-item s-rig-item" aria-pressed={rig.id === r.inUse!.id}
                                      data-rig={rig.id}
                                      onClick={() => { r.choose(rig.id); setOpen(false); }}>
           <b>{rig.name}</b><span>{rigSummary(rig.values)}</span></button>)}
-        <button type="button" class="s-rig-item s-rig-add" disabled={full}
+        <button type="button" class="u-item s-rig-item s-rig-add" disabled={full}
                 onClick={() => { setOpen(false); onOpen({mode: "new", values: null}); }}>
-          {full ? t("basic.rigs_ten", {max: r.max}) : t("basic.add_rig")}</button>
+          {full ? t("basic.rigs_ten", {max: r.max}) : <><Icon name="plus" />{t("basic.add_rig")}</>}</button>
       </div>}
       <div><div class="s-rig-sum">{rigSummary(r.values)}</div><div class="u-small s-rig-detail">{rigDetail(r.values)}</div></div>
     </div> : <div class="s-rig-box">
@@ -144,7 +150,7 @@ export function BasicBottom({s, onRig, onEvery}: {s: SearchState; onRig(ask: Rig
   return <>
     <AccessRow s={s} />
     <RigRow s={s} onOpen={onRig} />
-    <div><button type="button" class="s-link s-every" onClick={onEvery}>{t("basic.show_every")} ›</button></div>
+    <div><button type="button" class="u-link s-every" onClick={onEvery}>{t("basic.show_every")}<Icon name="next" /></button></div>
   </>;
 }
 
@@ -288,7 +294,7 @@ export function RigWindow({s, ask, onClose}: {s: SearchState; ask: RigAsk; onClo
         {number("fall_zone", "m")}
       </div>
       <details class="s-rig-more">
-        <summary>{t("rig.more")}</summary>
+        <summary><Icon name="next" class="s-rig-more-mark" />{t("rig.more")}</summary>
         <div class="s-rig-grid">
           {number("pretension", "kN")}
           {number("stretch", "%")}

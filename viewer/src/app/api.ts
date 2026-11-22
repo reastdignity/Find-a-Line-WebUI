@@ -87,6 +87,9 @@ export interface Job {
   error_info?: ErrorInfo | null;  // the code of the error (jobs.sqlite error_info): its text in the page's language
   finished: string | null;
   user_id?: number | null;  // the owner (an administrator sees every job)
+  removed_at?: string | null;  // removed by its owner (jobs.sqlite removed_at): only an administrator's list has it
+  run_gone?: boolean;  // finished, but its run is gone (deleted): only an administrator's list has it (Jobs.all)
+  own?: boolean;       // the user may edit, run again and remove it (web.py owns); unknown for a job of an event
 }
 
 export interface JobEvent {
@@ -186,6 +189,9 @@ export interface SearchRequest {
 }
 
 const token = document.querySelector<HTMLMetaElement>("meta[name=findaline-token]")?.content || "";
+/** Whether this page can send changes: it has the token (the app's page; a run's map.html has none, and the
+ *  server refuses a change without it). */
+export const canChange = token !== "";
 
 /** The signed-in user of the public site (web.py, accounts.User.public), or {local: true}. */
 export interface PageUser { local?: boolean; name?: string; provider?: string; status?: string; admin?: boolean }
@@ -238,9 +244,14 @@ export const api = {
   cancel: (id: string) => call<{ok: boolean}>("DELETE", `/api/jobs/${encodeURIComponent(id)}`),
   job: (id: string) => call<Job & {request: SearchRequest & {osm?: unknown}}>("GET", `/api/jobs/${encodeURIComponent(id)}`),
   again: (id: string) => call<{id: string}>("POST", `/api/jobs/${encodeURIComponent(id)}/again`),
+  /** A cancelled job off its owner's list (not `cancel`'s DELETE). */
+  removeJob: (id: string) => call<{ok: boolean}>("POST", `/api/jobs/${encodeURIComponent(id)}/remove`),
   runs: () => call<{runs: RunListed[]; public: boolean}>("GET", "/api/runs"),
   share: (id: string) => call<{url: string}>("POST", `/api/runs/${encodeURIComponent(id)}/share`),
   unshare: (id: string) => call<{ok: boolean}>("DELETE", `/api/runs/${encodeURIComponent(id)}/share`),
+  /** A run's lines made as a file by the worker (web.py export_run): the address that sends it once. */
+  exportRun: (id: string, format: "csv" | "geojson") =>
+    call<{url: string}>("POST", `/api/runs/${encodeURIComponent(id)}/export`, {format}),
   deleteRun: (id: string) => call<{ok: boolean}>("DELETE", `/api/runs/${encodeURIComponent(id)}`),
   report: (body: {category: string; text: string; context: object}) =>
     call<{id: number}>("POST", "/api/reports", body),

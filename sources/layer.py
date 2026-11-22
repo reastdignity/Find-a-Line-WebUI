@@ -19,6 +19,11 @@ from .net import _part, host_slot, tile_lock
 from .credit import Credit
 
 DOWNLOAD_THREADS = 8  # tiles of one download (all its layers) at a time; each connection is slow
+# How Layer.missing asks whether its tiles' files are there (cache.due_many's `exists`): None, os.path.exists of
+# each, for every search; tools/area_download.py sets sources.indexes.versions.existing (one listing of a folder
+# for the tiles of a whole area: a question a file took 463 s for Utah's 207 897 tiles on a share, the folders
+# 38 s). Set through the module, as DOWNLOAD_THREADS
+EXISTING: Optional[Callable[[List[str]], List[bool]]] = None
 SERIAL_SQUARE = 4  # blocks a side of the squares of a serial layer, one task of the pool each
 VALID_MIN = -500  # metres; anything lower is treated as "no data"
 
@@ -244,7 +249,7 @@ class Layer:
         """Tiles to download: not cached yet, or due for a check with update ("stale" or "all")."""
         tiles = self.tiles(grid)
         due = cache.due_many(cache_dir, [self.tile_path(cache_dir, t) for t in tiles], self.processing, update,
-                             self.ttl_days)  # one connection to the index for all of them
+                             self.ttl_days, EXISTING)  # one connection to the index for all of them
         return [t for t, d in zip(tiles, due) if d]
 
     def estimate(self, grid: Grid, cache_dir: str, update: Optional[str]) -> Tuple[int, int, float]:
@@ -358,10 +363,23 @@ def estimate_layers(layers: Sequence[Layer], grid: Grid, cache_dir: str,
     return each_layer(layers, lambda layer: layer.estimate(grid, cache_dir, update))
 
 
+METRES_PER_DEGREE = 111_320.0   # of latitude, and of longitude at the equator
+
+
+def crs_length(crs, metres: float) -> float:
+    """A length in metres on the axes of a CRS: itself for a projected one, degrees for a geographic one (those of
+    latitude; a square of that many degrees is narrower in longitude away from the equator, never wider). The
+    groups of download_layers are given in metres and laid on the layers' own grids: 3DEP's 1/3 arc-second DEM is
+    on EPSG:4269, where 100 000 "metres" taken as degrees put every block of a state into one group (Utah's
+    2 385 blocks: one task, 12.7 GB held, nothing written for 25 min; 2026-11-18). A projected CRS is taken to
+    be in metres, as every grouped layer of the catalogue is: one in feet would get groups 3.28 times smaller."""
+    return metres / METRES_PER_DEGREE if rio.crs.CRS.from_user_input(crs).is_geographic else metres
+
+
 def squares(layer: Layer, tiles: Sequence, size_m: float) -> List[list]:
     """The tiles of a layer whose index makes block requests (sources/readers/windows.py) in squares of size_m
-    on their CRS from 0, by the centres of their requests: each square's tiles in their order, the squares in the
-    order of their first tile."""
+    on their CRS from 0 (in the CRS's own unit: _tasks converts a group's metres with crs_length), by the centres
+    of their requests: each square's tiles in their order, the squares in the order of their first tile."""
     found: Dict[tuple, list] = {}
     for tile in tiles:
         r = layer.index.request(tile)
@@ -374,7 +392,7 @@ def squares(layer: Layer, tiles: Sequence, size_m: float) -> List[list]:
 def download_layers(layers: Sequence[Tuple], grid: Grid, cache_dir: str,
                     update: Optional[str] = None, group_m: Optional[float] = None,
                     on_error: Optional[Callable[[Layer, Sequence, Exception], None]] = None,
-                    reencode_cached: bool = True):
+                    reencode_cached: bool = True, listed: Optional[Dict[int, Tuple[list, Optional[str]]]] = None):
     """Download what the layers (layer, label) miss over the grid in one pool of DOWNLOAD_THREADS,
     so a slow tile of one layer does not hold the others: one progress bar for all their tiles,
     a line per layer of how many it has. Each tile under its lock and a slot of its host
@@ -399,7 +417,12 @@ def download_layers(layers: Sequence[Tuple], grid: Grid, cache_dir: str,
     old_encoding) are written again in the current one (reencode_paths), so nothing that reads the cache after
     this call sees a tile of ours in the old encoding. Every search, the web worker's download phase, the quick
     lane and the country prefetch come through here; reencode_cached False (tools/area_download.py, which reads no tile)
-    leaves it to whatever reads them."""
+    leaves it to whatever reads them.
+
+    listed: what Layer.to_download gave for layers the caller asked just before, by id(layer): those are not asked
+    again (tools/area_download.py asks for its counts first; the second question cost a whole area's file checks
+    once more before the first tile). A tile downloaded by another process meanwhile is still skipped: each is
+    checked again under its lock."""
     # The layers' indexes asked at the same time too (a WFS query of geoportal.gov.pl takes
     # seconds), each layer once; the lines in the order of the layers
     entries = [(entry[0], entry[1], entry[2] if len(entry) > 2 else grid) for entry in layers]
@@ -409,7 +432,9 @@ def download_layers(layers: Sequence[Tuple], grid: Grid, cache_dir: str,
     layers = [(layer, label) for layer, label, _ in entries]
     distinct = list({id(layer): layer for layer, _ in layers}.values())
     stopped: Optional[Exception] = None
-    listed = each_layer(distinct, lambda layer: layer.to_download(grids[id(layer)], cache_dir, update))
+    known = listed or {}
+    listed = each_layer(distinct, lambda layer: known[id(layer)] if id(layer) in known
+                        else layer.to_download(grids[id(layer)], cache_dir, update))
     roles = {id(layer): servicecounts.role_of(label) for layer, label in reversed(layers)}  # the first label's
     todo = []
     for layer, (tiles, line) in zip(distinct, listed):
@@ -476,8 +501,8 @@ def _tasks(todo: Sequence[Tuple[Layer, Any]], group_m: Optional[float]) -> List[
             continue
         by_layer.setdefault((id(layer), kind), (layer, kind, []))[2].append(tile)
     for layer, kind, tiles in by_layer.values():
-        if kind == "group":
-            size = group_m
+        if kind == "group":   # given in metres, laid on the layer's own grid
+            size = crs_length(layer.index.request(tiles[0]).crs, group_m)
         else:
             r = layer.index.request(tiles[0])
             size = abs(r.transform.a) * r.shape[1] * SERIAL_SQUARE

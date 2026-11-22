@@ -221,3 +221,64 @@ def test_patch_is_patch_of_lines_square(clip):
         assert len(pr.steep_points(patch)) == pr.OTHER_POINTS
     finally:
         patch.close()
+
+
+def test_rows_of_the_store_and_of_lines_csv(clip, tmp_path, request):
+    """The clip's run read as a run of store wave 4 (its store alone) and as a run of before the store (its text
+    files alone): the same longest line and busiest anchor, each saying which file it read, and nothing written into
+    either run's folder (the store's CSV is exported outside it)."""
+    import tool_runs
+    _, data, meta, a1, a2 = clip
+    run = os.path.join(data, "runs", meta["id"])
+    store = tool_runs.store_only(run, str(tmp_path / "store"))
+    text = tool_runs.text_only(run, str(tmp_path / "text"))
+    before = {folder: tool_runs.snapshot(folder) for folder in (store, text)}
+    import linestore  # the export runs in a child (run_rows): never in this process, whose step 1 is measured
+    export = linestore.export
+    linestore.export = lambda *a, **k: pytest.fail("the store exported in the measuring process")
+    request.addfinalizer(lambda: setattr(linestore, "export", export))
+    assert pr.lines_read(store) == "store" and pr.lines_read(text) == "lines.csv"
+    with pr.run_rows(store) as (rows, source):
+        assert source == "store" and len(list(rows)) == meta["summary"]["lines"]
+    with pr.run_rows(text) as (rows, source):
+        assert source == "lines.csv"
+    assert pr.longest_row(store) == pr.longest_row(text)  # the row's every text, so a tie is broken alike
+    assert pr.longest_line(store) == pr.longest_line(text) and pr.longest_line(store)[:2] == (a1, a2)
+    assert pr.busiest_anchor(store) == pr.busiest_anchor(text)
+    assert {folder: tool_runs.snapshot(folder) for folder in (store, text)} == before
+
+
+def test_rows_of_a_relative_folder_and_a_failing_export(clip, tmp_path, monkeypatch):
+    """run_rows' child exports from the run's absolute folder (a relative --out or --data works as before the
+    child), and a child that fails says why: its stderr's last lines in the error."""
+    import tool_runs
+    _, data, meta, _, _ = clip
+    store = tool_runs.store_only(os.path.join(data, "runs", meta["id"]), str(tmp_path / "runs" / "r"))
+    monkeypatch.chdir(tmp_path)
+    assert pr.longest_row(os.path.join("runs", "r")) == pr.longest_row(store)
+    broken = tmp_path / "runs" / "broken"
+    broken.mkdir()
+    (broken / "lines.arrow").write_bytes(b"not a store")  # and no run.json
+    with pytest.raises(RuntimeError, match=r"(?s)the export of .*broken.* failed \(exit 1\):.*Error"):
+        pr.longest_row(os.path.join("runs", "broken"))
+
+
+def test_a_named_cases_run_in_runs_or_the_reference_folder(tmp_path):
+    """find_run: a named case's run in the data folder's runs/ first, then in the reference folder (the default
+    <data>/local/reference-runs, or one named); neither: the message names both places."""
+    run = pr.CASES["poland-1m"]["run"]
+    data, other = tmp_path / "data", tmp_path / "elsewhere"
+    with pytest.raises(SystemExit) as refused:
+        pr.find_run(run, str(data))
+    message = str(refused.value)
+    assert str(data / "runs" / run) in message and str(data / "local" / "reference-runs" / run) in message
+    for folder in (data / "local" / "reference-runs" / run, other / run):
+        folder.mkdir(parents=True)
+        (folder / "run.json").write_text("{}", encoding="utf-8")
+    assert pr.find_run(run, str(data)) == str(data / "local" / "reference-runs" / run)
+    assert pr.find_run(run, str(data), str(other)) == str(other / run)
+    (data / "runs" / run).mkdir(parents=True)
+    (data / "runs" / run / "run.json").write_text("{}", encoding="utf-8")
+    assert pr.find_run(run, str(data), str(other)) == str(data / "runs" / run)  # runs/ first
+    with pytest.raises(SystemExit, match="reference-dir"):
+        pr.find_run("2026-01-01_000000_none", str(data), str(other))

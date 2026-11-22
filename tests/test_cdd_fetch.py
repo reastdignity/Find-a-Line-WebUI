@@ -400,6 +400,15 @@ def nowhere(monkeypatch):
     monkeypatch.setattr(cf, "SCHEMES", {"https", "http"})  # the fake server speaks http
 
 
+@pytest.fixture(autouse=True)
+def plenty_of_disk(monkeypatch):
+    """Every test: the disk has 1 PB free, so the tool's stop below --min-free-gb (50 GB by default) does not depend
+    on the machine (CI's Windows runner has less than 50 GB free: 64 tests stopped with EXIT_DISK in run
+    44154753311). A test of the disk's limit sets its own disk_usage or a --min-free-gb above 1 PB."""
+    real_usage = cf.shutil.disk_usage
+    monkeypatch.setattr(cf.shutil, "disk_usage", lambda path: real_usage(path)._replace(free=10 ** 15))
+
+
 @pytest.fixture
 def fake(monkeypatch):
     server = Fake()

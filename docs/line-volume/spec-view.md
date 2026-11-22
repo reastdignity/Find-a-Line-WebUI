@@ -274,6 +274,33 @@ and its phone frames). Every count below is of the lines that pass the filters.
 15. **The tight mark**: as A.2, in rows, the table of spots, "Lines from here" and details; key lines under each list.
 16. **Empty**: "No spots in view. Zoom out or move the map." on the map.
 
+**As built in round 4** (70bef24 the map, d0553d7 the list; behind the flag of B.10):
+- **The phone.** The view opens with the sheet low, and the legend folds itself while the sheet stands at half or
+  higher (the user, 2026-11-17: "2.a"). The low sheet is 132 px and holds its whole head: the handle, the hint (first,
+  as item 12 says), the head row. "Legend" is never disabled: where the legend has no room a press lowers the sheet
+  and unfolds it there, and where even the low stop has no room it opens as a panel above the map's controls; the
+  access mark's key opens as such a panel on a phone (the planner).
+- **"Lines from here"** is derived again only when the numbers of its rows could change, not at every move of the map.
+- **"Top level only"** has singular forms of item 14's two sentences: "Top level only is on: 1 of {m} lines hangs
+  lower on the same face and is hidden. Press the chip to see it." and "Top level only is off: the 1 line that hangs
+  lower on the same face is shown too." (the user, 2026-11-17: "6. ok").
+- **The focus** (the planner): repaired once, when the focused element leaves the page, to the next sensible place
+  (never the body), and never by a later selection; a press on the map or a row by mouse or touch moves no focus.
+- **Not in 3b:** the search area's dashed outline (step 3c with today's other features, the user: "4. a"); the rest
+  of B.9's wave 4. The view's controls under 44 px on a phone and its text under 12 px (docs/DESIGN.md R1, R2) stay
+  until step 3c (the user: "2. a"); the design review's other findings are step 3c's list in `docs/roadmap.md`.
+
+**As built in the UX pilot (2026-11-18)** (branch ux-pilot-view; docs/DESIGN.md "The pilot's look"):
+- A press on "Legend" at half lowers the sheet whenever the whole legend does not fit at that stop.
+- A phone held sideways in the phone layout: the zoom and the layers stand in the level switch's row.
+- The desktop layout in any window too short for its legend (a phone held sideways, a short desktop window; a finger's
+  or a mouse's): the legend folds behind "Legend" when the foot's column would reach the top controls, the zoom's
+  + and − stand across and the data credits fold behind "Data credits", as on a phone.
+- The legend lists "P1 pick" whenever "Start here" has a pick in view, drawn or not: a stated exception to item 8's
+  "exactly the shapes on the map now", because the pick's line is on the map even when its diamond is left out.
+- The list's follow on a selection from the map or the table of spots: the "Best in view" row when the spot has one
+  there, else the tree's row; a selection made by pressing a row keeps that row in view.
+
 **What the app needs that the mock-up does not have** (the mock-up says "Fake" or "Not here"): loading the run (G-06
 a: `spec-store.md`; the load progress of `RunLoading.tsx` stays); the map's real projection (in-view and squares in
 the run's CRS metres, as the lines are stored); base layers, orthophoto, the shore and coarser overlays (their boxes
@@ -309,6 +336,13 @@ memory grows with the square of the number of spots (10 000 spots: about 0.8 GB 
 (measured by view B1; at least the goal case's 8 269) Ward runs on an even sample of that many spots and every
 other spot joins the nearest sector (the user, 2026-11-16: "Sample (Recommended)"). No reference run reaches the cap
 (the largest has 3 067 spots).
+**As built** (39785f8; `docs/performance.md` "The result view's columns"): the cap is `mapping.SECTOR_WARD_SPOTS` =
+10 000, the largest whose extra peak stays under 900 MB (808 MB above it, 800 MB at it), so the goal case's 8 269
+spots stay exact; caps of 4 000 to 7 000 would move about 10 % of the goal case's spots to another sector and change
+two sector words. `top` keeps 37 162 of 43 127 lines (86.2 %) on BAH with the square rule, and 0 lines differ from
+`tools/prune_study.py`'s `higher_wins` there. The head's keys: `sectors` (`{word, spots}` in sector order), `box`,
+`lengths`. `search.memory_needed` counts the clustering since dfb3fc3: 8 B × min(lines, 10 000)² (the user,
+2026-11-17).
 In the browser, at every filter or view change: the shown line per spot (its first passing line), not beaten, in
 view, best N, squares, picks, numbers, the fan, the table of spots.
 Pairs (`.claude/rules/run-files.md`): "`mapping.group_lines` … and `groupLines` …: the browser must produce the same
@@ -321,6 +355,11 @@ order inside a spot (Python, `by_spot`) and the page's "first line" and "not bea
 No command-line option, no `SearchParams` field, no route of its own (the store's routes are in `spec-store.md`).
 Texts: every quoted text of B.2 into `locales/en.json`, the word "spot", "athlete" for the person on the line. Browser
 storage: the list's sort and the hint's state under a new key (try/catch).
+**As built** (round 4): the texts of B.2 are `ui.view.*`. Texts the view needed that this specification has none for,
+approved by the user (2026-11-17: "1. ok"): "How many of the best in view are drawn" (Best's help), "How much the map
+draws" (the level switch), "Lines" and "Lines · {n}" (the list's panel and rail), "The selected line" and "Line
+details" (the details' panel and rail), "Spot {label}", "Results" (the phone's sheet), "{n} line" / "{n} lines". The
+browser keeps `findaline.view.v1` ({sort, hint}) and the flag `findaline.view` (B.10).
 
 ### B.5 Files and pairs
 `viewer/src/result/` (`model.ts` for spots, order, filters, the shown line; `ResultMap.ts` the canvas: levels,
@@ -332,6 +371,15 @@ selected line), `coverage-map.md` (the squares' `--layer-1..5` tokens are the la
 **Round 4 (the planner, with the user's "1.a" of B.10):** until the view is complete it is built in new files beside
 today's page (`result/viewgeom.ts`, `result/spots.ts`, `result/SpotMap.ts`, `result/view/MapBar.tsx`,
 `result/view/Spot*.tsx`) and joined with today's files when today's page goes.
+**As built** (70bef24, d0553d7): also `result/view/Shape.tsx`, `FanPanel.tsx`, `Hint.tsx`, `ViewFilters.tsx`,
+`viewstate.ts`, `mapbar.css`, `view.css`; today's files gained only exports (`MainEditor`, `WhyBox`, `AccessBlock`)
+and `MoreFilters`' `grouping` prop. The page has no projection library: a run's grid metres and the map's degrees are
+joined by a polynomial fitted to the run's own anchors, of the lowest degree 1 to 3 whose farthest anchor lies within
+0.5 m of its stored place, every point clamped to the anchors' box with a margin (`viewgeom.ts`; the user,
+2026-11-17: "8. fit"); measured: BAH degree 1 with 0.056 m, the goal case degree 2 with 0.008 m. Tests:
+`tests/test_view_units.py`, `tests/test_view_list_units.py` (Node), `tests/test_shell_c_view_map.py`,
+`tests/test_shell_c_view_list.py` (Playwright: the desktop, the iPhone 13 and Pixel 7 profiles); `tools/ui_shots.py`
+has the view's 17 states.
 
 ### B.6 Screens (the mock-up's states; desktop 1400 × 900, phones 390 and 412, light and dark)
 First view, Zoomed in: spots, Close: lines, Best 30, All: too many, Lines held far out, A spot selected, Lines from
@@ -365,7 +413,8 @@ Python: sectors and `top` equal `tools/prune_study.py`'s rule on a made-up table
   Lines Best 10; MGp 219 / 758 / 878; never more than 5 000 (counted on version 7 by the mock-up's agent). Target
   (the user, 2026-11-16: "3. a", as the accepted mock-up counts): never more than 5 000 thin lines at the Lines
   level, the bold and pale lines on top; counted by the page's own count in the test, and the first build reports
-  the largest count of strokes on the goal case.
+  the largest count of strokes on the goal case. Reported (round 4, B2): 9 553 strokes with Lines held far out and
+  Best 100, nearly all of them pale; Lines with All was refused in every state tried on the goal case.
 - T6 (a filter or grouping change at most 0.3 s, desktop) and redraw: the mock-up's redraw script time 0.2-1.6 ms
   desktop, 1.2-6.4 ms phone 390 slowed 4 times; to the second frame 26-31 ms desktop, 27-137 ms phone (indicative).
   On the goal case (GZ1 with the square rule, 503 651 lines) a filter change recomputes every line: measure with
@@ -378,6 +427,25 @@ Python: sectors and `top` equal `tools/prune_study.py`'s rule on a made-up table
   unchanged. The result view groups nothing in the page (B.3: the spots and `by_spot` are stored), which is the
   planned answer to both; measured again when wave 2 below reads them. The iPhone was tested only as a WebKit
   profile on Windows, never on a device.
+- **Measured on the view** (round 4, 2026-11-17, the user's "9. exclusive ok"): `tools/perf_run_load.py --interact`,
+  one pass under the exclusive lock on B3's tree before its last fix round (633e4a8), desktop Edge only, no move of
+  the map, no phone profile. The view: medians of 3 rounds (some ranges in brackets); today's page: one round. A
+  change is timed to the second frame after it; the filter is a clearance of at least 2 m.
+
+  | Run (lines) | Page | First picture, s | Heap, MB | Longest task, ms | Filter on, ms | Filter off, ms | "Top level only" off / on, ms (today: grouping wider / back) | Lines from here, ms |
+  |---|---|---|---|---|---|---|---|---|
+  | BAH with the square rule (43 127) | view | 0.41 (0.37-0.95) | 20 | 107 | 33 | 34 | 33 / 33 | 34 |
+  | | today | 0.40 | 26 | 114 | 45 | 43 | 38 / 39 | – |
+  | the goal case (503 651) | view | 0.98 (0.92-2.74) | 111 | 239 | 55 | 62 | 70 / 51 | 33 |
+  | | today | 1.48 | 169 | 739 | 487 | 703 | 586 / 710 | – |
+  | BAH (2 010 351) | view | 2.22 (2.22-2.23) | 273 | 770 | 217 (211-249) | 263 (252-269) | 335 / 404 | 35 |
+  | | today | 3.41 | 468 | 2 235 | 2 038 | 2 201 | 1 799 / 2 619 | – |
+
+  Best 30 and 10, a level held, Auto again and "Lines from here" closed: 33-45 ms on every run (one frame). So at
+  BAH the view meets T5 (2.22 s, 273 MB) and T6 for a filter (217-263 ms), not for "Top level only" (335-404 ms).
+  Today's page reads 2.0-2.2 s for a filter here against 1.2 s in round 3 (above), which another script measured
+  (`docs/performance.md` "From the store"): the two are not compared. Not measured: a phone, WebKit, a move of the
+  map on a large run.
 - T9 (local density): not set in the sources (gate 1: "to be set once measured"); item B-6.
 
 ### B.9 Waves (after the store of G-06 a, `spec-store.md` wave 2)
@@ -391,7 +459,9 @@ Python: sectors and `top` equal `tools/prune_study.py`'s rule on a made-up table
 
 Round 4 builds 2 and 3. Its plan moves two things: wave 2 also takes the base layers and overlays of 4 (the numbers
 must avoid the real controls), and each wave ports its own checks of 5; 5 keeps the review on three devices and the
-change of the default.
+change of the default. **Built** (2026-11-17, behind the flag): wave 1 (39785f8), wave 2 (70bef24), wave 3
+(d0553d7). Waves 4 and 5 are steps 3c and 3d of `spec.md` section 5; step 3c also takes the design review's list
+(`docs/roadmap.md`).
 
 The access mark (built on today's page in round 3) has parts that wait for this view: A1 and A2 carrying the state,
 the column "Far end" of "Lines from here", the three marks in the map's legend, the fifth "Start here" pick "From a
@@ -410,6 +480,14 @@ shows them in this view's frame). They belong to waves 2 and 3 above.
 - **How the unfinished view lives in `main`** (the user, 2026-11-16: "1.a"): behind a flag. `?view=b` in the
   address sets it in the browser's storage and `?view=today` clears it; without it every run opens in today's page
   and today's tests stay as they are. The default changes when the view is complete (wave 5).
+  **As built** (70bef24): `?view=b` sets `localStorage["findaline.view"] = "b"`; the view opens only on a run whose
+  store has the view's columns, a head that holds together with them and a grid the fit reaches (`spots.ts`
+  `viewOf`); any other run opens in today's page.
+- **The fit** (the user, 2026-11-17: "8. fit"): no projection library. A run whose grid no polynomial of B.5 (degree
+  3 at most) reaches within 0.5 m both ways opens in today's page; the runs measured in B.5 fit within 0.06 m.
+- **Tile lines at quarter zoom steps:** between two whole zoom levels the base map's tiles show thin lines between
+  them (a cost of the quarter steps, B.2 item 1; they stay with the canvas removed). Accepted for now (the user,
+  2026-11-17: "3. a"), and again after trying the view ("ok, looks good").
 
 ### B.11 Needs the user's word
 - **B-1. Which rule is the top-level flag: decided, K-17 'Higher wins on a face'** (the user, 2026-11-14: "2. a) .
@@ -424,8 +502,10 @@ shows them in this view's frame). They belong to waves 2 and 3 above.
   (gate 1's D4). Recommendation: drawn apart as today's overlay, not counted in best N.
 - **B-5. "Open spot" before the cards' mock-up:** the door hidden, or it selects the spot. Recommendation: hidden.
 - **B-6. A number for T9 (local density of the first view):** none set; the 5 000-line limit and Best 10 stand in.
-- **Decided in round 4 (2026-11-16):** the nine points of the view's technical plan and the sectors of a run with
-  very many spots (`spec.md` 6.6), applied in B.2, B.3, B.8 and B.10 above.
+- **Decided in round 4 (2026-11-16 and 2026-11-17):** the nine points of the view's technical plan, the sectors of a
+  run with very many spots, the phone's start and the legend's fold, the singular sentences, the fit, the texts
+  without a source, the sizes left to step 3c and the tile lines (`spec.md` 6.6), applied in B.2 to B.5, B.8 and B.10
+  above.
 
 ## C. The audit's reading choices (part P2, the audit tool's report) against the page and the view
 

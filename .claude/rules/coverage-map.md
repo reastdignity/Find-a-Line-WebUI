@@ -18,7 +18,8 @@ What each part holds: docs/code-map/viewer.md (`coverage/`) and docs/code-map/to
   and a row in `tools/area_rows.py` (a new country's title in `COUNTRIES`, a territory's parent in `PARENTS`, a region
   on another continent in `REGION_CONTINENTS`, a new continent in `CONTINENTS`: `tests/test_area_rows.py::test_every_area_of_the_map_is_a_row`; the counts per continent
   and country in `tests/test_area_download_tui.py`, which runs only with the TUI group; a row's name and title never
-  change) (`tools/coverage_shapes.py`; an area without an admin-1 unit of its own is cut from its country's or unit's
+  change; the states of the USA and the provinces of Canada are rows of `area_rows.PARTS` only, never areas of the
+  map: one source per area) (`tools/coverage_shapes.py`; an area without an admin-1 unit of its own is cut from its country's or unit's
   outline by a box, `CUT`, and gets a code of ours where ISO 3166-2 has none: `de-hb-bhv`, `pt-30-ps`; `shapes.json`
   is LF everywhere (`.gitattributes`) and copied byte for byte to `dist/coverage-shapes.json`), a new region area
   `region.<id>`, a new note or survey code `note.<code>`/`survey.<code>`, in both `locales/coverage/en.json` and
@@ -29,3 +30,11 @@ What each part holds: docs/code-map/viewer.md (`coverage/`) and docs/code-map/to
   docs/images/coverage-* again (`STORIES`, `LENGTHS`, `FORMATS` and `GROUPS` of the tool repeat `FAL_MEDIA`'s lists:
   it stops when they differ); a change of the 30 m comparison is `tools/coverage_contrast.py` and the roadmap's table
   of priority 2.
+- The page's phone tests (`coverage/page`): the list as rows and the card as a sheet share one query, `AreaList.tsx`
+  `PHONE` = `page.css`'s `@media (max-width: 699px)` blocks (`CoveragePage.tsx` `pick` asks it too: a sheet keeps the
+  list's place, a card in the map's box scrolls to the map); the header's own test is wider, `(max-width: 699px),
+  (pointer: coarse) and (max-height: 480px)` (its second half as `app/PlaceMap.ts` `PHONE`). A list row stays
+  unpositioned (no `position`, no `z-index`): the card's sheet lives in `.cov-mapbox`'s isolated box and would be
+  painted under it (`tests/test_coverage_page_layout.py::test_row_press_keeps_the_place_on_a_phone`). A country of
+  coverage.json's `partly` that is no area has a row "(rest of the country)" in both list forms: the tests count
+  areas + those + 1.

@@ -1,7 +1,9 @@
-// A download with its progress (a run's data.js, the 3D view's patch) by XMLHttpRequest, not a fetch's streamed
+// A download with its progress (a run's store, the 3D view's patch) by XMLHttpRequest, not a fetch's streamed
 // body: its progress events count the body's bytes as they come, after any decompression, and headless Edge's
 // virtual time (the tests' --dump-dom) waits for it as for a script, while it runs ahead of a fetch's stream
 // (with no timer left it jumps to its budget's end, and the page never sees the data).
+
+import { t } from "./i18n";
 
 /** web.SIZE_HEADER: a run's script's bytes before compression (nginx gzips it on the fly and drops
  *  Content-Length). */
@@ -19,8 +21,8 @@ export function bodySize(header: (name: string) => string | null): number | null
 
 export interface DownloadOptions {
   headers?: Record<string, string>;
-  /** The answer's headers are in: the body's size when known (bodySize). */
-  onHeaders?(total: number | null): void;
+  /** The answer's headers are in: the body's size when known (bodySize), and the answer's status. */
+  onHeaders?(total: number | null, status: number): void;
   /** Bytes of the body read so far, of `total`; at most every REPORT_MS. */
   onBytes?(done: number, total: number | null): void;
 }
@@ -47,7 +49,7 @@ export function download(url: string, type: "text" | "arraybuffer", options: Dow
     xhr.onreadystatechange = () => {
       if (xhr.readyState !== XMLHttpRequest.HEADERS_RECEIVED) return;
       total = bodySize(header);
-      options.onHeaders?.(total);
+      options.onHeaders?.(total, xhr.status);
     };
     xhr.onprogress = (e) => {
       const now = performance.now();
@@ -59,8 +61,8 @@ export function download(url: string, type: "text" | "arraybuffer", options: Dow
       options.onBytes?.(e.loaded, total);
       resolve({status: xhr.status, body: xhr.response, bytes: e.loaded, header});
     };
-    xhr.onerror = () => reject(new Error("the download of " + url + " failed"));
-    xhr.onabort = () => reject(new Error("the download of " + url + " was stopped"));
+    xhr.onerror = () => reject(new Error(t("ui.download.failed", {url})));
+    xhr.onabort = () => reject(new Error(t("ui.download.stopped", {url})));
     xhr.send();
   });
 }

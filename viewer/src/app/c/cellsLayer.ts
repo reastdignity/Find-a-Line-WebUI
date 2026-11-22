@@ -101,7 +101,7 @@ interface Drawn { polygon: L.Polygon; density: number; cls: number }
 /** The hatching of the partner rows: thin diagonal lines in the ink's colour on a transparent tile (a canvas pattern
  *  given to Leaflet's canvas as a fill: it sets fillStyle to whatever the option holds). */
 function hatchPattern(element: HTMLElement): CanvasPattern | string {
-  const ink = getComputedStyle(element).getPropertyValue("--ink").trim() || "#17201c";
+  const ink = getComputedStyle(element).getPropertyValue("--ink").trim() || "#16262a";
   const tile = document.createElement("canvas");
   tile.width = tile.height = 6;
   const ctx = tile.getContext("2d");
@@ -181,7 +181,7 @@ export class CellsLayer {
     if (!picked) return;
     const style = getComputedStyle(this.map.getContainer());
     const halo = style.getPropertyValue("--halo").trim() || "#ffffff";
-    const ink = style.getPropertyValue("--ink").trim() || "#17201c";
+    const ink = style.getPropertyValue("--ink").trim() || "#16262a";
     this.top.addLayer(L.polygon(picked.shape, {renderer: this.renderer, interactive: false, color: halo, weight: 5, fill: false}));
     this.top.addLayer(L.polygon(picked.shape, {renderer: this.renderer, interactive: false, color: ink, weight: 2.5, fill: false}));
   }

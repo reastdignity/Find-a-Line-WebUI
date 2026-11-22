@@ -4,8 +4,10 @@
 
 import type { ButtonHTMLAttributes, ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { t } from "../i18n";
 import { Hint } from "./Hint";
 import { Icon, type IconName } from "./icons";
+import { radioKeys, radioStop } from "./radios";
 import "./ui.css";
 
 const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(" ");
@@ -20,6 +22,9 @@ export function Screen({theme = "auto", screen = true, class: cls, children}:
   return <div class={cx("ui", screen && "u-screen", cls)} data-theme={theme === "auto" ? undefined : theme}>
     {children}</div>;
 }
+
+/** The media query of a touch screen (its main pointer coarse): texts say "tap" there, not "click", and no key. */
+export const TOUCH = "(pointer: coarse)";
 
 /** Whether a media query matches, following its changes. */
 export function useMedia(query: string): boolean {
@@ -68,11 +73,17 @@ export function IconButton({icon, label, on, expanded, plain, round, fav, class:
     <Icon name={icon} fav={fav} /></button>;
 }
 
+/** The close of a box: one plain icon button, 24 px (44 px on a touch screen); `label` its name and tooltip. */
+export function CloseButton({label, class: cls, ...rest}: {label: string; class?: string}
+                            & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "icon" | "class">) {
+  return <IconButton icon="close" label={label} class={cx("u-x", cls)} {...rest} />;
+}
+
 // ---- chips and choices -----------------------------------------------------------------------
 
 /** A chip: a toggle (`on`), a removable value (`onRemove`) or a dashed "add" button (`add`); `expanded`:
  *  its click opens a panel (aria-expanded instead of aria-pressed). */
-export function Chip({on, add, icon, onClick, onRemove, removeLabel = "Remove", expanded, children}:
+export function Chip({on, add, icon, onClick, onRemove, removeLabel = t("ui.common.remove"), expanded, children}:
                      {on?: boolean; add?: boolean; icon?: IconName; onClick?: () => void; onRemove?: () => void;
                       removeLabel?: string; expanded?: boolean; children?: ComponentChildren}) {
   const className = cx("u-chip", on && "u-on", add && "u-add");
@@ -95,25 +106,29 @@ export function Chips({children}: {children?: ComponentChildren}) {
 
 export interface Option<T extends string> { value: T; label: string; icon?: IconName }
 
-/** One of a few choices (a radio group). */
+/** One of a few choices (a radio group: one Tab stop, the arrows move and choose; radios.ts). */
 export function Segmented<T extends string>({options, value, onChange, label}:
                                             {options: Option<T>[]; value: T; onChange: (value: T) => void; label?: string}) {
-  return <div class="u-seg" role="radiogroup" aria-label={label}>
-    {options.map((o) => <button type="button" key={o.value} role="radio" aria-checked={o.value === value}
-                                class={o.value === value ? "u-on" : ""} onClick={() => onChange(o.value)}>
+  const stop = radioStop(options.length, options.findIndex((o) => o.value === value));
+  return <div class="u-seg" role="radiogroup" aria-label={label} onKeyDown={radioKeys}>
+    {options.map((o, i) => <button type="button" key={o.value} role="radio" aria-checked={o.value === value}
+                                   tabIndex={i === stop ? 0 : -1}
+                                   class={o.value === value ? "u-on" : ""} onClick={() => onChange(o.value)}>
       {o.icon && <Icon name={o.icon} />}{o.label}</button>)}
   </div>;
 }
 
 // ---- panels and fields -----------------------------------------------------------------------
 
-/** A raised card; `padded` lays its children out in a column with gaps. */
-export function Panel({title, actions, padded = true, class: cls, children}:
-                      {title?: ComponentChildren; actions?: ComponentChildren; padded?: boolean; class?: string;
-                       children?: ComponentChildren}) {
-  return <section class={cx("u-panel", padded && "u-pad", cls)}>
+/** A section of a page, on the ground (R8: no box; a thin rule parts it from the section above; ui.css .u-ground);
+ *  `padded` lays its children out in a column with gaps. `raised` for one that lies over a map or other content (the
+ *  class u-panel alone: the surface and its shadow, as the popovers). `page`: its title is the page's (.u-title). */
+export function Panel({title, actions, padded = true, raised = false, page = false, class: cls, children}:
+                      {title?: ComponentChildren; actions?: ComponentChildren; padded?: boolean; raised?: boolean;
+                       page?: boolean; class?: string; children?: ComponentChildren}) {
+  return <section class={cx("u-panel", !raised && "u-ground", padded && "u-pad", cls)}>
     {(title || actions) && <div class="u-panel-head">
-      {title && <h2 class="u-h">{title}</h2>}{actions && <div class="u-row">{actions}</div>}</div>}
+      {title && <h2 class={cx("u-h", page && "u-title")}>{title}</h2>}{actions && <div class="u-row">{actions}</div>}</div>}
     {children}
   </section>;
 }
@@ -154,10 +169,10 @@ export function RangePair({low, high, min, max, step = 1, onInput, label = ""}:
                            onInput: (low: number, high: number) => void; label?: string}) {
   return <div class="u-range2">
     <i style={{left: fill(low, min, max), width: `calc(${fill(high, min, max)} - ${fill(low, min, max)})`}} />
-    <input type="range" class="u-range" aria-label={`${label} minimum`.trim()} min={min} max={max} step={step} value={low}
+    <input type="range" class="u-range" aria-label={t("ui.kit.minimum", {label}).trim()} min={min} max={max} step={step} value={low}
            onInput={(e) => { const v = Math.min(Number(e.currentTarget.value), high); e.currentTarget.value = String(v);
                              onInput(v, high); }} />
-    <input type="range" class="u-range" aria-label={`${label} maximum`.trim()} min={min} max={max} step={step} value={high}
+    <input type="range" class="u-range" aria-label={t("ui.kit.maximum", {label}).trim()} min={min} max={max} step={step} value={high}
            onInput={(e) => { const v = Math.max(Number(e.currentTarget.value), low); e.currentTarget.value = String(v);
                              onInput(low, v); }} />
   </div>;
@@ -165,16 +180,17 @@ export function RangePair({low, high, min, max, step = 1, onInput, label = ""}:
 
 // ---- status ----------------------------------------------------------------------------------
 
-export type Status = "running" | "done" | "waiting" | "failed" | "shared";
-const STATUS: Record<Status, [string, IconName]> = {
-  running: ["running", "refresh"], done: ["done", "check"], waiting: ["waiting", "clock"], failed: ["failed", "warn"],
-  shared: ["shared", "link"],
+export type Status = "running" | "done" | "waiting" | "failed" | "cancelled" | "shared";
+// cancelled: the user's own act, not a failure: quiet (the grey of waiting), the cancel action's icon. The words:
+// ui.kit.status.<status>
+const STATUS: Record<Status, IconName> = {
+  running: "refresh", done: "check", waiting: "clock", failed: "warn", cancelled: "close", shared: "link",
 };
 
 /** The state of a search or run as a small coloured label. */
 export function StatusChip({status, children}: {status: Status; children?: ComponentChildren}) {
-  const [text, icon] = STATUS[status];
-  return <span class={`u-st u-${status}`}><Icon name={icon} />{children ?? text}</span>;
+  return <span class={`u-st u-${status}`}><Icon name={STATUS[status]} />
+    <span class="u-st-word">{children ?? t(`ui.kit.status.${status}`)}</span></span>;
 }
 
 /** A progress bar: `value` from 0 to 1, or null while the amount is unknown. */
@@ -202,7 +218,7 @@ export interface NavItem<T extends string> { value: T; label: string; icon: Icon
 /** The navigation on phones, at the bottom of the screen. */
 export function BottomNav<T extends string>({items, value, onChange}:
                                             {items: NavItem<T>[]; value: T | null; onChange: (value: T) => void}) {
-  return <nav class="u-bnav" aria-label="Main">
+  return <nav class="u-bnav" aria-label={t("ui.kit.nav")}>
     {items.map((it) => <button type="button" key={it.value} class={cx("u-bnav-item", it.value === value && "u-on")}
                                aria-current={it.value === value ? "page" : undefined} onClick={() => onChange(it.value)}>
       <Icon name={it.icon} />{it.label}
@@ -222,6 +238,11 @@ function snapHeight(snap: Snap, height: number, peek: number, top: number): numb
   return Math.max(Math.min(peek, height), height - top);
 }
 
+/** A sheet's height in words for its handle's name (a screen reader's): low, half height, full height (the user's
+ *  answer of 2026-11-21: not the code's "peek"). */
+const stateWord = (snap: Snap) => snap === "peek" ? t("ui.kit.sheet_state.peek")
+  : snap === "half" ? t("ui.kit.sheet_state.half") : t("ui.kit.sheet_state.full");
+
 /** A bottom sheet (the phones' result, the kit's demos): peek, half or full height, dragged by its handle
  *  (pointer events, so touch too), or moved one state with a click or the arrow keys. Its position is
  *  absolute in the nearest positioned ancestor (the map's container), whose height the states divide; at full it
@@ -237,6 +258,7 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
   const [drag, setDrag] = useState<{start: number; from: number; height: number} | null>(null);
   const [dragHeight, setDragHeight] = useState<number | null>(null);
   const [box, setBox] = useState(0);  // the container's height
+  const [scrolled, setScrolled] = useState(false);  // the body scrolled: a shadow under the head marks its edge
 
   useEffect(() => {
     // The positioned ancestor, not the parent: that may have no box (display: contents)
@@ -277,9 +299,10 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
     }
     set(best);
   };
-  return <section ref={ref} class={cx("u-sheet", `u-${current}`, drag && "u-dragging")} aria-label={label}
+  return <section ref={ref} class={cx("u-sheet", `u-${current}`, drag && "u-dragging", scrolled && "u-scrolled")}
+                  aria-label={label}
                   style={box ? {height: `${height}px`} : undefined}>
-    <button type="button" class="u-sheet-handle" aria-label={`${label}: ${current}; drag or press to resize`}
+    <button type="button" class="u-sheet-handle" aria-label={t("ui.kit.sheet_handle", {label, state: stateWord(current)})}
             aria-expanded={current !== "peek"}
             onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
             onKeyDown={(e) => {
@@ -289,7 +312,8 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
             onClick={(e) => { if (e.detail === 0) set(current === "full" ? "peek" : SNAPS[SNAPS.indexOf(current) + 1]); }} />
     {header && <div class="u-sheet-head">{header}</div>}
     {/* At peek the body is cut off: inert, so Tab does not walk into controls nobody sees */}
-    <div class="u-sheet-body" inert={current === "peek" && !drag ? true : undefined}>{children}</div>
+    <div class="u-sheet-body" inert={current === "peek" && !drag ? true : undefined}
+         onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>{children}</div>
   </section>;
 }
 

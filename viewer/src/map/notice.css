@@ -1,0 +1,23 @@
+/* A run's map.html opened from disk (file://): the disk notice (mapping.MAP_HTML, #disk-notice) over the whole
+   window, the run's name, the sentence and the command on its own line (the accepted preview, 2026-11-17 "2. a").
+   Over http(s) the bundle marks the page served before the notice is parsed, so it never shows there. Sizes from
+   DESIGN.md's scales: type R5, radius R6, spacing R7. */
+.fal-served #disk-notice { display: none; }
+
+/* The text as the app's (.ui of ui/ui.css: 14 px, var(--font), var(--ink) on var(--bg)) */
+.fal-disk {
+  position: fixed; inset: 0; overflow: auto; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+}
+.fal-disk-box { width: 100%; max-width: 576px; }
+.fal-disk-name {
+  margin: 0 0 12px; font: 600 var(--fs-7)/1.2 var(--display); overflow-wrap: anywhere;
+}
+.fal-disk-text { margin: 0 0 8px; color: var(--ink-2); }
+/* The command wraps at the box's edge, never preferably at the id's hyphens (a line-end hyphen read as a hyphenation
+   when typed by hand): the whole command stays in view, and a click selects all of it (Safari needs the prefix) */
+.fal-disk-command {
+  margin: 0; padding: 12px 16px; border: 1px solid var(--rule); border-radius: var(--r-2); background: var(--surface);
+  font: var(--fs-3)/1.5 var(--mono); white-space: pre-wrap; word-break: break-all;
+  -webkit-user-select: all; user-select: all;
+}

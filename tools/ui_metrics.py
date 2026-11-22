@@ -10,14 +10,16 @@ are parameters). Two commands, each writing JSON and a Markdown summary into --o
     python tools/ui_metrics.py pages --out <folder> --summarise [--controls 40] [--text 11]   (from a kept log)
 
 "static" reads the source only (static.json, static.md): in the CSS of viewer/src every distinct font size (also of
-the `font:` shorthand), border radius and z-index, the colour literals (hex, rgb(), hsl()) outside ui/tokens.css (and,
+the `font:` shorthand), border radius and z-index, the px lengths of padding, margins and gaps with those off R7's
+steps (R7_STEPS, up to 32 px; a length inside calc() or env() is not counted), the colour literals (hex, rgb(), hsl()) outside ui/tokens.css (and,
 apart, in the .ts/.tsx code), the uses of the monospace font with their uppercase ones; "the same grey box" (selectors
 with a surface background, a 1 px border in var(--line), a radius of 8 px or more and var(--shadow), their rules
 merged per selector: a count of rules, not of the places the look appears; "pages" counts those); the characters
 used as icons or joints (ICON_CHARS) in the code (comments and regular expressions left out; inside an aria-label or
 a title listed apart as not shown; the demo pages DEMO_FILES left out unless --with-demos), in CSS `content:` and in
 locales/en.json, and the "dense strings" (two of them or more, or a "·" joint); the texts of locales/en.json by group
-(words per text) and the .tsx files that hold English text in code without calling t(. CSS is read by a small scanner
+(words per text) with those over R10's limits (r10_over: by the key's kind, and R10_BY_ROLE's texts of the catalogues
+of the app and the coverage page by their role) and the .tsx files that hold English text in code without calling t(. CSS is read by a small scanner
 of this file (no CSS parser is installed and none may be added for this tool): nested CSS rules are not parsed (the
 viewer has none), a `font:` whose size is var() or calc() is counted as "unresolved", colours are normalised (#FFF =
 #ffffff, the spaces of rgb()).
@@ -27,7 +29,8 @@ left_out_by_run and shoot_all with `act`: the same site, users, waits and steps;
 a time per folder) and measures each one just where the screenshot would be taken (pages-states.jsonl, one line a
 state as it ends; then pages.json, pages.md). A state whose wait timed out or whose load, steps or measuring failed
 is recorded as not measured, with its reason, and counts in no total; a state the device does not show (a click
-finds nothing) or the run lacks the feature of is recorded as left out, with its reason. Every control's and text's
+finds nothing) or the run lacks the feature of is recorded as left out, with its reason; a state measured while
+the page was still busy at the settle's limit is measured, with that note ("unsettled"). Every control's and text's
 size is kept in the log, so `--summarise` with other `--controls`/`--text` bounds answers them without a new pass
 (pages-c<..>-t<..>.json/.md); the summary also gives the page families by the prefix of their names (FAMILIES).
 The exit code is 1 when a state was not measured or a pass did not finish (as tools/ui_shots.py's after a
@@ -226,6 +229,28 @@ def _px(value: str):
 
 
 COLOUR = re.compile(r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\b|\b(?:rgba?|hsla?)\([^()]*\)")
+# CSS's named colours (CSS Color 4: 148 names; not transparent, currentColor or the system colours): a colour in the
+# CSS also when written so (CSS_COLOUR); the code's colours (_code_colours) stay COLOUR's: English words match there
+CSS_NAMED_COLOURS = (
+    "aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet "
+    "brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue "
+    "darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange "
+    "darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise "
+    "darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen "
+    "fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred "
+    "indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan "
+    "lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen "
+    "lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta "
+    "maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue "
+    "mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin "
+    "navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen "
+    "paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red "
+    "rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue "
+    "slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white "
+    "whitesmoke yellow yellowgreen"
+).split()
+CSS_COLOUR = re.compile(COLOUR.pattern + r"|(?<![\w-])(?:" + "|".join(sorted(CSS_NAMED_COLOURS, key=len, reverse=True))
+                        + r")(?![\w-])", re.I)
 
 
 def _colour(value: str) -> str:
@@ -376,6 +401,56 @@ def text_group(key: str) -> str:
     return "rest"
 
 
+# R10 (docs/DESIGN.md): a text's word limit by its kind (text_group), and for the texts whose key does not say their
+# kind, by their role: (catalogue, key) -> the limit. Words split on spaces. tests/test_words.py fails a text over its
+# limit; "static" counts them (r10_over).
+R10_LIMITS = {"help": 40, "intro": 30, "hint": 25, "error": 30}
+R10_BY_ROLE = {
+    ("locales/en.json", "ui.search.draw_hint"): 25,          # a hint under the drawing tools
+    ("locales/en.json", "ui.osm.intro"): 30,                  # the OSM page's intro paragraph
+    ("locales/en.json", "basic.size.factors"): 40,            # in the size word's "?"
+    ("locales/en.json", "ui.access.easy_means"): 40,          # rows of the access key's "?"
+    ("locales/en.json", "ui.access.cannot_tell_means"): 40,
+    ("locales/en.json", "ui.access.hard_means"): 40,
+    ("locales/en.json", "ui.layer.scale_fit_note"): 25,       # the layer's notes
+    ("locales/en.json", "ui.layer.scale_fixed_note"): 25,
+    ("locales/en.json", "ui.layer.hist.strip_note"): 25,
+    ("locales/en.json", "ui.layer.search_border"): 25,
+    ("locales/en.json", "ui.layer.search_border_any"): 25,
+    ("locales/en.json", "ui.layer.search_partner"): 25,
+    ("locales/en.json", "ui.layer.search_partner_any"): 25,
+    ("locales/coverage/en.json", "page.lead"): 30,            # the coverage page's lead
+    ("locales/coverage/pl.json", "page.lead"): 30,
+}
+
+
+def r10_over(root: str = REPO) -> list:
+    """The catalogue texts over R10's limits: {catalogue, key, kind (a text_group, or "role"), words, limit}, those of
+    locales/en.json by their key's kind first, then R10_BY_ROLE's (a catalogue or key that is missing is skipped)."""
+    out = []
+    path = os.path.join(root, CATALOGUE)
+    texts = json.loads(_read(path)) if os.path.exists(path) else {}
+    for key, value in texts.items():
+        kind = text_group(key)
+        if kind in R10_LIMITS and _words(value) > R10_LIMITS[kind]:
+            out.append({"catalogue": CATALOGUE, "key": key, "kind": kind, "words": _words(value),
+                        "limit": R10_LIMITS[kind]})
+    catalogues = {}
+    for (rel, key), limit in R10_BY_ROLE.items():
+        if rel not in catalogues:
+            full = os.path.join(root, rel)
+            catalogues[rel] = json.loads(_read(full)) if os.path.exists(full) else {}
+        value = catalogues[rel].get(key)
+        if isinstance(value, str) and _words(value) > limit:
+            out.append({"catalogue": rel, "key": key, "kind": "role", "words": _words(value), "limit": limit})
+    return out
+
+
+# R7 (docs/DESIGN.md): the spacing scale's steps in px; a length over 32 px is a layout's, outside the scale
+R7_STEPS = (0, 4, 8, 12, 16, 24, 32)
+SPACING_PROPS = re.compile(r"(padding|margin|gap|row-gap|column-gap)(-(top|right|bottom|left|block|inline)(-(start|end))?)?")
+
+
 JSX_TEXT = re.compile(r">([^<>{}\n=;&|()]*[A-Za-z]{3,}[^<>{}\n=;&|()]*)<")
 JSX_TEXT_END = re.compile(r">\s*([A-Z][a-z]+(?:[ ,.'’-]+[A-Za-z]+)*[.!?:…]?)\s*$", re.M)  # text that goes on below
 ATTR_TEXT = re.compile(r"\b(?:title|aria-label|placeholder|alt|label)=\"([^\"]*[A-Za-z]{2,}[^\"]*)\"")
@@ -413,6 +488,7 @@ def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8, wit
     code_files = _files(root, "viewer/src", (".ts", ".tsx"))
     sizes, radii, radius_lengths, zs = defaultdict(Counter), defaultdict(Counter), Counter(), defaultdict(Counter)
     colours, mono, content_chars = defaultdict(Counter), [], []
+    spacing, spacing_off = defaultdict(Counter), []  # R7: px lengths of padding, margin and gaps (signs dropped)
     merged = defaultdict(list)  # selector -> [(prop, value)] of all its rules
     where = defaultdict(set)  # selector -> files
     for path in css_files:
@@ -421,7 +497,7 @@ def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8, wit
             for prop, value in rule["decls"]:
                 if prop.startswith("--"):
                     if name != TOKENS:  # a custom property's value outside the tokens: its colours count
-                        for m in COLOUR.finditer(value):
+                        for m in CSS_COLOUR.finditer(value):
                             colours[name][_colour(m.group())] += 1
                     continue
                 size = font_size_of(prop, value)
@@ -433,8 +509,17 @@ def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8, wit
                         radius_lengths[token] += 1
                 if prop == "z-index":
                     zs[value][name] += 1
+                if SPACING_PROPS.fullmatch(prop):
+                    for token in value.split():  # a length inside calc() or env() is not one of the property's own
+                        m = re.fullmatch(r"-?(\d*\.?\d+)px", token)
+                        if m:
+                            px = float(m.group(1))
+                            spacing[f"{px:g}px"][name] += 1
+                            if px <= 32 and px not in R7_STEPS:
+                                spacing_off.append({"file": name, "line": rule["line"], "selector": rule["prelude"],
+                                                    "property": prop, "value": token})
                 if name != TOKENS:
-                    for m in COLOUR.finditer(value):
+                    for m in CSS_COLOUR.finditer(value):
                         colours[name][_colour(m.group())] += 1
                 if prop == "content":
                     for c in _decode_css(value):
@@ -526,6 +611,7 @@ def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8, wit
         return sorted(({"value": v, "count": sum(c.values()), "files": dict(sorted(c.items()))}
                        for v, c in counter.items()), key=lambda r: (-r["count"], r["value"]))
     numeric_sizes = sorted({_px(v) for v in sizes if _px(v) is not None})
+    over = r10_over(root)
     return {
         "chars": chars,
         "css_files": len(css_files), "code_files": len(code_files),
@@ -557,6 +643,9 @@ def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8, wit
                 f["file"] for f in tsx if f["english"] and not f["calls_t"] and not f["calls_other"]),
             "two English texts or more, no t(": sorted(f["file"] for f in tsx if f["english"] >= 2 and not f["calls_t"]),
             "no t( at all": sorted(f["file"] for f in tsx if not f["calls_t"])},
+        "spacing": table(spacing), "spacing_uses": sum(sum(c.values()) for c in spacing.values()),
+        "spacing_off_r7": spacing_off,
+        "r10_over": over, "r10_counts": {k: sum(x["kind"] == k for x in over) for k in (*R10_LIMITS, "role")},
     }
 
 
@@ -585,6 +674,12 @@ def static_markdown(r: dict) -> str:
     out += ["", f"## z-index ({len(r['z_index'])} distinct values)", "", "| Value | Declarations | Files |",
             "| --- | --- | --- |"]
     out += [f"| `{x['value']}` | {x['count']} | {files(x['files'])} |" for x in r["z_index"]]
+    out += ["", f"## Spacing ({len(r['spacing'])} distinct px lengths in {r['spacing_uses']} uses; "
+            f"{len(r['spacing_off_r7'])} off R7's steps {', '.join(map(str, R7_STEPS))} px, up to 32 px)", "",
+            "Lengths: " + ", ".join(f"`{x['value']}` {x['count']}" for x in r["spacing"]), "",
+            "| File:line | Selector | Property | Value |", "| --- | --- | --- | --- |"]
+    out += [f"| {x['file']}:{x['line']} | `{x['selector'][:80]}` | {x['property']} | `{x['value']}` |"
+            for x in r["spacing_off_r7"]]
     distinct = r["colours_outside_tokens_distinct"]
     out += ["", f"## Colour literals outside {TOKENS} ({len(distinct)} distinct, "
             f"{sum(sum(c.values()) for c in r['colours_outside_tokens'].values())} uses)", "",
@@ -625,6 +720,11 @@ def static_markdown(r: dict) -> str:
             for g, x in r["texts"].items()]
     out += ["", "The 25 longest:", "", "| Key | Words |", "| --- | --- |"]
     out += [f"| {x['key']} | {x['words']} |" for x in r["longest_texts"]]
+    counts = ", ".join(f"{k} {n}" for k, n in r["r10_counts"].items())
+    out += ["", f"Over R10's limits ({', '.join(f'{k} {n}' for k, n in R10_LIMITS.items())} words; by role: "
+            f"R10_BY_ROLE): {len(r['r10_over'])} ({counts})", "", "| Catalogue | Key | Kind | Words | Limit |",
+            "| --- | --- | --- | --- | --- |"]
+    out += [f"| {x['catalogue']} | {x['key']} | {x['kind']} | {x['words']} | {x['limit']} |" for x in r["r10_over"]]
     out += ["", "## .tsx files with English text in code", ""]
     for name, found in r["tsx_without_t"].items():
         out += [f"- {name}: {len(found)}: " + ", ".join(found)]
@@ -963,7 +1063,11 @@ def measure(page, axe_source: str | None, controls=CONTROL_BOUNDS, text=TEXT_BOU
 
 def _axe_source():
     if not os.path.exists(AXE):
-        print(f"axe-core not found ({os.path.relpath(AXE, REPO)}; `npm ci` in viewer): the axe part is left out")
+        try:
+            where = os.path.relpath(AXE, REPO)
+        except ValueError:  # another drive than the checkout's (Windows): the path as it is
+            where = AXE
+        print(f"axe-core not found ({where}; `npm ci` in viewer): the axe part is left out")
         return None
     return _read(AXE)
 
@@ -973,7 +1077,9 @@ def record_of(row: dict) -> dict | None:
     failed, or any row with a wait that timed out (whatever followed: a later click that then finds nothing on a page
     that never drew is no property of the device), is recorded as not measured ("error": the outcome and its reason)
     and counts in no total; a page left out on a device (a click finds nothing, a "need:" is false) without a timeout
-    as "left_out" with its reason."""
+    as "left_out" with its reason. A state measured while the page was still busy at the settle's limit (ui_shots'
+    row "unsettled": after what, what was busy) is measured and keeps that note ("unsettled"): the summary counts and
+    lists it apart, never as a failure."""
     seconds = {"load": round(sum(row[k] or 0 for k in ("load", "settle", "tiles")), 2),
                "steps": round(sum(s["seconds"] for s in row["steps"]), 2), "measure": round(row["shot"] or 0, 2)}
     record = {"page": row["page"], "device": row["device"], "theme": row["theme"]}
@@ -982,10 +1088,17 @@ def record_of(row: dict) -> dict | None:
     if row["timeouts"]:
         return {**record, "error": "timed out: " + "; ".join(row["timeouts"]), "seconds": seconds}
     if row["outcome"] == "done":
-        return {**record, **row["result"], "seconds": seconds}
+        busy = {"unsettled": row["unsettled"]} if row.get("unsettled") else {}
+        return {**record, **row["result"], **busy, "seconds": seconds}
     if row["outcome"] == "left out":
         return {**record, "left_out": row["reason"] or "left out"}
     return {**record, "error": f"{row['outcome']}: {row['error'] or row['reason']}", "seconds": seconds}
+
+
+def _unsettled_text(unsettled: list) -> str:
+    """ui_shots' notes of a page still busy at the settle's limit, in one line: after what, what was busy."""
+    return "; ".join(f"still busy after {u.get('after', '?')}: {', '.join(u.get('busy') or []) or '?'}"
+                     for u in unsettled)
 
 
 class _Logged(list):
@@ -1006,6 +1119,8 @@ class _Logged(list):
         self.log.write(json.dumps(record, ensure_ascii=False) + "\n")
         self.log.flush()
         what = record.get("error") or ("left out, " + record["left_out"] if "left_out" in record else "measured")
+        if record.get("unsettled"):
+            what += " (" + _unsettled_text(record["unsettled"]) + ")"
         print(f"{record['page']}-{record['device']}-{record['theme']}: {what}", flush=True)
 
 
@@ -1247,6 +1362,10 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS, passes: 
             "states_failed": sum(1 for r in records if "error" in r),
             "states_left_out": sum(1 for r in records if "left_out" in r),
             "left_out": _left_out(records),
+            # measured while the page was still busy at the settle's limit (a note: counted in "states" too)
+            "states_unsettled": sum(1 for r in ok if r.get("unsettled")),
+            "unsettled": [f"{r['page']}-{r['device']}-{r['theme']}: {_unsettled_text(r['unsettled'])}"
+                          for r in ok if r.get("unsettled")],
             "passes_not_finished": [f"{p['device']} {p['theme']}" for p in passes or [] if not p.get("complete", True)],
             "older_definitions": _older(records),
             "bounds": {"controls": list(controls), "text": list(text), "box_min": BOX_MIN}}
@@ -1262,6 +1381,8 @@ def pages_markdown(s: dict) -> str:
                   "No axe result", "Errors"])
     out = ["# UI metrics: pages", "", f"{s['states']} states measured, {s.get('states_failed', 0)} failed, "
            f"{s.get('states_left_out', 0)} left out"
+           + (f"; {s['states_unsettled']} of the measured still busy at the settle's limit (a note)"
+              if s.get("states_unsettled") else "")
            + (f"; passes that did not finish: {', '.join(s['passes_not_finished'])}"
               if s.get("passes_not_finished") else "")
            + (f"; {s['older_definitions']}" if s.get("older_definitions") else "")
@@ -1327,6 +1448,9 @@ def pages_markdown(s: dict) -> str:
         out += ["", f"## Left out ({s['states_left_out']} states: the run or the device does not show them)", ""]
         out += [f"- {page}: {reason} ({', '.join(where)})" for (page, reason), where in
                 ((tuple(k.split(" | ", 1)), v) for k, v in s["left_out"].items())]
+    if s.get("unsettled"):
+        out += ["", f"## Measured while still busy ({s['states_unsettled']} states: a note, not a failure)", ""]
+        out += [f"- {u}" for u in s["unsettled"]]
     errors = [e for r in s["per_device_theme"].values() for e in r["errors"] + [f"axe: {p}" for p in r["axe_errors"]]]
     if errors:
         out += ["", "## Errors", ""] + [f"- {e}" for e in errors]

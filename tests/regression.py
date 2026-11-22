@@ -7,7 +7,7 @@
     python tests/regression.py --all           # everything (R12 only with OPENTOPOGRAPHY_API_KEY)
     python tests/regression.py R1 --update     # store the new results as expected
     python tests/regression.py --write-doc     # rewrite the table in docs/regression-tests.md
-    python tests/regression.py R1 --browser    # also count the spots of the map in a headless browser
+    python tests/regression.py R1 --browser    # also count the spots of the map in a headless browser (the app)
 
 Each test runs with its own temporary data folder (runs, map, work) whose cache/ links
 to the real cache (or to --cache, e.g. an empty folder to test downloads). The project's data
@@ -19,21 +19,21 @@ differs, unless --keep.
 
 What is compared (expected values in regression.json):
 - the counts of the search: anchors, open anchors, checked pairs, lines, spots, water...;
-- the content of the results: the sha256 of lines.csv, with readable totals (length,
-  clearances, lines over trees) that show what changed when the checksum does;
+- the content of the results: the sha256 of the CSV that the export (linestore.export, as a
+  download makes it) writes from the run's store, the bytes the runs' lines.csv held before store
+  wave 4 (a run keeps no text file since), with readable totals (length, clearances, lines over
+  trees) that show what changed when the checksum does;
 - the data: the share of the search area with elevation data before any filling, and
   the tiles without data (a lost tile shows here, e.g. the north coast of Gozo);
-- "same_as": lines.csv identical to that of another test (tiles against one grid);
-- "without_access_as": lines.csv less its columns access1, access2 identical to that of another test (the run
+- "same_as": the CSV export identical to that of another test (tiles against one grid);
+- "without_access_as": the CSV export less its columns access1, access2 identical to that of another test (the run
   without --access), with the marks of the line ends counted ("access_ends": hard access, cannot tell, easy access);
 - "count_anchors_in": osm:<name> or S,W,N,E: the lines with an anchor in it (lines_in_region),
   e.g. the lines reaching an islet.
-Always checked, without expected values: the map data (data.js has every line, profiles
-for every line of a circle whose run.json says "profiles": "all", else for the line shown for
-each group, lines.js
-the same lines), the store (lines.arrow a row per line, profiles.arrow a row per saved profile, and
-the CSV linestore.export makes from it equal to lines.csv byte for byte: its seconds are not the
-test's), and with "check_profiles" that profiles computed again from the cache
+Always checked, without expected values: the store (lines.arrow a row per line of the export,
+profiles.arrow a row per saved profile: for every line of a circle whose run.json says "profiles":
+"all", else for the line shown for each group; the export's seconds are not the test's), and with
+"check_profiles" that profiles computed again from the cache
 (search.profile_of_line) equal the saved ones. A test more than twice as slow as its
 recorded time gets a warning. Tests of kind "osm" compare the theme tiles built from a
 Geofabrik extract with those from Overpass (network).
@@ -93,13 +93,6 @@ def full_args(tests: dict, test_id: str) -> list:
     return base + shlex.split(test["args"])
 
 
-def _script_value(path: str):
-    """The value a data.js / lines.js script assigns."""
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
-    return json.loads(text[text.index(" = {") + 3:].rstrip().rstrip(";"))
-
-
 def measure(output: str, run_dir: str) -> dict:
     found = {}
     for key, (pattern, kind) in PATTERNS.items():
@@ -110,12 +103,16 @@ def measure(output: str, run_dir: str) -> dict:
     for layer, n in re.findall(r"^(.+): (\d+) of \d+ tiles without data", output, re.M):
         empty[layer] = max(empty.get(layer, 0), int(n))
     found["empty_tiles"] = sum(empty.values())
-    files = glob.glob(os.path.join(run_dir, "*", "lines.csv"))
-    if files:
-        with open(files[0], "rb") as f:
-            found["csv_sha256"] = hashlib.sha256(f.read()).hexdigest()
-        with open(files[0], encoding="utf-8-sig") as f:
-            rows = list(csv.DictReader(f))
+    folders = [os.path.dirname(p) for p in glob.glob(os.path.join(run_dir, "*", "run.json"))]
+    table = None
+    if folders:
+        started = time.time()
+        table, found["store_problems"] = check_export(folders[0])
+        found["store_seconds"] = time.time() - started  # not the search's: left out of its seconds
+    if table is not None:
+        found["table"] = table  # the export's text, for count_in_region (popped before results are compared)
+        found["csv_sha256"] = hashlib.sha256(table).hexdigest()
+        rows = list(csv.DictReader(io.StringIO(table.decode("utf-8-sig"), newline="")))
         found["lines"] = len(rows)
         found["spots"] = sum(r["representative"] == "True" for r in rows)
         found["water_lines"] = sum(float(r["water_m"]) > 0 for r in rows)
@@ -129,11 +126,7 @@ def measure(output: str, run_dir: str) -> dict:
         if rows and "access1" in rows[0]:  # --access: the marks of the line ends, and lines.csv without them
             ends = [r[f"access{k}"] for r in rows for k in (1, 2)]
             found["access_ends"] = [ends.count(str(state)) for state in (0, 1, 2)]
-            with open(files[0], "rb") as f:
-                found["csv_sha256_without_access"] = hashlib.sha256(without_access(f.read())).hexdigest()
-        started = time.time()
-        found["store_problems"] = check_export(os.path.dirname(files[0]))
-        found["store_seconds"] = time.time() - started  # not the search's: left out of its seconds
+            found["csv_sha256_without_access"] = hashlib.sha256(without_access(table)).hexdigest()
     return found
 
 
@@ -147,36 +140,39 @@ def without_access(table: bytes) -> bytes:
                          for row in rows)
 
 
-def check_export(folder: str) -> list:
-    """The CSV that linestore.export makes from the run's store is its lines.csv byte for byte (the
-    checksum the regression keeps, docs/line-volume/spec-store.md 1.7): problems as text."""
+def check_export(folder: str) -> tuple:
+    """(the CSV that linestore.export makes from the run's store, as the download of an export makes it:
+    the text whose sha256 the regression keeps, docs/line-volume/spec-store.md 1.7; problems as text). Until
+    store wave 4 every run also wrote its lines.csv, which the export equalled byte for byte on every entry;
+    since then the export is the only text. A run without a store: (None, its problem)."""
     import linestore
     if not os.path.isfile(os.path.join(folder, linestore.LINES_FILE)):
-        return ["the run has no store (lines.arrow)"]
-    out = os.path.join(os.path.dirname(folder), "export.csv")
+        return None, ["the run has no store (lines.arrow)"]
+    out = os.path.join(os.path.dirname(folder), "export.csv")  # beside the run folder, never in it
     try:
         with contextlib.redirect_stdout(io.StringIO()):  # the grouping's progress
             linestore.export(folder, "csv", out)
-        with open(out, "rb") as f, open(os.path.join(folder, "lines.csv"), "rb") as g:
-            same = f.read() == g.read()
+        with open(out, "rb") as f:
+            table = f.read()
     finally:
         with contextlib.suppress(OSError):
             os.remove(out)
-    return [] if same else ["the CSV exported from the store differs from lines.csv"]
+    return table, []
 
 
-def count_in_region(run_dir: str, where: str, cache_dir: str) -> int:
-    """Lines with at least one anchor in a region (area.region: osm:<name> or S,W,N,E)."""
+def count_in_region(table: bytes, where: str, cache_dir: str) -> int:
+    """Lines of the CSV export `table` with at least one anchor in a region (area.region: osm:<name> or S,W,N,E)."""
     import area
     from shapely.geometry import Point
     region = area.region(where, cache_dir)
-    with open(glob.glob(os.path.join(run_dir, "*", "lines.csv"))[0], encoding="utf-8-sig") as f:
-        return sum(any(region.contains(Point(float(r[f"anchor{k}_lon"]), float(r[f"anchor{k}_lat"]))) for k in (1, 2))
-                   for r in csv.DictReader(f))
+    rows = csv.DictReader(io.StringIO(table.decode("utf-8-sig"), newline=""))
+    return sum(any(region.contains(Point(float(r[f"anchor{k}_lon"]), float(r[f"anchor{k}_lat"]))) for k in (1, 2))
+               for r in rows)
 
 
 def check_map(run_dir: str, found: dict) -> list:
-    """The map data and the store agree with lines.csv: problems as text."""
+    """The store agrees with the CSV export: a row of lines.arrow per line, a row of profiles.arrow per saved profile
+    (every line of a circle whose run.json says "profiles": "all", else one per spot): problems as text."""
     import pyarrow as pa
     import linestore
     folders = [os.path.dirname(p) for p in glob.glob(os.path.join(run_dir, "*", "run.json"))]
@@ -193,50 +189,51 @@ def check_map(run_dir: str, found: dict) -> list:
         with contextlib.suppress(OSError), pa.OSFile(os.path.join(folder, name), "rb") as f:
             counts[name] = pa.ipc.open_file(f).read_all().num_rows
     if counts.get(linestore.LINES_FILE) != found.get("lines"):
-        problems.append(f"lines.arrow has {counts.get(linestore.LINES_FILE)} lines, lines.csv {found.get('lines')}")
+        problems.append(f"lines.arrow has {counts.get(linestore.LINES_FILE)} lines, the export {found.get('lines')}")
     if counts.get(linestore.PROFILES_FILE) != wanted:
-        problems.append(f"profiles.arrow has {counts.get(linestore.PROFILES_FILE)} profiles, expected {wanted}")
-    if not os.path.exists(os.path.join(folder, "data.js")):
-        return problems
-    rows = _script_value(os.path.join(folder, "data.js"))["lines"]
-    others = _script_value(os.path.join(folder, "lines.js"))["lines"]
-    if len(rows) != found.get("lines"):
-        problems.append(f"data.js has {len(rows)} lines, lines.csv {found.get('lines')}")
-    profiles = sum(1 for r in rows if r[-1])
-    if profiles != wanted:
-        problems.append(f"data.js has {profiles} profiles, expected {wanted} "
+        problems.append(f"profiles.arrow has {counts.get(linestore.PROFILES_FILE)} profiles, expected {wanted} "
                         f"({'circle' if circle else 'area'}, profiles of {'every line' if every else 'the spots'})")
-    if [r[:-1] for r in rows] != others:  # lines.js: the rows without the profile
-        problems.append("lines.js differs from data.js")
     return problems
 
 
 def check_profiles(run_dir: str, work: str, count: int) -> list:
-    """Profiles computed again from the cache equal the saved ones (the first `count`)."""
+    """Profiles computed again from the cache equal the saved ones (the first `count` lines with a profile, in the
+    store's row order, as data.js held them before store wave 4): the store's anchors (int32 of 1e-7 degree: the
+    doubles of data.js's 7-decimal text) and profiles, each through the JSON text data.js gave it."""
+    import helpers
+    import linestore
     import search
     folder = os.path.dirname(glob.glob(os.path.join(run_dir, "*", "run.json"))[0])
     with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
-    rows = [r for r in _script_value(os.path.join(folder, "data.js"))["lines"] if r[-1]][:count]
+    lines, _ = linestore.read(folder)
+    encoder = json.JSONEncoder(separators=(",", ":"))
     problems = []
-    for row in rows:
+    for k in sorted(lines.profiles)[:count]:
+        saved = json.loads(encoder.encode(helpers.profile_dict(lines.profiles[k])))
+        a1, a2 = (tuple(lines.columns[name][k].tolist()) for name in ("anchor1", "anchor2"))
         paths = search.Paths(os.path.dirname(run_dir), os.path.join(work, "profile-work"))
         os.makedirs(paths.work, exist_ok=True)
         with contextlib.redirect_stdout(io.StringIO()):  # the messages of building the grids
-            again = search.profile_of_line(meta, paths, (row[0], row[1]), (row[2], row[3]))
+            again = search.profile_of_line(meta, paths, a1, a2)
         shutil.rmtree(paths.work, ignore_errors=True)
-        if again != row[-1]:
-            keys = [k for k in row[-1] if again.get(k) != row[-1][k]]
-            problems.append(f"profile of the line at {row[0]:.6f}, {row[1]:.6f} computed again differs in {keys}")
+        if again != saved:
+            keys = [key for key in saved if again.get(key) != saved[key]]
+            problems.append(f"profile of the line at {a1[0]:.6f}, {a1[1]:.6f} computed again differs in {keys}")
     return problems
 
 
 def check_browser(run_dir: str, work: str, found: dict) -> list:
-    """The spot count of the map in a headless browser equals the one of lines.csv."""
+    """The spot count of the map in a headless browser equals the export's: the run's map.html through the local
+    app over http (findaline.py web on a free port of its own, without a worker, stopped afterwards), as a run
+    opens since store wave 4 (from disk a map loads nothing)."""
     browser = next((b for b in BROWSERS if os.path.exists(b) or shutil.which(b)), None)
     if browser is None:
         return ["no headless browser found (Edge or Chrome)"]
-    folder = os.path.dirname(glob.glob(os.path.join(run_dir, "*", "map.html"))[0])
+    maps = glob.glob(os.path.join(run_dir, "*", "map.html"))
+    if not maps:
+        return ["the run has no map.html"]
+    folder = os.path.dirname(maps[0])
     with open(os.path.join(folder, "zz_check.js"), "w", encoding="utf-8") as f:
         # The viewer loads data.js after the page's load event and builds the model after that: asked until shown
         f.write('var zzTries = 0, zzShow = function() {'
@@ -250,16 +247,35 @@ def check_browser(run_dir: str, work: str, found: dict) -> list:
         page = f.read().replace("</body>", '<script src="zz_check.js"></script></body>')
     with open(os.path.join(folder, "zz_check.html"), "w", encoding="utf-8") as f:
         f.write(page)
-    url = "file:///" + os.path.join(folder, "zz_check.html").replace(os.sep, "/")
-    result = subprocess.run([shutil.which(browser) or browser, "--headless", "--disable-gpu",
-                             f"--user-data-dir={os.path.join(work, 'browser-profile')}",
-                             "--allow-file-access-from-files", "--virtual-time-budget=20000", "--dump-dom", url],
-                            capture_output=True, text=True, encoding="utf-8", timeout=300)
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    app = subprocess.Popen([sys.executable, "findaline.py", "web", "--no-browser", "--no-worker", "--port", str(port),
+                            "--data-dir", os.path.dirname(run_dir)], cwd=REPO, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+    try:
+        deadline = time.time() + 120
+        while True:  # until the app answers (it starts in a few seconds)
+            with socket.socket() as s:
+                if s.connect_ex(("127.0.0.1", port)) == 0:
+                    break
+            if time.time() > deadline or app.poll() is not None:
+                return ["the app did not start for the browser check"]
+            time.sleep(0.2)
+        url = f"http://127.0.0.1:{port}/runs/{os.path.basename(folder)}/zz_check.html"
+        result = subprocess.run([shutil.which(browser) or browser, "--headless", "--disable-gpu",
+                                 f"--user-data-dir={os.path.join(work, 'browser-profile')}",
+                                 "--virtual-time-budget=20000", "--dump-dom", url],
+                                capture_output=True, text=True, encoding="utf-8", timeout=300)
+    finally:
+        app.kill()
+        app.wait(30)
     match = re.search(r'id="result">(\d+) spots', result.stdout)
     if not match:
         return ["the map did not show its spots in the browser"]
     if int(match.group(1)) != found.get("spots"):
-        return [f"the map shows {match.group(1)} spots, lines.csv has {found.get('spots')}"]
+        return [f"the map shows {match.group(1)} spots, the export has {found.get('spots')}"]
     return []
 
 
@@ -287,10 +303,11 @@ def run(tests: dict, test_id: str, work: str, cache_dir: str, browser: bool) -> 
     runs = os.path.join(out, "runs")
     found = measure(result.stdout, runs)
     found["exit"] = result.returncode
+    table = found.pop("table", None)
     if not result.returncode:
         problems = found.pop("store_problems", []) + check_map(runs, found)
         if tests[test_id].get("count_anchors_in"):
-            found["lines_in_region"] = count_in_region(runs, tests[test_id]["count_anchors_in"], cache_dir)
+            found["lines_in_region"] = count_in_region(table, tests[test_id]["count_anchors_in"], cache_dir)
         if tests[test_id].get("check_profiles"):
             problems += check_profiles(runs, out, tests[test_id]["check_profiles"])
         if browser:
@@ -409,13 +426,13 @@ def write_doc(tests: dict):
         if e.get("water_lines"):
             also.append(f"{number(e['water_lines'])} lines with `water_m > 0`")
         if test.get("same_as"):
-            also.append(f"lines.csv identical to {test['same_as']}")
+            also.append(f"the CSV export identical to {test['same_as']}")
         if "access_ends" in e:
             hard, unsure, easy = e["access_ends"]
             also.append(f"line ends: {number(easy)} easy access, {number(unsure)} cannot tell, {number(hard)} hard "
                         f"access")
         if test.get("without_access_as"):
-            also.append(f"lines.csv less access1, access2 identical to {test['without_access_as']}")
+            also.append(f"the CSV export less access1, access2 identical to {test['without_access_as']}")
         if test.get("check_profiles"):
             also.append(f"{test['check_profiles']} profiles computed again")
         if "lines_in_region" in e:
@@ -491,12 +508,12 @@ def main():
         if other:
             sha = results.get(other, {}).get("csv_sha256") or tests[other]["expected"].get("csv_sha256")
             if found.get("csv_sha256") != sha:
-                diffs.append(f"lines.csv differs from that of {other}")
+                diffs.append(f"the CSV export differs from that of {other}")
         base = test.get("without_access_as")
         if base:
             sha = results.get(base, {}).get("csv_sha256") or tests[base]["expected"].get("csv_sha256")
             if found.get("csv_sha256_without_access") != sha:
-                diffs.append(f"lines.csv without access1, access2 differs from that of {base}")
+                diffs.append(f"the CSV export without access1, access2 differs from that of {base}")
         status = "ok" if not diffs else "DIFFERENT"
         slow = test.get("seconds") and seconds > SLOWER * test["seconds"] and seconds - test["seconds"] > 5
         print(f"{test_id}: {status} ({seconds:.0f} s" + (f", WARNING: recorded {test['seconds']:.0f} s" if slow else "")

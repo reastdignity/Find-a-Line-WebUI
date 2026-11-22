@@ -18,6 +18,12 @@ days or weeks, so it survives what happens in that time, and can be followed.
   key missing, an index out of reach), a crash ending on the same last line of the log, or an area without data
   (EXIT_NOTHING: no tile under the outline, or every tile without data). At its end a pass counts the tiles the service
   has no data for (the sea), so "done" says what it has.
+- A queue (`run --queue <key>`): the areas of one key download one at a time, in the order their supervisors were
+  started, the others waiting in the stage "queued" (the fifty states of the USA started together: fifty passes
+  would list at once and share the eight connections of their host, each holding its memory). A supervisor takes
+  its turn for a pass and gives it up while it waits for its next one (RETRY_SECONDS), keeping its place; a pass
+  started again at once keeps the turn. One at a time is a lock's rule (_take_turn); the order is the tickets'
+  (_ticket), as good as the waiting supervisors' states.
 
 The state goes to --state-dir: <name>.state.json every STATE_SECONDS (with the pass's memory now and at its peak),
 <name>.history.csv (seconds, tiles, MB, memory GB) and status.html (one page for every area of the folder, for a browser
@@ -25,6 +31,8 @@ from disk) every HISTORY_SECONDS, <name>.log (the passes' output).
 
     uv run tools/area_download.py run poland --area osm:Polska --source geoportal --resolution 1 \\
         --data-dir <data> --state-dir <state> --host-slots opendata.geoportal.gov.pl=2
+    uv run tools/area_download.py run united-states-texas --area "osm:Texas, United States" --source usa \\
+        --resolution 1 --data-dir <data> --state-dir <state> --queue usa
     uv run tools/area_download.py status --state-dir <state> --watch 30
     uv run tools/area_download.py stop poland --state-dir <state>     # `run` again resumes
     uv run --group tui tools/area_download.py tui --settings <file>   # the window: tools/area_download_tui.py
@@ -90,6 +98,9 @@ BIG_PASS_GB = 2.0
 RUNNING_STAGES = ("listing", "downloading")   # the stages of a pass that holds memory (biggest_running)
 RUNNING_STATE_S = 3 * STATE_SECONDS   # a state older than this is no running pass (biggest_running)
 LOG_TAIL_BYTES = 65536      # what the supervisor reads of the log for a crashed pass's last line
+# A queue's supervisors started together (the window starts its ticked rows in a loop) each wait this long before
+# their first try, so that the first started has written its place before a later one finds the queue free
+QUEUE_SETTLE_SECONDS = 5
 FINISHED = ("done", "stopped", "needs attention")
 NO_CONTACT = "no contact in the User-Agent: set the contact in the settings or export FINDALINE_CONTACT"
 
@@ -106,6 +117,7 @@ class Area:
     host_slots: Tuple[Tuple[str, int], ...] = ()
     min_free_gb: float = FREE_GB_MIN
     max_memory_gb: float = 0.0   # a pass over it is started again (EXIT_RESTART); 0: no budget
+    queue: str = ""              # the areas of one queue download one at a time (supervise); "": no queue
 
     def file(self, suffix: str) -> str:
         return state_file(self.state_dir, self.name, suffix)
@@ -406,14 +418,15 @@ def outline(area: Area) -> str:
     return path
 
 
-def plan_of(area: Area):
+def plan_of(area: Area, work: Optional[str] = None):
     """The plan of a search over the whole outline: its layers (terrain, and the surface where the source has one)
-    and its grid, without tiles."""
+    and its grid, without tiles. work: the plan's work folder, when not the data folder's (a measurement that
+    writes nothing there: tools/perf_cached_check.py)."""
     import area as ar
     import search
     import sources as src
     from params import SearchParams
-    work = os.path.join(area.data_dir, "work", f"area-download-{area.name}")
+    work = work or os.path.join(area.data_dir, "work", f"area-download-{area.name}")
     # The outline clipped to the source's coverage boxes (Source.coverage_boxes): the USA's holds Hawaii and
     # islands far off its 1 m DEM; the stored outline (<state>/<name>.geojson) stays as it is
     source = src.SOURCES.get(area.source)
@@ -476,7 +489,9 @@ def _group_m(area: Area, plan) -> float:
     grid's (Luxembourg's and Scotland's 0.5 m float64 files, downloaded at the app's minimum of 1 m: groups of
     10 km took about 5 GB a thread, and the passes were OOM-killed at 17-49 GB on a server of 62 GB without swap,
     Luxembourg 11 times, Scotland 7, New Zealand 6, Wales 2; 2026-11-07). So 10 km at 1 m, 5 km at 0.5 m, 20 km at
-    2 m, by the finest native resolution of the plan's grouped layers (the area's resolution without one)."""
+    2 m, by the finest native resolution of the plan's grouped layers (the area's resolution without one); 100 km
+    for the USA's 10 m stand-in, which download_layers lays on that layer's grid of degrees as 0.9 degrees
+    (sources.layer.crs_length)."""
     import country
     native = [getattr(layer, "native_res", None) for layer in plan.layers if getattr(layer, "groups", False)]
     return country.PREFETCH_GROUP_M * min([r for r in native if r] or [area.resolution])
@@ -504,7 +519,23 @@ def _planned(area: Area) -> List:
 
 
 def run_pass(area: Area, number: int) -> int:
-    """One pass over everything still missing: EXIT_DONE, EXIT_FAILED, EXIT_STOPPED, EXIT_RESTART or EXIT_NOTHING."""
+    """One pass over everything still missing: EXIT_DONE, EXIT_FAILED, EXIT_STOPPED, EXIT_RESTART or EXIT_NOTHING.
+
+    The tiles of a whole area are asked about folder by folder, not file by file (sources.layer.EXISTING: Utah's
+    207 897 on a share took 463 s against 38 s), and the source's own layers once a pass, not twice (_one_pass
+    hands their answers to download_layers): docs/performance.md, "The check of cached tiles". A pass is a process of its own; the
+    setting goes back for whatever else calls this."""
+    import sources as src
+    from sources.indexes import versions
+    before, src.layer.EXISTING = src.layer.EXISTING, versions.existing
+    try:
+        return _one_pass(area, number)
+    finally:
+        src.layer.EXISTING = before
+
+
+def _one_pass(area: Area, number: int) -> int:
+    """run_pass, with the layers' way of asking set."""
     import progress as bars
     import sources as src
     bars.TEXT_INTERVAL = PROGRESS_SECONDS
@@ -513,6 +544,7 @@ def run_pass(area: Area, number: int) -> int:
     failures = Failures(cache_dir)
     code = EXIT_DONE
     plans: List = []
+    asked: List[Dict] = []   # per plan: what each layer's to_download gave, by id(layer)
     with Reporter(area, number, plans, failures) as reporter:
         if not os.environ.get("FINDALINE_CONTACT"):
             print(f"Warning: {NO_CONTACT}", flush=True)
@@ -528,6 +560,7 @@ def run_pass(area: Area, number: int) -> int:
                 print(f"{area.name} ({plan_labels[0]}): {grid.width} x {grid.height} px, listing the tiles", flush=True)
                 # to_download, not Layer.estimate: that opens every cached file of a layer whose index cannot be reached
                 listed = src.layer.each_layer(plan.layers, lambda layer, g=grid: layer.to_download(g, cache_dir, None))
+                asked.append(dict(zip(map(id, plan.layers), listed)))
                 for layer in plan.layers:
                     if layer.tiles(grid) is None:
                         raise Stop(f"the index of {layer.description} could not be reached")
@@ -542,10 +575,13 @@ def run_pass(area: Area, number: int) -> int:
             reporter.state["stage"] = "downloading"
             reporter.write()
             bars.progress.subscribe(reporter)
-            for plan, plan_labels in zip(plans, labels):
-                # reencode_cached False: a pass reads no tile, so those in the old encoding wait for what does
+            for k, (plan, plan_labels) in enumerate(zip(plans, labels)):
+                # reencode_cached False: a pass reads no tile, so those in the old encoding wait for what does.
+                # The first plan's answers are a moment old and are not asked again; a stand-in's were given
+                # before the first plan's whole download (hours), so its layers ask again, as they always did
                 src.download_layers(list(zip(plan.layers, plan_labels)), plan.grid, cache_dir, None,
-                                    group_m=_group_m(area, plan), on_error=failures, reencode_cached=False)
+                                    group_m=_group_m(area, plan), on_error=failures, reencode_cached=False,
+                                    listed=asked[k] if k == 0 else None)
                 reporter.next_plan()
             _count_missing(cache_dir, plans, rows)
             reporter.state["tiles_missing"] = missing = sum(row["missing"] for row in rows)
@@ -629,9 +665,97 @@ def _wait_or_stop(area: Area, seconds: float) -> bool:
     return True
 
 
-def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_SECONDS) -> int:
+def _stopped(area: Area, log) -> int:
+    _say(log, "stopped by hand")
+    _set_stage(area, "stopped", "stopped by hand: `run` resumes")
+    return 0
+
+
+QUEUE_TICKET = "FINDALINE_QUEUE_TICKET"   # the environment's: when what started the supervisor started it
+
+
+def _ticket(area: Area) -> Tuple[float, str]:
+    """The area's place in its queue: when its supervisor was started, then its name. The time is the starter's
+    (QUEUE_TICKET, seconds: the window's, which starts its rows in a loop, so their order is the rows'), else the
+    process's own creation (not this line: supervisors started together reach here in any order; on Linux that
+    time has a resolution of 10 ms, and a tie goes by name)."""
+    try:
+        return float(os.environ[QUEUE_TICKET]), area.name
+    except (KeyError, ValueError):
+        return psutil.Process().create_time(), area.name
+
+
+def _ahead(area: Area, ticket: Tuple[float, str], now: Optional[float] = None) -> Optional[str]:
+    """The area of the same queue that waits with an earlier ticket (the first of them), None when this one is next:
+    a state in the stage "queued" with this queue, written within RUNNING_STATE_S (a waiting supervisor writes its
+    state every STATE_SECONDS; one that was killed is passed over)."""
+    now = time.time() if now is None else now
+    first = None
+    for path in glob.glob(state_file(glob.escape(area.state_dir), "*", ".state.json")):
+        other = os.path.basename(path)[:-len(".state.json")]
+        state = read_state(area.state_dir, other)
+        if other == area.name or state.get("stage") != "queued" or state.get("queue") != area.queue:
+            continue
+        try:
+            theirs = (float(state["queued_at"]), other)
+            age = now - _seconds(state["updated"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if age <= RUNNING_STATE_S and theirs < ticket and (first is None or theirs < first):
+            first = theirs
+    return first and first[1]
+
+
+def _take_turn(area: Area, queue: FileLock, ticket: Tuple[float, str], log, settle_seconds: float) -> bool:
+    """Waits until the area holds its queue's lock (<queue>.queue.lock of the state folder: an OS lock on a local
+    disk, a killed supervisor's is free at once; the state folder is never on a share, where filelock may fall
+    back to a lock file that a kill leaves behind). Its state says "queued" meanwhile, with its ticket, written
+    again every STATE_SECONDS. The lock is tried every POLL_SECONDS and, once held, kept only when no area waits
+    with an earlier ticket (_ahead: the other areas' states are read only then, never while another area holds
+    the turn; fifty waiting supervisors would otherwise read fifty states each, every round, for days); else it
+    is given back for the earlier one. With the turn the state says "listing", as the pass that follows will, so
+    that no later area takes this one for still waiting. False when the stop file came first.
+
+    The one-at-a-time rule is the lock's; the order is as good as the states: a supervisor whose "queued" state is
+    not written yet when a later one finds the queue free (settle_seconds are for that) loses its place."""
+    text = f"waiting for its turn among the downloads of the queue {area.queue}"
+    state = read_state(area.state_dir, area.name) or {"name": area.name, "area": area.area, "source": area.source}
+    state.update(stage="queued", message=text, pid=os.getpid(), queue=area.queue, queued_at=ticket[0])
+    write_state(area.state_dir, area.name, state)
+    write_page(area.state_dir)
+    if settle_seconds and not _wait_or_stop(area, settle_seconds):
+        return False
+    said, written = False, time.monotonic()
+    while True:
+        try:
+            queue.acquire(blocking=False)
+            if _ahead(area, ticket) is None:
+                # no memory of the pass before either: biggest_running would count it as a running pass's
+                state.update(stage="listing", message="", memory_gb=0.0)
+                del state["queued_at"]
+                write_state(area.state_dir, area.name, state)
+                return True
+            queue.release()
+        except Timeout:
+            pass
+        if not said:
+            _say(log, text)
+            said = True
+        if not _wait_or_stop(area, POLL_SECONDS):
+            return False
+        if time.monotonic() - written >= STATE_SECONDS:
+            written = time.monotonic()
+            write_state(area.state_dir, area.name, state)   # still here: _ahead of the others reads its age
+
+
+def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_SECONDS,
+              settle_seconds: float = QUEUE_SETTLE_SECONDS) -> int:
     """Passes (`command` with the pass's number after it) until one finds nothing left, the area turns out to need
     attention or the stop file comes. Exit: 0 done or stopped, 1 running already, 2 needs attention.
+
+    With a queue (Area.queue) every pass waits for the area's turn first (_take_turn; the first time settle_seconds
+    more) and the turn is given up before a wait of retry_seconds and at the end, so the next area of the queue goes
+    on meanwhile; this one keeps its ticket and is the next again.
 
     A pass over its memory budget (EXIT_RESTART) is started again at once when it made progress (the state's tiles
     or MB grew since the pass before, or it was the first pass); without progress the next pass waits retry_seconds
@@ -648,6 +772,14 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
     except Timeout:
         print(f"{area.name} is being downloaded already")
         return 1
+    queue = FileLock(state_file(area.state_dir, re.sub(r"[^A-Za-z0-9_-]+", "-", area.queue), ".queue.lock"))
+    ticket, turns = _ticket(area), 0
+
+    def rest(seconds: float) -> bool:
+        """A wait between two passes, the queue's turn given up for it; False when the stop file came."""
+        queue.release()
+        return _wait_or_stop(area, seconds)
+
     try:
         with contextlib.suppress(FileNotFoundError):
             os.remove(area.file(".stop"))
@@ -660,6 +792,10 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
         reached, stuck = None, 0   # (tiles, MB) at the last pass's end; restarts without progress in a row
         with open(area.file(".log"), "a", encoding="utf-8") as log:
             while True:
+                if area.queue and not queue.is_locked:
+                    turns += 1
+                    if not _take_turn(area, queue, ticket, log, settle_seconds if turns == 1 else 0):
+                        return _stopped(area, log)
                 number += 1
                 _say(log, f"pass {number} starts")
                 process = subprocess.Popen([*command, str(number)], stdout=log, stderr=subprocess.STDOUT, env=env,
@@ -667,9 +803,7 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
                 while process.poll() is None:
                     if not _wait_or_stop(area, POLL_SECONDS):
                         _kill_tree(process)
-                        _say(log, "stopped by hand")
-                        _set_stage(area, "stopped", "stopped by hand: `run` resumes")
-                        return 0
+                        return _stopped(area, log)
                 code = process.returncode
                 last = _last_line(area.file(".log"))
                 _say(log, f"pass {number} ended with {code}")
@@ -698,10 +832,8 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
                         _set_stage(area, "needs attention", text, restarts=restarts)
                         return 2
                     _set_stage(area, "waiting", message, restarts=restarts)
-                    if not _wait_or_stop(area, retry_seconds):
-                        _say(log, "stopped by hand")
-                        _set_stage(area, "stopped", "stopped by hand: `run` resumes")
-                        return 0
+                    if not rest(retry_seconds):
+                        return _stopped(area, log)
                     continue
                 if code == EXIT_NOTHING:
                     _say(log, f"needs attention: {message}")
@@ -728,11 +860,10 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
                     _set_stage(area, "needs attention", text)
                     return 2
                 _set_stage(area, "waiting", message)
-                if not _wait_or_stop(area, retry_seconds):
-                    _say(log, "stopped by hand")
-                    _set_stage(area, "stopped", "stopped by hand: `run` resumes")
-                    return 0
+                if not rest(retry_seconds):
+                    return _stopped(area, log)
     finally:
+        queue.release()
         lock.release()
 
 
@@ -752,7 +883,7 @@ def summary(state: Dict, history: Sequence[Tuple[float, float, float]], now: flo
     updated = _seconds(state["updated"]) if state.get("updated") else None
     limit = STALE_SECONDS + (RETRY_SECONDS if stage == "waiting" else 0)
     stale = stage not in FINISHED and (updated is None or now - updated > limit)
-    if stage in FINISHED or stage == "waiting":
+    if stage in FINISHED or stage in ("waiting", "queued"):
         mb_s = eta = None
     return {"name": state.get("name", ""), "stage": stage, "done": done, "total": total,
             "share": done / total if total else None, "gb": state.get("mb", 0.0) / 1000, "mb_s": mb_s, "eta": eta,
@@ -942,7 +1073,8 @@ def _area_of(args) -> Area:
         slots.append((host, int(number)))
     budget = default_max_memory_gb() if args.max_memory_gb is None else args.max_memory_gb
     return Area(args.name, args.area, args.source, args.resolution, os.path.abspath(args.data_dir),
-                os.path.abspath(args.state_dir), tuple(slots), args.min_free_gb, budget)
+                os.path.abspath(args.state_dir), tuple(slots), args.min_free_gb, budget,
+                getattr(args, "queue", None) or "")
 
 
 def _pass_command(area: Area) -> List[str]:
@@ -972,7 +1104,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         sub.add_argument("--max-memory-gb", type=float, help="a pass over this much memory is started again "
                          "(a quarter of the machine's memory unless given; 0: no budget)")
 
-    downloading(commands.add_parser("run", help="download, pass after pass, until nothing is left"))
+    run = commands.add_parser("run", help="download, pass after pass, until nothing is left")
+    downloading(run)
+    run.add_argument("--queue", metavar="KEY", help="one area of this key downloads at a time, in the order they "
+                     "were started; the others wait as \"queued\"")
     one = commands.add_parser("pass", help="one pass (started by run)")
     downloading(one)
     one.add_argument("--number", required=True, type=int)

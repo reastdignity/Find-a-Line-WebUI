@@ -63,7 +63,7 @@ casefolded) and seven values: `end_zone` 0-20 m, `anchor_lift` 0-3 m, `fall_zone
   6 m, 2.5 kN, 5 %, 70 g/m, 80 kg (mock-up 1, the dialog's answer 2). The row: "Used until you set yours:", the
   summary, "Is this how you rig?", "Yes, save it" (saved as "My rig"), "Change". Start is never blocked.
 - With rigs: "Rigged as" and "N rigs" (", the most you can keep" at 10); the name of the rig in use opens the list in
-  the page (name and summary each; "+ Add a rig", disabled at 10: "You have 10 rigs: the most you can keep. Delete one
+  the page (name and summary each; "Add a rig", disabled at 10: "You have 10 rigs: the most you can keep. Delete one
   to add another."); "Change". Under it "sag · no-fall zone 5 m · A-frames 2 m" and "2.5 kN pretension, 5 % stretch
   at 10 kN, 70 g/m webbing, athlete 80 kg, 6 m leash fall space". The rig in use: U-5 (this file: per browser).
 - The rig's window (a dialog over Basic; titles "My rig", "Change a rig", "A new rig"): "Say once how you rig. Every
@@ -104,13 +104,13 @@ search: click the map.", …) replaces it and disables Start. "access marked": U
 more, else an area above 3.2 km²; the causes named ("sag, no-fall zone 5 m, A-frames 2 m"). Its "?", as built (the
 user, 2026-11-15: "1. ok 2. ok c)"), with the factors of the lines the search keeps, measured again with a leash fall
 space of 6 m and the square rule of 5 (part M3 of round 2: the reference cases with the goals 'best' and
-'everything', ranges by part P4's rule): "More lines than the simple formula alone: sag ×1.2 to ×3.8 (×1.6 in the middle), the
-no-fall zone of 5 m ×1.6 to ×36 (×4.1), A-frames of 2 m ×1.2 to ×3.4 (×1.6); a leash fall space of 6 m instead of 3 m
-×0.14 to ×0.82 (×0.52)."; "One 1 km circle in Poland: 531 lines with the simple formula, 25 349 with sag, a no-fall
+'everything', ranges by part P4's rule): "Against the simple formula: sag 1.2–3.8 times as many (1.6 in the middle), a
+5 m no-fall zone 1.6–36 times (4.1), 2 m A-frames 1.2–3.4 times (1.6), a 6 m leash fall space instead of 3 m 0.14–0.82
+times (0.52)."; "One 1 km circle in Poland: 531 lines with the simple formula, 25 349 with sag, a no-fall
 zone of 5 m and A-frames of 2 m." (KOB, 'everything', kept lines, part M3); "This is a rough guide from other places,
 not a count for this one." The rig's window names the same factors: "With this rig: sag gives about 1.2 to 3.8 times
 the lines of the simple formula. The no-fall zone multiplies them by 1.6 to 36. A-frames multiply them by 1.2 to 3.4."
-(only the parts the rig has), and beside its fields "on: ×1.6 to ×36 lines" and "on: ×1.2 to ×3.4 lines". There is no
+(only the parts the rig has), and beside its fields "on: 1.6 to 36 times the lines" and "on: 1.2 to 3.4 times the lines". There is no
 "Lighter" hint (the user, 2026-11-15, "c"): the bar, the "?" and the phones offer no shortcut to the simple formula.
 The mock-up's note "Measured with 3 m of leash fall space" goes. Changed texts: U-3. **Start** posts `/api/jobs` as
 today.
@@ -416,7 +416,7 @@ good and can be implemented"); its notes hold the settled proposals 1-20. Built 
   No line is filtered out.", and the receipt's "access marked, no line filtered out" (on a phone "access marked");
   the phone bar's fold mark is the side panels' chevron; a skipped mark reads in the receipt and, on the result
   page, as the muted line "Anchors' access not marked: the search area was too wide."
-- Not settled by the mock-up, built so: the form shows an estimate's notes only as a count ("1 warning(s)").
+- Not settled by the mock-up, built so: the form shows an estimate's notes only as a count ("1 warning").
 ### 3.7 Tests
 Made-up terrain: meadow and wall (can), mid-face ledge (cannot), 45° (cannot tell), whole metres, the data's end;
 tiles = one grid; option off byte-equal (`test_saved_text_as_before`, the R entries); the four files and

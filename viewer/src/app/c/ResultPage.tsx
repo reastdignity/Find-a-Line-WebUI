@@ -12,6 +12,7 @@ import { orthoForApp } from "../../result/load";
 import { ResultColumns } from "../../result/view/ResultColumns";
 import { OTHERS_MAX, alsoParam } from "../../view3d/page";
 import { editHash, go, runHash } from "./route";
+import { t } from "../../i18n";
 
 /** The link "Copy link" gives: this page with the line's hash, without ?ui=. */
 const linkOf = (model: ResultModel, l: Line) => location.origin + hrefWithoutUi() + runHash(model.runOf(l), model.lineLink(l));
@@ -21,17 +22,17 @@ const linkOf = (model: ResultModel, l: Line) => location.origin + hrefWithoutUi(
 export const view3dOf = (model: ResultModel, l: Line) =>
   "/view3d" + runHash(model.runOf(l), model.lineLink(l)) +
   alsoParam(model.alsoOf(l, OTHERS_MAX).map((m) => model.lineLink(m)));
-const back = {label: "Home", onClick: () => go("#home")};
 
 /** What the result page gets: the run, the route's line (`nav` changes with every navigation), the job to
  *  edit and run again (none for a run without one), the layout. */
 export interface ResultPageProps { id: string; line: string | null; nav: number; editJob: string | null; wide: boolean }
 
 export function ResultPage({id, line, nav = 0, editJob, wide}: Omit<ResultPageProps, "nav"> & {nav?: number}) {
+  const back = {label: t("ui.app.home"), onClick: () => go("#home")};
   const actions = (compact: boolean) => editJob && (compact
-    ? <a class="u-ib u-plain u-round" href={editHash(editJob)} aria-label="Edit & run again" title="Edit & run again">
+    ? <a class="u-ib u-plain u-round" href={editHash(editJob)} aria-label={t("ui.app.edit_again")} title={t("ui.app.edit_again")}>
         <Icon name="edit" /></a>
-    : <Button icon="edit" href={editHash(editJob)}>Edit &amp; run again</Button>);
+    : <Button icon="edit" href={editHash(editJob)}>{t("ui.app.edit_again")}</Button>);
   return <ResultColumns runId={id} line={line} nav={nav} wide={wide} back={back} hashOf={runHash} linkOf={linkOf}
                         view3dOf={view3dOf} actions={actions} ortho={(data) => orthoForApp(data.ortho, data.run.id)} />;
 }

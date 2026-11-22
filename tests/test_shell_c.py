@@ -107,36 +107,24 @@ def _write_store(folder, lines, profiles, meta) -> dict:
 
 
 def drop_store(data_dir, run_id: str):
-    """The run as one saved before the store (2026-11-15) or whose store failed: no "store" in run.json, so the
-    page reads its data.js (the files stay: a store without the block is never read); runs.js written again."""
+    """The run as one saved before the store (2026-11-15), as old runs are until `findaline.py runs remove-old`
+    removes them: no lines.arrow, profiles.arrow or run.json's block "store" (tests/old_runs.py); runs.js written
+    again. The page reads no other file of a run since store wave 4's item 5: such a run shows that it could not be
+    loaded."""
+    import old_runs
     runs = os.path.join(str(data_dir), "runs")
-    path = os.path.join(runs, run_id, "run.json")
-    with open(path, encoding="utf-8") as f:
-        meta = json.load(f)
-    meta.pop("store", None)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(meta, f)
+    old_runs.drop_store(os.path.join(runs, run_id))
     rn.write_index(runs)
 
 
 def small_copy(data_dir, run_id: str, lines: int = SMALL_LINES, small: str = SMALL, name: str = "Small run") -> str:
-    """A copy of a run with its first `lines` lines only (SMALL): its data.js and lines.js, and its store when the
-    run has one (the rows and their profiles cut, the head's run renamed); runs.js written again."""
+    """A copy of a run with its first `lines` lines only (SMALL): its store when the run has one (the rows and their
+    profiles cut, the head's run renamed); runs.js written again."""
     runs = os.path.join(str(data_dir), "runs")
     src, dst = os.path.join(runs, run_id), os.path.join(runs, small)
     shutil.rmtree(dst, ignore_errors=True)
-    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("data.js", "lines.js", "*.arrow"))
-    with open(os.path.join(src, "data.js"), encoding="utf-8") as f:
-        data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
-    data["lines"] = data["lines"][:lines]
-    data["run"].update(id=small, name=name, created="2026-10-28T12:00:00")
-    with open(os.path.join(dst, "data.js"), "w", encoding="utf-8") as f:
-        f.write("window.FINDALINE_RUN = " + json.dumps(data) + ";\n")
-    with open(os.path.join(src, "lines.js"), encoding="utf-8") as f:
-        body = json.loads(f.read().partition("] = ")[2].rstrip().rstrip(";"))
-    body["lines"] = body["lines"][:lines]
-    with open(os.path.join(dst, "lines.js"), "w", encoding="utf-8") as f:
-        f.write(f'(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})["{small}"] = {json.dumps(body)};\n')
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("*.arrow"))
+    renamed = {"id": small, "name": name, "created": "2026-10-28T12:00:00"}
     with open(os.path.join(dst, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
     meta.update(id=small, name=name, created="2026-10-28T12:00:00")
@@ -144,7 +132,7 @@ def small_copy(data_dir, run_id: str, lines: int = SMALL_LINES, small: str = SMA
     if meta.get("store"):
         import pyarrow.compute as pc
         (rows, profiles), store_meta = _store_files(src)
-        store_meta["head"]["run"].update(data["run"])
+        store_meta["head"]["run"].update(renamed)
         store_meta["negative_zero"] = {k: [r for r in v if r < lines] for k, v in store_meta["negative_zero"].items()}
         meta["store"] = _write_store(dst, rows.slice(0, lines),
                                      profiles.filter(pc.less(profiles.column("row"), lines)), store_meta)
@@ -199,17 +187,19 @@ def big_clip(tmp_path_factory):
 
 
 def copy_clip(clip, data_dir, run_id: str, name: str):
-    """copy_run (data.js and the store's head under the new id), and its lines.js under the new id too."""
+    """copy_run (the store's head under the new id), the viewer installed for its map.html (as save_run's map does)
+    and runs.js written."""
+    import mapping
     folder = copy_run(clip, data_dir, run_id, name)
-    lines = (folder / "lines.js").read_text("utf-8").replace(clip.name, run_id)
-    (folder / "lines.js").write_text(lines, "utf-8")
+    mapping.install_viewer(str(data_dir / "runs"))
     rn.write_index(str(data_dir / "runs"))
     return folder
 
 
 @pytest.fixture
 def data(tmp_path, big_clip):
-    """A data folder with the clip's run (BIG, more lines than a mini map draws) and its small copy (SMALL)."""
+    """A data folder with the clip's run (BIG, more lines than a mini map draws) and its small copy (SMALL), both
+    saved since store wave 4 (their store, no text files): Home's mini map draws SMALL from its lines.arrow."""
     folder = tmp_path / "data"
     copy_clip(big_clip, folder, BIG, "Big run")
     small_copy(folder, BIG)
@@ -231,7 +221,11 @@ run({
     const small = card("run", SMALL).querySelector(".c-thumb"), big = card("run", BIG).querySelector(".c-thumb");
     result.smallThumb = [small.dataset.thumb, Number(small.dataset.lines), small.querySelectorAll("path.c-thumb-line").length];
     result.bigThumb = [big.dataset.thumb, Number(big.dataset.lines), text(`.c-card[data-run="${BIG}"] .c-thumb-label`)];
-    result.bigLinesLoaded = !!(window.FINDALINE_LINES || {})[BIG];
+    // the files of each run the page asked for (resource timing, 404s too): BIG's lines never, SMALL's store's lines
+    const asked = (id) => performance.getEntriesByType("resource").map((e) => new URL(e.name).pathname)
+      .filter((p) => p.startsWith("/runs/" + encodeURIComponent(id) + "/")).map((p) => p.split("/").pop());
+    result.bigLinesLoaded = asked(BIG).filter((f) => /\\.arrow$|^(data|lines)\\.js$/.test(f));
+    result.smallLinesLoaded = asked(SMALL).filter((f) => /\\.arrow$|^(data|lines)\\.js$/.test(f));
     next();
   }); },
   newSearch(next) {
@@ -382,11 +376,11 @@ def test_shell_c_desktop(data, tmp_path):
     assert set(r["cards"]) == {SMALL, BIG} and r["noWorker"] and r["example"] in (SMALL, BIG), r
     assert r["smallThumb"] == ["lines", SMALL_LINES, r["smallThumb"][2]] and r["smallThumb"][2] >= 1, r
     assert r["bigThumb"][:2] == ["outline", 0] and int(r["bigThumb"][2].split()[0].replace(",", "")) > 3000, r
-    assert not r["bigLinesLoaded"], r
+    assert r["bigLinesLoaded"] == [] and r["smallLinesLoaded"] == ["lines.arrow"], r
     assert r["newPage"] == ["#new", "The best lines here", True], r
     assert r["ready"][0] == "ready" and r["ready"][1] is False and r["ready"][2] >= 1, r
     assert r["started"][0] and r["started"][1] == "waiting", r
-    assert r["running"][0].upper().startswith("RUNNING · ") and r["running"][1], r
+    assert r["running"][0].startswith("Running ") and r["running"][0].endswith("%") and r["running"][1], r
     assert r["done"][1] == 1 and "spots" in r["done"][0], r
     columns = r["columns"]
     assert columns[0] and columns[1] and columns[2].startswith("Select a line"), r
@@ -500,10 +494,12 @@ def test_shell_c_phone(data, tmp_path):
 
 
 def first_line(data_dir, run_id: str) -> str:
-    """The link of the run's first line in data.js (keys.ts lineCoords: its anchors joined)."""
-    with open(os.path.join(str(data_dir), "runs", run_id, "data.js"), encoding="utf-8") as f:
-        data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
-    return ",".join(str(v) for v in data["lines"][0][:4])
+    """The link of the run's first line (keys.ts lineCoords: its anchors joined) from its store (the int32 of 1e-7
+    degree: the doubles of data.js's 7-decimal text before store wave 4)."""
+    import linestore
+    folder = os.path.join(str(data_dir), "runs", run_id)
+    lines, _ = linestore.read(folder, profiles=False)
+    return ",".join(str(v) for v in [*lines.columns["anchor1"][0].tolist(), *lines.columns["anchor2"][0].tolist()])
 
 
 PHONE_LINK_SCRIPT = """
@@ -590,8 +586,8 @@ def test_shell_c_link_outside_the_run(data, tmp_path):
     assert r["csp"] == []
 
 
-# Chromium hands the text of an XHR over its longest string (about 537 M characters) as "" with no error: data.js
-# answered so here (the real download goes on, its bytes counted), and every script loading a data.js recorded
+# A body the browser cannot hold: the XHR's response of lines.arrow null although its bytes came (an ArrayBuffer the
+# browser could not allocate; result/load.ts TooLarge), and every script loading a data.js recorded (none may come)
 TOO_LARGE_STUBS = C_STUBS + r"""
 window.DATA_SCRIPTS = [];
 new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n) => {
@@ -599,16 +595,16 @@ new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n
 }))).observe(document.documentElement, {childList: true, subtree: true});
 const realOpen = XMLHttpRequest.prototype.open;
 const realResponse = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, "response");
-XMLHttpRequest.prototype.open = function (method, url) { this.dataJs = /data\.js$/.test(String(url)); return realOpen.apply(this, arguments); };
+XMLHttpRequest.prototype.open = function (method, url) { this.lines = /lines\.arrow$/.test(String(url)); return realOpen.apply(this, arguments); };
 Object.defineProperty(XMLHttpRequest.prototype, "response",
-                      {configurable: true, get() { return this.dataJs ? "" : realResponse.get.call(this); }});
+                      {configurable: true, get() { return this.lines ? null : realResponse.get.call(this); }});
 """
 
 TOO_LARGE_SCRIPT = """
 run({
-  // the text shown after the download's measure (load.ts: the check comes right after it; a script would be added
-  // before the load fails), and the error announced (role="alert")
-  shown(next) { wait(() => text(".c-result-wait .c-error") && performance.getEntriesByName("fal:run:download").length, () => {
+  // the text shown after the download's measure is due (load.ts: the check comes right after the download), and the
+  // error announced (role="alert")
+  shown(next) { wait(() => text(".c-result-wait .c-error"), () => {
     result.text = text(".c-result-wait .c-error");
     result.alert = ($(".c-result-wait .c-error") || {getAttribute: () => null}).getAttribute("role");
     result.scripts = DATA_SCRIPTS.slice();
@@ -619,14 +615,14 @@ run({
 """
 
 
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_shell_c_too_large(data, tmp_path):
-    """A run whose data.js arrives as an empty text over http (Chromium's string limit; result/load.ts TooLarge):
+    """A run whose store's body the browser cannot hold over http (a null ArrayBuffer; result/load.ts TooLarge):
     the app's result page and the run's map.html show "This result is too large for this browser." and load no
-    data.js by a script (which crashed the tab); no CSP violations."""
+    data.js; no CSP violations."""
     import mapping
     with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
         words = json.load(f)["ui.result.too_large"]
-    drop_store(data, SMALL)  # data.js is the file read (a run with a store reads no text)
     page = stub_page(data, "ctoolarge", TOO_LARGE_SCRIPT, TOO_LARGE_STUBS)
     folder = data / "runs" / SMALL  # its own map.html, the stubs first
     mapping.install_viewer(str(data / "runs"))
@@ -645,7 +641,7 @@ def test_shell_c_too_large(data, tmp_path):
         assert r["csp"] == []
 
 
-OLD = "2026-10-29_120000_Old_00000000000000d1"  # SMALL's lines in a run without a store (data.js)
+OLD = "2026-10-29_120000_Old_00000000000000d1"  # SMALL's lines in a run without a store (an old run)
 RUN_DATA = ("lines.arrow", "profiles.arrow", "data.js", "lines.js")  # the files of a run's lines
 
 # The files of a run the page asked for (its resource timing), the lines and spots shown, the downloads' measures
@@ -668,8 +664,8 @@ run({
     location.hash = "#run=" + OLD;
     next();
   }); },
-  old(next) { wait(() => model() && model().runId === OLD && $(".c-col-list .r-rows .r-row") && credited(), () => {
-    result.old = shown(OLD);
+  old(next) { wait(() => text(".c-result-wait .c-error"), () => {
+    result.old = {files: files(OLD), text: text(".c-result-wait .c-error"), model: !!(model() && model().runId === OLD)};
     next();
   }); },
 });
@@ -683,15 +679,15 @@ run({
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_shell_c_store_or_data_js(data, tmp_path):
+def test_shell_c_store_or_none(data, tmp_path):
     """Which file a run is read from over http (result/load.ts storeOf): a run with a store (run.json's block
-    "store" in runs.js) from lines.arrow and profiles.arrow, its data.js never asked for, in the app and in its own
-    map.html; a run without one from data.js, no store file asked for; both show the same lines, spots and first
-    line, and the store's head (the credits); no CSP violations."""
+    "store" in runs.js) from lines.arrow and profiles.arrow, in the app and in its own map.html, the same lines,
+    spots, first line and the store's head (the credits); a run without one (an old run until `runs remove-old`
+    removes it) asks for its store's files directly and shows that its data could not be loaded
+    (ui.result.store_failed), no data.js or lines.js asked for (store wave 4's item 5); no CSP violations."""
     small_copy(data, BIG, small=OLD)
     drop_store(data, OLD)
     add_credits(data, SMALL)
-    add_credits(data, OLD)
     page = stub_page(data, "cwhich", WHICH_FILE_SCRIPT % {"small": SMALL, "old": OLD})
     folder = data / "runs" / SMALL  # its own map.html with the test after it
     mapping_html = (folder / "map.html").read_text(encoding="utf-8")
@@ -712,11 +708,13 @@ def test_shell_c_store_or_data_js(data, tmp_path):
     for got in (store, map_):
         assert sorted(f for f in got["files"] if f in RUN_DATA) == ["lines.arrow", "profiles.arrow"], got
         assert got["downloads"] == [True], got
-    assert [f for f in old["files"] if f in RUN_DATA] == ["data.js"], old
-    assert old["downloads"] == [True, False], old  # the store's download, then data.js's
-    assert store["lines"] == old["lines"] == map_["lines"] == SMALL_LINES
-    assert store["spots"] == old["spots"] == map_["spots"] and store["first"] == old["first"] == map_["first"]
-    for got in (store, old, map_):
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)["ui.result.store_failed"]
+    assert {**old, "files": sorted(old["files"])} == {"files": ["lines.arrow", "profiles.arrow"], "text": words,
+                                                       "model": False}, old
+    assert store["lines"] == map_["lines"] == SMALL_LINES
+    assert store["spots"] == map_["spots"] and store["first"] == map_["first"]
+    for got in (store, map_):
         assert "FABDEM V1-2 © University of Bristol" in got["credits"], got
 
 
@@ -727,13 +725,13 @@ const SMALL = "%(small)s", COMPARED = "%(compared)s", OLD = "%(old)s";
 run({
   open(next) { wait(() => model() && model().runId === SMALL && $(".c-col-list .r-rows .r-row"), () => {
     button("Compare").click();
-    wait(() => $$(".r-other").length >= 2, () => {
+    wait(() => $$(".r-other").length >= 1, () => {
       result.listed = $$(".r-other").map((o) => o.textContent.split(" · ")[0]);
-      $$(".r-other").filter((o) => /Compared run|Old run/.test(o.textContent)).forEach((o) => o.querySelector("input").click());
+      $$(".r-other").filter((o) => /Compared run/.test(o.textContent)).forEach((o) => o.querySelector("input").click());
       next();
     });
   }); },
-  shown(next) { wait(() => model().others.size === 2 && !$$(".r-other").some((o) => /loading/.test(o.textContent)), () => {
+  shown(next) { wait(() => model().others.size === 1 && !$$(".r-other").some((o) => /loading/.test(o.textContent)), () => {
     result.others = Object.fromEntries([...model().others.values()].map((o) => [o.info.id, o.count]));
     result.files = {compared: files(COMPARED), old: files(OLD), small: files(SMALL)};
     result.total = model().total;
@@ -746,10 +744,11 @@ run({
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_shell_c_compare_store_and_lines_js(data, tmp_path):
+def test_shell_c_compare_from_the_store(data, tmp_path):
     """Compare in the app's result (RunActions, the page's own path): another run with a store is read from its
-    lines.arrow (no profiles.arrow, no lines.js), one without a store from its lines.js; both shown with this run,
-    every line of each, grouped together; no CSP violations."""
+    lines.arrow (no profiles.arrow, no lines.js), shown with this run, every line of it, grouped together; a run
+    without a store (has_lines false: no lines.arrow) is not offered, nothing of it asked for (store wave 4's item 5);
+    no CSP violations."""
     small_copy(data, BIG, small=COMPARED, name="Compared run")
     small_copy(data, BIG, small=OLD, name="Old run")
     drop_store(data, OLD)
@@ -757,12 +756,12 @@ def test_shell_c_compare_store_and_lines_js(data, tmp_path):
     with _server(data) as port:
         r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-compare")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
-    assert {"Compared run", "Old run"} <= set(r["listed"]), r
-    assert r["others"] == {COMPARED: SMALL_LINES, OLD: SMALL_LINES}, r
+    assert "Compared run" in r["listed"] and "Old run" not in r["listed"], r
+    assert r["others"] == {COMPARED: SMALL_LINES}, r
     assert [f for f in r["files"]["compared"] if f in RUN_DATA] == ["lines.arrow"], r
-    assert [f for f in r["files"]["old"] if f in RUN_DATA] == ["lines.js"], r
+    assert r["files"]["old"] == [], r
     assert sorted(f for f in r["files"]["small"] if f in RUN_DATA) == ["lines.arrow", "profiles.arrow"], r
-    assert r["total"] == 3 * SMALL_LINES and r["mixed"], r
+    assert r["total"] == 2 * SMALL_LINES and r["mixed"], r
     assert r["csp"] == []
 
 
@@ -816,16 +815,11 @@ def test_shell_c_map_says_why_a_store_failed(data, tmp_path):
 
 
 def add_credits(data_dir, run_id: str):
-    """The run's data.js and its store's head with the credits of a source (a run of an elevation file has none)."""
+    """The run's store's head with the credits of a source (a run of an elevation file has none)."""
     folder = os.path.join(str(data_dir), "runs", run_id)
-    path = os.path.join(folder, "data.js")
-    with open(path, encoding="utf-8") as f:
-        data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
-    data["attribution"] = [{"data": "FABDEM V1-2", "attribution": "FABDEM V1-2 © University of Bristol",
-                            "licence": "CC BY-NC-SA 4.0", "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
-                            "notice": ""}]
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("window.FINDALINE_RUN = " + json.dumps(data) + ";\n")
+    data = {"attribution": [{"data": "FABDEM V1-2", "attribution": "FABDEM V1-2 © University of Bristol",
+                             "licence": "CC BY-NC-SA 4.0", "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+                             "notice": ""}]}
     with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
     if meta.get("store"):
@@ -1134,7 +1128,11 @@ run(first ? {
     result.unfolded = [$(".r-card").classList.contains("r-card-folded"), kept().profile.folded];
     button("Close the profile").click();
     await pause();
-    result.closed = {card: !!$(".r-card"), again: !!$(".c-col-details .r-reprofile"), credits: credits(), corners: corners()};
+    // the scale and the credits (the whole data credits on a desktop): [the credits run under the scale's corner, the
+    // gap between them, px]
+    const sb = $(".leaflet-control-scale").getBoundingClientRect(), ab = $(".leaflet-control-attribution").getBoundingClientRect();
+    result.closed = {card: !!$(".r-card"), again: !!$(".c-col-details .r-reprofile"), credits: credits(), corners: corners(),
+                     under: [ab.left < sb.right, Math.round(ab.top - sb.bottom)]};
     $(".c-col-details .r-reprofile").click();
     await until(() => $(".r-card"));
     result.reopened = {card: !!$(".r-card"), credits: credits()};
@@ -1246,13 +1244,16 @@ def test_shell_c_layout(data, tmp_path):
     compact = r["compact"]
     assert not compact["head"] and compact["title"].startswith("Profile: ") and compact["facts"].startswith("min. clearance "), r
     assert compact["factsTitle"] == compact["title"] and compact["title"].endswith(compact["facts"].split(" · ")[0]), r
-    assert not compact["legend"] and not compact["scale"] and compact["footer"] == "nowrap", r
+    # the readout wraps (the user's "8 b", 2026-11-17: no ellipsis; was one cut line)
+    assert not compact["legend"] and not compact["scale"] and compact["footer"] == "normal", r
     rig = r["rigging"]
     assert rig["legend"] and rig["scale"] and rig["inControls"], r
     assert rig["toggled"][0].startswith("1:1 scale") and rig["toggled"][1] == "Auto scale", r
     home = r["cardHome"]
     assert home["height"] == home["kept"] == home["aria"][1] == card["aria"][1] and 119 <= home["chart"] <= 121, r
-    assert home["height"] < 200, r  # the compact card's least height at 1400 × 900
+    # the compact card's least height at 1400 × 900: 235 px since the facts take a row of their own and the readout
+    # wraps (the user's "8 b"; under 200 px before)
+    assert home["height"] < 250, home
     assert r["cardUp"] == {"height": home["height"] + 16, "kept": home["height"] + 16}, r
     assert r["cardDrag"] == {"height": home["height"] + 56, "during": home["height"] + 16, "kept": home["height"] + 56}, r
     assert r["cardKey"] == {"left": 28, "kept": [28, 12]}, r
@@ -1262,8 +1263,14 @@ def test_shell_c_layout(data, tmp_path):
     assert r["cardWide"]["width"] == narrow["mapWidth"] - 24 and "" not in r["cardWide"]["corners"].values(), r
     assert r["folded"]["folded"] and r["folded"]["kept"] is True and r["folded"]["height"] < 80, r
     assert r["unfolded"] == [False, False], r
-    assert r["closed"] == {"card": False, "again": True, "credits": {"toggle": False, "credits": True},
-                           "corners": {"attribution": "", "scale": ""}}, r
+    closed = {**r["closed"]}
+    under, gap = closed.pop("under")
+    assert closed == {"card": False, "again": True, "credits": {"toggle": False, "credits": True},
+                      "corners": {"attribution": "", "scale": closed["corners"]["scale"]}}, r
+    # the card gone, the corners in Leaflet's places; the credits wrap under the scale's corner: the scale right
+    # above them (report defect 7)
+    assert under, r  # in this layout the unfolded credits run under the scale's corner
+    assert closed["corners"]["scale"].endswith("px") and 0 <= gap <= 10, r
     assert r["reopened"] == {"card": True, "credits": {"toggle": True, "credits": False}}, r
     # Found again after the reload
     kept = r["beforeReload"]
@@ -1422,8 +1429,8 @@ run({
     if (ADMIN) return next();
     // Report a problem: from the account menu, then from a line of the run (its run and line sent with it)
     later(() => $(".c-account-btn").click());  // (after the menu closed by the step before was drawn)
-    wait(() => button("Report a problem"), () => {
-      button("Report a problem").click();
+    wait(() => button("Report a problem…"), () => {  // "…": it opens a dialog (step 3d G5, the user's answer of 2026-11-21)
+      button("Report a problem…").click();
       report("Interface", "The map does not move.", (fromMenu) => {
         result.fromMenu = fromMenu;
         location.hash = "#run=" + RUN;
@@ -1597,3 +1604,907 @@ def test_shell_c_public(tmp_path, clip_run, monkeypatch):
     finally:
         server.should_exit = True
         thread.join(10)
+
+
+# The result's "Length" editor open with a long value typed: the boxes of its × and of the first row's number and unit
+EDITOR_JS = """() => {
+  const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  return {x: box(document.querySelector('.r-editor .r-editor-x')),
+          rows: [...document.querySelectorAll('.r-editor > .r-limit')].map((row) =>
+            [box(row.querySelector('.r-num')), box(row.querySelector('.r-limit-val > .u-small'))])};
+}"""
+# The result map's scale and credits: their boxes, and whether the credits run under the scale's corner
+CORNERS_JS = """() => { const m = document.querySelector('.leaflet-container'), box = (s) => {
+  const r = m.querySelector(s).getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const scale = box('.leaflet-control-scale'), attribution = box('.leaflet-control-attribution');
+  return {scale, attribution, under: attribution[0] < scale[2] && scale[0] < attribution[2]}; }"""
+# Settled: the source's credits shown, and the scale right above them where they run under it, else clear of them
+CORNERS_SETTLED = """() => { const m = document.querySelector('.leaflet-container');
+  const a = m.querySelector('.leaflet-control-attribution'), s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(),
+    c = a.getBoundingClientRect(), under = c.left < s.right && s.left < c.right;
+  return /FABDEM/.test(a.textContent) && (under ? c.top - s.bottom >= 0 && c.top - s.bottom <= 10
+                                                : true); }"""  # side by side: apart by themselves
+SORTED_JS = """() => [document.querySelectorAll('.r-col[aria-sort]').length,
+  document.querySelector('.r-col.r-on')?.textContent, document.querySelector('.r-sort').value]"""
+ZOOM_JS = "(by) => window.FINDALINE_MAP.setZoom(window.FINDALINE_MAP.getZoom() + by, {animate: false})"
+
+
+def _playwright() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("playwright") is not None
+
+
+def _corners(page, wait: int = 30000) -> dict:
+    """The corners once settled (the observers' frame after a change)."""
+    page.wait_for_function(CORNERS_SETTLED, timeout=wait)
+    return page.evaluate(CORNERS_JS)
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
+    """The result in Playwright's Edge with a source's credits, which wrap under the scale's corner (report defects 5,
+    7 and 13): the scale right above the credits on a desktop (the map column is narrow), after a zoom out and in
+    (the scale's width changes), on a phone with the sheet at full height (the corners in Leaflet's places), and on a
+    narrow window widened to a desktop (the sheet's corners undone, the card's taken over); the "Length" editor's ×
+    on neither row's number or unit, the two rows' fields in one column (desktop, and a touch phone with its larger
+    ×); the sorted column says its order in its name, largest first and after a click smallest first, with no
+    aria-sort, which a button may not carry."""
+    from playwright.sync_api import sync_playwright
+    add_credits(data, SMALL)  # a source's credits: the credits wrap
+    page_path = stub_page(data, "cplay")
+    from test_web import DESKTOP, PHONE
+    r = {}
+    with _server(data) as port, sync_playwright() as p:
+        url = f"http://127.0.0.1:{port}/{page_path}#run={SMALL}"
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for kind, context in (("desktop", DESKTOP), ("phone", PHONE)):
+                page = browser.new_page(**context)
+                page.goto(url)
+                page.wait_for_selector(".r-filters", timeout=30000)
+                if kind == "phone":  # the sheet at full height: the corners back in Leaflet's places
+                    page.focus(".u-sheet-handle")
+                    page.keyboard.press("ArrowUp")  # half (its start) to full
+                    page.wait_for_selector(".u-sheet.u-full", timeout=30000)
+                r[f"{kind}_corners"] = _corners(page)
+                if kind == "desktop":
+                    for name, by in (("out", -3), ("in", 3)):
+                        page.evaluate(ZOOM_JS, by)
+                        r[f"zoom_{name}"] = _corners(page)
+                page.locator(".r-filters button", has_text="Length").first.click()
+                page.wait_for_selector(".r-editor .r-editor-x", timeout=30000)
+                r[f"{kind}_editor"] = page.evaluate(EDITOR_JS)
+                r[f"{kind}_sorted"] = page.evaluate(SORTED_JS)
+                if kind == "desktop":
+                    page.click(".r-dir")
+                    page.wait_for_function("() => document.querySelector('.r-col.r-on')?.textContent.includes('smallest')",
+                                           timeout=30000)
+                    r["ascending"] = page.evaluate(SORTED_JS)
+                page.close()
+            # a narrow window (the phone layout with its sheet) widened to a desktop's
+            page = browser.new_page(viewport={"width": 390, "height": 844})
+            page.goto(url)
+            page.wait_for_selector(".u-sheet", timeout=30000)
+            r["narrow"] = _corners(page)
+            page.set_viewport_size({"width": 1280, "height": 900})
+            page.wait_for_selector(".u-sheet", state="detached", timeout=30000)
+            r["widened"] = _corners(page)
+            page.close()
+        finally:
+            browser.close()
+
+    def meet(a, b):
+        return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+    for kind in ("desktop", "phone"):
+        editor = r[f"{kind}_editor"]
+        assert len(editor["rows"]) == 2, editor  # Length from, Length to
+        assert not any(meet(editor["x"], b) for row in editor["rows"] for b in row), (kind, editor)
+        (num1, unit1), (num2, unit2) = editor["rows"]
+        assert (num1[0], num1[2], unit1[2]) == (num2[0], num2[2], unit2[2]), (kind, editor)  # one column
+        count, name, sort = r[f"{kind}_sorted"]
+        assert count == 0 and sort == "hmean", r
+        assert name.startswith("Mean height") and name.endswith(", sorted largest first"), r
+    assert r["phone_editor"]["x"][2] - r["phone_editor"]["x"][0] == 40, r  # a touch screen's ×
+    assert r["ascending"][0] == 0 and r["ascending"][1].endswith(", sorted smallest first"), r
+    # the credits run under the scale's corner in every one of these layouts: the scale right above them
+    for name in ("desktop_corners", "zoom_out", "zoom_in", "phone_corners", "narrow", "widened"):
+        found = r[name]
+        assert found["under"] and 0 <= found["attribution"][1] - found["scale"][3] <= 10, (name, found)
+
+
+CANCELLED_SCRIPT = """
+const J = %(jobs)s;
+const chip = (id) => card("job", id).querySelector(".u-st");
+const menuItems = (id) => $$(`.c-card[data-job="${id}"] .c-menu-item`).map((m) => m.textContent.trim());
+const item = (id, label) => $$(`.c-card[data-job="${id}"] .c-menu-item`).find((m) => m.textContent.trim() === label);
+const openMenu = (id, then) => { card("job", id).querySelector(".c-card-menu").click(); wait(() => menuItems(id).length, then); };
+const inside = (root, s) => (root.querySelector(s) || {}).textContent || "";
+run({
+  home(next) { wait(() => card("job", J.waiting) && card("job", J.running) && card("job", J.failed), () => {
+    const of = (id) => ({status: card("job", id).dataset.status, chip: text(`.c-card[data-job="${id}"] .u-st`),
+                         chipClass: chip(id).className, meta: text(`.c-card[data-job="${id}"] .c-card-meta`),
+                         colour: getComputedStyle(chip(id)).color, background: getComputedStyle(chip(id)).backgroundColor});
+    result.cards = {waiting: of(J.waiting), running: of(J.running), failed: of(J.failed)};
+    result.gone = [!!card("job", J.removed), !!card("job", J.deleted)];
+    next();
+  }); },
+  failedMenu(next) { openMenu(J.failed, () => {
+    result.failedMenu = menuItems(J.failed);
+    card("job", J.failed).querySelector(".c-card-menu").click();
+    wait(() => !menuItems(J.failed).length, next);
+  }); },
+  oldAsk(next) { openMenu(J.old, () => {
+    item(J.old, "Remove…").click();
+    wait(() => $(`.c-card[data-job="${J.old}"] .c-remove-ask`), () => {
+      result.oldAsk = text(`.c-card[data-job="${J.old}"] .c-remove-ask span`);
+      document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+      wait(() => !$(".c-remove-ask"), next);
+    });
+  }); },
+  othersMenu(next) { openMenu(J.others, () => {  // another user's cancelled search: not this user's to remove
+    result.othersMenu = [card("job", J.others).dataset.status, menuItems(J.others)];
+    card("job", J.others).querySelector(".c-card-menu").click();
+    wait(() => !menuItems(J.others).length, next);
+  }); },
+  keepIt(next) { openMenu(J.waiting, () => {
+    result.waitingMenu = menuItems(J.waiting);
+    const remove = item(J.waiting, "Remove…");
+    result.itemTag = [remove.tagName, remove.getAttribute("role")];
+    remove.focus();
+    remove.click();
+    const ask = () => $(".c-remove-ask");
+    wait(() => ask() && document.activeElement && document.activeElement.closest(".c-remove-ask"), () => {
+      result.ask = [text(".c-remove-ask span"), ask().getAttribute("role"), ask().getAttribute("aria-label"),
+                    document.activeElement.textContent.trim(), $$(".c-remove-ask button").map((b) => b.textContent.trim())];
+      // the panel's own grey, not Delete…'s (the failure's) red
+      result.askBackground = [getComputedStyle(ask()).backgroundColor, getComputedStyle(chip(J.failed)).backgroundColor];
+      document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+      wait(() => !ask(), () => { result.kept = !!card("job", J.waiting); next(); });
+    });
+  }); },
+  remove(next) { openMenu(J.waiting, () => {
+    result.order = $$(".c-cards > .c-card").map((c) => c.dataset.job || c.dataset.run);
+    item(J.waiting, "Remove…").click();
+    wait(() => $(".c-confirm-remove"), () => {
+      $(".c-confirm-remove").click();
+      // the card goes, and the focus to the card that took its place (not the page's start)
+      wait(() => !card("job", J.waiting) && document.activeElement.closest(".c-card"), () => {
+        result.focusAfter = document.activeElement.closest(".c-card").dataset.job;
+        fetch("/api/jobs").then((r) => r.json()).then((body) => {
+          result.removed = body.jobs.filter((j) => j.removed_at).map((j) => j.id).sort();
+          result.runGone = body.jobs.filter((j) => j.run_gone).map((j) => j.id);
+          result.left = [!!card("job", J.running), !!card("job", J.failed)];
+          next();
+        });
+      });
+    });
+  }); },
+  // a search started and cancelled in another tab: the page learns of it by its status event alone (no `own`),
+  // lists the jobs once more and offers Remove… on it
+  fromEvent(next) {
+    const headers = {"content-type": "application/json",
+                     "x-findaline-token": $("meta[name=findaline-token]").content};
+    let listed = 0;  // the page's listings of the jobs from now on
+    const pageFetch = window.fetch;
+    window.fetch = (url, init) => pageFetch(url, init).then((answer) => {
+      if (/\\/api\\/jobs$/.test(String(url)) && !(init && init.method && init.method !== "GET")) listed++;
+      return answer;
+    });
+    fetch("/api/jobs", {method: "POST", headers, body: JSON.stringify(
+      {params: {name: "Another tab", radius: 300}, geometry: {type: "Point", coordinates: [14.2, 36.0]}})})
+      .then((r) => r.json()).then(({id}) => fetch("/api/jobs/" + id, {method: "DELETE", headers}).then(() => {
+        pushEvent({seq: 9000001, job: id, kind: "status", data: {status: "cancelled", title: "Another tab",
+                                                                   created: new Date().toISOString()}});
+        wait(() => card("job", id) && listed > 0, () => openMenu(id, () => {
+          result.fromEvent = menuItems(id);
+          next();
+        }));
+      }));
+  },
+});
+"""
+
+# The admin page is the public site's: the page told its user is an administrator (the server's admin endpoints
+# answer the local app with errors, which the page shows; its list of searches is the jobs' list)
+ADMIN_STUBS = C_STUBS + """
+const meta = document.querySelector("meta[name=findaline-user]") || document.head.appendChild(document.createElement("meta"));
+meta.name = "findaline-user";
+meta.content = JSON.stringify({name: "Admin", provider: "github", status: "approved", admin: true});
+"""
+
+ADMIN_SCRIPT = """
+const inside = (root, s) => (root.querySelector(s) || {}).textContent || "";
+// a removed search's mark: the status chip's component (.u-st) at the status chip's own size, or null without a mark
+const sameChip = (row) => { const mark = row.querySelector(".c-admin-removed .u-st"), status = row.querySelector(".u-st");
+  return mark ? getComputedStyle(mark).fontSize === getComputedStyle(status).fontSize : null; };
+run({
+  admin(next) {
+    location.hash = "#admin";
+    wait(() => $$(".c-admin-job").length >= 5, () => {
+      result.admin = $$(".c-admin-job").map((row) => [inside(row, "b"), inside(row, ".u-st"),
+                                                      row.querySelector(".u-st").className, inside(row, ".c-admin-removed"),
+                                                      sameChip(row)]);
+      next();
+    });
+  },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shell_c_cancelled_search(tmp_path):
+    """Home: a search cancelled while waiting and one cancelled while running show the quiet state "cancelled" (the
+    grey of a waiting search, not the failure's colour or warn mark; the word as text), a failed one stays a failure;
+    a cancelled card's menu has Edit & run again and Remove… (a button, by keyboard too; not on another user's
+    card), which asks first in the panel's grey, not Delete…'s red (the focus on "Keep it", Escape keeps it) and
+    removes the card; a removed search and one whose run was deleted (or is gone by hand) show no card;
+    the admin page lists them all, the removed ones marked "removed" as text; no CSP violations."""
+    import re
+
+    import cache
+    from jobs import Jobs
+    DATE = r"\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}"  # time.ts when(): "17 Nov 2026, 09:12"
+    data = tmp_path / "data"
+    (data / "runs").mkdir(parents=True)
+    jobs = Jobs(str(data))
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    ids = {name: jobs.add(request, title) for name, title in (
+        ("failed", "Failed search"), ("deleted", "Saved search"), ("removed", "Removed search"),
+        ("running", "Cancelled while running"), ("waiting", "Cancelled while waiting"))}
+    ids["others"] = jobs.add(request, "Another user's search", 7)  # listed to the local app's administrator, not own
+    assert jobs.request_cancel(ids["others"])
+    ids["old"] = jobs.add(request, "Cancelled two days ago")
+    assert jobs.request_cancel(ids["old"])
+    with jobs._db() as db:  # started two days ago: the question's words the same
+        db.execute("UPDATE jobs SET created = ? WHERE id = ?", (cache.now_iso(ago=2 * 86400), ids["old"]))
+    gone = "2026-11-01_100000_Gone_0000000000000001"
+    jobs.set(ids["failed"], "failed", error="the server stopped")
+    jobs.set(ids["deleted"], "done", run_id=gone)  # its run deleted by hand (no folder): gone, not marked
+    assert jobs.request_cancel(ids["removed"]) and jobs.remove(ids["removed"])
+    jobs.set(ids["running"], "computing")
+    jobs.set(ids["running"], "cancelled", when=("computing",))  # as the worker does after cancel_requested
+    assert jobs.request_cancel(ids["waiting"])
+    page = stub_page(data, "ccancelled", CANCELLED_SCRIPT % {"jobs": json.dumps(ids)})
+    admin_page = stub_page(data, "ccancelled-admin", ADMIN_SCRIPT, ADMIN_STUBS)
+    with _server(data) as port:
+        r = _edge(port, page + "?ui=c", tmp_path / "edge-cancelled")
+        r_admin = _edge(port, admin_page + "?ui=c", tmp_path / "edge-cancelled-admin")
+    assert "timeout" not in r and "error" not in r, json.dumps(r)
+    assert "timeout" not in r_admin and "error" not in r_admin, json.dumps(r_admin)
+    r["admin"] = r_admin["admin"]
+    for name in ("waiting", "running"):
+        found = r["cards"][name]
+        assert found["status"] == "cancelled" and found["chip"] == "Cancelled", r
+        assert re.fullmatch(DATE, found["meta"]), r  # the chip says "cancelled" once: under the name the date only
+        assert "u-cancelled" in found["chipClass"] and "u-failed" not in found["chipClass"], r
+        assert (found["colour"], found["background"]) != (r["cards"]["failed"]["colour"],
+                                                         r["cards"]["failed"]["background"]), r
+    failed = r["cards"]["failed"]
+    assert failed["status"] == "failed" and failed["chip"] == "Failed" and "u-failed" in failed["chipClass"], r
+    assert re.fullmatch("the server stopped · " + DATE, failed["meta"]), r
+    assert r["gone"] == [False, False], r
+    assert r["failedMenu"] == ["Edit & run again"], r
+    assert r["othersMenu"] == ["cancelled", ["Edit & run again"]], r  # not own: no Remove…
+    assert r["waitingMenu"] == ["Edit & run again", "Remove…"] and r["itemTag"] == ["BUTTON", "menuitem"], r
+    # the user's words (2026-11-17); the local app has no daily limit of searches: never "It still counts ..."
+    asked = "Remove “{}” from your searches? It was cancelled, so it has no result."
+    assert r["ask"] == [asked.format("Cancelled while waiting"), "alertdialog", "Remove the search", "Keep it",
+                        ["Remove", "Keep it"]], r
+    assert r["oldAsk"] == asked.format("Cancelled two days ago"), r
+    assert r["kept"] is True and r["askBackground"][0] != r["askBackground"][1], r
+    assert r["removed"] == sorted([ids["waiting"], ids["removed"]]) and r["runGone"] == [ids["deleted"]], r
+    order = r["order"]  # the cards before the removal (created in one second: their order is the server's)
+    at = order.index(ids["waiting"])
+    took = order[at + 1] if at + 1 < len(order) else order[at - 1]
+    assert r["left"] == [True, True] and r["focusAfter"] == took, r  # the card that took its place
+    assert r["fromEvent"] == ["Edit & run again", "Remove…"], r  # listed again once: own known
+    admin = {row[0]: row for row in r["admin"]}
+    assert admin["Removed search"][1] == "cancelled" and admin["Removed search"][3] == "removed", r
+    assert [row[4] for row in r["admin"] if row[3]] == [True, True, True], r  # the marks: status chips, same size
+    assert "u-cancelled" in admin["Removed search"][2] and admin["Cancelled while waiting"][3] == "removed", r
+    assert admin["Saved search"][3] == "run deleted" and admin["Failed search"][3] == "", r
+    assert admin["Cancelled while running"][3] == "" and "u-cancelled" in admin["Cancelled while running"][2], r
+    assert "u-failed" in admin["Failed search"][2], r
+    assert r["csp"] == [] and r_admin["csp"] == []
+
+
+# The open question of a card: its box (buttons included), the visible band of the page between the top bar and the
+# bottom bar, and whether the focus is in the question
+QUESTION_JS = """(job) => {
+  const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const ask = document.querySelector(`.c-card[data-job="${job}"] .c-remove-ask`);
+  return {ask: box(ask), buttons: [...ask.querySelectorAll("button")].map(box),
+          top: document.querySelector(".c-top").getBoundingClientRect().bottom,
+          bottom: document.querySelector(".u-bnav").getBoundingClientRect().top,
+          focused: ask.contains(document.activeElement) ? document.activeElement.textContent.trim() : null};
+}"""
+
+
+@pytest.mark.skipif(not _playwright(), reason="needs Playwright with Chromium and WebKit (group ui)")
+@pytest.mark.parametrize("device, engine", [("iPhone 13", "webkit"), ("Pixel 7", "chromium")])
+def test_shell_c_remove_question_on_phones(tmp_path, device, engine):
+    """On both phones (Playwright's profiles: WebKit's iPhone, Chromium's Pixel) Remove…'s question of a cancelled
+    card at the end of a long list opens wholly in view, its buttons (the focused "Keep it" among them) between the
+    top bar and the bottom bar, and the card's mini map keeps its size (the question takes a row of its own)."""
+    from playwright.sync_api import sync_playwright
+
+    from jobs import Jobs
+    data = tmp_path / "data"
+    (data / "runs").mkdir(parents=True)
+    jobs = Jobs(str(data))
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    for k in range(3):
+        jobs.set(jobs.add(request, f"Failed {k}"), "failed", error="the server stopped")
+    target = jobs.add(request, "Cancelled")  # a card in the middle of the list
+    assert jobs.request_cancel(target)
+    for k in range(3, 6):
+        jobs.set(jobs.add(request, f"Failed {k}"), "failed", error="the server stopped")
+    page_path = stub_page(data, "cphones")
+    with _server(data) as port, sync_playwright() as p:
+        kind = getattr(p, engine)
+        if not os.path.exists(kind.executable_path):
+            pytest.skip(f"Playwright's {engine} is not installed")
+        browser = kind.launch()
+        try:
+            page = browser.new_context(**p.devices[device]).new_page()
+            page.goto(f"http://127.0.0.1:{port}/{page_path}?ui=c")
+            card = page.locator(f'.c-card[data-job="{target}"]')
+            card.wait_for(timeout=30000)
+            # the card's foot just above the bottom bar (as a card low on the screen is), its menu and its item
+            # pressed where they are (no scrolling by the test)
+            page.evaluate("""(job) => { const card = document.querySelector(`.c-card[data-job="${job}"]`);
+              const bar = document.querySelector(".u-bnav").getBoundingClientRect().top;
+              document.querySelector(".c-main").scrollTop += card.getBoundingClientRect().bottom - (bar - 8);
+              card.querySelector(".c-card-menu").click(); }""", target)
+            page.wait_for_selector(f'.c-card[data-job="{target}"] .c-menu-item', timeout=30000)
+            thumb = card.locator(".c-card-thumb").bounding_box()
+            page.evaluate("""(job) => [...document.querySelectorAll(`.c-card[data-job="${job}"] .c-menu-item`)]
+              .find((m) => m.textContent.trim() === "Remove…").click()""", target)
+            page.wait_for_function("(job) => document.querySelector(`.c-card[data-job=\"${job}\"] .c-remove-ask`)"
+                                   "?.contains(document.activeElement)", arg=target, timeout=30000)
+            found = page.evaluate(QUESTION_JS, target)
+            after = card.locator(".c-card-thumb").bounding_box()
+        finally:
+            browser.close()
+    assert found["focused"] == "Keep it", found
+    for left, top, right, bottom in [found["ask"], *found["buttons"]]:
+        assert found["top"] <= top and bottom <= found["bottom"], found  # under the top bar, above the bottom bar
+    assert (round(after["width"]), round(after["height"])) == (round(thumb["width"]), round(thumb["height"])), \
+        (thumb, after)
+
+
+# What has the focus: the card it is in (its job or run) or the heading's text
+FOCUS_JS = """() => { const e = document.activeElement, card = e && e.closest(".c-card");
+  return card ? {card: card.dataset.job || card.dataset.run} : {heading: e && e.matches("h1") ? e.textContent : null}; }"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
+    """The public site in Playwright's Edge, signed in through a fake GitHub. An administrator's Home lists every
+    user's searches: Remove… on their own cancelled card, not on another user's. A user's "Delete…" of a run their
+    search made takes the search's card away without a reload, and the focus goes to the card that took its place;
+    removing the last card puts the focus on "Your searches". Remove…'s question says "It still counts toward your
+    daily limit of searches." only when true: to a user with the site's limits for a search of today, not for one
+    two days old, nor to an administrator (no daily limit)."""
+    import socket
+    import threading
+
+    import uvicorn
+    from fastapi import Request
+    from fastapi.responses import RedirectResponse
+    from playwright.sync_api import sync_playwright
+
+    import accounts as ac
+    import cache
+    from jobs import Jobs
+    from settings import AccountSettings, PublicSettings
+    for key, value in ACCOUNTS.items():
+        monkeypatch.setenv(key, value)
+    account_settings = AccountSettings.load()
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    site = f"http://localhost:{port}"
+    providers = FakeProviders(site)
+    monkeypatch.setitem(ac.CLIENTS["github"].register, "authorize_url", f"{site}/test-provider/authorize")
+    data = tmp_path / "data"
+    data.mkdir()
+    copy_clip(clip_run, data, RUN_A, "A's run")
+    a_id, _, _ = session_of(data, account_settings, "a")
+    admin_id, _, _ = session_of(data, account_settings, "admin")
+    jobs = Jobs(str(data))
+    jobs.add_run(RUN_A, a_id, 1)
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    saved = jobs.add(request, "A's saved search", a_id)
+    jobs.set(saved, "done", run_id=RUN_A)
+    a_cancelled = jobs.add(request, "A's cancelled search", a_id)
+    admin_cancelled = jobs.add(request, "Admin's cancelled search", admin_id)
+    a_old = jobs.add(request, "A's old cancelled search", a_id)
+    assert jobs.request_cancel(a_cancelled) and jobs.request_cancel(admin_cancelled) and jobs.request_cancel(a_old)
+    with jobs._db() as db:  # started two days ago: out of the day's window
+        db.execute("UPDATE jobs SET created = ? WHERE id = ?", (cache.now_iso(ago=2 * 86400), a_old))
+
+    settings = PublicSettings(public_url=site, trusted_proxy="127.0.0.1", contact="admin@example.org")
+    app = web.create_app(str(data), public=settings, accounts=account_settings, oauth_transport=providers.transport)
+    signing_in = [{"id": 11, "login": "a"}]
+
+    @app.get("/test-provider/authorize")
+    def authorize(request: Request):  # the provider's page: the user agrees at once
+        return RedirectResponse(providers.authorize(str(request.url), signing_in[0]), 302)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    r = {}
+
+    def menu(page, job: str) -> list:
+        """A card's menu opened, its items. Returned once the focus is in it: the Popover registers its Escape
+        listener in the effect that moves the focus there (after the paint), so an Escape before that is lost and
+        the next press of the button closes the menu again (18 of 20 tries, C:\\fal\\ux3-cancelled\\menu_race.py)."""
+        page.locator(f'.c-card[data-job="{job}"] .c-card-menu').click()
+        items = page.locator(f'.c-card[data-job="{job}"] .c-menu-item')
+        items.first.wait_for(timeout=30000)
+        page.wait_for_function("(job) => !!document.activeElement?.closest(`.c-card[data-job=\"${job}\"] .r-pop`)",
+                               arg=job, timeout=30000)
+        return [t.strip() for t in items.all_text_contents()]
+
+    def close_menu(page, job: str):
+        page.keyboard.press("Escape")
+        page.locator(f'.c-card[data-job="{job}"] .c-menu-item').first.wait_for(state="detached", timeout=30000)
+
+    def asked(page, job: str, remove: bool = False) -> str:
+        """Remove…'s question of a card (its text), then kept ("Keep it") or confirmed."""
+        menu(page, job)
+        page.get_by_role("menuitem", name="Remove…").click()
+        ask = page.locator(f'.c-card[data-job="{job}"] .c-remove-ask')
+        text = ask.locator("span").first.text_content()
+        if remove:
+            page.locator(f'.c-card[data-job="{job}"] .c-confirm-remove').click()
+            page.locator(f'.c-card[data-job="{job}"]').wait_for(state="detached", timeout=30000)
+        else:
+            ask.get_by_role("button", name="Keep it").click()
+            ask.wait_for(state="detached", timeout=30000)
+        return text
+
+    try:
+        deadline = time.monotonic() + 30  # a port taken between the bind's close and uvicorn's: fail, not hang
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert server.started, "the public site did not start"
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge", headless=True)
+            try:
+                def signed_in(who: dict):
+                    signing_in[0] = who
+                    context = browser.new_context(viewport={"width": 1280, "height": 800})
+                    context.add_init_script(C_STUBS)
+                    page = context.new_page()
+                    page.goto(f"{site}/login/github?next=" + "/%3Fui%3Dc")
+                    page.wait_for_selector(".c-cards", timeout=30000)
+                    page.wait_for_selector(".c-usage", timeout=30000)  # the usage loaded: who has a daily limit
+                    if page.locator("dialog.n-beta[open]").count():  # the beta notice after a sign-in: closed
+                        page.keyboard.press("Escape")
+                        page.wait_for_function("() => !document.querySelector('dialog.n-beta[open]')", timeout=30000)
+                    return context, page
+
+                context, page = signed_in({"id": 1, "login": "admin"})
+                page.wait_for_selector(f'.c-card[data-job="{a_cancelled}"]', timeout=30000)
+                r["admin_theirs"] = menu(page, a_cancelled)
+                close_menu(page, a_cancelled)
+                r["admin_own"] = menu(page, admin_cancelled)
+                close_menu(page, admin_cancelled)
+                r["admin_ask"] = asked(page, admin_cancelled)  # an administrator has no daily limit
+                context.close()
+
+                context, page = signed_in({"id": 11, "login": "a"})
+                saved_card = page.locator(f'.c-card[data-job="{saved}"]')
+                saved_card.wait_for(timeout=30000)
+                r["a_ask"] = asked(page, a_cancelled)  # a user with the site's limits, a search of today
+                r["a_old_ask"] = asked(page, a_old, remove=True)  # two days old: it no longer counts
+                r["cards"] = page.eval_on_selector_all(".c-cards > .c-card", "(cs) => cs.map((c) => c.dataset.job)")
+                menu(page, saved)
+                page.get_by_role("menuitem", name="Delete…").click()
+                page.locator(".c-confirm-delete").click()
+                saved_card.wait_for(state="detached", timeout=30000)  # no reload: the job's card goes with its run
+                page.wait_for_function("() => document.activeElement && document.activeElement !== document.body",
+                                       timeout=30000)
+                r["after_delete"] = [page.evaluate(FOCUS_JS), page.url]
+                menu(page, a_cancelled)
+                page.get_by_role("menuitem", name="Remove…").click()
+                page.locator(".c-confirm-remove").click()
+                page.locator(".c-card").first.wait_for(state="detached", timeout=30000)
+                page.wait_for_function("() => document.activeElement && document.activeElement !== document.body",
+                                       timeout=30000)
+                r["after_remove"] = page.evaluate(FOCUS_JS)
+                context.close()
+            finally:
+                browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(10)
+    assert "Remove…" not in r["admin_theirs"] and "Edit & run again" in r["admin_theirs"], r
+    assert "Remove…" in r["admin_own"], r
+    # "It still counts ..." only when true: a daily limit and a search of the day's window (the user's words)
+    short = "Remove “{}” from your searches? It was cancelled, so it has no result."
+    assert r["a_ask"] == short.format("A's cancelled search") + " It still counts toward your daily limit of searches.", r
+    assert r["a_old_ask"] == short.format("A's old cancelled search"), r
+    assert r["admin_ask"] == short.format("Admin's cancelled search"), r
+    assert sorted(r["cards"]) == sorted([saved, a_cancelled]), r
+    assert r["after_delete"][0] == {"card": a_cancelled} and r["after_delete"][1].endswith("/?ui=c"), r
+    assert r["after_remove"] == {"heading": "Your searches"}, r
+    assert not (data / "runs" / RUN_A).exists() and jobs.get(saved)["status"] == "done"
+
+
+# The admin page's checkbox rows: per row with a checkbox, the label's box, its words' box, the box of every other
+# control of its tools' row, and whether the label holds its input (the row is the input's target only then)
+ADMIN_ROWS_JS = """() => [...document.querySelectorAll('.c-admin-row .c-check')].map((l) => {
+  const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const range = document.createRange(); range.selectNodeContents(l);
+  return {name: l.closest('.c-admin-row').querySelector('.c-admin-head b').textContent, label: box(l),
+          words: ((w) => [w.left, w.top, w.right, w.bottom])([...range.getClientRects()].pop()), holds: !!l.querySelector('input[type=checkbox]'),
+          pad: parseFloat(getComputedStyle(l).paddingTop) || 0,
+          checked: l.querySelector('input').checked,
+          others: [...l.parentElement.children].filter((c) => c !== l).map((c) => [c.textContent.trim(), ...box(c)])}; })"""
+# The focused element's text (a button's words)
+FOCUS_TEXT_JS = "() => document.activeElement?.textContent?.trim()"
+# Waits (at most 5 s) until the focus is on a button with these words: the focus moves in an effect after the paint
+FOCUS_ON_JS = "(words) => document.activeElement?.textContent?.trim() === words"
+
+
+def focused(page, words: str) -> str:
+    """The focused element's words once they are `words` (at most 5 s), or whatever has the focus then."""
+    try:
+        page.wait_for_function(FOCUS_ON_JS, arg=words, timeout=5000)
+    except Exception:
+        pass
+    return page.evaluate(FOCUS_TEXT_JS)[:40]
+
+
+# An icon's look as drawn: its box, its viewBox and path, and the computed fill, stroke and stroke width
+ICON_JS = """(svg) => { const s = getComputedStyle(svg), r = svg.getBoundingClientRect();
+  return {w: r.width, h: r.height, viewBox: svg.getAttribute('viewBox'), d: svg.querySelector('path').getAttribute('d'),
+          fill: s.fill, strokeWidth: s.strokeWidth, cls: svg.getAttribute('class'),
+          sameColour: s.stroke === getComputedStyle(svg.parentElement).color}; }"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_admin_block_asks_and_checkbox_apart(tmp_path, clip_run, monkeypatch):
+    """The admin page on the public site in Playwright's Edge (step 3c, group D's fix round; the user's "Both",
+    2026-11-19). On a touch screen each checkbox ("Without limits", the Runs row's "Demo") stands on a line of its own
+    under its row's buttons, and a finger's tap beside it (6 px above and under its line, the line's end) presses no
+    button: no user's status or sessions change, no question opens, the page stays; a tap on its words ticks it. With
+    a mouse it stays in its row. "Block…" and "Unblock…" ask first: "Keep" leaves the user as they were, the second
+    press acts; while a question is open its row shows only its two buttons, the focus is on "Keep", and "Keep" or
+    Escape puts it back on the button that asked (a report's "Delete…" alike). The sign-in page's "Open map" draws
+    the arrow the kit's "next" icon draws (the Runs row's "Open")."""
+    import socket
+    import threading
+
+    import uvicorn
+    from fastapi import Request
+    from fastapi.responses import RedirectResponse
+    from playwright.sync_api import sync_playwright
+
+    import accounts as ac
+    from jobs import Jobs
+    from settings import AccountSettings, PublicSettings
+    for key, value in ACCOUNTS.items():
+        monkeypatch.setenv(key, value)
+    account_settings = AccountSettings.load()
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    site = f"http://localhost:{port}"
+    providers = FakeProviders(site)
+    monkeypatch.setitem(ac.CLIENTS["github"].register, "authorize_url", f"{site}/test-provider/authorize")
+    data = tmp_path / "data"
+    data.mkdir()
+    copy_clip(clip_run, data, RUN_A, "A's run")
+    users = ac.Accounts(str(data), account_settings)
+    made = {}
+    for subject, name, status, session in (("41", "pending one", "pending", True), ("42", "approved one", "approved", True),
+                                           ("43", "blocked one", "blocked", False), ("44", "quiet one", "approved", False)):
+        user = users.sign_in("github", subject, name)
+        users.set_status(user.id, status)
+        if session:
+            users.new_session(user.id)
+        made[name] = user.id
+    jobs = Jobs(str(data))
+    jobs.add_run(RUN_A, None, 1)
+    jobs.set_visibility(RUN_A, "demo")
+    jobs.add_report(made["pending one"], "water", "The lake is too high.", {})
+
+    def state() -> dict:  # every user's status and sessions, by id
+        return {u["id"]: (u["status"], u["sessions"]) for u in users.listing()}
+
+    settings = PublicSettings(public_url=site, trusted_proxy="127.0.0.1", contact="admin@example.org")
+    app = web.create_app(str(data), public=settings, accounts=account_settings, oauth_transport=providers.transport)
+
+    @app.get("/test-provider/authorize")
+    def authorize(request: Request):  # the provider's page: the administrator agrees at once
+        return RedirectResponse(providers.authorize(str(request.url), {"id": 1, "login": "admin"}), 302)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    r = {"beside": [], "words": [], "pad": []}
+    try:
+        deadline = time.monotonic() + 30
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert server.started, "the public site did not start"
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge", headless=True)
+            try:
+                def admin_page(**options):
+                    context = browser.new_context(**options)
+                    context.add_init_script(C_STUBS)
+                    page = context.new_page()
+                    page.goto(f"{site}/login/github?next=" + "/%3Fui%3Dc")
+                    page.wait_for_selector(".c-cards, .c-empty", timeout=30000)
+                    if page.locator("dialog.n-beta[open]").count():
+                        page.keyboard.press("Escape")
+                        page.wait_for_function("() => !document.querySelector('dialog.n-beta[open]')", timeout=30000)
+                    page.evaluate("location.hash = '#admin'")
+                    page.wait_for_function("() => document.querySelectorAll('.c-admin-row .c-check').length >= 5",
+                                           timeout=30000)
+                    return context, page
+
+                # a phone: the checkbox on its own line, taps beside it press nothing
+                context, page = admin_page(viewport={"width": 390, "height": 664}, device_scale_factor=3,
+                                           is_mobile=True, has_touch=True)
+                rows = page.evaluate(ADMIN_ROWS_JS)
+                r["phone_rows"] = rows
+                for i, row in enumerate(rows):
+                    page.evaluate(f"document.querySelectorAll('.c-admin-row .c-check')[{i}].scrollIntoView({{block: 'center'}})")
+                    row = page.evaluate(ADMIN_ROWS_JS)[i]
+                    left, top, right, bottom = row["label"]
+                    x = (row["words"][0] + row["words"][2]) / 2
+                    line = top + row["pad"]  # the line's top as drawn: the target reaches higher, up to the buttons
+                    buttons = (row["others"][-1][2] + row["others"][-1][4]) / 2  # the buttons' middle
+                    for where, point in (("above", (x, line - 6)), ("under", (x, bottom + 6)),
+                                         ("end", (right - 4, (line + bottom) / 2)), ("right of buttons", (right - 4, buttons))):
+                        before = state()
+                        page.touchscreen.tap(*point)
+                        page.wait_for_timeout(700)
+                        asked = page.locator(".c-user-block, .c-user-unblock").count()
+                        stayed = page.url.endswith("#admin")
+                        ticked = stayed and page.evaluate(ADMIN_ROWS_JS)[i]["checked"] != row["checked"]
+                        r["beside"].append([row["name"], where, state() == before, asked, stayed, ticked])
+                        if ticked:  # put back (the line's end is the label's: it ticks)
+                            page.evaluate(f"document.querySelectorAll('.c-admin-row .c-check input')[{i}].click()")
+                            page.wait_for_function(f"() => document.querySelectorAll('.c-admin-row .c-check input')[{i}]"
+                                                   f".checked === {str(row['checked']).lower()}", timeout=30000)
+                            page.wait_for_timeout(700)
+                        if asked:
+                            page.get_by_role("button", name="Keep").click()
+                        if not page.url.endswith("#admin"):
+                            page.evaluate("location.hash = '#admin'")
+                            page.wait_for_function("() => document.querySelectorAll('.c-admin-row .c-check').length >= 5")
+                # a tap on the words of the quiet user's "Without limits" ticks it (and again: unticks)
+                quiet = next(i for i, row in enumerate(rows) if row["name"] == "quiet one")
+                for _ in range(2):
+                    page.evaluate(f"document.querySelectorAll('.c-admin-row .c-check')[{quiet}].scrollIntoView({{block: 'center'}})")
+                    words = page.evaluate(ADMIN_ROWS_JS)[quiet]["words"]
+                    page.touchscreen.tap((words[0] + words[2]) / 2, (words[1] + words[3]) / 2)
+                    page.wait_for_timeout(700)
+                    r["words"].append(next(u["unlimited"] for u in users.listing() if u["id"] == made["quiet one"]))
+                # Block's question open: a tap 8 px after "Keep" and 8 px before "Block them" lands on the pad around
+                # them (no request, the question stays open), not on a button by the touch adjustment
+                approved = page.locator(".c-admin-row", has_text="approved one")
+                approved.get_by_role("button", name="Block…").scroll_into_view_if_needed()
+                approved.get_by_role("button", name="Block…").tap()
+                focused(page, "Keep")
+                act, keep = approved.locator(".c-user-block").bounding_box(), approved.locator(".c-ask-keep").bounding_box()
+                for where, point in (("after Keep", (keep["x"] + keep["width"] + 8, keep["y"] + keep["height"] / 2)),
+                                     ("before the act", (act["x"] - 8, act["y"] + act["height"] / 2))):
+                    before = state()
+                    page.touchscreen.tap(*point)
+                    page.wait_for_timeout(700)
+                    r["pad"].append([where, state() == before, page.locator(".c-ask").count()])
+                context.close()
+
+                # a desktop: the checkbox in its row; Block… and Unblock… ask first
+                context, page = admin_page(viewport={"width": 1280, "height": 800})
+                r["desk_rows"] = page.evaluate(ADMIN_ROWS_JS)
+                approved = page.locator(".c-admin-row", has_text="approved one")
+                approved.get_by_role("button", name="Block…").click()
+                r["asked"] = approved.locator(".c-user-block").text_content()
+                r["after_ask"] = state()[made["approved one"]]
+                r["ask_row"] = [approved.locator(".c-admin-tools button").all_text_contents(),
+                                approved.locator(".c-admin-tools .c-check").count(), focused(page, "Keep")]
+                approved.get_by_role("button", name="Keep").click()
+                approved.get_by_role("button", name="Block…").wait_for(timeout=30000)
+                r["after_keep"] = state()[made["approved one"]]
+                r["focus_keep"] = focused(page, "Block…")
+                approved.get_by_role("button", name="Block…").click()
+                r["focus_open"] = focused(page, "Keep")  # the question took the focus: Escape reaches it
+                page.keyboard.press("Escape")  # as "Keep"
+                approved.get_by_role("button", name="Block…").wait_for(timeout=30000)
+                r["after_escape"] = [state()[made["approved one"]], focused(page, "Block…")]
+                report = page.locator(".c-report")
+                report.get_by_role("button", name="Delete…").click()
+                r["delete_row"] = [report.locator(".c-admin-tools button").all_text_contents(), focused(page, "Keep")]
+                page.keyboard.press("Escape")
+                report.get_by_role("button", name="Delete…").wait_for(timeout=30000)
+                r["delete_escape"] = [report.count(), focused(page, "Delete…")]
+                approved.get_by_role("button", name="Block…").click()
+                approved.locator(".c-user-block").click()
+                page.wait_for_function("() => [...document.querySelectorAll('.c-admin-row')].some((row) => "
+                                       "row.textContent.includes('approved one') && row.textContent.includes('Unblock…'))",
+                                       timeout=30000)
+                r["blocked"] = state()[made["approved one"]]
+                blocked = page.locator(".c-admin-row", has_text="blocked one")
+                blocked.get_by_role("button", name="Unblock…").click()
+                r["unblock_asked"] = blocked.locator(".c-user-unblock").text_content()
+                blocked.get_by_role("button", name="Keep").click()
+                r["unblock_keep"] = state()[made["blocked one"]]
+                blocked.get_by_role("button", name="Unblock…").click()
+                blocked.locator(".c-user-unblock").click()
+                page.wait_for_function("() => [...document.querySelectorAll('.c-admin-row')].some((row) => "
+                                       "row.textContent.includes('blocked one') && row.textContent.includes('Block…'))",
+                                       timeout=30000)
+                r["unblocked"] = state()[made["blocked one"]]
+                r["kit_icon"] = page.locator(".c-admin-row", has_text="A's run").locator("a.u-btn svg").evaluate(ICON_JS)
+                context.close()
+
+                # the sign-in page, a visitor: the example card's arrow
+                context = browser.new_context(viewport={"width": 1280, "height": 800})
+                page = context.new_page()
+                page.goto(f"{site}/")
+                r["card_icon"] = page.locator(".p-open svg").evaluate(ICON_JS)
+                r["card_text"] = page.locator(".p-open").text_content()
+                context.close()
+            finally:
+                browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(10)
+    assert len(r["phone_rows"]) == 5 and all(row["holds"] for row in r["phone_rows"] + r["desk_rows"]), r
+    for row in r["phone_rows"]:  # its own line, under every other control of its row
+        assert all(row["label"][1] >= other[4] for other in row["others"]), row
+    assert all(beside[2:5] == [True, 0, True] for beside in r["beside"]), r["beside"]
+    assert all(beside[5] for beside in r["beside"] if beside[1] == "end"), r["beside"]  # the line is the label's
+    assert r["words"] == [True, False], r
+    assert r["pad"] == [["after Keep", True, 1], ["before the act", True, 1]], r["pad"]
+    for row in r["desk_rows"]:  # a mouse: in the row, beside its buttons
+        assert any(other[2] <= row["label"][1] + 24 and row["label"][3] >= other[2] for other in row["others"]), row
+    assert r["asked"] == "Block them" and r["after_ask"] == r["after_keep"] == ("approved", 1), r
+    # while it asks the row holds only the question; the focus on "Keep", back on "Block…" after Keep or Escape
+    assert r["ask_row"] == [["Block them", "Keep"], 0, "Keep"], r
+    assert r["focus_keep"] == "Block…" and r["focus_open"] == "Keep" and r["after_escape"] == [("approved", 1), "Block…"], r
+    assert r["delete_row"] == [["Delete it", "Keep"], "Keep"] and r["delete_escape"] == [1, "Delete…"], r
+    assert r["blocked"][0] == "blocked", r
+    assert r["unblock_asked"] == "Unblock them" and r["unblock_keep"] == ("blocked", 0) and r["unblocked"][0] == "approved", r
+    kit, card = r["kit_icon"], r["card_icon"]
+    assert r["card_text"] == "Open map", r
+    assert (card["cls"], card["viewBox"], card["d"], card["fill"], card["strokeWidth"]) == \
+        (kit["cls"], kit["viewBox"], kit["d"], kit["fill"], kit["strokeWidth"]) and card["sameColour"], r
+    assert (card["w"], card["h"]) == (16, 16) and card["fill"] == "none", r
+
+
+# The phone's sheet: the head's shadow and the boxes of the head and the body
+SHEET_JS = """() => { const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const head = document.querySelector('.u-sheet .u-sheet-head'), body = document.querySelector('.u-sheet .u-sheet-body');
+  return {shadow: getComputedStyle(head).boxShadow, head: box(head), body: box(body), top: body.scrollTop}; }"""
+# The result's profile card: every leaf of its bar and readout whose text is wider than its box, the chart's height,
+# and the boxes of the card, the scale and the credits
+CARD_JS = """() => { const card = document.querySelector('.r-card'), box = (e) => { const r = e.getBoundingClientRect();
+  return [r.left, r.top, r.right, r.bottom]; };
+  const cut = [...card.querySelectorAll('.r-dock-bar *, .fal-profile-readout')]
+    .filter((e) => e.children.length === 0 && !e.closest('.u-sr') && e.textContent.trim() && e.getClientRects().length
+                   && e.scrollWidth > e.clientWidth + 1)  // .u-sr: for screen readers only, 1 px by design
+    .map((e) => [e.className, e.textContent.trim()]);
+  const m = document.querySelector('.leaflet-container');
+  return {cut, chart: Math.round(card.querySelector('.fal-profile-chart').getBoundingClientRect().height), card: box(card),
+          scale: box(m.querySelector('.leaflet-control-scale')), credits: box(m.querySelector('.leaflet-control-attribution')),
+          facts: card.querySelector('.r-facts')?.textContent}; }"""
+
+
+# The card under a moving cursor: for each place along the chart (a share of its width) the boxes of the card, its
+# chart and its readout, and any leaf of its bar or readout cut short; two frames after each move
+STEADY_JS = """async () => { const card = document.querySelector('.r-card'), hover = card.querySelector('.fal-hover');
+  const frame = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom].map(Math.round); };
+  const out = [];
+  for (const at of [null, 0.02, 0.1, 0.25, 0.4, 0.6, 0.8, 0.95]) {
+    const r = hover.getBoundingClientRect();
+    hover.dispatchEvent(at === null ? new MouseEvent('mouseleave', {bubbles: true})
+      : new MouseEvent('mousemove', {clientX: r.left + r.width * at, clientY: r.top + 5, bubbles: true}));
+    await frame();
+    const cut = [...card.querySelectorAll('.r-dock-bar *, .fal-profile-readout *')]
+      .filter((e) => e.children.length === 0 && !e.closest('.u-sr') && e.textContent.trim() && e.getClientRects().length
+                     && e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent.trim());
+    const readout = card.querySelector('.fal-profile-readout'), text = readout.querySelector('.fal-readout-text') || readout;
+    out.push({at, card: box(card), chart: box(card.querySelector('.fal-profile-chart')), readout: box(readout),
+              inside: text.getBoundingClientRect().bottom <= readout.getBoundingClientRect().bottom + 1, cut,
+              text: text.textContent.slice(0, 40)});
+  }
+  hover.dispatchEvent(new MouseEvent('mouseleave', {bubbles: true}));
+  return out; }"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_shell_c_sheet_shadow_and_card_text(data, tmp_path):
+    """The user's choices "6 b" and "8 b" (report defects 6 and 8) in Playwright's Edge. On a touch phone the sheet's
+    head carries a shadow once its body is scrolled and none at the top, and neither box moves. On a desktop the
+    profile card's bar and readout show their whole text (the facts on a row of their own, the readout wrapping),
+    with the summary and with the long readout under the cursor, for the first line and the longest spot's; the chart
+    keeps at least 120 px; the scale and the credits stay clear of the card (useCornersAboveCard); the card, its chart
+    and its readout keep their boxes while the cursor moves over the chart, at the default width and at the card's
+    narrowest and lowest (code review 3 F1: the readout grew a line and the chart jumped under the pointer)."""
+    import urllib.parse
+    from playwright.sync_api import sync_playwright
+    from test_web import PHONE
+    add_credits(data, SMALL)
+    page_path = stub_page(data, "csheet")
+    line = urllib.parse.quote(first_line(data, SMALL), safe="")
+    r = {}
+    with _server(data) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = browser.new_page(**PHONE)
+            page.goto(f"http://127.0.0.1:{port}/{page_path}#run={SMALL}&line={line}")
+            # the head of the address's line (its title), not the run's summary, which the head shows for a render
+            # or two before the line is selected (32 px against the line's 52: a read then failed under load)
+            page.wait_for_selector(".u-sheet .u-sheet-head .r-dtitle", timeout=30000)
+            r["top"] = page.evaluate(SHEET_JS)
+            page.evaluate("() => { document.querySelector('.u-sheet .u-sheet-body').scrollTop = 120; }")
+            page.wait_for_function("() => getComputedStyle(document.querySelector('.u-sheet .u-sheet-head')).boxShadow !== 'none'",
+                                   timeout=30000)
+            r["scrolled"] = page.evaluate(SHEET_JS)
+            page.evaluate("() => { document.querySelector('.u-sheet .u-sheet-body').scrollTop = 0; }")
+            page.wait_for_function("() => getComputedStyle(document.querySelector('.u-sheet .u-sheet-head')).boxShadow === 'none'",
+                                   timeout=30000)
+            r["back"] = page.evaluate(SHEET_JS)
+            page.close()
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/{page_path}#run={SMALL}")
+            page.wait_for_selector(".r-rows .r-spot > .r-row", timeout=30000)
+            for which in ("first", "longest"):
+                if which == "longest":  # the list by length, longest first; its first spot
+                    page.locator(".r-head .r-col", has_text="Length").click()
+                    page.wait_for_function("() => document.querySelector('.r-sort').value === 'len'", timeout=30000)
+                    if "smallest" in page.locator(".r-col.r-on").text_content():
+                        page.click(".r-dir")
+                page.click(".r-rows .r-spot:first-child > .r-row")
+                page.wait_for_selector(".r-card .fal-profile-chart svg", timeout=30000)
+                page.wait_for_function("() => /FABDEM/.test(document.querySelector('.leaflet-control-attribution').textContent)",
+                                       timeout=30000)
+                r[f"{which}_summary"] = page.evaluate(CARD_JS)
+                page.evaluate("""() => { const h = document.querySelector('.r-card .fal-hover'), b = h.getBoundingClientRect();
+                    h.dispatchEvent(new MouseEvent('mousemove', {clientX: b.left + b.width * 0.4, clientY: b.top + 5, bubbles: true})); }""")
+                page.wait_for_function("() => / from A1 /.test(document.querySelector('.r-card .fal-profile-readout').textContent)",
+                                       timeout=30000)
+                r[f"{which}_cursor"] = page.evaluate(CARD_JS)
+                page.evaluate("() => document.querySelector('.r-card .fal-hover').dispatchEvent(new MouseEvent('mouseleave', {bubbles: true}))")
+            # the longest spot's card under a moving cursor at the default width, then at its narrowest and lowest
+            r["steady_default"] = page.evaluate(STEADY_JS)
+            for edge in (".r-card .r-card-l", ".r-card .r-card-top"):
+                page.focus(edge)
+                page.keyboard.press("Home")
+            page.wait_for_function(f"() => document.querySelector('.r-card').getBoundingClientRect().width < "
+                                   f"{r['steady_default'][0]['card'][2] - r['steady_default'][0]['card'][0] - 50}", timeout=30000)
+            r["steady_narrow"] = page.evaluate(STEADY_JS)
+            page.close()
+        finally:
+            browser.close()
+    print({k: (v.get("chart"), v.get("cut"), v.get("shadow")) if isinstance(v, dict) else v for k, v in r.items()})
+    assert r["top"]["shadow"] == "none" and r["back"]["shadow"] == "none" and r["scrolled"]["shadow"] != "none", r
+    assert r["scrolled"]["top"] > 0 and r["top"]["head"] == r["scrolled"]["head"] == r["back"]["head"], r
+    assert r["top"]["body"] == r["scrolled"]["body"] == r["back"]["body"], r
+
+    def meet(a, b):
+        return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+    assert r["first_summary"]["facts"] != r["longest_summary"]["facts"], r  # two lines
+    # the card, its chart and its readout keep their boxes while the cursor moves, at the default width and the
+    # narrowest; the readout's text stays inside its box and nothing is cut
+    for name in ("steady_default", "steady_narrow"):
+        states = r[name]
+        assert len({(tuple(s["card"]), tuple(s["chart"]), tuple(s["readout"])) for s in states}) == 1, (name, states)
+        assert all(s["inside"] and s["cut"] == [] for s in states), (name, states)
+        assert any(" from A1" in s["text"] for s in states), (name, states)  # the cursor's readouts were shown
+    narrow, wide = r["steady_narrow"][0]["card"], r["steady_default"][0]["card"]
+    assert narrow[2] - narrow[0] < wide[2] - wide[0] - 50, (narrow, wide)
+    for name in ("first_summary", "first_cursor", "longest_summary", "longest_cursor"):
+        found = r[name]
+        assert found["cut"] == [] and found["chart"] >= 120, (name, found)
+        assert not meet(found["card"], found["scale"]) and not meet(found["card"], found["credits"]), (name, found)

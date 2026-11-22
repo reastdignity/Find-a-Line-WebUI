@@ -1,4 +1,4 @@
-// The uncertain shore of a run (data.js `shore`, sources.filling.shore_segments): where the terrain model had
+// The uncertain shore of a run (the head's `shore`, sources.filling.shore_segments): where the terrain model had
 // no data at the foot of a shore, so the surface model (kind "surface") or the sea fill (kind "sea") stands
 // in; lines ending or passing there are less certain. The pure parts: which segments a map's view holds and
 // their metres (shoreLayer.ts draws them with Leaflet, tested in Node: tests/test_viewer.py).

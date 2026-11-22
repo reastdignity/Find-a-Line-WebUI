@@ -20,11 +20,14 @@ Read the section you need, not the whole file (several are over 200 KB).
 - docs/mirror-hosting/spec.md: the project's data server ("the mirror", on the home server): its stack, the
   publishing, the client, the monitoring.
 - docs/code-map/: what each module and tool holds, in detail, one file per area (table below).
+- [docs/PRODUCT.md](docs/PRODUCT.md) (who the interface is for), [docs/DESIGN.md](docs/DESIGN.md) (the look as
+  built, the rules the user picked), [docs/design-review.md](docs/design-review.md) (the design reviewer's checks).
+- [docs/wording.md](docs/wording.md): the words to use and not to use in a UI text or the docs' prose.
 - [docs/workflow.md](docs/workflow.md): the environment, finishing a task (squash, tag), the test lock's
   modes and the conventions, in full.
 - [docs/agent-workflow.md](docs/agent-workflow.md): work larger than a few edits: scope first with the
   user's answers recorded as design guides, a contract and briefs, worker agents, a scope reviewer and a
-  code reviewer before every merge, `main` only on the user's word.
+  code reviewer (for a screen also a design reviewer) before every merge, `main` only on the user's word.
 
 ## Commands
 - Python 3.12+. `uv sync`, `uv run findaline.py ...`; `--help` lists everything. After changing
@@ -46,12 +49,12 @@ Read the section you need, not the whole file (several are over 200 KB).
 | --- | --- | --- | --- |
 | The search (steps 1-5), options, areas, grids | `findaline.py`, `params.py`, `search.py`, `area.py`, `grid.py`, `progress.py`, `warmup.py`, `samelines.py` | search-pipeline | search.md |
 | Anchors and the line test (numba kernels) | `helpers.py`, `linesearch.py`, `lineprofiles.py`, `terrain.py`, `obstacles.py`, `sag.py` | line-test | search.md |
-| A run's files, grouping, terrain statistics | `mapping.py`, `grouping.py`, `runs.py`, `saving.py`, `hypsometry.py` | run-files | search.md |
+| A run's files, grouping, terrain statistics | `mapping.py`, `grouping.py`, `runs.py`, `linestore.py`, `hypsometry.py` | run-files | search.md |
 | Data sources, cache, mosaic, filling | `sources/`, `cache.py`, `update.py`, `orthophoto.py` | sources, providers | sources.md |
 | OSM, coastline | `osm.py`, `osmextract.py`, `coast.py` | osm | sources.md |
 | Web app, job queue, accounts, limits, texts | `web.py`, `jobs.py`, `accounts.py`, `audit.py`, `settings.py`, `messages.py`, `locales/` | web-app | web.md |
 | Metrics, monitoring | `metrics.py`, `servicecounts.py`, `deploy/monitoring/` | metrics | web.md, deploy.md |
-| Viewer (TypeScript, Preact, Leaflet), 3D view | `viewer/src/`, `viewer/dist/` (committed) | viewer, view3d, browser-tests | viewer.md |
+| Viewer (TypeScript, Preact, Leaflet), 3D view | `viewer/src/`, `viewer/dist/` (committed) | viewer, view3d, browser-tests, ui-design | viewer.md |
 | Coverage map | `viewer/src/coverage/`, `tools/coverage_*.py` | coverage-map | viewer.md, tools.md |
 | Country layer | `country.py`, `countcube.py`, `countkernels.py`, `relief.py` | country-layer | country.md |
 | Docker, the VPS, CI | `Dockerfile`, `compose.yaml`, `deploy/`, `.github/workflows/ci.yml` | deploy | deploy.md |
@@ -64,7 +67,7 @@ into context by itself when a file it names is read or edited (a worktree's copy
 before. Planning without opening those files, or briefing a subagent: read the rule, or name it in the brief.
 
 ## Always
-- Results are pinned: the regression set compares the counts and the sha256 of `lines.csv`. A change that
+- Results are pinned: the regression set compares the counts and the sha256 of the CSV export. A change that
   should not change results leaves every checksum as it was; one that should says so and re-baselines.
 - Kernels may pass too much, never too little; `helpers.evaluate_line` decides. Results never depend on
   the number of threads.

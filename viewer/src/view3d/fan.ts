@@ -15,7 +15,7 @@ import type { Anchor3d } from "./decode";
 import type { InterleavedBufferAttribute } from "three";
 import type { Option } from "./options";
 import type { SceneCore } from "./scene";
-import { overlayOf, place, toScreen } from "./screen";
+import { overlayOf, place, pressedMark, targetInside, toScreen } from "./screen";
 import { raised } from "./geometry";
 import { CURVE_POINTS, resample, webbing, writeSegments } from "./webbing";
 import "./point.css";
@@ -89,7 +89,9 @@ export function createFan(scene: SceneCore, handlers: FanHandlers): Fan {
     if (!shown) return;
     dots.forEach((dot, k) => {
       const a = shown!.anchors[k];
-      place(dot, toScreen(scene, at.copy(scene.toScene(a.x, a.y, a.h))));
+      const on = toScreen(scene, at.copy(scene.toScene(a.x, a.y, a.h)));
+      place(dot, on);
+      targetInside(scene, dot, on);  // a dot at the stage's edge keeps its whole target on a touch screen
     });
   };
   scene.view.onDrawn(reposition);
@@ -142,7 +144,9 @@ export function createFan(scene: SceneCore, handlers: FanHandlers): Fan {
         dot.setAttribute("aria-label", `${t("ui.view3d.point_length")} ${o.len.toFixed(1)} m`);
         dot.addEventListener("pointerenter", () => handlers.hover(o.rank));
         dot.addEventListener("pointerleave", () => handlers.hover(null));
-        dot.addEventListener("click", () => handlers.choose(o.rank));
+        // a press on a dot's drawn box is that dot's; where only targets overlap, the nearest dot's (screen.ts
+        // pressedMark; point.css: 44 px targets on a touch screen, 24 px with a mouse)
+        dot.addEventListener("click", (e) => handlers.choose(Number(pressedMark(dot, dots, e).dataset.rank)));
         host.append(dot);
         dots.push(dot);
       }

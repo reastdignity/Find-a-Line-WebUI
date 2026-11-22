@@ -90,7 +90,7 @@ export function riggingText(l: Line, run?: {end_zone?: number; lift?: number}): 
 }
 
 /** The facts of a line beyond its four numbers, as label and value; `run`: the options of the line's run (this
- *  run's data.js "end_zone" and "lift") for the row "Rigging". */
+ *  run's head's "end_zone" and "lift") for the row "Rigging". */
 export function lineFacts(l: Line, highAbove: number, run?: {end_zone?: number; lift?: number}): [string, string][] {
   const facts: [string, string][] = [];
   if (l.run) facts.push(["Run", `${day(l.run.info.created)} ${l.run.info.name}`]);
@@ -121,7 +121,7 @@ export function lineFacts(l: Line, highAbove: number, run?: {end_zone?: number; 
 
 /** "Reaching the anchors" of a line with the access mark: a row per anchor (the mark, "Anchor 1", the state's
  *  words) and the "?" of the help, which opens under the rows. */
-function AccessBlock({line: l}: {line: Line}) {
+export function AccessBlock({line: l}: {line: Line}) {
   const help = useAccessHelp();
   return <div class="r-acc">
     <div class="r-acc-h">{t("ui.access.title")}{help.button}</div>

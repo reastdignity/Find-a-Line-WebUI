@@ -13,14 +13,18 @@ The job queue of the web application and its worker.
   of a worker whose lease expired are failed by the next worker that looks (so a
   restart of the web server does not touch the jobs of a separate worker).
 - Cancelling sets jobs.cancel_requested; the worker running the job kills its whole
-  process tree (psutil) and marks it cancelled. A waiting job is cancelled at once.
+  process tree (psutil) and marks it cancelled. A waiting job is cancelled at once. Its
+  owner may then remove it from their list (removed_at, as deleting a run marks the job that
+  saved it); a finished job whose run is gone otherwise (by hand, or away) leaves it too, told
+  at listing (Jobs.all). A removed job's row stays and counts as before.
 - run_phase: a phase in its own process; its stdout becomes "info" events
   (_EventWriter), the progress goes as "progress" events.
 - The public site (`worker --public`, Jobs(public=True)): events, errors and answers pass
   Redact, which removes the data folder and other absolute server paths; an unexpected
   exception shows "internal error, ref <id>" and its traceback goes to the log (stderr).
 - The quick lane: estimates and profiles of the page (short, but they may call Nominatim
-  or Overpass, read sheet indexes and build grids) are rows of the table `quick`, which
+  or Overpass, read sheet indexes and build grids), and exports of a run's lines (quick_export,
+  into work/exports/ for one download) are rows of the table `quick`, which
   one long-lived process of the worker (run_quick) serves one after another; the web
   server only adds a row and waits for its answer. A task that takes longer than the
   time limit gets its process killed and a new one started.
@@ -32,11 +36,13 @@ import math
 import multiprocessing
 import os
 import re
+import secrets
 import shutil
 import signal
 import socket
 import sqlite3
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -61,6 +67,21 @@ KEEP_QUICK_SECONDS = 3600  # an answer of the quick lane nobody took (the page w
 # A waiting task of the quick lane is deleted by the web process that waits for it when it gives up
 # (web.quick); one left by a web process that stopped is deleted after this (longer than any wait)
 KEEP_WAITING_QUICK_SECONDS = 86400
+# Exports (docs/line-volume/spec-store.md 1.4): the quick lane's kind "export" writes a run's lines.csv or
+# lines.geojson from its store into this folder of the data folder as <run id>-<token>.<extension>; the web
+# process sends it once (GET /api/runs/<run>/export/<token>.<extension>) and deletes it. None is kept: what nobody
+# fetched (or a lane killed while writing left) is deleted after EXPORT_KEEP_SECONDS, at the worker's start, before
+# each export and every EXPORT_SWEEP seconds (remove_old_exports)
+EXPORTS = ("work", "exports")
+EXPORT_KEEP_SECONDS = 3600
+EXPORT_SWEEP = 60  # seconds between the worker's sweeps of the exports (and in every housekeeping round)
+EXPORT_TOKEN_BYTES = 16  # secrets.token_urlsafe: 22 characters
+EXPORT_EXTENSIONS = {"csv": "csv", "geojson": "geojson"}  # the formats (linestore.EXPORTS) and their files' extensions
+# The bytes a line of an export takes at most, for quick_export's disk guard, which estimates the file from the
+# store's lines before writing it: measured 193 and 198 B (CSV), 881 and 890 B (GeoJSON) a line on two target-rig
+# runs of 2.0 M and 3.5 M lines (2026-11-16, with the A-frame columns), rounded up for the access mark, stands_for
+# and the GeoJSON's head
+EXPORT_LINE_BYTES = {"csv": 250, "geojson": 1000}
 EVENTS_LIMIT = 1000     # events one read of the event streams gets at most (the next read goes on from there)
 JOB_EVENTS_MAX = 1000  # messages of a job its page gets at once (the newest; and the last progress)
 LEASE = 30.0              # seconds a lease lasts without a renewal
@@ -177,6 +198,11 @@ MIGRATIONS = [
     """CREATE TABLE rigs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT NOT NULL,
                           name_key TEXT NOT NULL, rig TEXT NOT NULL);
        CREATE UNIQUE INDEX rigs_name ON rigs (IFNULL(user_id, 0), name_key);""",
+    # 19: when a job left its owner's searches (NULL: not removed): Jobs.remove for a cancelled one, Jobs.delete_run
+    # for the jobs of a deleted run; the owner's list leaves it out, an administrator's marks it; the row stays, so it
+    # counts as before (the daily quota, the usage, the statistics). Nothing else is written: a finished job whose run
+    # is gone otherwise is told at listing (Jobs.all)
+    """ALTER TABLE jobs ADD COLUMN removed_at TEXT;""",
 ]
 # The column of a status's start (claim), or of the end of the download ("ready", set by its process)
 PHASE_TIME = {"downloading": "downloading_at", "ready": "ready_at", "computing": "computing_at"}
@@ -408,6 +434,69 @@ USAGE = {"km2": "km² of search areas", "mpx": "Mpx of search areas (km² / reso
 def _in(values: Iterable) -> str:
     """Placeholders for an SQL IN (...) of these values."""
     return "(" + ", ".join("?" * len(tuple(values))) + ")"
+
+
+FACTS_TRIES = 3  # copies of jobs.sqlite run_facts reads at most before it gives up
+
+
+def run_facts(path: str) -> Optional[Dict[str, Dict]]:
+    """What a database `path` (a data folder's jobs.sqlite) knows of each run, for `findaline.py runs remove-old`,
+    whose dry run writes nothing in the data folder: never through Jobs (its open sets the journal mode and
+    migrates), and not even a read-only connection to the file itself (one with `mode=ro` left the -wal and -shm
+    files beside the database: tests/test_remove_old.py showed it), but a copy of the database and its -wal (what the
+    app wrote and SQLite has not checkpointed yet; a -wal that vanishes meanwhile is no -wal) in a temporary folder
+    elsewhere, removed on every path. The two files are copied one after the other while the app may write, so a
+    copy is checked (`PRAGMA quick_check`) and made again on a failure, FACTS_TRIES times at most; None when no copy
+    could be read (the caller lists the runs without these facts). {run id: {"user_id", "shared", "demo",
+    "favourites": favourite lines in it (anyone's), "searches": finished searches that saved it not yet removed}}; a
+    table or column an older database lacks reads as nothing; {} without a database. The list of runs to delete never
+    comes from here (the folders decide), only these columns of the listing."""
+    if not os.path.isfile(path):
+        return {}
+    for _ in range(FACTS_TRIES):
+        folder = tempfile.mkdtemp(prefix="findaline-facts-")
+        try:
+            copy = os.path.join(folder, "jobs.sqlite")
+            shutil.copyfile(path, copy)
+            try:
+                shutil.copyfile(path + "-wal", copy + "-wal")
+            except FileNotFoundError:  # no -wal, or the app's last connection closed meanwhile
+                pass
+            db = sqlite3.connect(copy, timeout=60)
+            try:
+                if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                    continue
+                return _facts_of(db)
+            finally:
+                db.close()
+        except (OSError, sqlite3.DatabaseError):
+            continue
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+    return None
+
+
+def _facts_of(db: sqlite3.Connection) -> Dict[str, Dict]:
+    """run_facts' reading of a copy of jobs.sqlite."""
+    facts: Dict[str, Dict] = {}
+
+    def fact(run_id: str) -> Dict:
+        return facts.setdefault(run_id, {"user_id": None, "shared": False, "demo": False, "favourites": 0,
+                                         "searches": 0})
+
+    def rows(query: str) -> list:
+        try:
+            return db.execute(query).fetchall()
+        except sqlite3.OperationalError:  # no such table or column (an older schema)
+            return []
+    for run_id, user_id, visibility, share_hash in rows("SELECT run_id, user_id, visibility, share_hash FROM runs"):
+        fact(run_id).update(user_id=user_id, shared=share_hash is not None, demo=visibility == "demo")
+    for run_id, count in rows("SELECT run_id, COUNT(*) FROM favourites GROUP BY run_id"):
+        fact(run_id)["favourites"] = count
+    for run_id, count in rows("SELECT run_id, COUNT(*) FROM jobs WHERE status = 'done' AND run_id IS NOT NULL "
+                              "AND removed_at IS NULL GROUP BY run_id"):
+        fact(run_id)["searches"] = count
+    return facts
 
 
 class Jobs:
@@ -669,13 +758,26 @@ class Jobs:
         return {r[0]: r[1] for r in rows}
 
     def all(self, user_id: Optional[int] = None) -> List[Dict]:
-        """The newest jobs, of one user (None: of everyone)."""
-        mine = "" if user_id is None else "WHERE user_id = ? "
+        """The newest jobs, of one user without those they removed and without the finished ones whose run is
+        gone (None: of everyone, an administrator's list, those too: `removed_at`, `run_gone`). A run is gone
+        while its run.json is not in the data folder's runs/ (deleted, by delete_run or by hand, or away): told
+        here at every listing, never stored, so a run that comes back brings its job back (one stat per finished
+        job with a run)."""
+        mine = "" if user_id is None else "WHERE user_id = ? AND removed_at IS NULL "
         with self._db() as db:
-            rows = db.execute(f"SELECT id, created, status, title, run_id, error, error_info, finished, user_id "
+            rows = db.execute(f"SELECT id, created, status, title, run_id, error, error_info, finished, user_id, "
+                              f"removed_at "
                               f"FROM jobs {mine}ORDER BY created DESC LIMIT 200",
                               () if user_id is None else (user_id,)).fetchall()
-        return [_with_info(dict(r)) for r in rows]
+        runs = os.path.join(self.data_dir, "runs")
+        found = []
+        for row in rows:
+            job = _with_info(dict(row))
+            job["run_gone"] = bool(job["status"] == "done" and job["run_id"]
+                                   and not os.path.isfile(os.path.join(runs, job["run_id"], "run.json")))
+            if not (user_id is not None and job["run_gone"]):
+                found.append(job)
+        return found
 
     def waiting_or_running(self) -> List[Dict]:
         """The jobs not finished yet, with their requests."""
@@ -886,16 +988,74 @@ class Jobs:
         with self._db() as db:
             return bool(db.execute("UPDATE runs SET visibility = ? WHERE run_id = ?", (visibility, run_id)).rowcount)
 
-    def delete_run(self, run_id: str, runs_dir: str):
-        """Delete a run: its folder, then its row (its share link and demo flag go with it) and the
-        favourite lines of everyone in it. A folder that cannot be deleted raises OSError and keeps its
-        row (or adopt_runs would give it away)."""
-        folder = os.path.join(runs_dir, run_id)
-        if os.path.isdir(folder):
-            shutil.rmtree(folder)
+    def delete_run(self, run_id: str, runs_dir: str) -> Optional[str]:
+        """Delete a run: its folder renamed first, under cache.runs_lock, to runs/_removing-<id> (runs.park_run: one
+        rename, so a rename that fails, a file of the run held open on Windows, raises OSError and changes nothing,
+        the row kept or adopt_runs would give a half folder away); then its row (its share link and demo flag go
+        with it) and the favourite lines of everyone in it, the jobs that saved it marked removed with the time
+        (forget_run; if that fails, the folder is renamed back and the error raised); then the renamed folder deleted
+        outside the lock (runs.finish_removal). A renamed folder that cannot be deleted now stays as
+        _removing-<id>, no run any more, which `findaline.py runs remove-old --yes` deletes later: its path is
+        returned then (else None), the run being deleted."""
+        import runs as rn
+        with cache.runs_lock(runs_dir):
+            parked = rn.park_run(runs_dir, run_id)
+            try:
+                self.forget_run(run_id)
+            except BaseException:
+                if parked:
+                    os.rename(parked, os.path.join(runs_dir, run_id))
+                raise
+        try:
+            rn.finish_removal(parked)
+        except OSError:
+            return parked
+        return None
+
+    def finish_removals(self, runs_dir: str, names: Optional[Iterable[str]] = None,
+                        min_age: float = 0.0) -> Tuple[List[str], List[Tuple[str, str]]]:
+        """Finish the removals that stopped after their rename (runs/_removing-<id>, runs.park_run: a kill, a restart
+        of the web in the middle of a Delete, a file held open): for each such folder (of `names` only, when given;
+        parked at least `min_age` seconds ago) its rows go too (forget_run, under cache.runs_lock, only while no
+        runs/<id> exists: a run of the same id that came back keeps its rows), then the folder. `findaline.py runs
+        remove-old --yes` and the worker's housekeeping call it. Returns (the names finished, [(name, error)])."""
+        import runs as rn
+        finished, left = [], []
+        if not os.path.isdir(runs_dir):
+            return finished, left
+        for entry in sorted(os.scandir(runs_dir), key=lambda e: e.name):
+            if not entry.name.startswith(rn.REMOVING) or (names is not None and entry.name not in names):
+                continue
+            try:
+                if min_age and time.time() - entry.stat(follow_symlinks=False).st_mtime < min_age:
+                    continue
+                run_id = entry.name[len(rn.REMOVING):]
+                with cache.runs_lock(runs_dir):
+                    if not os.path.lexists(os.path.join(runs_dir, run_id)):
+                        self.forget_run(run_id)
+                rn.finish_removal(entry.path)
+                finished.append(entry.name)
+            except Exception as error:  # noqa: BLE001 - reported, the others go on
+                left.append((entry.name, f"{type(error).__name__}: {error}"))
+        return finished, left
+
+    def forget_run(self, run_id: str):
+        """The database's part of deleting a run (delete_run): its row, everyone's favourite lines in it, the jobs
+        that saved it marked removed (the privacy page says so: their rows stay and count as before; Jobs.all would
+        leave them out of their owner's list anyway, a run gone)."""
         with self._db() as db:
             db.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
             db.execute("DELETE FROM favourites WHERE run_id = ?", (run_id,))
+            db.execute("UPDATE jobs SET removed_at = ? WHERE run_id = ? AND removed_at IS NULL",
+                       (cache.now_iso(), run_id))
+
+    def remove(self, job_id: str) -> bool:
+        """Remove a cancelled job from its owner's list (removed_at; the row stays, so it counts toward the
+        daily quota and the statistics as before). Whether this call removed it: False for a job that is not
+        cancelled and for one removed before (a second removal changes nothing; of two at once, one is True)."""
+        with self._db() as db:
+            return bool(db.execute("UPDATE jobs SET removed_at = ? WHERE id = ? AND status = 'cancelled' AND "
+                                   "removed_at IS NULL", (cache.now_iso(), job_id)).rowcount)
 
     # --- Favourite lines (the maps mark them, the app lists them) ---
 
@@ -1590,7 +1750,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
         first = {"reach": True} if phase == "download" else {"source_id": job["source"]} if job["source"] else {}
         plan = search.plan_search(params, paths, on_event, limits=limits, memory=memory, **first)
         plan.owner = job["user_id"]  # a tiled search resumes only for the same user
-        plan.index_runs = not public  # runs.js and index.html of the runs folder: read locally only
+        plan.index_runs = not public  # runs.js of the runs folder: read locally only
         if safeguards is not None:  # the server's switch, also for a user without limits (its memory budget)
             plan.early_stop = safeguards.lines_early_stop
         if phase == "download":
@@ -1745,10 +1905,70 @@ def quick_place(data_dir: str, request: Dict, limits: Optional[Limits] = None) -
     return {"places": osm.places(request["q"], os.path.join(data_dir, "cache"))}
 
 
+def exports_folder(data_dir: str) -> str:
+    """The folder of the exports waiting for their download (EXPORTS)."""
+    return os.path.join(data_dir, *EXPORTS)
+
+
+def export_sweep_age() -> float:
+    """The age (s) from which remove_old_exports deletes a file: EXPORT_KEEP_SECONDS less two EXPORT_SWEEPs.
+    The worker sweeps every EXPORT_SWEEP seconds (Scheduler._loop, after TICK at most), so a file made at t is
+    gone by t + KEEP - 2 SWEEP + SWEEP + TICK (3600 - 120 + 60 + 0.5 = 3540.5 s), a minute before the hour of
+    the privacy page ("for one hour at most"), with that minute for a slow loop (its lock, a slow listing)."""
+    return EXPORT_KEEP_SECONDS - 2 * EXPORT_SWEEP
+
+
+def remove_old_exports(data_dir: str) -> int:
+    """Delete what the exports' folder holds since export_sweep_age() or longer: exports nobody fetched,
+    files whose sending broke off and could not be deleted then, the temporary folders of a lane killed
+    while it wrote (linestore.export's). Their number; a folder that cannot be listed removes nothing."""
+    return _remove_old(exports_folder(data_dir), export_sweep_age() / 86400)
+
+
+def export_bytes(run_folder: str, fmt: str) -> int:
+    """The most bytes an export of a run in the format `fmt` takes: its store's lines (run.json's block
+    "store") times EXPORT_LINE_BYTES."""
+    with open(os.path.join(run_folder, "run.json"), encoding="utf-8") as f:
+        lines = int((json.load(f).get("store") or {}).get("lines") or 0)
+    return lines * EXPORT_LINE_BYTES[fmt]
+
+
+def quick_export(data_dir: str, request: Dict, limits: Optional[Limits] = None) -> Dict:
+    """A run's lines.csv ({"run": id, "format": "csv"}) or lines.geojson ("geojson") made from its store
+    (linestore.export) into the exports' folder under a random name (POST /api/runs/<run>/export), for one
+    download: {"name": "<token>.<extension>"} (the web process makes its address: a name, not a path, passes
+    the public site's Redact as it is). Refused (503, code export_disk_full) when the disk would have less free
+    space than the server's free_disk_gb_min (LANE_LIMITS: a safeguard for everyone, as for a search) once the
+    file is written (its size estimated by export_bytes), and (export_failed) for a run without a store (the page
+    never asks for one: it downloads the run's own text files)."""
+    import linestore
+    run_id, fmt = request["run"], request["format"]
+    if fmt not in EXPORT_EXTENSIONS or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}", run_id):
+        raise ValueError("an export: a run and the format csv or geojson")
+    folder = os.path.join(data_dir, "runs", run_id)
+    if not os.path.isfile(os.path.join(folder, linestore.LINES_FILE)):
+        raise UserError(f"the run {run_id} has no store to export from", "export_failed")
+    out = exports_folder(data_dir)
+    os.makedirs(out, exist_ok=True)
+    remove_old_exports(data_dir)
+    if LANE_LIMITS is not None and LANE_LIMITS.free_disk_gb_min is not None:
+        free = shutil.disk_usage(out).free / 1e9
+        size = export_bytes(folder, fmt) / 1e9
+        if free - size < LANE_LIMITS.free_disk_gb_min:
+            raise QuotaExceeded(f"the server is short of disk space ({free:.0f} GB free, the file about {size:.1f} GB):"
+                                f" the file was not made; try again later", 503, "export_disk_full")
+    name = f"{secrets.token_urlsafe(EXPORT_TOKEN_BYTES)}.{EXPORT_EXTENSIONS[fmt]}"
+    linestore.export(folder, fmt, os.path.join(out, f"{run_id}-{name}"))
+    return {"name": name}
+
+
 QUICK = {"estimate": quick_estimate, "profile": quick_profile, "place": quick_place, "patch": quick_patch,
-         "reach": quick_reach}
+         "reach": quick_reach, "export": quick_export}
 SLOT_MEMORY: Optional[int] = None  # the budget of a compute slot, in the quick lane's process (run_quick)
 PUBLIC_TEXTS = False  # the public site's readings of coded notes (messages.Coded.web_text), the quick lane's (run_quick)
+# The server's Limits in the quick lane's process (run_quick): its safeguards apply to every task, also of a
+# user without limits, whose task gets no limits (quick_export's free_disk_gb_min)
+LANE_LIMITS: Optional[Limits] = None
 
 
 def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limits] = None, public: bool = False,
@@ -1763,9 +1983,10 @@ def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limit
 
     import progress as pg
     import search
-    global SLOT_MEMORY, PUBLIC_TEXTS
+    global SLOT_MEMORY, PUBLIC_TEXTS, LANE_LIMITS
     SLOT_MEMORY = memory  # an estimate's tiles as its job's (search.slot_memory)
     PUBLIC_TEXTS = public
+    LANE_LIMITS = limits
     pg.utf8_output()  # the bars' text lines ("sea 0.31 km²") on a redirected stdout
     jobs = Jobs(data_dir, public)
 
@@ -1821,7 +2042,11 @@ def _remove_old(folder: str, days: float, keep: Iterable[str] = ()) -> int:
     limit, keep, removed = time.time() - days * 86400, set(keep), 0
     if not os.path.isdir(folder):
         return 0
-    for entry in os.scandir(folder):
+    try:
+        entries = list(os.scandir(folder))
+    except OSError:  # a listing that fails (a network drive, the folder replaced): nothing this time; never
+        return 0     # ends the worker's loop, which sweeps the exports with it
+    for entry in entries:
         with contextlib.suppress(OSError):
             if entry.name not in keep and entry.stat().st_mtime < limit:
                 shutil.rmtree(entry.path) if entry.is_dir() else os.remove(entry.path)
@@ -1983,6 +2208,7 @@ class Scheduler:
         self.jobs.register(self.worker_id)
         self.beat = time.time()
         self.jobs.interrupted()  # jobs of workers that are gone
+        remove_old_exports(self.jobs.data_dir)  # exports nobody fetched before a stop
         self._start_warm_up()
 
     def _start_warm_up(self):
@@ -1998,13 +2224,21 @@ class Scheduler:
         """Clean the data folder up: temporary files of downloads killed while writing; events of
         jobs finished more than Limits.keep_events_days ago; answers of the quick lane nobody took;
         work folders of ended jobs (kept after an unexpected error) after KEEP_WORK_DAYS, and those
-        of estimates and profiles (left by a killed quick lane) and of the warm-up after a day. Measures the cache by
+        of estimates and profiles (left by a killed quick lane) and of the warm-up after a day, exports nobody
+        fetched after EXPORT_KEEP_SECONDS. Measures the cache by
         top-level folder (write_cache_sizes) and the coverage of the searches (COVERAGE_FILE), and
         writes what this round removed, when it ended and how long it took (HOUSEKEEPING_FILE), for
         the metrics."""
         started = time.monotonic()
         data = self.jobs.data_dir
         removed = dict.fromkeys(("parts", "events", "quick", "usage", "audit", "work"), 0)
+        removed["work"] = remove_old_exports(data)  # first: the cache's walk below may take minutes
+        # Run folders whose removal stopped after their rename (a restart of the web in the middle of a Delete): their
+        # rows and bytes go after an hour (the web's own Delete finishes a fresh one itself)
+        import runs as rn
+        _, left = self.jobs.finish_removals(os.path.join(data, "runs"), min_age=rn.REMOVING_AGE)
+        for name, error in left:
+            print(f"housekeeping: {name} not removed yet: {error}", file=sys.stderr)
         removed["parts"] = cache.remove_stale_parts(os.path.join(data, "cache"))
         write_cache_sizes(data)
         import audit
@@ -2014,7 +2248,7 @@ class Scheduler:
         removed["quick"] = self.jobs.forget_quick()
         removed["usage"] = self.jobs.forget_usage()
         unfinished = {job["id"] for job in self.jobs.waiting_or_running()}
-        removed["work"] = _remove_old(os.path.join(data, "work", "jobs"), KEEP_WORK_DAYS, keep=unfinished)
+        removed["work"] += _remove_old(os.path.join(data, "work", "jobs"), KEEP_WORK_DAYS, keep=unfinished)
         for name in ("estimates", "profiles", "warmup"):  # warmup: warmup.FOLDER
             removed["work"] += _remove_old(os.path.join(data, "work", name), 1)
         try:
@@ -2050,11 +2284,14 @@ class Scheduler:
         self.jobs.interrupted(self.worker_id)
 
     def _loop(self):
-        cleaned = 0.0
+        cleaned, swept = 0.0, time.time()  # _begin removed the old exports
         while not self.stopped.wait(TICK):
             if time.time() - cleaned >= HOUSEKEEPING:  # in a thread: it walks the whole cache
                 cleaned = time.time()
                 threading.Thread(target=self.housekeeping, daemon=True).start()
+            if time.time() - swept >= EXPORT_SWEEP:  # every EXPORT_SWEEP, rounds or not (export_sweep_age)
+                swept = time.time()
+                remove_old_exports(self.jobs.data_dir)  # one folder's listing; never raises
             with self.lock:
                 if self.stopped.is_set():
                     break

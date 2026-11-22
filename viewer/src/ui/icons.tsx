@@ -40,6 +40,14 @@ export const ICONS = {
   warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   refresh: '<path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/>',
+  // the result view's (the pilot of 2026-11-18): the zoom out, the column a list is sorted by, a tight line's mark
+  minus: '<path d="M5 12h14"/>',
+  sort: '<path d="M12 4v16M6 14l6 6 6-6"/>',
+  alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6.5M12 16.5v.5"/>',
+  // step 3d G3 (Q10 a): Delete… and Remove (a bin: its lid, handle, tapered body and two lines), Cancel the search (a
+  // stop square); the close mark keeps one meaning
+  bin: '<path d="M4 7h16"/><path d="M9.5 7V4.5h5V7"/><path d="M6.5 7l1 12.5h9l1-12.5"/><path d="M10 11v5M14 11v5"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

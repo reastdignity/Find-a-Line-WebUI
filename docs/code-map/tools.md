@@ -209,8 +209,14 @@ A page whose feature the run lacks (`NEEDS`: `c-result-rigging` a no-fall zone o
 an uncertain shore, `c-result-why` the square rule; `run_features` reads run.json before any browser) is left out
 without a load, and a page whose step `need:<expression>` is false once the result is drawn as well. Selection:
 `--only`, `--exclude` (substrings), `--themes light|dark|both` (`--dark` = both), `--list` (the pages and which the run
-leaves out, no browser). Each picture is printed with its seconds, then a summary (set-up parts, passes, the ten
-slowest pages, the pages left out, timeouts, failed steps); `--timings <file>` the same as JSON; a timed-out `wait:`
+leaves out, no browser). No fixed sleeps: after a load and after each step `settled` waits for a quiet time with no
+request in flight (Playwright's events, the event stream ignored), no tile loading (a failed one is not waited
+for), map move, CSS animation, busy spinner, animation frame or short timer (`WATCH`, an init script) and the mark of
+the page's family (`page_family`, `PAGE_STATE`), at most 30 s after a load and 10 s after a step, then shot and noted "not settled"; a `wait:` waits at
+most 10 s, a first-draw mark (`FIRST_DRAW`) 30 s, `c-basic-sea`'s estimate 240 s (`SLOW_MARKS`); a mark that can no
+longer come (`GIVE_UP`: the estimate "unavailable" or "refused") ends its wait at once, as a timeout. Each picture is
+printed with its seconds, then a summary (set-up parts, passes, the ten slowest pages, the pages left out, timeouts,
+failed steps, the pages not settled); `--timings <file>` the same as JSON; a timed-out wait
 gets a quarter of its limit for the rest of the pass, a step that raises fails only its page, `--strict` stops at
 the first; exit code 1 after a timeout or a failed step (a page whose click finds nothing after a wait timed out is
 "timed out", not "left out"); a whole page too tall at the device's pixel ratio (WebKit's
@@ -221,7 +227,18 @@ passes' loop, rows kept as made, `on_row` called with each), `pass_context` (a p
 clip's files and the checkout's path, which the clip run's files name) keeps the clip run and the cubes while the key is the same (`--fresh` makes them anew and removes the
 clip run made before: one in the folder, a failed removal retried at every start, the problem report made again);
 each start ends the tool's users' sessions before making theirs (one run at a time per folder); the Basic
-form's riggers get only the rigs they do not have yet, the problem report is added once
+form's riggers get only the rigs they do not have yet, the problem report is added once. The runs open from their
+store over http (no `file://`): the clip run's credits go into run.json and the store's head (`with_credits`; a
+run's data.js only when it has one: a `--run` of a run saved before store wave 4), and the lines naming the 3D
+view's pages come from the store (`first_line`; data.js for such an old run; printed: `lines_read`)
+
+The result view's map states (`c-view*`: the first view, Area, Spots, Lines, Best 30, All refused, Lines held, several
+spots under one press, the map's controls open, a phone's sheet raised to half) open with the page's flag: `VIEWS` names the
+pages whose `findaline.view` `page_storage` sets (removed for every other page of the pass), each waits for
+`window.FINDALINE_VIEW` (`VIEW_READY`), and a run whose store has no column `spot` leaves them out (`NEEDS` "view":
+`store_has_view`); `tests/test_ui_shots_view.py`. Its panels' states: `c-view-selected` (a phone: the low
+sheet's head; `-half`: its details), `c-view-fan`, `c-view-sector`, `c-view-all-levels`, `c-view-why`, `c-view-start` (a
+phone's sheet at full height for the list's states: `VIEW_HALF` twice); their steps are scripts and waits only.
 
 ## `tools/shots_diff.py`
 
@@ -236,10 +253,13 @@ changed pixels red). Pillow and numpy (`tests/test_shots_diff.py`)
 Run by hand: counts and measurements of the UI for design work, with no pass or fail (the user picks thresholds from
 the numbers; the bounds are parameters). `static` reads the source only: viewer/src's CSS by its own scanner (no
 nested rules), the .ts/.tsx code without comments and regular expressions, `locales/en.json`: distinct font sizes
-(`var()`/`calc()` "unresolved"), radii, z-index values, normalised colour literals outside `ui/tokens.css`, the
-monospace font and its uppercase, "the same grey box" per selector, characters used as icons or joints (those in an
-`aria-label` or `title` apart, the demo pages left out unless `--with-demos`), dense strings per literal, the
-catalogue's words per group, .tsx files with English text and no `t(`. `pages` measures every state of
+(`var()`/`calc()` "unresolved"), radii, z-index values, the px lengths of padding, margins and gaps with those off R7's
+steps and their places (`R7_STEPS`; a length inside `calc()` or `env()` not counted), normalised colour literals
+outside `ui/tokens.css` (in the CSS also its 148 named colours, `CSS_COLOUR`), the monospace font and its uppercase, "the same grey box" per selector, characters used as
+icons or joints (those in an `aria-label` or `title` apart, the demo pages left out unless `--with-demos`), dense
+strings per literal, the catalogue's words per group with the texts over R10's limits (`r10_over`: `R10_LIMITS` by the
+key's kind, `R10_BY_ROLE` by role, the coverage page's catalogues too; `tests/test_words.py` fails on the same lists),
+.tsx files with English text and no `t(`. `pages` measures every state of
 `ui_shots.PAGES` through `ui_shots.serve`, `select_pages`, `left_out_by_run` and one `shoot_all(act=,
 bypass_csp=True)` per device and theme (axe-core cannot be injected under the app's CSP; the screenshot tool's own
 contexts never bypass it), on a `--data-dir` of its own (one run per data folder; `--fresh` builds it anew; a kept
@@ -275,19 +295,23 @@ favourite is refused (R4 saves a favourite, and Home then counts differently) (`
 Run by hand: the measurements of docs/performance.md: `perf_run_load.py` (a run's result and its first line's 3D view
 opened in headless Chromium on the local app over a scratch data folder, the runs copied and the cache linked: the
 page's User Timing measures, `viewer/src/perf.ts` "fal:run:*"/"fal:3d:*", the long tasks and heap, data.js as a script
-against fetch + JSON.parse, gzipped sizes and their times at 10/50/200 Mbit/s; `tests/test_perf_run_load.py`),
+against fetch + JSON.parse (a run saved since store wave 4 has no data.js: left out, said in the report), gzipped
+sizes and their times at 10/50/200 Mbit/s; a run needs run.json and its store or data.js, its first line from the
+store (`first_line`, data.js for a run saved before it; `line_read` says which); `tests/test_perf_run_load.py`),
 `perf_profile.py` (cores and memory of a search per stage, a timeline chart; `--cores N` like a worker container;
 `--memory BYTES` the budget of a compute slot (`search.available_memory` answers it), so an area's tiles are sized as
 the web worker sizes them; a bar of parts (`progress.compute.update(n, part=...)`) is listed per part),
 `perf_download.py` (the download phase on an empty cache with N threads), `perf_sqlite.py` (`jobs.sqlite` under K jobs
 and M open pages), `perf_lines_memory.py` (bytes per line of steps 3, 4 and 5, from a capture of
 `perf_line_funnel.py`: `--call`, or of the join of a tiled run's tiles and, for tile files that still hold the pixel
-columns (written before 2026-11-01's wave 5), its steps 4 and 5: `--tiles`; the traced heap of one process),
+columns (written before 2026-11-01's wave 5), its steps 4 and 5: `--tiles`; the traced heap of one process; step 5
+`save_step5`: what `save_run` writes since store wave 4, `mapping.view_columns` and `linestore.write`, or a
+`--repo` without linestore.py (a checkout before the store) its text files; `tests/test_perf_lines_memory.py`),
 `perf_slot_memory.py` (the memory of one search's whole process tree, as `search.LINE_BYTES` counts it: the search
-through `perf_profile.py` in a child process with hooks (the stages, `saving.save`, `saving.hand_over` and its
-folder's size, `linestore.write`, the plan's pixels, the square rule's `peak_rows`), the tree sampled every 0.2 s
-(working sets, private bytes, `--uss` unique sets, the machine's used memory); the peaks and where they fell, and
-the unique sets plus the hand-over files once (the larger of its value at the working sets' peak and its largest);
+through `perf_profile.py` in a child process with hooks (the stages, `mapping.view_columns`, `linestore.write`,
+the plan's pixels, the square rule's `peak_rows`; `saving.py`'s hooks and hand-over term went with it in store wave
+4), the tree sampled every 0.2 s (working sets, private bytes, `--uss` unique sets, the machine's used memory); the
+peaks and where they fell, and the unique sets' peak (`peak_tree_uss_mb`, the measure);
 `--cores`, `--memory`, `--worker` for a compute slot's shape (the search's own plan only); a refusal as its code, a
 missing record or run as a warning; `tests/test_perf_slot_memory.py`, which also pins `perf_country.py`'s copy of
 `LINE_BYTES`);
@@ -298,7 +322,22 @@ ctypes into rasterio's GDAL library, our own range requests counted at `ranges.g
 as the prediction, per block and each once; `tests/test_perf_window_reads.py`), `perf_reach.py` (the reach of one
 anchor over a 3D patch's lattice by batched numpy and by `linesearch.evaluate_lines`, both checked against
 `helpers.evaluate_line`: seconds, memory, numba's one-time costs, the representatives of three rules, an answer's
-size; what `search.reach_of_anchor`'s engine was chosen on; `tests/test_perf_reach.py`)
+size; what `search.reach_of_anchor`'s engine was chosen on; a run's lines through `run_rows`: the CSV export of its
+store into a temporary folder by a child process (the measuring process stays as before step 1), or the lines.csv
+of a run saved before the store (its three named cases, `find_run`: in `<data>/runs/`, then in
+`--reference-dir`, default `<data>/local/reference-runs`), the results' `lines_read`; `tests/test_perf_reach.py`),
+`perf_cached_check.py` (where the time between the start of an area download's pass and its first tile goes, for one
+area of a state folder on its real data folder: the plan (`area_download.plan_of(area, work)`, its work folder a
+scratch one), `layer.tiles`, the paths, the files asked one by one and by one listing per folder, the index rows
+asked one by one and in one query, each pair's answers compared, then `layer.to_download` as a search asks it or,
+with `--by-folder`, as a pass does (`sources.layer.EXISTING`), and the prune at a pass's end with `cache.forget`
+replaced by a counter (`dry_prune`: nothing deleted); `--only <step>`; it stops when an index answer is not cached;
+the cache is written only where a file without a row is adopted by `check`; `tests/test_perf_cached_check.py`)
+
+`perf_run_load.py --view` opens the result view (the page's flag) and reports its phases ("fal:view:*") and which page
+drew the run; `--interact` times changes on the open page from the call to two frames later, with their part in script
+(the view: a filter, "Top level only", Best, a held level, "Lines from here"; today's page: a filter, the grouping
+distance); `tests/test_perf_run_load_view.py`.
 
 ## `tools/perf_country.py`
 
@@ -313,7 +352,13 @@ pixels and the relief over windows of 1, 3 and 5 blocks, `relief.tile_blocks`; t
 steep share × relief, and the samples' 1 km cells with their edge fraction; `virtual_cells` for a place measured only
 at another grid) and `estimate` (country totals: strata of the steep share, the relief below 0.5 %, lines per km² from
 the cells, a bootstrap over the places; times from `time_model` per band and grid; `inputs.json` names the strata,
-machines, data and services); `tests/test_perf_country.py`
+machines, data and services); a run's lines (`read_lines`) from its lines.npz (`profile --lean` until store wave 4;
+`--lean` is accepted and does nothing since), its store (`linestore.read`'s columns in memory, grouped and in
+lines.csv's order: length, clearance, height and the first anchor's coordinates unrounded, so a line at a band's or
+cell's edge may take another key than its lines.csv's rounding) or the lines.csv of a run saved before the store,
+`lines_from` in compare's, cube's and relief's results; a lines.csv over 200 MB packed once into
+`perf_country_cache` in the system's temporary folder, never beside the run;
+`tests/test_perf_country.py`
 
 ## `tools/perf_line_funnel.py`, `tools/line_funnel_kernels.py`
 
@@ -331,7 +376,8 @@ pixel; F8c as production applies it since 2026-11-03), the work of the anchors w
 ## `tools/device_page.py`
 
 Run by hand: the 3D view on a real phone (docs/3d-view-contract.md, "Wave 4"): `record` takes the `/api/patch` (steps
-1 and 2) and `/api/profile` answers of a few lines of a data folder's runs from the local app in-process, `serve`
+1 and 2) and `/api/profile` answers of a few lines of a data folder's runs (`run_anchors`: from the store, or the
+data.js of a run saved before it; the index's `lines_read`) from the local app in-process, `serve`
 serves them again over HTTPS on the LAN (a self-signed certificate per start, the 3D page as `web.VIEW3D_HTML` gives
 it with the app's headers and CSP, `/cache/` read-only, GET only, no accounts) with an iPhone checklist, `measure`
 gives the data of one open per line and level (the imagery planned by the page's own `tiles.ts` run in Node, cached
@@ -458,8 +504,8 @@ coded error and its message, the child's stderr in `output.log` after `--- stder
 `--failed`, `--status`, `--ids @FILE`), one data folder `<out>/data` whose `cache/` `studylib.linked_data_folder`
 links to the real cache, `--parallel N` children in it (each with its own work folder `work/truth-<time>-<hex>/`,
 removed once its process tree ended, since findaline.py on Windows leaves the work folder of a search without lines;
-`jobs.kill_tree` at `--timeout` and Ctrl+C), a run's line files (`RUN_FILES`: 31 GB on the first pass) deleted once
-its capture is written, run.json kept (`--keep-runs` keeps them all); a pass under `tools/test_lock.py run --heavy`);
+`jobs.kill_tree` at `--timeout` and Ctrl+C), a run's line files (`RUN_FILES`: the store, map.html, ATTRIBUTION.txt
+and the text files of a run saved before store wave 4; 31 GB on the first pass) deleted once its capture is written, run.json kept (`--keep-runs` keeps them all); a pass under `tools/test_lock.py run --heavy`);
 `analyse` and `report` call `tools/truth_analysis.py` (the match in the grid's CRS: both anchors within
 `tol = max(TOL_M 10 m, TOL_SHARE 10 % of L)` either way round (raised to the coordinate quantum for coarse anchors:
 matched with a doubtful geometry) and the length within it too, `tools/coverage_contrast.matched` with a radius per
@@ -485,8 +531,9 @@ Run by hand: what a pruning rule keeps of a saved table of lines and an audit of
 K-49), offline, nothing written beside the run: `<run folder> --rule <name> [--param k=v] [--rules-file F.py]
 [--radius M] [--known <truth-check pass folder>] [--terrain F.npz] [--pictures] --out <folder>`; rules are functions
 from the table to a mask of kept lines, registered with `rule` (`higher_wins`, `best_per_cell_pair` shipped);
-`table.terrain` the grid under the anchors for rules that judge an anchor by the ground; places by
-`mapping.group_lines`; `audit.json`, `audit.md`, `violations.csv`, the same on every run and number of threads; known
+`table.terrain` the grid under the anchors for rules that judge an anchor by the ground; the table of a run's store
+(the CSV export in a temporary folder, the search's order and unrounded values from `linestore.read`: `Table.source`
+"store") or of a run saved before it (lines.csv, with lines.js "lines.js"); places by `mapping.group_lines`; `audit.json`, `audit.md`, `violations.csv`, the same on every run and number of threads; known
 lines as counts only; `tests/test_prune_study.py`
 
 ## `tools/estimate_study.py`
@@ -506,13 +553,16 @@ square; `--limit` the band's verdict; JSON written whole then renamed, no coordi
 
 Run by hand: the elevation models of a whole area into a data folder's cache, nothing else (`country run` then finds
 them cached), resumable and for weeks:
-`run <name> --area osm:<name> --source <id> --resolution <m> --data-dir <data> --state-dir <state> [--host-slots host=N] [--min-free-gb G] [--max-memory-gb G] (`plan_of`: the outline clipped to `Source.coverage_boxes` by `area.clip_outline_file` into the pass's work folder, the km² left out printed; the stored outline unchanged)`
+`run <name> --area osm:<name> --source <id> --resolution <m> --data-dir <data> --state-dir <state> [--host-slots host=N] [--min-free-gb G] [--max-memory-gb G] [--queue key] (`plan_of`: the outline clipped to `Source.coverage_boxes` by `area.clip_outline_file` into the pass's work folder, the km² left out printed; the stored outline unchanged)`
 a supervisor (one per area, a `FileLock`) starting passes, each a process of its own below the normal priority with
 `GDAL_CACHEMAX` 512 MB unless the environment sets it (`CachedIndex.tiles` remembers an index out of reach as None for
 the process, which would skip the whole layer: a pass names that a failure). A pass plans the source (`plans_of`:
 `plan_of`, and the stand-in's plan where `Source.instead_without_data` names one (alaska → alaska_ifsar, which
 `choose_source` never applies to a source given by name), its layers labelled "terrain (alaska_ifsar)", the totals
-over both: `Reporter.next_plan`), inside its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
+over both: `Reporter.next_plan`; a pass asks each layer's `to_download` for its counts and hands the first plan's
+answers to `download_layers(listed=)`, so the source's own layers are asked once (a stand-in's ask again before
+their download, hours later), and asks about the files by folder, `run_pass` setting `sources.layer.EXISTING` for
+the pass and giving it back: docs/performance.md, "The check of cached tiles"), inside its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
 planning (Denmark's key, an unknown outline) is a `Stop` with its text; the window layers' groups are
 `country.PREFETCH_GROUP_M` times the finest native resolution of the plan's grouped layers (`_group_m`: a group's
 window is read on the files' own pixels, whatever the grid's; Luxembourg's and Scotland's 0.5 m float64 files at the
@@ -546,6 +596,26 @@ disk), `<name>.state.json`, `.history.csv`, `.log`. On a network share: the data
 work over a share) and the tile folders symbolic links to it; `tui --settings <file>` the window below;
 `tests/test_area_download.py`
 
+The queue (`run --queue <key>`, `Area.queue`; the window passes the source of a row whose source has parts): the
+areas of one key download one at a time, in the order their supervisors were started. Before each pass a supervisor
+takes its turn (`_take_turn`: the `FileLock` `<key>.queue.lock` of the state folder, the key's characters unfit for
+a file name replaced; an OS lock on a local disk, so a killed supervisor's is free at once; the state folder is
+never on a share, where filelock may fall back to a lock file that a kill leaves behind): its state says `queued`
+with its ticket (`queue`, `queued_at`: `_ticket`, the starter's time in `FINDALINE_QUEUE_TICKET`, which
+`area_rows.start` sets so that rows started in a loop keep the rows' order, else the supervisor process's creation
+time; then the name), written again every `STATE_SECONDS`. It tries the lock every `POLL_SECONDS` and, holding it,
+keeps it only when no area waits in the same queue with an earlier ticket (`_ahead`: a state `queued` written within
+`RUNNING_STATE_S`, so one killed while it waited is passed over; the other states are read only with the lock in
+hand, never while another area downloads: fifty waiting supervisors read nothing), else gives it back. With the
+turn its state says `listing`, so no later area takes it for waiting (a state left at `queued` held the next area
+back for `RUNNING_STATE_S` and made the tests pass without the lock: the code review of 2026-11-18). The first time
+it waits `QUEUE_SETTLE_SECONDS` before trying, so supervisors started together have written their places: the
+one-at-a-time rule is the lock's, the order as good as those states. The turn is kept for a pass started again at
+once (`EXIT_RESTART` with progress) and given up for a wait of `RETRY_SECONDS` and at the end (`rest`); the ticket
+stays, so the area is the next again. The stop file ends a queued area as a running one. `summary` gives a queued
+area no speed or time left; the window calls it live (`LIVE`), so Stop works on it and Start does not start it twice,
+and counts it apart ("1 downloading, 49 queued").
+
 ## `tools/area_download_tui.py`, `tools/area_rows.py`
 
 The window of the area download (`area_download.py tui --settings <file>`, Textual, the group `tui`: not in a plain
@@ -553,7 +623,16 @@ The window of the area download (`area_download.py tui --settings <file>`, Textu
 (`area_rows.catalogue`: `coverage.json`, continents and km² from `shapes.json`, a region takes its country's
 continent; `COUNTRIES` the titles, `sources.AREA_NAMES` each area's Nominatim name (also the country layer's
 territories), each checked once against the outlines: an administrative boundary of the area, larger on a coast by the
-territorial waters) plus the settings' `extra`, grouped Continent → Country → area (`Group`, a `Collapsible`, per
+territorial waters), the parts of the country-wide sources (`area_rows.parts`, `PARTS`: the 50 states of `usa`,
+"United States: Texas" / `united-states-texas`, and the 13 provinces and territories of `canada`,
+"Canada: Alberta (NRCan)" / `canada-alberta-nrcan` showing "Alberta · canada" beside the regions of the map of the
+same provinces; rows only, no areas of the map; their km² a table of land areas; Nominatim's name
+"<part>, <country>" unless the table gives another: "New York State", "Washington State", since the plain names give
+the city and the District of Columbia, each checked against its outline on 2026-11-18; `PART_NAMES` keeps the name a
+part's download ran under before, Utah's `utah`; the country-wide row of such a source keeps its place with
+"(slow)" after its label, `SLOW`, and the Start question says why, `slow_note`: the user's word of 2026-11-18)
+plus the settings' `extra` (one of a part's name replaces the
+part), grouped Continent → Country → area (`Group`, a `Collapsible`, per
 continent holding one per country of two or more rows, with rows of `Checkbox` subclasses: a `DataTable`'s first click
 only moves its cursor, a `SelectionList` has no cell to click for the target). A country of one row (after `PARENTS`
 and the extra rows) has no group: its row sits in the continent by its title, in the countries' order, so nothing moves
@@ -572,7 +651,10 @@ slug alike are one (`_one_spelling`: the group ids are slugs). Sorted by `CONTIN
 carries its count and ticked count; at start the continents open and a country's group only when one of its rows has a
 state (`FOLD_AT_START`); the filter matches title and country, opens the groups with a match, hides the others and
 gives the folds back when cleared; up and down walk the visible titles and boxes. A checkbox
-only chooses; Start and Stop ask first (`Confirm`, the focus on Cancel). A row's name is its name in the state folder
+only chooses; Start and Stop ask first (`Confirm`, the focus on Cancel). A finished row can be ticked and
+started again (the user's word of 2026-11-18; its box was disabled before): the question says "again"
+(`start_word`) and that only what is missing or new is downloaded, which is how a row gets a layer or a
+stand-in its source gained after it was done. A row's name is its name in the state folder
 (`slug` of the title: `poland`, `czechia`, as the downloads started by hand). The settings (a JSON file outside the
 repository: the docstring of `area_rows.py`) name the state folder, a contact (`FINDALINE_CONTACT` of what starts,
 never on a command line; an e-mail address with a dotted domain or an http(s) address, `contact_ok`, else a
@@ -580,10 +662,13 @@ never on a command line; an e-mail address with a dotted domain or an http(s) ad
 targets, `host_slots` and `max_memory_gb` (the row's over the target's, as `--max-memory-gb` of `command_of`; neither:
 the downloader's default); the target chosen in the window is kept in `tui-targets.json` of the state folder. Start:
 `links_of` (a share's tile folders, `Layer.folder`, as links from the data folder's cache; a real folder with tiles
-stops that row), `make_links` (LAYOUT first, or a new cache with links in it is refused as another layout;
+stops that row; the folders of the source's stand-in by the same rule, `link_folders`: a download fetches the stand-in as well, `usa/3dep-13/live` for a state, `usa/ifsar-5m` for Alaska, and a stand-in's folder left on this disk would keep every later row of the source there; a row whose stand-in's link could not be made is not started either), `make_links` (LAYOUT first, or a new cache with links in it is refused as another layout;
 `os.symlink`, else one UAC window on Windows without Developer Mode: `_elevated`, a script with its BOM for PowerShell
 5.1), then `start`: `area_download.py run` detached (`_detached`: a hidden console of its own on Windows, a new
-session on Linux, so it outlives the window and its terminal). State from the state folder (`ad.areas`), as `status`.
+session on Linux, so it outlives the window and its terminal); a row of a source with parts (`usa`, `canada`: the
+states, the country-wide row, Puerto Rico, the US Virgin Islands and an extra of that source) in the queue of its
+source (`command_of`: `--queue <source>`; a row whose turn has not come shows "queued"), the rows of every other
+source at once as before (Finland and Åland, one source, still start together). State from the state folder (`ad.areas`), as `status`.
 Everything has a key (a text console has no mouse); `tests/test_area_rows.py`, `tests/test_area_download_tui.py`
 
 ## `tools/job_stats.py`

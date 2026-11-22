@@ -1,13 +1,15 @@
 // The actions of a run: Measure (two points on the map; the profile opens in ProfileDock), Compare
 // (other runs nearby shown with this one), Share (the public site: a link shown once) and Download
-// (the run's lines.csv and lines.geojson, which web.RUN_FILES serves).
+// (the run's lines as CSV and GeoJSON, made by the worker from the run's store for each download, where the page can
+// ask for it: mayExport; no run keeps the files since store wave 4).
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { Button, IconButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
-import { api, user, type RunListed } from "../../app/api";
-import { listOthers, loadLines, NEARBY_KM, colorOf } from "../../others";
-import type { Line, RunInfo } from "../../types";
+import { api, ApiError, canChange, user, type RunListed } from "../../app/api";
+import { t } from "../../i18n";
+import { listOthers, NEARBY_KM, colorOf } from "../../others";
+import type { Line, RunData, RunInfo } from "../../types";
 import { loadOtherRun, loadRunList } from "../load";
 import type { ResultModel } from "../model";
 import type { ResultMap } from "../ResultMap";
@@ -26,12 +28,7 @@ export interface RunActionsProps {
   show?: ("measure" | "compare" | "share" | "download")[];
   /** The folder of the runs' folders (default "/runs/"). */
   base?: string;
-  /** The folder of this run's files (default its folder in `base`; a shared map's is its own page's). */
-  folder?: string;
 }
-
-/** The folder of the run's files (RunActionsProps.folder). */
-export const runFolder = (id: string, base = "/runs/", folder?: string) => folder ?? base + encodeURIComponent(id) + "/";
 
 /** Measure: the next two clicks on the map; the profile between them is computed by the server. */
 function Measure({model, view, onMeasured, compact}: RunActionsProps) {
@@ -90,9 +87,9 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
   const toggle = (item: OtherItem) => {
     if (item.status === "on" || item.status === "loading") { model.removeRun(item.run.id); change(item, "off"); return; }
     change(item, "loading");
-    // its store when it has one (lines.arrow), else its lines.js (load.ts loadOtherRun)
-    loadOtherRun(item.run, base, loadLines).then((lines) => { model.addRun(item.run, lines); change(item, "on"); },
-                                                 () => change(item, "error"));
+    // its store's lines.arrow (load.ts loadOtherRun)
+    loadOtherRun(item.run, base).then((lines) => { model.addRun(item.run, lines); change(item, "on"); },
+                                      () => change(item, "error"));
   };
   const row = (item: OtherItem) => <label class="r-check r-other" key={item.run.id} title={item.run.description}>
     <input type="checkbox" checked={item.status === "on" || item.status === "loading"} onChange={() => toggle(item)} />
@@ -159,20 +156,135 @@ function Share({model, compact}: RunActionsProps) {
   </Popover>;
 }
 
-/** Download: the lines of the run as CSV and GeoJSON. */
-function Download({model, compact, base, folder}: RunActionsProps) {
-  const id = model.runId, files = runFolder(id, base, folder);
-  return <Popover label="Download" align="right"
-                  button={(open, toggle) => compact ? <IconButton icon="download" label="Download" expanded={open} onClick={toggle} />
-                    : <Button icon="download" aria-expanded={open} onClick={toggle}>Download</Button>}>
+/** May this page ask the server to make this run's files (POST /api/runs/<id>/export)? The run was read from its
+ *  store and the page can send changes: the app's page, where the user is signed in (or the local app's one user).
+ *  A run's map.html has no token (a share link's page, a visitor's demo run, a run opened by its own address):
+ *  the server would refuse, so a run with a store has no Download there. The one place of this rule. */
+export const mayExport = (data: RunData): boolean => canChange && data.fromStore === true;
+
+type Format = "csv" | "geojson";
+const FORMATS: [Format, string, string][] = [["csv", "CSV", "table, every line"], ["geojson", "GeoJSON", "for GIS and map apps"]];
+// Refusals the server words itself (their texts are the catalogue's, by the answer's code)
+const WORDED = ["quick_waiting", "rate_export", "busy", "export_disk_full"];
+
+/** The line a failed export shows: the two "no worker" cases in the export's own words, the server's text of a
+ *  rate, a busy lane or a full disk, and one text for everything else (no network too). */
+function exportError(e: unknown): string {
+  const code = e instanceof ApiError ? e.info?.code : undefined;
+  if (code === "no_worker") return t("ui.result.export_no_worker");
+  if (code === "no_worker_local") return t("ui.result.export_no_worker_local");
+  return e instanceof ApiError && code !== undefined && WORDED.includes(code) ? e.message : t("error.export_failed");
+}
+
+/** The browser saves the file at `url` (same origin, sent as an attachment): a link's click, never a fetch (a
+ *  file may be over 1 GB), and the page stays whatever the address answers. */
+function save(url: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "";  // the name is the answer's (Content-Disposition)
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// The exports of this page's life by run id, outside the component as Measure's mode is on the map: the page
+// draws another RunActions when its layout changes at 768 px (a phone turned) and when another run opens, and the
+// wait goes on. `busy`: the file asked for and not answered yet; `error`: the line of the last failure, kept until
+// that run's menu is closed (a run not on the page keeps it for its next menu).
+interface Wait { busy: Format | null; error: string }
+const IDLE: Wait = {busy: null, error: ""};
+const waits = new Map<string, Wait>();
+const drawn = new Set<() => void>();  // the mounted Exports: drawn again on a change
+// The Download menu on the page, as its button last drew it: a failure of its run opens it through the button's toggle
+let menu: {id: string; open: boolean; toggle(): void; of: object} | null = null;  // `of`: the Export that drew it
+
+const waitOf = (id: string): Wait => waits.get(id) ?? IDLE;
+function setWait(id: string, change: Partial<Wait>) {
+  const next = {...waitOf(id), ...change};
+  if (next.busy === null && !next.error) waits.delete(id);
+  else waits.set(id, next);
+  drawn.forEach((draw) => draw());
+}
+
+/** Something else has the person's attention: another menu of the actions is open, or the focus is in a field.
+ *  A failure's line then waits for the Download menu's next opening (opening it would close that menu and take
+ *  the focus). */
+function elsewhere(): boolean {
+  const at = document.activeElement;
+  return document.querySelector(".r-pop") !== null
+    || (at instanceof HTMLElement && (at.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(at.tagName)));
+}
+
+/** A run's file asked of the worker; one at a time for a run. Ready: the browser saves the answered address, if it
+ *  is this run's export (anything else is a failure), also when the run is no longer on the page (it was asked
+ *  for). A failure: its line into the run's wait, and its menu opened when it is on the page and closed and
+ *  nothing else has the attention. */
+function startExport(id: string, format: Format) {
+  if (waitOf(id).busy) return;
+  setWait(id, {busy: format, error: ""});
+  const failed = (e: unknown) => {
+    setWait(id, {busy: null, error: exportError(e)});
+    if (menu && menu.id === id && !menu.open && !elsewhere()) menu.toggle();
+  };
+  api.exportRun(id, format).then((r) => {
+    const url: unknown = r?.url;
+    if (typeof url !== "string" || !url.startsWith(`/api/runs/${encodeURIComponent(id)}/export/`)) return failed(null);
+    setWait(id, {busy: null});
+    save(url);
+  }, failed);
+}
+
+/** Download of a run read from its store: each row asks the worker for the file and waits ("Preparing the
+ *  file…" in the pressed row, the other row off, the ring on the button), then the browser saves it; a failure is
+ *  a red line under the rows, in a menu that opens again if it was closed (startExport). */
+function Export({model, compact}: RunActionsProps) {
+  const id = model.runId;
+  const [, setDrawn] = useState(0);
+  const self = useRef({id, open: false}).current;  // this Export's menu as its button last drew it
+  useEffect(() => {
+    const draw = () => setDrawn((n) => n + 1);
+    drawn.add(draw);
+    return () => {
+      drawn.delete(draw);
+      if (menu?.of === self) menu = null;
+      // Gone with its menu open (the layout switched, another run opened): a line the person has seen is done,
+      // as after a close; one not seen yet stays for the run's next menu
+      if (self.open && waitOf(self.id).error) setWait(self.id, {error: ""});
+    };
+  }, []);
+  const {busy, error} = waitOf(id);
+  const ring = <span class="r-spin r-spin-ic" />;
+  // One button in both states (the focus stays on it when the wait ends): the ring in the icon's place, and
+  // its name says it waits. The phone's as IconButton draws its own, which takes an icon only.
+  const button = (open: boolean, toggle: () => void) => {
+    self.id = id;
+    self.open = open;
+    menu = {id, open, toggle, of: self};
+    const mark = busy ? ring : <Icon name="download" />;
+    const name = busy ? t("ui.result.export_preparing_label") : "Download";
+    return compact
+      ? <button type="button" class={open ? "u-ib u-on" : "u-ib"} aria-label={name} title={name} aria-expanded={open}
+                onClick={toggle}>{mark}</button>
+      : <Button aria-expanded={open} aria-label={busy ? name : undefined} onClick={toggle}>{mark}Download</Button>;
+  };
+  // A closed menu takes its failure's line with it
+  return <Popover label="Download" align="right" onOpen={(now) => { if (!now && error) setWait(id, {error: ""}); }}
+                  button={button}>
     <div class="r-downloads">
       <b class="u-h4">Download the lines</b>
-      <a class="u-btn" href={files + "lines.csv"} download={`${id}.csv`}><Icon name="download" />
-        CSV <span class="u-small">table, every line</span></a>
-      <a class="u-btn" href={files + "lines.geojson"} download={`${id}.geojson`}><Icon name="download" />
-        GeoJSON <span class="u-small">for GIS and map apps</span></a>
+      {FORMATS.map(([format, name, what]) =>
+        <button type="button" class="u-btn" key={format} aria-busy={busy === format} disabled={busy !== null && busy !== format}
+                onClick={() => startExport(id, format)}>{busy === format ? ring : <Icon name="download" />}
+          {name} <span class="u-small">{busy === format ? t("ui.result.export_preparing") : what}</span></button>)}
+      {error && <p class="u-small r-error" role="alert">{error}</p>}
     </div>
   </Popover>;
+}
+
+/** Download: the lines of the run as CSV and GeoJSON, made for each download where the page may ask (Export); no
+ *  button elsewhere (a run's map.html, a share link). */
+function Download(props: RunActionsProps) {
+  return mayExport(props.model.data) ? <Export {...props} /> : null;
 }
 
 export function RunActions(props: RunActionsProps) {

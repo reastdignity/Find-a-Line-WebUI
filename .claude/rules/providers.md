@@ -53,8 +53,7 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   (its terms do not cover keyless use); it is back through ArcGIS Location Platform with the operator's key
   (`settings.WebKeys.esri_api_key`, `ESRI_API_KEY` or the web service's secret): the server puts the key into the page
   only (`FINDALINE_APP.esri_key` of the app's and share links' runs.js, locally a `/runs/runs.js` route appending it
-  to the file, the app page's meta `findaline-esri-key` read by `layers.ts esriKey`), never into a file; maps from
-  disk have no Esri layer; the about page lists it with the user-approved terms sentence (`web.esri_terms`). Esri does
+  to the file, the app page's meta `findaline-esri-key` read by `layers.ts esriKey`), never into a file; the about page lists it with the user-approved terms sentence (`web.esri_terms`). Esri does
   not enforce a key's referrer list for these tiles (checked 2026-11-01: a tile came for another site's referrer and
   for none), so a key copied from the page works elsewhere: short expiry, rotation, pay-as-you-go off. On a phone a
   run's data credits fold behind a "Data credits" button (`creditsHtml`, ui.css `.u-credits`); tile credits never

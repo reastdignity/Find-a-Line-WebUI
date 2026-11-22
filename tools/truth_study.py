@@ -98,10 +98,11 @@ resumable (a cluster captured with the same options and known lines is not searc
                                       text (or findaline.py's exit text, an exception's), the saved run's
                                       folder (absolute)
     <out>/data/runs/<run>/run.json    the saved run's meta (analyse --profiles reads it): its line files
-                                      (RUN_FILES: lines.csv, lines.geojson, data.js, lines.js, map.html,
-                                      ATTRIBUTION.txt, the store) are deleted once the cluster's capture.json is
-                                      written, since the capture holds what the analysis reads (1 024
-                                      clusters saved 31 GB of them); --keep-runs keeps every run whole
+                                      (RUN_FILES: the store, map.html, ATTRIBUTION.txt; lines.csv,
+                                      lines.geojson, data.js, lines.js of a run saved before store wave 4)
+                                      are deleted once the cluster's capture.json is written, since the
+                                      capture holds what the analysis reads (1 024 clusters saved 31 GB of
+                                      them, with the text files); --keep-runs keeps every run whole
 
 A search without lines (findaline.py's exit 1 with a SearchError of NO_LINES: no lines, no steep
 terrain, ...) is a result, status "no_lines" (every known line a miss), not a failure. Circles only:
@@ -188,7 +189,8 @@ LINE_EXTRAS = ("elev_a1", "elev_a2", "height_max", "height_mean", "high_pct", "a
                "drop1", "drop2", "water_m", "filled_m")
 DEFAULT_RADIUS = 1000.0     # findaline.py's --radius when a regression test gives none (params.SearchParams)
 POLL_SECONDS = 0.2          # run: how often the running children are looked at
-# A saved run's line files (web.RUN_FILES): deleted once the capture is written, run.json kept (--keep-runs)
+# A saved run's line files (web.RUN_FILES): deleted once the capture is written, run.json kept (--keep-runs); the
+# text files (data.js, lines.js, lines.csv, lines.geojson) only a run saved before store wave 4 (2026-11-17) has
 RUN_FILES = ("map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "ATTRIBUTION.txt", "lines.arrow",
              "profiles.arrow")
 STDERR_MARK = "--- stderr ---"  # output.log: the child's stderr follows this line
@@ -765,10 +767,11 @@ def _remove_run(out: str, folder: str):
 
 
 def slim_run(out: str, run: Optional[str]) -> List[str]:
-    """A cluster's saved run (capture.json's "run") without its line files (RUN_FILES: the map, data.js,
-    lines.js, lines.csv, lines.geojson, ATTRIBUTION.txt, lines.arrow and profiles.arrow), its run.json kept for analyse --profiles: the
-    capture holds what the analysis reads, and 1 024 clusters' runs took 31 GB. The viewer
-    (runs/_viewer) and runs.js stay. Returns the files deleted (a file that cannot be deleted stays)."""
+    """A cluster's saved run (capture.json's "run") without its line files (RUN_FILES: the map, ATTRIBUTION.txt,
+    lines.arrow and profiles.arrow, and data.js, lines.js, lines.csv, lines.geojson of a run saved before store
+    wave 4: a file the run has not is skipped), its run.json kept for analyse --profiles: the capture holds what
+    the analysis reads, and 1 024 clusters' runs took 31 GB. The viewer (runs/_viewer) and runs.js stay. Returns the
+    files deleted (a file that cannot be deleted stays)."""
     path = _run_path(out, run)
     deleted = []
     for name in RUN_FILES if path else ():
@@ -1397,9 +1400,9 @@ def main(argv=None) -> int:
                                    "process, into <out>/<cluster>/: known.json, output.log (the search's stdout, then "
                                    "its stderr under '--- stderr ---'), capture.json (status, error: the coded error's "
                                    "code, message: its text or the last line of stderr) and capture/. A saved run "
-                                   "keeps only its run.json once its capture is written (its map, data.js, lines.js, "
-                                   "lines.csv, lines.geojson and ATTRIBUTION.txt deleted: 1 024 clusters saved 31 GB "
-                                   "of them); --keep-runs keeps it whole. Resumable: a cluster captured already is "
+                                   "keeps only its run.json once its capture is written (its map, store and "
+                                   "ATTRIBUTION.txt deleted, and the text files of a run saved before store wave 4: "
+                                   "1 024 clusters saved 31 GB of them); --keep-runs keeps it whole. Resumable: a cluster captured already is "
                                    "skipped, a failed one searched again.")
     p.add_argument("--out", required=True)
     p.add_argument("--ids", nargs="+", metavar="ID",

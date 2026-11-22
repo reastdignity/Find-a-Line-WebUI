@@ -59,8 +59,13 @@ def test_constant_tension_table_is_the_original():
 
 
 def _digest(data_dir) -> str:
-    [path] = glob.glob(os.path.join(str(data_dir), "runs", "*", "lines.csv"))
-    return hashlib.sha256(open(path, "rb").read()).hexdigest()
+    """sha256 of the run's lines as lines.csv holds them: the CSV export of its store (byte for byte the run's own
+    lines.csv, which a run saves no more since store wave 4)."""
+    import linestore
+    [path] = glob.glob(os.path.join(str(data_dir), "runs", "*", "lines.arrow"))
+    out = os.path.join(str(data_dir), "export.csv")
+    linestore.export(os.path.dirname(path), "csv", out)
+    return hashlib.sha256(open(out, "rb").read()).hexdigest()
 
 
 def test_profile_with_constant_tension_equals_the_search(tmp_path):
@@ -84,18 +89,80 @@ def test_profile_with_constant_tension_equals_the_search(tmp_path):
     assert sample["grid"]["area_km2"] == pytest.approx(np.pi * 0.12 ** 2, rel=1e-3)
     assert sample["funnel"] and sample["stages"] and sample["total"]["wall_s"] > 0
     assert os.path.dirname(sample["run"]) == os.path.abspath(tmp_path / "patched" / "runs")
-    # --lean: lines.npz instead of lines.csv and lines.geojson, the same lines read back
+    # --lean is no longer used: the run keeps its store (and no lines.npz)
     lean = subprocess.run([sys.executable, os.path.join("tools", "perf_country.py"), "profile", "--lean",
                            "--out", str(tmp_path / "out"), "--name", "lean", "--", *common,
                            "--data-dir", str(tmp_path / "lean")],
                           cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8", timeout=600)
     assert lean.returncode == 0, lean.stdout + lean.stderr
     run = json.load(open(tmp_path / "out" / "samples.json"))["lean"]["run"]
-    assert sorted(os.listdir(run)) == ["lines.arrow", "lines.npz", "profiles.arrow", "run.json"]  # and the store
-    a, b = pc.read_lines(sample["run"]), pc.read_lines(run)
-    assert a["group"].tolist() == b["group"].tolist() and a["representative"].tolist() == b["representative"].tolist()
-    assert np.allclose(a["length_m"], b["length_m"], atol=0.05) and np.allclose(a["anchor1_easting"],
-                                                                                 b["anchor1_easting"], atol=0.01)
+    assert "lines.npz" not in os.listdir(run) and "lines.arrow" in os.listdir(run)
+    assert pc.lines_from(run) == "store"
+
+    # The run as a run of store wave 4 (its store alone) and as saved before the store (lines.csv alone): the store's
+    # columns in memory (no export: nothing written anywhere), in lines.csv's order and groups, the values lines.csv
+    # rounds unrounded (within its rounding of them), the others equal; the same keys of cube and counts of compare
+    # on the clip; nothing written into either run
+    import linestore
+    import tool_runs
+    samples = json.load(open(tmp_path / "out" / "samples.json"))
+    store = tool_runs.store_only(sample["run"], str(tmp_path / "kinds" / "store"))
+    text = tool_runs.text_only(sample["run"], str(tmp_path / "kinds" / "text"))
+    before = tool_runs.snapshot(str(tmp_path / "kinds"))
+    assert (pc.lines_from(store), pc.lines_from(text)) == ("store", "lines.csv")
+    export = linestore.export
+    linestore.export = lambda *a, **k: pytest.fail("read_lines exported the store")
+    try:
+        a = pc.read_lines(store)
+    finally:
+        linestore.export = export
+    b = pc.read_lines(text)
+    assert set(a) == set(b) and len(a["length_m"]) == sample["summary"]["lines"]
+    rounded = {"length_m": 1, "clearance_m": 2, "height_max_m": 2, "anchor1_northing": 2, "anchor1_easting": 2}
+    for name in a:
+        assert a[name].dtype == b[name].dtype, name
+        if name in rounded:  # unrounded from the store: lines.csv's text is their rounding
+            assert np.array_equal(runs.round_floats(a[name], rounded[name]), b[name]), name
+        else:
+            assert np.array_equal(a[name], b[name], equal_nan=a[name].dtype == float), name
+    lines, _ = linestore.read(store, profiles=False)
+    assert sorted(a["length_m"].tolist()) == sorted(lines.columns["length"].tolist())  # float64 as stored
+    samples["store"], samples["text"] = {**sample, "run": store}, {**sample, "run": text}
+    cubes = [pc.cube(samples, [name], 1000, list(pc.DIMS))["rows"] for name in ("store", "text")]
+    assert cubes[0][0]["line_keys"] > 0 and cubes[0][0]["spot_keys"] > 0
+    # the keys may differ only by lines one of whose values lines.csv rounds across a bin's or a cell's edge: within
+    # half its rounding step of an edge (length 0.1 m; clearance, height and the coordinates 0.01 m; the others are
+    # the same values on both sides); each such line changes a count of keys by at most one
+    def within(values, edges, half):
+        edges = np.asarray([e for e in edges if np.isfinite(e)], dtype=float)
+        return (np.abs(values[:, None] - edges[None, :]) < half).any(axis=1)
+    near_any = np.zeros(len(a["length_m"]), dtype=bool)
+    for column, dim, half in (("length_m", "length", 0.05), ("clearance_m", "clearance", 0.005),
+                              ("height_max_m", "height", 0.005)):
+        near_any |= within(a[column], pc.EDGES[dim], half)
+    for column in ("anchor1_easting", "anchor1_northing"):  # the 1000 m cells' edges
+        near_any |= np.abs(a[column] / 1000 - np.round(a[column] / 1000)) * 1000 < 0.005
+    same = ("lines", "spots", "area_km2", "cell", "dims")
+    for mine, theirs in zip(*cubes):
+        assert {k: mine[k] for k in same} == {k: theirs[k] for k in same}
+        for key in ("line_keys", "spot_keys"):
+            assert abs(mine[key] - theirs[key]) <= int(near_any.sum()), (key, mine[key], theirs[key])
+    assert cubes[0][0]["lines_from"] == "store" and cubes[1][0]["lines_from"] == "lines.csv"
+    compared = pc.compare(samples, "text", ["store"], [500, 1000], pc.parse_bands(None))
+    assert compared["lines_from"] == {"text": "lines.csv", "store": "store"}
+    # the same lines and spots in all; per length band they differ only by lines whose length lines.csv rounds onto
+    # the band's edge (the store's unrounded length on the other side of it: the precision the docstring names)
+    near = lambda edge: int((np.abs(a["length_m"] - edge) < 0.05).sum())  # noqa: E731
+    moved = 0
+    for r in compared["rows"]:
+        if r["band"] == "all":
+            assert r["ref_lines"] == r["other_lines"] and r["ref_spots"] == r["other_spots"], r
+            continue
+        low, high = (float(v) for v in r["band"].split("-"))
+        assert abs(r["ref_lines"] - r["other_lines"]) <= near(low) + near(high), r
+        moved += abs(r["ref_lines"] - r["other_lines"])
+    assert moved <= 2 * sum(near(edge) for edge in pc.EDGES["length"])
+    assert tool_runs.snapshot(str(tmp_path / "kinds")) == before
 
 
 def test_profile_of_a_search_without_lines(tmp_path):

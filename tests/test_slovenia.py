@@ -125,13 +125,10 @@ def test_wms_axis_order(monkeypatch, version, expected):
 
 
 def test_map_data_names_the_wms_version(tmp_path):
-    """data.js carries wms_version for a WMS taking lon-lat only (layers.ts asks it as 1.1.1), and leaves it out
-    for 1.3.0, as in the maps of before."""
-    import json
-
+    """The run's head (mapping.map_head: its store's) carries wms_version for a WMS taking lon-lat only (layers.ts asks
+    it as 1.1.1), and leaves it out for 1.3.0, as in the maps of before."""
     from shapely.geometry import Point
 
-    import helpers
     import mapping
 
     class Area:
@@ -148,8 +145,5 @@ def test_map_data_names_the_wms_version(tmp_path):
                                    wms_version=version)
         folder = tmp_path / version
         folder.mkdir()
-        mapping.save_map(helpers.LineTable.empty(), Area, str(folder), str(tmp_path / "runs"), run, "EPSG:3794",
-                         ortho_service=service)
-        text = (folder / "data.js").read_text(encoding="utf-8")
-        found.append(json.loads(text.partition(" = ")[2].rstrip().rstrip(";"))["ortho"])
+        found.append(mapping.map_head(Area, str(folder / "map.html"), run, "EPSG:3794", ortho_service=service)["ortho"])
     assert found[0]["wms_version"] == "1.1.1" and "wms_version" not in found[1]

@@ -20,9 +20,9 @@ first out. What limits it when many people queue jobs?
 | `tools/perf_window_reads.py --out <dir> --source <id> --lat .. --lon .. --radius 800 --mode blocks --mode group=5000 ...` | The blocks of a layer read by windows of big remote files on an empty scratch cache, each mode in a child process: bytes and requests (GDAL's network statistics and our own range requests), seconds, peak memory, and what the files' internal tiles predict ("Window reads") |
 | `tools/perf_sqlite.py --out <dir> --jobs 1 4 8 16 --pages 30 [--burst]` | `jobs.sqlite` with the real `jobs.Jobs` under K phase processes, the worker, the quick lane and M open pages |
 | `tools/perf_profile.py ... --tracemalloc` | The same, with the peak of Python's heap per stage (numpy arrays included, memory-mapped grids not; several times slower) |
-| `tools/perf_slot_memory.py --out <dir> --name <n> --cores 7 --memory 4947666090 --uss [--worker] [--remove-run] -- <findaline options> --data-dir <scratch>` | One search's whole process tree (the search's process and saving's children) sampled every 0.2 s: working sets, private bytes, unique sets, the machine's used memory; the peaks and their stages, and the unique sets plus saving's hand-over files once (`search.LINE_BYTES`: "The memory constant") |
-| `tools/perf_lines_memory.py --call <capture>/call-<k> --out <dir> [--repo <checkout>]` | A call captured by `tools/perf_line_funnel.py` through steps 3, 4 and 5 by the code of a checkout: the traced heap per line of one process at the peaks of step 3, of step 4's coordinates, groups and profiles, held, and at the peak of step 5 |
-| `tools/perf_lines_memory.py --tiles <run>/tiles --out <dir> [--repo <checkout> --legacy]` | The tiles of a tiled run joined as `search.search_lines` joins them, and (tile files written before wave 5, which still hold the pixel columns) their lines through steps 4 and 5 by the code of a checkout: bytes per line as found, at the peak of step 4, held, at the peak of step 5 |
+| `tools/perf_slot_memory.py --out <dir> --name <n> --cores 7 --memory 4947666090 --uss [--worker] [--remove-run] -- <findaline options> --data-dir <scratch>` | One search's whole process tree sampled every 0.2 s: working sets, private bytes, unique sets, the machine's used memory; the peaks and their stages, and the unique sets' peak (`search.LINE_BYTES`: "The memory constant"; until store wave 4 also saving's children and their hand-over files, counted once: `uss_plus_handover_mb`) |
+| `tools/perf_lines_memory.py --call <capture>/call-<k> --out <dir> [--repo <checkout>]` | A call captured by `tools/perf_line_funnel.py` through steps 3, 4 and 5 by the code of a checkout: the traced heap per line of one process at the peaks of step 3, of step 4's coordinates, groups and profiles, held, and at the peak of step 5 (what `save_run` writes since store wave 4: the result view's columns and the store; a checkout without the store: its text files) |
+| `tools/perf_lines_memory.py --tiles <run>/tiles --out <dir> [--repo <checkout> --legacy]` | The tiles of a tiled run joined as `search.search_lines` joins them, and (tile files written before wave 5, which still hold the pixel columns) their lines through steps 4 and 5 by the code of a checkout: bytes per line as found, at the peak of step 4, held, at the peak of step 5 (as `--call`'s) |
 
 The searches ran on cached data (a scratch data folder whose `cache` is a junction to the real one)
 with `--ortho never`, one at a time. Their results equal the regression table: R13 566 lines / 143
@@ -4006,6 +4006,21 @@ refusals and the warning name are half of those at 450. `tools/perf_country.py`'
 - `tools/perf_lines_memory.py` was not used: it traces the heap of one process, without saving's children, the store
   or the square rule.
 
+### The sectors' term (2026-11-17)
+Since step 3a saving clusters a run's spots into sectors (`mapping.view_columns`: Ward's clustering of at most
+`mapping.SECTOR_WARD_SPOTS` = 10 000 spots). `LINE_BYTES` does not cover it: about 800 MB at 10 000 spots, measured
+on 2026-11-16 (below, "The result view's columns"). `memory_needed` now adds `search.WARD_SPOT_BYTES` (8 B) x
+min(lines, `SECTOR_WARD_SPOTS`)², the spots being at most the lines (the user's choice of 2026-11-17). It costs a
+search of 10 000 lines or more about 0.75 GiB of its slot. A worker with 18 GiB free at its start, 3 compute and 2
+download slots, has slots of 4.94 GiB (all 18 GiB available; the 4.61 GiB of "What it changes" above is part E1's
+estimate of a container of 18 GiB less what the worker itself holds at its start, as `search.cgroup_limits` reads
+memory.max less memory.current): the largest public search (64 Mpx, 1.5 M lines) needs 4.98 GiB instead of 4.24,
+so the worker now warns at its start, and the lines that fit a slot with grids of 64 Mpx fall from 2 339 533 to
+1 450 644 (the number the warning names; more lines on such grids are refused for memory). Without lines nothing changes
+(the quick lane's reserve, the tiles' side). `search.lines_fitting` is the one inversion of `memory_needed` (the
+refusals' and the warning's "fits"); `tools/perf_country.py`'s `lines_gb_today` counts the term too. No new
+measurement; no result changes.
+
 ## The result view's columns (2026-11-16, tag `history/view-columns`, step 3a)
 
 `mapping.view_columns` computes a new run's `spot`, `top`, `by_spot` and the head's `sectors`, `box`, `lengths` at
@@ -4077,8 +4092,8 @@ On the Gozo coast `view_columns` is now the highest point of the unique sets: wh
 holds 1 157 MB (working set) and the tree 1 070 MB of USS, against 663 and 583 MB during `linestore.write` (+494 and
 +487 MB); Ward's clustering of its 8 269 spots alone needs about
 8 B × 8 269² = 547 MB. The tree's peak (step 1's grids) does not move. `memory_needed` counts 900 B a line and no
-term for it: a term of 8 B × min(lines, `SECTOR_WARD_SPOTS`)² (at most 0.8 GB) would cover it (proposed, not
-changed).
+term for it: a term of 8 B × min(lines, `SECTOR_WARD_SPOTS`)² (at most 0.8 GB) would cover it (proposed here; added
+on 2026-11-17: "The memory constant", "The sectors' term").
 
 Many spots on small grids (heavy lane, indicative): BAH with the rule and `--group-distance 3` (43 127 lines, 19 209
 spots, 6.77 Mpx), main against the branch: the tree's peak 1 158 → 1 618 MiB RSS and 1 107 → 1 526 MiB USS, moved from
@@ -4090,3 +4105,89 @@ On KOB and BAH (above), the same lines in a random order and in the order of `by
 representatives, but `lines.csv` not byte for byte (KOB 2 and 4 rows, BAH 66 767 and 63 094; equal when sorted).
 Inside a group, members tied in clearance and length keep the input's order. So the rows stay in the search's order
 and `by_spot` is stored.
+
+## The check of cached tiles (2026-11-18, tag `history/cached-check-speed`)
+
+A pass of `tools/area_download.py` lists the tiles under its outline and asks the cache about every one before it
+downloads anything, and at its end asks about them again to delete older surveys. On Utah's download (207 897 tiles
+of the 3DEP 1 m DEM, 202 444 files in 2 200 folders on a network share, the index on a local disk) the time from a
+pass's start to its first tile grew with the tiles already cached: 15 min with nothing cached, 25 min with 49 092
+tiles, 73 min with 199 466 (2026-11-06 and 2026-11-10, two other downloads writing to the same share; from the log
+and the history), and a pass pays it at every restart. The user: the whole USA as one download "takes very long
+time - both in total download time as well as listing files to download".
+
+### How it was measured
+`tools/perf_cached_check.py utah --state-dir <state> --data-dir <data> --work <scratch>` on the finished download:
+each step of a pass's questions apart, nothing downloaded, nothing deleted (the prune with `cache.forget` replaced
+by a counter). The share idle, the PC otherwise as noted; the outputs in the session's private folder
+(`local/area-split-2026-11-18/cached-check/`).
+
+### Step by step
+| Step, Utah's 207 897 tiles | Seconds | ms a tile | Lock |
+| --- | --- | --- | --- |
+| The plan of the search over the outline | 0.4-1.1 | | |
+| `layer.tiles`: the blocks from the 430 cached index answers | 7.0-9.6 | 0.04 | |
+| The tiles' paths | 0.3-0.4 | 0.002 | |
+| The files, `os.path.exists` of each (as `cache._state` asked) | 463 | 2.2 | shared |
+| The files, one `os.scandir` per folder: the same answers | 38 | 0.18 | shared |
+| The index rows, one SELECT a tile (as `cache._state` asks) | 3.6 | 0.017 | shared |
+| The index rows, one SELECT for the folder: the same answers | 1.5 | 0.007 | shared |
+| **`layer.to_download` file by file** (every search; a pass until this change, twice) | **390** | 1.9 | exclusive |
+| **`layer.to_download` by folder** (a pass since) | **51** | 0.25 | exclusive, run first: the share cold |
+| **The prune before** (`os.path.exists` a block, a listing of its folder a cached block) | **317** | 1.5 | shared |
+| The prune with one listing per folder for the others, a second for the files | 93 | 0.45 | shared, a full pytest beside it |
+| **The prune with one listing per folder for both** | **55** | 0.26 | shared |
+
+On a local SSD none of it matters: the 228 tiles of the District of Columbia took 0.014 ms a file one by one and 0.012 ms by folder (the scratch download of the real check).
+
+### What it means
+- Nearly all of the time is the question "is the file there" asked of the share once a tile: about 2 ms each on an
+  idle share, 10 ms and more while downloads write to it (the 73 min of 2026-11-10 are two checks of about 36 min).
+  The index rows, the listing of the tiles and the plan are seconds.
+- A pass asked twice before its first tile (`run_pass` for its counts, then `download_layers`) and a third time at
+  its end (the prune): on the idle share 2 x 390 + 317 s, 18 min a pass of Utah that had nothing to download.
+
+### What was built (the user's choices of 2026-11-18)
+- **For the downloads only**: a pass asks about the files by folder (`sources.layer.EXISTING` set to
+  `versions.existing` by `area_download.run_pass`, `cache.due_many(exists=)`: one listing of a folder from
+  `LISTING_FROM` 64 of its paths; a folder with fewer of the area's tiles is still asked file by file, which is
+  the 51 s against the 38 s of listings alone) and the source's own layers once (`download_layers(listed=)` takes
+  the answers `run_pass` got a moment before; a stand-in's layers, downloaded hours later, ask again). Utah's time
+  to the first tile, with everything cached: 2 x 390 s → 51 s. A search, the web worker and the country prefetch ask
+  as before: `EXISTING` is None there (the answers are the same either way,
+  `tests/test_units.py::test_cache_due_many_answers_as_due`). Making it every search's is in the roadmap ("To
+  check"), to be measured first.
+- A whole area's folders are listed up to a minute before a file's turn in the index: a file listed and deleted
+  meanwhile by another process, with no row, is to be downloaded (file by file that gap was microseconds; the
+  code review of 2026-11-18, `test_cache_due_many_takes_the_callers_word_for_the_files`); one with a row counts
+  as there until the next pass.
+- **For every caller**: `ComposedBlocks.prune` lists each folder once for all its blocks and both of its questions
+  (the files it finds and their order as before: `tests/test_parts.py::test_composed_prune_lists_a_folder_once`,
+  against the code of before; R22-R24 and R1-R5 unchanged, R13 skipped on this PC that day: the Slovak mirror
+  folder lacked its 1 m tiles). `NewestPerSheet.prune` was done the same way on 2026-11-07.
+- Not changed: what a pass downloads, and how fast (the connections of a host decide); the tiles, the index and
+  every result.
+
+### A whole pass, timed (Utah, 2026-11-18, the code of `main` 5303d901)
+Started from the window's worktree on the finished download (207 897 tiles of the 1 m DEM cached, on the share),
+nothing else downloading there: 64 s from the pass's start to the end of its check (its first history row; the
+1 m layer's 207 897 tiles found cached, the 10 m stand-in's 2 385 blocks listed), against the 73 min of the same
+step on 2026-11-10; the whole pass 28 min 24 s, of which 25 min 27 s the stand-in.
+
+### The groups of a layer on a grid of degrees (found in that pass)
+The stand-in, 3DEP's 1/3 arc-second DEM, came as one task: 2 385 blocks of 0.1 degree, 3 550 MB in 25 min 27 s
+(2.3 MB/s) on one connection, the pass holding 12.7 GB and writing nothing until all of it had arrived (the window
+showed "99 %, 0.0 MB/s"). `area_download._group_m` gives that layer groups of 100 km (10 km of 1 m data in pixels),
+and `sources.layer._tasks` laid the 100 000 on the layer's own grid, which is EPSG:4269: as degrees, so every block
+of a state lay in one square. A state three times Utah's size would have passed the pass's memory budget and
+restarted without end. Since tag `history/download-groups` the metres are converted to the grid's unit
+(`sources.layer.crs_length`: degrees of latitude for a geographic CRS): groups of 0.9 degrees, 81 blocks at most.
+
+| The 10 m DEM of a state, by a pass of `tools/area_download.py` | Blocks | MB | Time | MB/s | Memory, peak | Tasks |
+| --- | --- | --- | --- | --- | --- | --- |
+| Utah, before: one group | 2 385 | 3 550 | 25 min 27 s | 2.3 | 12.7 GB | 1 |
+| Vermont, after (a scratch folder on the local disk; the pass of `usgs10m` alone) | 334 | 493 | 1 min 35 s | 5.2 | 3.2 GB (sampled every 5 s) | at most 12 (the squares of 0.9 degrees over the state's box) |
+
+Vermont's blocks came in steps (12, 87, 97, 256, 334 of 334). The two rows are different states on different disks:
+they show the mechanism, not a speed-up factor. The country prefetch's groups of 10 km are a block or two on that
+grid, as before in effect (one block is 0.1 degree, about 11 km).

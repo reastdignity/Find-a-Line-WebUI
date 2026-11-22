@@ -26,7 +26,7 @@
 @media (prefers-color-scheme: dark) { .ui:not([data-theme="light"]) { --r-terrain-fill: #4d4433; } }
 .ui[data-theme="dark"] { --r-terrain-fill: #4d4433; }
 .ui .r-profile svg polygon[fill="#e3d8c3"] { fill: var(--r-terrain-fill); }
-.ui .r-profile svg line[stroke="#eee"] { stroke: var(--line); }
+.ui .r-profile svg line[stroke="#eee"] { stroke: var(--rule); }
 .ui .r-profile svg text[fill="#777"] { fill: var(--muted); }
 .ui .r-profile svg text:not([fill]) { fill: var(--ink); }
 .ui .r-profile svg line.fal-cursor { stroke: var(--ink); }
@@ -40,7 +40,11 @@
 .ui .r-profile .fal-compact .fal-key { display: none; flex-basis: 100%; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 .ui .r-rigging .r-profile .fal-compact .fal-key { display: flex; }
 .ui .r-profile .fal-key .fal-profile-legend { margin-left: 0; }
-.ui .r-profile .fal-compact .fal-profile-readout { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the compact readout wraps: the whole text under the chart (the user's choice "8 b", 2026-11-17), in a box of steady
+   height: the hidden room (data-room, Profile.tsx readoutRoom) sets it, the text lies over it from the top */
+.ui .r-profile .fal-compact .fal-profile-readout { position: relative; overflow-wrap: anywhere; }
+.ui .r-profile .fal-compact .fal-profile-readout::after { content: attr(data-room); display: block; visibility: hidden; }
+.ui .r-profile .fal-compact .fal-readout-text { position: absolute; top: 0; left: 0; right: 0; }
 /* The no-fall zone and the A-frames (a run with the options): the zone's bands and dashed edges, the A-frames, their
    labels, and what the line needs rigged above the chart */
 .ui { --r-zone: var(--accent); --r-frame: var(--ink-2); }
@@ -50,6 +54,16 @@
 .ui .r-profile svg .fal-frame polyline { stroke: var(--r-frame); }
 .ui .r-profile svg .fal-frame circle { fill: var(--r-frame); }
 .ui .r-profile svg .fal-frame-label { fill: var(--r-frame); }
+/* The labels of the highest point, the trees and the smallest clearance: the hue of their curve (Profile.tsx PROFILE,
+   which stays the curves' colour), as text at 4.5:1 or more on the card's --surface in each theme */
+.ui { --r-highest-label: #6a3d9a; --r-trees-label: #3b8632; --r-min-label: #877454; }
+@media (prefers-color-scheme: dark) {
+  .ui:not([data-theme="light"]) { --r-highest-label: #a078c9; --r-trees-label: #459c3a; --r-min-label: #9d8662; }
+}
+.ui[data-theme="dark"] { --r-highest-label: #a078c9; --r-trees-label: #459c3a; --r-min-label: #9d8662; }
+.ui .r-profile svg .fal-label-highest { fill: var(--r-highest-label); }
+.ui .r-profile svg .fal-label-trees { fill: var(--r-trees-label); }
+.ui .r-profile svg .fal-label-min { fill: var(--r-min-label); }
 /* every placed label on a halo of the card's colour, so the curves under it do not cross its letters */
 .ui .r-profile svg .fal-label { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
 .ui .r-profile .fal-swatch-zone { height: 8px; background: color-mix(in srgb, var(--r-zone) 12%, transparent);

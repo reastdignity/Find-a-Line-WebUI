@@ -56,7 +56,7 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   False keeps the mirror's copies from `reencode` and `cache migrate`,
   `tests/test_cache_encoding.py::test_an_averaged_zstd_tile_is_never_encoded_again`), `tests/tile_values.py`
   (`TILE_EPS` 0.0051: the bound plus float32 rounding) and the regression baselines go together: a change of the bound
-  or the codec changes every `lines.csv` checksum (docs/roadmap.md, "Tile encoding"), needs `old_encoding` to tell
+  or the codec changes every CSV checksum (docs/roadmap.md, "Tile encoding"), needs `old_encoding` to tell
   the tiles of before, and `cache migrate` on every data folder (the VPS: `cache_migrate` of `deploy/vps.sh update`,
   `tests/test_deploy.py::test_cache_migrate_step`, docs/deployment.md section 13). The layout, the paths and the 11 columns of `files` stay (older code reads LERC and
   inserts rows by position); `filling.SEA_FILL_EPS` (5 mm around a source's constant sea fill) is the one rule as
@@ -108,7 +108,7 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 - **Keys of data services** stay in the worker: a key goes into a request only when it is made (`key_params`), never
   into the catalogue, a printed text, a run's files or a map's data; every message passes `cache.clean_error` (masks
   key values, also URL-encoded) and the public site's texts `jobs.Redact`. An orthophoto that needs a key cannot be
-  used yet: the browser asks the WMS of a map's data.js itself (Denmark's, Finland's). Datafordeler (Denmark): WCS
+  used yet: the browser asks the WMS of a run's head itself (Denmark's, Finland's). Datafordeler (Denmark): WCS
   1.0.0 only, `apikey` in the query, 401 for every request without a valid key (GetCapabilities too), a key works only
   from the IPs on its IT-system's allowlist and lasts 2 years.
 - **GDAL remote reads can fail silently**: a range answer cut short becomes nodata or zeros without an exception (GDAL

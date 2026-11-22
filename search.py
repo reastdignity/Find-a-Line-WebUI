@@ -65,7 +65,6 @@ import obstacles
 import orthophoto as ortho
 import osm
 import runs as rn
-import saving
 import sag as sg
 import samelines
 import sources as src
@@ -118,8 +117,16 @@ ACCESS_DISK_BYTES = 9
 # so 900 B. The store (linestore.write, after the children) moves no peak. With the square rule step 3 holds the
 # reducer's rows: 181-287 B a row measured, at most 1.275 rows a kept line, below a kept line's cost. The fixed part
 # (the process, its imports: about 0.4 GB) is not in memory_needed. Before, by the traced heap of one process
-# (tools/perf_lines_memory.py, 2026-11-01): steps 3-5 at most 389 B a line, so 450
+# (tools/perf_lines_memory.py, 2026-11-01): steps 3-5 at most 389 B a line, so 450. Since store wave 4 (2026-11-17)
+# step 5 writes no text files and starts no children (saving.py is gone): the peak can only be lower, so the
+# constant stays (it may refuse a little early, never too late) until it is measured again
 LINE_BYTES = 900
+# The sectors of a run's spots at saving (mapping.view_columns): Ward's clustering (scipy's linkage) holds the
+# condensed distances of every pair of at most mapping.SECTOR_WARD_SPOTS spots and a copy, about this many bytes times
+# the spots squared (16 B a pair, n²/2 pairs). Measured 2026-11-16 (docs/performance.md, "The result view's
+# columns"): an extra peak of 800 MB at 10 000 spots. memory_needed counts it by the lines (a run has at most as many
+# spots as lines): WARD_SPOT_BYTES x min(lines, SECTOR_WARD_SPOTS)², at most 0.75 GiB
+WARD_SPOT_BYTES = 8
 # A profile takes up to PROFILE_POINTS points (its max_points, the anchors and the smallest
 # clearances): as lists of Python floats (helpers.line_profile) 64-100 B per point; as arrays
 # (lineprofiles.line_profiles, wave 3) 51-77 B per point at the peak of computing them, 21-30 B
@@ -257,9 +264,9 @@ class Plan:
     # Stop checking the pairs found at the limit of lines or of the memory (_early_check):
     # Limits.lines_early_stop of the server, also for a user without limits (the web worker sets it)
     early_stop: bool = True
-    # Rewrite the runs folder's list (runs.write_index: runs.js and index.html) after saving the run:
-    # not on the public site (the web worker clears it), where nothing reads them (web.py makes each
-    # user's runs.js, index.html redirects to the app) and they grow with every run of the site
+    # Rewrite the runs folder's list (runs.write_index: runs.js) after saving the run: not on the
+    # public site (the web worker clears it), where nothing reads it (web.py makes each user's
+    # runs.js) and it grows with every run of the site
     index_runs: bool = True
     # The counts of the line search (jobs.FUNNEL_STEPS) added by _lines and find_valid_lines; the
     # tiles get the same dict (dataclasses.replace), so it sums over them. A tile of a resumed search
@@ -676,9 +683,40 @@ def cgroup_limits(root: Optional[str] = None) -> CgroupLimits:
 def memory_needed(pixels: float, lines: float, profile_points: float = 0) -> float:
     """Bytes a search needs for grids of this many pixels, this many lines and profiles of this
     many points in all: a tile's grids (steps 1-3), its lines and those of the tiles done already
-    at their process tree's peak (step 5's saving, LINE_BYTES), a circle's profiles of every line.
-    The process itself (its imports, about 0.4 GB) is not counted."""
-    return pixels * PIXEL_BYTES + lines * LINE_BYTES + profile_points * PROFILE_POINT_BYTES
+    at their process tree's peak (step 5's saving, LINE_BYTES), a circle's profiles of every line,
+    and Ward's clustering of the run's spots into sectors at saving (WARD_SPOT_BYTES times the
+    square of min(lines, mapping.SECTOR_WARD_SPOTS): the spots are at most the lines). With no lines
+    only the grids (the quick lane's reserve of slot_memory, the tiles' side). The process itself
+    (its imports, about 0.4 GB) is not counted. lines_fitting is its only inversion."""
+    spots = min(lines, mp.SECTOR_WARD_SPOTS)
+    return (pixels * PIXEL_BYTES + lines * LINE_BYTES + profile_points * PROFILE_POINT_BYTES
+            + WARD_SPOT_BYTES * spots ** 2)
+
+
+def lines_fitting(memory: float, pixels: float = 0, points_per_line: float = 0) -> int:
+    """The most lines that fit into `memory` bytes with grids of this many pixels and profiles of
+    this many points a line (a circle's mean profile; 0: none), as memory_needed counts them, the
+    sectors' term included: the n with need(n) <= memory < need(n + 1), need(n) =
+    memory_needed(pixels, n, n * points_per_line); 0 when not even one line fits. The "fits" of the
+    refusals and of memory_warning: the only inversion of memory_needed."""
+    def need(n: int) -> float:
+        return memory_needed(pixels, n, n * points_per_line)
+
+    if need(1) > memory:
+        return 0
+    rest = memory - pixels * PIXEL_BYTES
+    line_bytes = LINE_BYTES + points_per_line * PROFILE_POINT_BYTES
+    cap = mp.SECTOR_WARD_SPOTS
+    if need(cap) <= memory:  # the term grows no more: line_bytes a line
+        n = int((rest - WARD_SPOT_BYTES * cap ** 2) // line_bytes)
+    else:  # below the cap: WARD_SPOT_BYTES n² + line_bytes n <= rest
+        n = int((math.sqrt(line_bytes ** 2 + 4 * WARD_SPOT_BYTES * rest) - line_bytes) / (2 * WARD_SPOT_BYTES))
+    n = max(1, n)
+    while n > 1 and need(n) > memory:  # either formula's float roundings, against memory_needed's own
+        n -= 1
+    while need(n + 1) <= memory:
+        n += 1
+    return n
 
 
 def profile_points(lines: sh.LineTable) -> int:
@@ -699,7 +737,7 @@ def memory_warning(limits: Optional[Limits], budget: Optional[int] = None) -> Op
     need = memory_needed(pixels, limits.lines_max)
     if need <= free:
         return None
-    fits = max(0, int((free - memory_needed(pixels, 0)) // LINE_BYTES))
+    fits = lines_fitting(free, pixels)
     room = "free" if budget is None else f"for each of {limits.compute_slots} compute slots"
     return (f"WARNING: the largest search the limits allow ({limits.lines_max} lines, grids of "
             f"{pixels / 1e6:g} million pixels) needs about {need / 2 ** 30:.1f} GiB, {free / 2 ** 30:.1f} GiB "
@@ -1719,8 +1757,7 @@ def _check_lines(plan: Plan, count: int, pixels: int = 0, points: int = 0):
                           f"{messages.advice_cli(advice)}", "too_many_lines",
                           n=count, max=plan.limits.lines_max, advice=advice)
     if plan.memory is not None and memory_needed(pixels, count, points) > plan.memory:
-        per_line = memory_needed(0, 1, points / max(count, 1))  # with the mean profile of these lines
-        fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // per_line))
+        fits = lines_fitting(plan.memory, pixels, points / max(count, 1))  # with the mean profile of these lines
         advice = messages.line_advice(plan.params)
         raise SearchError(f"{count} lines, at most {fits} fit into the memory of this site; "
                           f"{messages.advice_cli(advice)}",
@@ -1751,7 +1788,7 @@ def _early_check(plan: Plan, before: int, pixels: int) -> Optional[Callable[[int
                               f"{messages.advice_cli(advice)}", "too_many_lines_early",
                               n=total, max=lines_max, advice=advice)
         if plan.memory is not None and memory_needed(pixels, total) > plan.memory:
-            fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // LINE_BYTES))
+            fits = lines_fitting(plan.memory, pixels)
             advice = messages.line_advice(plan.params)
             raise SearchError(f"more than {fits} lines (the search stopped at {total}), at most {fits} fit into the "
                               f"memory of this site; "
@@ -1947,7 +1984,7 @@ def _estimate_check(plan: Plan, estimate: float, se: float, pixels: int):
     lo, hi = max(0, int(round(estimate - 2 * se))), int(round(estimate + 2 * se))
     plan.funnel["estimate"] = n
     lines_max = plan.limits.lines_max if plan.limits else None
-    fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // LINE_BYTES)) if plan.memory is not None else None
+    fits = lines_fitting(plan.memory, pixels) if plan.memory is not None else None
     shown = _shown(n, lo, hi)
     if lines_max and estimate > REFUSE_FACTOR * lines_max:
         advice = messages.line_advice(plan.params)
@@ -2498,9 +2535,13 @@ def _run_params(plan: Plan) -> Dict:
 
 
 def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
-    """Step 5: save the run (results, parameters, data used) and the map. The orthophoto for
-    offline use is a step of its own after it (orthophoto_lines, download_orthophoto): the map
-    reads its tiles from the cache as they arrive and loads the rest online.
+    """Step 5: save the run: its store (lines.arrow, profiles.arrow), map.html (not with --no-html),
+    ATTRIBUTION.txt and run.json, in that order (run.json last). The orthophoto for offline use is a
+    step of its own after it (orthophoto_lines, download_orthophoto): the map reads its tiles from the
+    cache as they arrive and loads the rest online. Anything that fails between the run's folder and its
+    run.json (the store, map.html, ATTRIBUTION.txt, run.json) fails the search (SearchError "run_not_saved")
+    and keeps no run (_not_saved); the view's columns that cannot be computed leave a store without them,
+    run.json's runs.VIEW_FAILED and a warning ("view_columns_failed"): a run of today all the same.
 
     run: the run folder of a tiled search (search_lines); otherwise a new one is made.
     """
@@ -2522,109 +2563,101 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         run = rn.new_run(plan.paths.runs, name, created)
     else:
         created, name = run["created"], run["name"]
-    circle = isinstance(plan.area, ar.Circle)
-    meta = {
-        "id": run["id"],
-        "name": name,
-        "created": created.astimezone(timezone.utc).isoformat(timespec="seconds"),  # local time in its id
-        "center": {"lat": center_lat, "lon": center_lon, "x": x, "y": y, "crs": plan.crs},
-        "area": plan.area.describe(),
-        "source": {"id": plan.source.id, "name": plan.source.name, "description": plan.source.description},
-        "data": _dated_data(_merged_data(), created.year),  # folders, files and fetch times of the data used
-        "params": _run_params(plan),
-        "summary": {"lines": len(results), "spots": len(spot_groups),
-                    "clear_spots": int((~results.columns["over_obstacles"][spot_groups.rep]).sum()),
-                    # which lines have a profile in the map (runs before 2026-11: all of a circle's)
-                    "profiles": "all" if circle and len(results.profiles) == len(results) else "representatives"},
-        "terrain": lines.terrain,  # the land with data of the search area (hypsometry.statistics)
-        "shore": lines.shore,  # the uncertain shore (sources.filling.shore_segments), None when not known
-        # where the terrain of the area's land came from (sources.filling.terrain_origins), None when not known
-        "terrain_sources": lines.terrain_sources,
-    }
-    if plan.access_skipped:  # the access mark asked and left out ("memory": the area too wide for it)
-        meta["access_skipped"] = plan.access_skipped
-    if samelines.COLUMN in results.columns:  # the square rule: the lines found, which the kept lines stand for
-        meta["summary"]["found"] = int(results.columns[samelines.COLUMN].sum())
-        emit("info", f"Square rule: {len(results)} lines kept of {meta['summary']['found']} found")
-    meta["description"] = rn.params_summary(meta)
-    meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map
-    if not circle:
-        # Large areas: only the group representatives carry a profile in the map
-        representatives = set(spot_groups.rep.tolist())
-        results.profiles = {k: v for k, v in results.profiles.items() if k in representatives}
-
-    def on_lines(n: int, file: str):
-        progress.compute.update(n, file=file)
-
-    def saved():
-        """After the results' files: a tiled run is done (not resumed again), the message."""
-        if "search" in run:
-            _progress(run, "done")
-        emit("info", f"Run \"{name}\" saved to {os.path.abspath(run['path'])}")
-
-    ortho_cache = ortho_service = None
-    if not p.no_html:
-        source = plan.source
-        # The folder the map reads the orthophoto tiles from (download_orthophoto fills it after
-        # the run, earlier runs did too), falling back to the service for a tile not there
-        ortho_cache = ortho.cache_folder(plan.paths.cache, source.ortho) if _orthophoto(plan) else None
-        ortho_service = _dated_ortho(source, created.year)
-    map_args = (results, plan.area, run["path"], plan.paths.runs, meta, plan.crs, plan.group_distance, p.group_by,
-                ortho_cache, ortho_service, p.model, plan.rigging, on_lines, p.high_above)
-    map_path = None
-    # The line files of a large run are written by processes of their own (saving.py: one per file
-    # with 4 or more threads of the line search, the results' apart from the map's with 2 or 3)
-    children = (saving.plan(saving.processes(line_threads(p)), map_files=not p.no_html)
-                if len(results) >= saving.MIN_LINES else [])
-    if not children:
-        progress.compute.start("saving results", len(results), unit="line")
-        rn.save_results(run["path"], results, spot_groups, meta, on_lines)
-        progress.compute.finish()
-        saved()
-        if not p.no_html:
-            progress.compute.start("saving the map", len(results), unit="line")
-            map_path = mp.save_map(*map_args)
-            progress.compute.finish()
-    else:
-        heads = None if p.no_html else mp.map_heads(
-            plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance, p.group_by,
-            ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
-
-        def between():  # once the results' files are written, before the map's bar
-            rn.save_results(run["path"], results, spot_groups, meta, files=("ATTRIBUTION.txt", "run.json"))
-            saved()
-        saving.save(plan.paths.work, run["path"], results, spot_groups, meta, heads, children, between)
-        if not p.no_html:
-            map_path = mp.save_map(*map_args, files=("map.html",))  # and the viewer installed
-    # The store (linestore: lines.arrow, profiles.arrow) after today's files, with or without a map, its head
-    # data.js's; its block "store" in run.json (never in lines.geojson, written before it: linestore.export leaves
-    # it out), with the result view's columns (mapping.view_columns: spots, sectors, the top-level flag, the order
-    # inside a spot) and their head keys, which data.js never has. A store that cannot be written, or view columns
-    # that cannot be computed, never cost the run: it is kept without a store (as a run of before)
+    own = "search" not in run  # a folder of this run alone (a tiled run's is its search's, with its work state)
+    # Everything from the run's folder to its run.json under one try: a run that cannot be saved whole is no run
+    # (spec-store.md 1.2, the user's Q1a): its folder goes (a tiled run keeps its work state to resume), and the
+    # search ends with the coded error run_not_saved (the exception's text on the command line only: paths)
     try:
+        circle = isinstance(plan.area, ar.Circle)
+        meta = {
+            "id": run["id"],
+            "name": name,
+            "created": created.astimezone(timezone.utc).isoformat(timespec="seconds"),  # local time in its id
+            "center": {"lat": center_lat, "lon": center_lon, "x": x, "y": y, "crs": plan.crs},
+            "area": plan.area.describe(),
+            "source": {"id": plan.source.id, "name": plan.source.name, "description": plan.source.description},
+            "data": _dated_data(_merged_data(), created.year),  # folders, files and fetch times of the data used
+            "params": _run_params(plan),
+            "summary": {"lines": len(results), "spots": len(spot_groups),
+                        "clear_spots": int((~results.columns["over_obstacles"][spot_groups.rep]).sum()),
+                        # which lines have a profile in the map (runs before 2026-11: all of a circle's)
+                        "profiles": "all" if circle and len(results.profiles) == len(results) else "representatives"},
+            "terrain": lines.terrain,  # the land with data of the search area (hypsometry.statistics)
+            "shore": lines.shore,  # the uncertain shore (sources.filling.shore_segments), None when not known
+            # where the terrain of the area's land came from (sources.filling.terrain_origins), None when not known
+            "terrain_sources": lines.terrain_sources,
+        }
+        if plan.access_skipped:  # the access mark asked and left out ("memory": the area too wide for it)
+            meta["access_skipped"] = plan.access_skipped
+        if samelines.COLUMN in results.columns:  # the square rule: the lines found, which the kept lines stand for
+            meta["summary"]["found"] = int(results.columns[samelines.COLUMN].sum())
+            emit("info", f"Square rule: {len(results)} lines kept of {meta['summary']['found']} found")
+        meta["description"] = rn.params_summary(meta)
+        meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map
+        if not circle:
+            # Large areas: only the group representatives carry a profile in the map
+            representatives = set(spot_groups.rep.tolist())
+            results.profiles = {k: v for k, v in results.profiles.items() if k in representatives}
+
+        ortho_cache = ortho_service = None
+        if not p.no_html:
+            source = plan.source
+            # The folder the map reads the orthophoto tiles from (download_orthophoto fills it after
+            # the run, earlier runs did too), falling back to the service for a tile not there
+            ortho_cache = ortho.cache_folder(plan.paths.cache, source.ortho) if _orthophoto(plan) else None
+            ortho_service = _dated_ortho(source, created.year)
+        # The run's lines are kept once, in its store (linestore: lines.arrow, profiles.arrow; docs/line-volume/
+        # spec-store.md 1.2: no data.js, lines.js, lines.csv or lines.geojson since store wave 4: CSV and GeoJSON are
+        # made from the store by `findaline.py export` or a download), with the result view's columns
+        # (mapping.view_columns: spots, sectors, the top-level flag, the order inside a spot) and their head keys. Then
+        # map.html (not with --no-html), ATTRIBUTION.txt and run.json last, with its block "store": a folder without
+        # run.json is a run being saved (runs.old_runs skips it, runs.list_runs does not list it).
+        progress.compute.start("saving results", len(results), unit="line")
         head = mp.map_head(plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance,
                            p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
-        view, view_head = mp.view_columns(results, spot_groups, plan.center_xy)
+        try:
+            view, view_head = mp.view_columns(results, spot_groups, plan.center_xy)
+        except Exception as error:  # noqa: BLE001 - the lines are saved without the view's columns
+            # The run opens in today's result page; run.json says so (runs.VIEW_FAILED), so runs remove-old keeps it as
+            # a run of today (the planner's Q1b). A coded note: the exception's text only on the command line (paths)
+            view, view_head = None, {}
+            meta[rn.VIEW_FAILED] = True
+            emit("warning", messages.Note(f"The run is saved without the result view's columns (spots' sectors): "
+                                          f"{type(error).__name__}: {error}", "view_columns_failed"))
         store = linestore.write(run["path"], results, {**head, **view_head}, view)
         del view
-    except Exception as error:  # noqa: BLE001 - the run's own files are saved already
-        for name in linestore.FILES:
-            with contextlib.suppress(OSError):
-                os.remove(os.path.join(run["path"], name))
-        # A coded note (the page's text from the catalogue); the exception's text only on the command line: it
-        # may hold paths
-        emit("warning", messages.Note(f"The run is saved without its store (lines.arrow): "
-                                      f"{type(error).__name__}: {error}", "store_failed"))
-    else:
         meta["store"] = store
-        path = os.path.join(run["path"], "run.json")
-        with open(path + linestore.PART, "w", encoding="utf-8") as f:  # whole, then in place of the one of before
-            json.dump(meta, f, ensure_ascii=False, indent=2)  # as runs.save_results writes it
-        os.replace(path + linestore.PART, path)
+        progress.compute.update(len(results))
+        progress.compute.finish()
+        map_path = None
+        if not p.no_html:
+            map_path = mp.save_map(run["path"], plan.paths.runs, meta)  # and the viewer installed
+        rn.save_results(run["path"], results, spot_groups, meta, files=("ATTRIBUTION.txt", "run.json"))
+    except Exception as error:
+        _not_saved(run, own)
+        if isinstance(error, SearchError):
+            raise
+        raise SearchError(f"The run could not be saved ({type(error).__name__}: {error})", "run_not_saved") from error
+    if "search" in run:  # a tiled run is done: not resumed again
+        _progress(run, "done")
+    emit("info", f"Run \"{name}\" saved to {os.path.abspath(run['path'])}")
     if plan.index_runs:
-        rn.write_index(plan.paths.runs, viewer=p.no_html)  # save_map installed the viewer already
+        rn.write_index(plan.paths.runs)
     progress.set_step("")
     return Result(results, spot_groups, meta, run, map_path)
+
+
+def _not_saved(run: Dict, own: bool):
+    """A run save_run could not save: the folder it made removed; a tiled run's folder (its search's, own False)
+    keeps its work state (tiles, progress.json still "running": resumed by the same search, skipped by remove-old)
+    and loses what the save wrote (the store, map.html, ATTRIBUTION.txt, their temporary files)."""
+    if own:
+        shutil.rmtree(run["path"], ignore_errors=True)
+        return
+    for name in os.listdir(run["path"]):
+        if name.startswith(linestore.FILES + ("map.html", "ATTRIBUTION.txt", "run.json.")):
+            with contextlib.suppress(OSError):
+                os.remove(os.path.join(run["path"], name))
 
 
 def _dated_ortho(source: src.Source, year: int) -> Optional[src.OrthoService]:
@@ -2840,14 +2873,14 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
         "width": int(heights.shape[1]), "height": int(heights.shape[0]), "step": step, "res": sampled, "crs": plan.crs,
         "left": s_left, "top": s_top, "base_dm": base_dm, "anchors": anchors, "affine": [float(v) for v in affine],
         "rigging": dataclasses.asdict(plan.rigging), "model": p["model"],
-        # the formula model's constants as data.js writes them (mapping.map_heads), for the page's profile chart
+        # the formula model's constants as the run's head names them (mapping.map_head), for the page's profile chart
         "slope": sh.SLOPE, "leash_fall": sh.LEASH_FALL,
         **_end_keys(plan.end_zone, plan.lift),
         # the run has a surface model: the page may ask the block of trees and buildings (part "canopy")
         "surface": bool(plan.nmpt),
         # the run's grouping distance: the page groups the lines from a clicked point into spots as the result does
         "group_distance": p.get("group_distance") or plan.group_distance,
-        # as the run's data.js (mapping.save_map), its cache seen from the run's map.html
+        # as the run's store's head (mapping.map_head), its cache seen from the run's map.html
         "ortho": mp.ortho_entry(_dated_ortho(source, created.year), ortho_cache,
                                 os.path.join(paths.runs, meta["id"], "map.html")),
         "attribution": meta.get("attribution", []),
@@ -2861,7 +2894,7 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
 
 
 def _end_keys(end_zone: float, lift: float) -> Dict[str, float]:
-    """The end zone and the A-frames as the heads of data.js and the patch meta name them (mapping.map_heads):
+    """The end zone and the A-frames as the run's head and the patch meta name them (mapping.map_head, _ends):
     "end_zone" and "lift", each only when not 0 (runs without them: the keys of before)."""
     return {**({"end_zone": end_zone} if end_zone else {}), **({"lift": lift} if lift else {})}
 

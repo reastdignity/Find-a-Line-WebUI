@@ -8,9 +8,9 @@ For the terrain model (DTM, ground only) and the surface model (DSM, trees and b
 | Question | Why it matters | Bad answers seen |
 | --- | --- | --- |
 | Resolution and coverage; survey years; is a newer cycle under way? | 1–2 m is the useful range; a partial newer cycle means versions per area | Slovakia: 0.5 m 2nd cycle in 16 of 73 lots |
-| The program's own status map and plans (coverage now, next year) | where the data really is, what is restricted or in progress; links for the roadmap | USGS 3DEP: FY26 status and FY27 partnership maps; "some areas are restricted" (tribal lands) |
+| The program's own status map and plans (coverage now, next year) | where the data really is, what is restricted or in progress; links for the roadmap | USGS 3DEP: FY26 status and FY27 partnership maps; "some areas are restricted" (tribal lands); its table of surveys (WESM) says per survey which products it qualifies for, but "qualifies" is not "published" (docs/usa-data.md) |
 | Does a newer survey replace a whole tile, or only part of it? | "newest file per tile" is right only for whole tiles | USA: a 2020 project a 10 MB sliver of a tile whose 2019 file covers it all |
-| Is there a seamless product built from the surveys? | one file per place, but it may lag the surveys and use another CRS | USGS S1M: 20% of CONUS, Albers, older than the newest projects |
+| Is there a seamless product built from the surveys? | one file per place, but it may lag the surveys and use another CRS | USGS S1M: 21% of CONUS, Albers, older than the newest projects; not used, since it is built from the same surveys as the per-project 1 m DEM, is backfill from coarser DEMs beyond them, and would be resampled onto the working grid (docs/usa-data.md) |
 | File layout: tiled or COG, file size | tiled files can be read in windows over HTTP, so huge files are no obstacle | USA: 10–450 MB tiles, Alaska 900 MB cells, all tiled |
 | Licence and who may get it | must allow automatic download (and, for a public site, redistribution) | Greece: public bodies only |
 | CRS and **vertical datum**, as the files name them | heights shown to users; gap filling against Copernicus; the working grid | Slovakia WCS: ellipsoidal heights, 43 m above sea level; Slovakia's TIFFs: a `LOCAL_CS` only; Alaska's IfSAR: Albers on "GRS80, datum not specified" |

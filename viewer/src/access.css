@@ -12,26 +12,28 @@
 .ui .ac-2 .ac-d { fill: var(--acc-easy-sign); }
 .ui .ac-1 .ac-d { fill: var(--acc-tell-sign); }
 .ui .ac-0 .ac-d { fill: var(--acc-hard-sign); }
-.ui .ac-pair { display: inline-flex; gap: 3px; align-items: center; vertical-align: middle; }
+.ui .ac-pair { display: inline-flex; gap: 3px; align-items: center; vertical-align: middle; }  /* one mark of two dots: off R7 */
 .ui .ac-none { color: var(--muted); }
 
 /* On the map: a marker's icon (Leaflet places it; it takes no clicks), a thin dark edge and a white ring around the dot */
 .ui .ac-map-icon { background: none; border: 0; }
 .ui .ac-map { display: block; }
 .ui .ac-map .ac-edge { fill: var(--acc-map-edge); }
-.ui .ac-map .ac-ring { fill: #fff; }
+.ui .ac-map .ac-ring { fill: var(--acc-map-ring); }
 .ui .ac-map.ac-2 .ac-f { fill: var(--acc-map-easy); }
 .ui .ac-map.ac-1 .ac-f { fill: var(--acc-map-tell); }
 .ui .ac-map.ac-0 .ac-f { fill: var(--acc-map-hard); }
-.ui .ac-map.ac-2 .ac-s, .ui .ac-map.ac-0 .ac-s { stroke: #fff; }
-.ui .ac-map.ac-2 .ac-d, .ui .ac-map.ac-0 .ac-d { fill: #fff; }
+.ui .ac-map.ac-2 .ac-s { stroke: var(--acc-map-easy-sign); }
+.ui .ac-map.ac-0 .ac-s { stroke: var(--acc-map-hard-sign); }
+.ui .ac-map.ac-2 .ac-d { fill: var(--acc-map-easy-sign); }
+.ui .ac-map.ac-0 .ac-d { fill: var(--acc-map-hard-sign); }
 .ui .ac-map.ac-1 .ac-s { stroke: var(--acc-map-tell-sign); }
 .ui .ac-map.ac-1 .ac-d { fill: var(--acc-map-tell-sign); }
 
 /* The "?" of the mark (a .u-hint that opens a panel in place) and its panel */
 .ui .ac-hint[aria-expanded="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.ui .ac-help { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-radius: 8px; background: var(--surface);
-  border: 1px solid var(--line); font-size: 12.5px; line-height: 1.45; color: var(--ink-2); font-weight: 400; }
+.ui .ac-help { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border-radius: var(--r-2); background: var(--surface);
+  border: 1px solid var(--rule); font-size: var(--fs-2); line-height: 1.45; color: var(--ink-2); font-weight: 400; }
 .ui .ac-help p { margin: 0; }
 .ui .ac-key { display: flex; flex-direction: column; gap: 4px; color: var(--ink); }
 .ui .ac-key-row { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; }

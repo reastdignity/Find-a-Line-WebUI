@@ -10,7 +10,7 @@ import { storedTheme, storeTheme } from "../../ui/choice";
 import { COVERAGE, areaOf, loadShapes } from "../data";
 import { LANGS, areaName, ct, pickLang, rememberLang, resText, type Lang } from "../i18n";
 import { THEMES, applyPalette } from "../palette";
-import { AreaList } from "./AreaList";
+import { AreaList, PHONE } from "./AreaList";
 import { Card, Legend, SCALES, type Scale } from "./card";
 import { mountFlat } from "./flat";
 import { BOX_NAMES, makeGeo, parseKey, type Geo } from "./geo";
@@ -53,11 +53,13 @@ export function CoveragePage({shapesUrl, site}: {shapesUrl: string; site: "publi
   const [failed, setFailed] = useState(false);
   const [size, setSize] = useState("");
   const root = useRef<HTMLDivElement>(null);
+  const header = useRef<HTMLElement>(null);
   const viewBox = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLElement>(null);
   const mounted = useRef<MapView | null>(null);
   const now = useRef({lang, palette, selected, reduced});
+  const back = useRef<{key: string; y: number} | null>(null);  // the list's row the card was opened from, the page's place then
   now.current = {lang, palette, selected, reduced};
 
   useLayoutEffect(() => { if (root.current) applyPalette(root.current, palette); }, [palette]);
@@ -67,6 +69,18 @@ export function CoveragePage({shapesUrl, site}: {shapesUrl: string; site: "publi
   }, [lang]);
   useEffect(() => {
     loadShapes(shapesUrl).then(shapes => setGeo(makeGeo(shapes))).catch(() => setFailed(true));
+  }, []);
+  // what is scrolled into view (a focused control, Shift+Tab up the list; the map after a pick) stops under the
+  // sticky header, as high as it is (one row or two): its height as --cov-top for the window's scroll-padding-top
+  // (page.css; 0 where the header scrolls away), through the CSSOM
+  useEffect(() => {
+    const top = header.current;
+    if (!top) return;
+    const fit = () => document.documentElement.style.setProperty("--cov-top", `${top.offsetHeight}px`);
+    const observer = new ResizeObserver(fit);
+    observer.observe(top);
+    fit();
+    return () => observer.disconnect();
   }, []);
   // the flat view and the globe are drawn for one size: a new size draws them again
   useEffect(() => {
@@ -86,10 +100,10 @@ export function CoveragePage({shapesUrl, site}: {shapesUrl: string; site: "publi
       geo,
       theme: () => now.current.palette,
       selected: () => now.current.selected,
-      select: key => setSelected(key),
+      select: key => { back.current = null; setSelected(key); },  // chosen on the map: closing stays at the map
       label: key => {
         const {id, rest} = parseKey(key), area = rest ? null : areaOf(id);
-        return `${areaName(id, now.current.lang)} · ${resText(area ? area.res : COVERAGE.world.res, now.current.lang)}`;
+        return `${areaName(id, now.current.lang)}: ${resText(area ? area.res : COVERAGE.world.res, now.current.lang)}`;
       },
       credit: () => ct(now.current.lang, "map.credit"),
       reducedMotion: () => now.current.reduced,
@@ -101,27 +115,46 @@ export function CoveragePage({shapesUrl, site}: {shapesUrl: string; site: "publi
   useEffect(() => { mounted.current?.update(); }, [lang, palette, selected]);
   useEffect(() => {
     if (!selected) return;
-    const close = (e: KeyboardEvent) => { if (e.key === "Escape") setSelected(null); };
-    addEventListener("keydown", close);
-    return () => removeEventListener("keydown", close);
+    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    addEventListener("keydown", escape);
+    return () => removeEventListener("keydown", escape);
   }, [selected]);
 
   const changeLang = (value: Lang) => { setLang(value); rememberLang(value); };
   const changeTheme = (value: UiTheme) => { setTheme(value); storeTheme(value); };
   const changeView = (value: ViewName) => { setView(value); store(VIEW_KEY, value); };
   const changeScale = (value: Scale) => { setScale(value); store(SCALE_KEY, value); };
-  /** From the list or a card's regions: the card opens and gets the focus (the keyboard's way). */
-  const pick = (key: string) => {
+  const sheet = () => typeof matchMedia === "function" && matchMedia(PHONE).matches;  // the card a sheet over the page
+  /** From the list or a card's regions: the card opens and gets the focus (the keyboard's way). On a phone the card
+   *  is a sheet over the list, which keeps its place (the user's pick, 2026-11-20); on a wide screen the card lies
+   *  in the map's box, so the page scrolls to the map. `fromList`: a row was pressed; closing the card comes back to
+   *  it (close). */
+  const pick = (key: string, fromList = false) => {
+    if (fromList) back.current = {key, y: scrollY};
     setSelected(key);
     requestAnimationFrame(() => {
-      stage.current?.scrollIntoView({block: "nearest", behavior: reduced ? "auto" : "smooth"});
+      if (!sheet()) stage.current?.scrollIntoView({block: "nearest", behavior: reduced ? "auto" : "smooth"});
       card.current?.focus({preventScroll: true});
+    });
+  };
+  /** The card closed (its button, Escape): a card opened from a row of the list puts the focus back on that row,
+   *  and on a wide screen, where opening it scrolled to the map, the page back where it was. */
+  const close = () => {
+    const from = back.current;
+    back.current = null;
+    setSelected(null);
+    if (!from) return;
+    requestAnimationFrame(() => {
+      const row = root.current?.querySelector<HTMLElement>(`[data-row="${from.key}"]`);
+      if (!row) return;
+      if (!sheet()) scrollTo({top: from.y, behavior: now.current.reduced ? "auto" : "smooth"});
+      row.focus({preventScroll: true});
     });
   };
 
   const word = (key: string) => ct(lang, key);
   return <div ref={root} class="ui cov" data-theme={theme === "auto" ? undefined : theme}>
-    <header class="cov-top"><div class="cov-inner cov-top-row">
+    <header ref={header} class="cov-top"><div class="cov-inner cov-top-row">
       <a class="cov-brand" href="/" aria-label={word("page.open")}><Logo /></a>
       <span class="cov-name">{word("page.name")}</span>
       <span class="cov-spacer" />
@@ -153,13 +186,13 @@ export function CoveragePage({shapesUrl, site}: {shapesUrl: string; site: "publi
           {!geo && <p class="cov-status" role="status">{word(failed ? "page.failed" : "page.loading")}</p>}
           {selected && <aside ref={card} class="cov-card" tabIndex={-1} aria-label={selected === "world"
               ? word("world.name") : areaName(parseKey(selected).id, lang)}>
-            <Card areaKey={selected} lang={lang} scale={scale} onClose={() => setSelected(null)} onPick={pick} />
+            <Card areaKey={selected} lang={lang} scale={scale} onClose={close} onPick={key => pick(key)} />
           </aside>}
         </div>
         <div class="cov-legend"><Legend lang={lang} scale={scale} onScale={changeScale} /></div>
       </div>
       <p class="cov-small cov-muted cov-world">
-        <button type="button" class="cov-link" onClick={() => pick("world")}>{word("world.name")}</button>
+        <button type="button" class="u-link u-inline cov-link" onClick={() => pick("world")}>{word("world.name")}</button>
         {`: ${resText(COVERAGE.world.res, lang)}. ${word("note.world")}`}</p>
       <AreaList lang={lang} scale={scale} selected={selected} onPick={pick} />
       <p class="cov-cta"><a class="u-btn u-pri u-lg" href="/">{word("page.cta")}</a></p>

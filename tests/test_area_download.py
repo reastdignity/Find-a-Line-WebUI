@@ -10,6 +10,7 @@ import threading
 import time
 from types import SimpleNamespace
 
+import psutil
 import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -151,6 +152,46 @@ def test_pass_to_its_end(setup):
     assert again.fetched == []
     state = ad.read_state(area.state_dir, "land")
     assert (state["tiles_done"], state["mb"]) == (6, pytest.approx(12))  # the MB of the passes before stay
+
+
+def test_a_pass_asks_the_cache_once_and_by_folder(setup, monkeypatch):
+    """The tiles of a whole area: each layer's to_download once a pass (run_pass for its counts; download_layers
+    takes those answers), the files asked about by folder through sources.layer.EXISTING, which a search never
+    sets and a pass leaves as it was. A tile another process downloads between the question and the download is
+    not downloaded again."""
+    from sources.indexes import versions
+
+    class Counting(FakeLayer):
+        asked = 0
+
+        def to_download(self, grid, cache_dir, update):
+            Counting.asked += 1
+            Counting.how = src.layer.EXISTING
+            todo, line = super().to_download(grid, cache_dir, update)
+            if Counting.asked == 1:   # another download brings tile 0 right after the question
+                path = self.tile_path(cache_dir, 0)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                open(path, "wb").close()
+                cache.record(cache_dir, path)
+            return todo, line
+    assert src.layer.EXISTING is None
+    layer = Counting(6)
+    area = setup(layer)
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert Counting.asked == 1 and Counting.how is versions.existing
+    assert src.layer.EXISTING is None
+    assert sorted(layer.fetched) == [1, 2, 3, 4, 5]
+    state = ad.read_state(area.state_dir, "land")
+    assert state["layers"] == [{"label": "terrain", "tiles": 6, "to_download": 6, "missing": 0}]
+    # a search, and any other caller of download_layers, asks itself, file by file
+    Counting.asked = 0
+    src.download_layers([(Counting(6), "terrain")], _grid(), os.path.join(area.data_dir, "cache"))
+    assert Counting.asked == 1 and Counting.how is None
+    # a pass that stops gives the setting back too
+    monkeypatch.setattr(ad, "_one_pass", lambda area, number: (_ for _ in ()).throw(RuntimeError("broken")))
+    with pytest.raises(RuntimeError, match="broken"):
+        ad.run_pass(area, 2)
+    assert src.layer.EXISTING is None
 
 
 def test_pass_with_failed_tiles(setup):
@@ -424,6 +465,40 @@ def test_a_stand_in_source_is_downloaded_too(setup, monkeypatch):
     assert ad.plans_of(alone) == [plans["fake_ifsar"]]
 
 
+def test_a_stand_ins_layers_ask_again_before_their_download(setup, monkeypatch):
+    """The answers a pass takes for its counts serve the first plan's download, a moment later; a stand-in's
+    download comes after the first plan's whole download, so its layers ask again then, as before: a tile of
+    theirs that another process cached meanwhile is not fetched."""
+    class Counting(FakeLayer):
+        def __init__(self, n):
+            super().__init__(n)
+            self.asked = 0
+
+        def to_download(self, grid, cache_dir, update):
+            self.asked += 1
+            return super().to_download(grid, cache_dir, update)
+
+    class First(Counting):
+        def download_tile(self, tile, path):   # while the first plan downloads, the stand-in's tile 0 arrives
+            other = second.tile_path(os.path.dirname(os.path.dirname(os.path.dirname(path))), 0)
+            if not os.path.exists(other):
+                os.makedirs(os.path.dirname(other), exist_ok=True)
+                open(other, "wb").close()
+            return super().download_tile(tile, path)
+    first, second = First(3), Counting(2)
+    second.folder = "fake/ifsar"
+    area = setup(first)
+    cache_dir = os.path.join(area.data_dir, "cache")
+    plans = {"fake": SimpleNamespace(layers=[first], grid=_grid(), paths=SimpleNamespace(cache=cache_dir),
+                                     source=SimpleNamespace(id="fake", instead_without_data="fake_ifsar")),
+             "fake_ifsar": SimpleNamespace(layers=[second], grid=_grid(), paths=SimpleNamespace(cache=cache_dir),
+                                           source=SimpleNamespace(id="fake_ifsar", instead_without_data=None))}
+    monkeypatch.setattr(ad, "plan_of", lambda a: plans[a.source])
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert (first.asked, second.asked) == (1, 2)
+    assert sorted(first.fetched) == [0, 1, 2] and second.fetched == [1]
+
+
 def test_a_pass_without_a_contact_warns(setup, monkeypatch, capsys):
     """The warning is printed and stands in the state until the first tile; the pass never fails for it."""
     monkeypatch.delenv("FINDALINE_CONTACT", raising=False)
@@ -667,6 +742,196 @@ def test_one_supervisor_per_area(tmp_path):
         assert ad.supervise(area, [sys.executable, "-c", "pass"]) == 1
 
 
+def _queued(tmp_path, monkeypatch, names):
+    """Areas of one state folder in the queue "usa", their tickets in the order of `names` whatever starts first;
+    a pass writes "<name> <number> starts" and "... ends" to order.txt, 0.4 s apart."""
+    state = tmp_path / "state"
+    state.mkdir(exist_ok=True)
+    monkeypatch.setattr(ad, "POLL_SECONDS", 0.05)
+    monkeypatch.setattr(ad, "_ticket", lambda area: (float(names.index(area.name)), area.name))
+    return [ad.Area(name, f"osm:{name}", "usa", 1.0, str(tmp_path), str(state), queue="usa") for name in names]
+
+
+def _queue_pass(tmp_path, name, exit_code="0"):
+    path = tmp_path / f"pass-{name}.py"
+    order = str(tmp_path / "order.txt")
+    path.write_text("import sys, time\nnumber = int(sys.argv[-1])\n"
+                    f"open({order!r}, 'a').write('{name} %d starts\\n' % number)\ntime.sleep(0.4)\n"
+                    f"open({order!r}, 'a').write('{name} %d ends\\n' % number)\nsys.exit({exit_code})\n",
+                    encoding="utf-8")
+    return [sys.executable, str(path)]
+
+
+def _supervised(area, command, codes, **more):
+    thread = threading.Thread(target=lambda: codes.__setitem__(area.name, ad.supervise(area, command, **more)),
+                              daemon=True)
+    thread.start()
+    return thread
+
+
+QUEUE_TEST_SECONDS = 60   # a supervisor stuck in its queue fails its test, never hangs it
+
+
+def _until(condition, what, seconds=QUEUE_TEST_SECONDS):
+    """Waits for condition() to hold; the test fails after `seconds` without it."""
+    deadline = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < deadline, f"not within {seconds} s: {what}"
+        time.sleep(0.02)
+
+
+def _ended(threads):
+    _until(lambda: not any(thread.is_alive() for thread in threads), "the supervisors end")
+
+
+def _order(tmp_path):
+    return (tmp_path / "order.txt").read_text().split("\n")[:-1]
+
+
+def test_a_queue_downloads_one_area_at_a_time_in_the_order_of_their_start(tmp_path, monkeypatch):
+    """Three states started together, the last ticket's supervisor first: their passes never overlap and run in the
+    tickets' order; the waiting ones say "queued", the one whose turn it is does not (its pass writes no state
+    here: the supervisor's own "listing" stands, and the others wait for the lock, not for that state)."""
+    areas = _queued(tmp_path, monkeypatch, ["texas", "ohio", "maine"])
+    # a state that says "queued" counts for an hour: an area that kept saying so with its turn or after its pass
+    # would hold the next one back for good, and the test would fail at its limit instead of passing 30 s late
+    monkeypatch.setattr(ad, "RUNNING_STATE_S", 3600)
+    ad.write_state(areas[0].state_dir, "texas", {"name": "texas", "stage": "stopped", "memory_gb": 6.5})
+    codes, seen = {}, set()
+    threads = [_supervised(area, _queue_pass(tmp_path, area.name), codes, settle_seconds=1.0)
+               for area in reversed(areas)]
+
+    def looked():
+        stages = {area.name: ad.read_state(area.state_dir, area.name).get("stage") for area in areas}
+        seen.update((name, stage) for name, stage in stages.items() if stage)
+        return not any(thread.is_alive() for thread in threads)
+    _until(looked, "the supervisors end")
+    assert codes == {"texas": 0, "ohio": 0, "maine": 0}
+    assert _order(tmp_path) == [
+        "texas 1 starts", "texas 1 ends", "ohio 1 starts", "ohio 1 ends", "maine 1 starts", "maine 1 ends"]
+    assert {("ohio", "queued"), ("maine", "queued"), ("texas", "listing"), ("maine", "listing")} <= seen
+    texas = ad.read_state(areas[0].state_dir, "texas")
+    assert "queued_at" not in texas and texas["memory_gb"] == 0.0   # the pass before's memory is not this one's
+    assert "waiting for its turn among the downloads of the queue usa" in open(
+        areas[2].file(".log"), encoding="utf-8").read()
+
+
+def test_the_turn_is_given_up_while_an_area_waits_for_its_next_pass(tmp_path, monkeypatch):
+    """A pass that gave up waits retry_seconds: the next area of the queue downloads meanwhile, and the first, its
+    ticket kept, goes on after it."""
+    texas, ohio = _queued(tmp_path, monkeypatch, ["texas", "ohio"])
+    codes = {}
+    _ended([_supervised(texas, _queue_pass(tmp_path, "texas", "0 if number == 2 else 4"), codes,
+                        retry_seconds=1.5, settle_seconds=0.5),
+            _supervised(ohio, _queue_pass(tmp_path, "ohio"), codes, settle_seconds=0.5)])
+    assert codes == {"texas": 0, "ohio": 0}
+    assert _order(tmp_path) == [
+        "texas 1 starts", "texas 1 ends", "ohio 1 starts", "ohio 1 ends", "texas 2 starts", "texas 2 ends"]
+
+
+def test_a_pass_started_again_at_once_keeps_the_turn(tmp_path, monkeypatch):
+    """A pass over its memory budget (EXIT_RESTART, with progress: the first pass) is started again at once, the
+    queue still this area's: the next area's pass comes after both."""
+    texas, ohio = _queued(tmp_path, monkeypatch, ["texas", "ohio"])
+    codes = {}
+    _ended([_supervised(texas, _queue_pass(tmp_path, "texas", "0 if number == 2 else 5"), codes,
+                        retry_seconds=30, settle_seconds=0.5),
+            _supervised(ohio, _queue_pass(tmp_path, "ohio"), codes, settle_seconds=0.5)])
+    assert codes == {"texas": 0, "ohio": 0}
+    assert _order(tmp_path) == [
+        "texas 1 starts", "texas 1 ends", "texas 2 starts", "texas 2 ends", "ohio 1 starts", "ohio 1 ends"]
+
+
+def test_a_queued_area_stops_by_hand(tmp_path, monkeypatch):
+    """The stop file ends an area that waits for its turn: no pass was started, `run` queues it again. While it
+    waits its state is written again and again (the areas behind it read its age)."""
+    from filelock import FileLock
+    (texas,) = _queued(tmp_path, monkeypatch, ["texas"])
+    monkeypatch.setattr(ad, "STATE_SECONDS", 0.1)
+    codes = {}
+
+    def state():
+        return ad.read_state(texas.state_dir, "texas")
+    with FileLock(ad.state_file(texas.state_dir, "usa", ".queue.lock")):   # another area's turn
+        thread = _supervised(texas, _queue_pass(tmp_path, "texas"), codes, settle_seconds=0)
+        _until(lambda: state().get("stage") == "queued", "texas is queued")
+        first = state()
+        assert (first["queue"], first["queued_at"]) == ("usa", 0.0) and "its turn" in first["message"]
+        _until(lambda: state().get("updated", first["updated"]) != first["updated"], "the state is written again")
+        assert state()["stage"] == "queued"
+        open(texas.file(".stop"), "w").close()
+        _ended([thread])
+    assert codes == {"texas": 0} and state()["stage"] == "stopped"
+    assert not (tmp_path / "order.txt").exists()
+    assert "pass 1 starts" not in open(texas.file(".log"), encoding="utf-8").read()
+
+
+def test_the_queues_lock_is_a_file_of_the_state_folder(tmp_path, monkeypatch):
+    """<key>.queue.lock, a key's characters unfit for a file name replaced: an area waits while anything holds
+    it (another supervisor, of this process or not) and goes on when it is free."""
+    from filelock import FileLock
+    (texas,) = _queued(tmp_path, monkeypatch, ["texas"])
+    texas = dataclasses.replace(texas, queue="north america/usa 1m")
+    codes = {}
+    held = FileLock(ad.state_file(texas.state_dir, "north-america-usa-1m", ".queue.lock"))
+    held.acquire()
+    try:
+        thread = _supervised(texas, _queue_pass(tmp_path, "texas"), codes, settle_seconds=0)
+        _until(lambda: ad.read_state(texas.state_dir, "texas").get("stage") == "queued", "texas is queued")
+        time.sleep(1.0)
+        assert thread.is_alive() and not (tmp_path / "order.txt").exists()
+    finally:
+        held.release()
+    _ended([thread])
+    assert codes == {"texas": 0} and _order(tmp_path) == ["texas 1 starts", "texas 1 ends"]
+
+
+def test_the_ticket_of_an_area(monkeypatch):
+    """What started the supervisor says when (the window, for the rows' order); else the process's own start."""
+    area = ad.Area("ohio", "osm:Ohio", "usa", 1.0, "d", "s", queue="usa")
+    monkeypatch.setenv(ad.QUEUE_TICKET, "1794985693.25")
+    assert ad._ticket(area) == (1794985693.25, "ohio")
+    for value in (None, "soon"):
+        monkeypatch.delenv(ad.QUEUE_TICKET, raising=False)
+        if value:
+            monkeypatch.setenv(ad.QUEUE_TICKET, value)
+        assert ad._ticket(area) == (psutil.Process().create_time(), "ohio")
+
+
+def test_who_is_ahead_in_a_queue(tmp_path):
+    """Only an area that waits in the same queue with an earlier ticket, and whose supervisor still writes its
+    state: one killed while it waited is passed over after RUNNING_STATE_S."""
+    state_dir = str(tmp_path)
+    area = ad.Area("ohio", "osm:Ohio", "usa", 1.0, "d", state_dir, queue="usa")
+    waiting = {"stage": "queued", "queue": "usa"}
+    ad.write_state(state_dir, "texas", {**waiting, "queued_at": 5.0})
+    ad.write_state(state_dir, "maine", {**waiting, "queued_at": 3.0})
+    ad.write_state(state_dir, "utah", {**waiting, "queued_at": 20.0})                 # after this one
+    ad.write_state(state_dir, "alberta", {**waiting, "queue": "canada", "queued_at": 1.0})
+    ad.write_state(state_dir, "idaho", {"stage": "downloading", "queue": "usa", "queued_at": 1.0})   # has its turn
+    ad.write_state(state_dir, "iowa", {"stage": "queued", "queue": "usa"})            # a state cut short
+    now = time.time()
+    assert ad._ahead(area, (10.0, "ohio"), now) == "maine"
+    assert ad._ahead(area, (4.0, "ohio"), now) == "maine" and ad._ahead(area, (2.0, "ohio"), now) is None
+    assert ad._ahead(area, (3.0, "ohio"), now) == "maine"      # the same moment: by name
+    assert ad._ahead(area, (10.0, "ohio"), now + ad.RUNNING_STATE_S + 5) is None
+
+
+def test_no_queue_unless_asked(tmp_path, monkeypatch):
+    """Without --queue a supervisor never waits, whoever holds a queue's lock."""
+    seen = []
+    monkeypatch.setattr(ad, "supervise", lambda area, command: seen.append(area) or 0)
+    base = ["run", "land", "--area", "osm:Land", "--source", "fake", "--resolution", "1", "--data-dir", "d",
+            "--state-dir", "s"]
+    ad.main(base)
+    ad.main(base + ["--queue", "usa"])
+    assert [area.queue for area in seen] == ["", "usa"]
+    monkeypatch.undo()
+    monkeypatch.setattr(ad, "_take_turn", lambda *a: pytest.fail("no queue was asked for"))
+    area = _area(tmp_path)
+    assert ad.supervise(area, _pass(tmp_path, "sys.exit(0)\n")) == 0
+
+
 def test_summary():
     now = 100_000.0
     state = {"name": "land", "stage": "downloading", "tiles_done": 500, "tiles_total": 1000, "mb": 2000.0,
@@ -681,6 +946,8 @@ def test_summary():
     assert late["stale"]
     waiting = ad.summary({**state, "stage": "waiting"}, history, ad._seconds(state["updated"]) + ad.STALE_SECONDS + 1)
     assert not waiting["stale"] and waiting["mb_s"] is None and waiting["eta"] is None
+    queued = ad.summary({**state, "stage": "queued"}, history, ad._seconds(state["updated"]))
+    assert not queued["stale"] and queued["mb_s"] is None and queued["eta"] is None and queued["share"] == 0.5
     done = ad.summary({**state, "stage": "done"}, history, ad._seconds(state["updated"]) + 10 ** 6)
     assert not done["stale"]
 
@@ -788,6 +1055,11 @@ def test_plan_clips_the_outline_to_the_coverage_boxes(tmp_path, monkeypatch, cap
     assert shape(written["geometry"]).equals(near) and written["properties"]["name"] == "land"
     out = capsys.readouterr().out
     assert "Outline clipped to the source's coverage boxes: about" in out and "km² outside them left out" in out
+    # a work folder of the caller's (tools/perf_cached_check.py): nothing written into the data folder's
+    elsewhere = ad.plan_of(area, str(tmp_path / "elsewhere"))
+    assert planned[-1][0] == str(tmp_path / "elsewhere" / "outline.geojson") and os.path.exists(planned[-1][0])
+    assert elsewhere.paths.work == str(tmp_path / "elsewhere") and elsewhere.paths.data == str(data)
+    capsys.readouterr()
     # A source without boxes: the stored file as it is, nothing printed
     ad.plan_of(ad.Area("land", "osm:Land", "europe", 1.0, str(data), str(state), min_free_gb=0))
     assert planned[-1][0] == str(stored) and planned[-1][1].equals(unary_union([near, far]))

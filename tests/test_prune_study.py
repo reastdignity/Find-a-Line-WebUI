@@ -1,6 +1,7 @@
 """tools/prune_study.py: the audit of pruning rules on made-up tables with known answers. Offline; the
-tables are written by production's own code (runs.save_results, mapping.write_map_scripts) and every
-line, place and known line in them is invented."""
+tables are written by production's own code (runs.save_results; a lines.js of before by tests/old_scripts.py, the
+frozen copy of mapping.py's writer of before store wave 4's item 5) and every line, place and known line in them is
+invented."""
 
 import json
 import os
@@ -36,8 +37,9 @@ def line(k, x1, y1, x2, y2, drop=False, **values):
     return row
 
 
-def save(folder, rows, lines_js=False, distance=20.0):
-    """A run's folder as a search saves it: lines.csv and run.json (lines.js on request)."""
+def save(folder, rows, lines_js=False, distance=20.0, store=False):
+    """A run's folder as a search saved it before the store: lines.csv and run.json (lines.js on request); with
+    store, as it saves it since store wave 4: its store (linestore.write) and run.json, no lines.csv."""
     os.makedirs(folder)
     lines = helpers.LineTable.from_rows(rows)
     groups = mapping.group_lines(lines, distance, "clearance")
@@ -45,9 +47,14 @@ def save(folder, rows, lines_js=False, distance=20.0):
             "params": {"resolution": 1.0, "group_distance": distance, "group_by": "clearance", "model": "sag",
                        "end_zone": 5.0, "anchor_lift": 2.0}}
     runs.save_results(str(folder), lines, groups, meta, files=("lines.csv", "run.json"))
+    if store:
+        import linestore
+        linestore.write(str(folder), lines, {"run": {"id": "made-up"}})
+        os.remove(os.path.join(str(folder), "lines.csv"))
     if lines_js:
         head = '(window.FINDALINE_LINES = window.FINDALINE_LINES || {})["made-up"] = {"crs":"EPSG:2180","lines":['
-        mapping.write_map_scripts(lines, str(folder), ("", head), files=("lines.js",))
+        import old_scripts
+        old_scripts.write_map_scripts(lines, str(folder), ("", head), files=("lines.js",))
     return str(folder), groups
 
 
@@ -744,3 +751,74 @@ def test_command_line_with_a_rules_file(tmp_path):
     assert summary["lines"]["kept"] == 6 and "terrain" not in summary["table"]
     done = run("--rule", "first_anchor_above", "--out", str(tmp_path / "none"), "--terrain", str(rules))
     assert done.returncode == 2 and "prune_study:" in done.stderr
+
+
+def _same_tables(a, b):
+    assert sorted(a.columns) == sorted(b.columns) and len(a) == len(b)
+    for name in a.columns:
+        assert a[name].dtype == b[name].dtype and np.array_equal(a[name], b[name], equal_nan=True), name
+    assert np.array_equal(a.order, b.order) and sorted(a.exact) == sorted(b.exact)
+    for name in a.exact:  # bit for bit: the store holds the search's float64, lines.js printed them as repr
+        assert a.exact[name].tobytes() == b.exact[name].tobytes(), name
+
+
+def _same_audits(a, b):
+    """Two audits' summaries equal but for the file the grouping read and the run's folder name."""
+    def plain(summary):
+        summary = json.loads(json.dumps(summary, default=str))
+        summary.pop("seconds", None)
+        places = summary.get("places") or {}
+        for key in ("grouping_reads", "source"):
+            places.pop(key, None)
+        summary["table"].pop("folder", None)  # the copies' folders are named apart
+        return summary
+    assert plain(a.summary) == plain(b.summary)
+
+
+def test_table_of_a_store_is_the_table_of_lines_js(tmp_path):
+    """A run of store wave 4 (its store and run.json alone) gives the table a run saved before it gives with
+    lines.js: the same columns (lines.csv's, through the store's CSV export), the search's order and the grouping's
+    unrounded values, so the same places and audits; the table says it read the store, is cached by the store and
+    nothing is written into the run."""
+    rows = clustered(lambda k, rng: float(rng.random() * 12))  # unrounded clearances: ties in lines.csv's
+    old, _ = save(tmp_path / "js", rows, lines_js=True)
+    new, _ = save(tmp_path / "store", rows, store=True)
+    assert sorted(os.listdir(new)) == ["lines.arrow", "profiles.arrow", "run.json"]
+    before = sorted((name, os.path.getsize(os.path.join(new, name))) for name in os.listdir(new))
+    cache = str(tmp_path / "cache")
+    table, reference = ps.load_table(new, cache=cache), ps.load_table(old, cache=False)
+    assert table.source == "store" and reference.source == "lines.js" and table.file_rank("clearance") is None
+    _same_tables(table, reference)
+    assert len(os.listdir(cache)) == 1
+    _same_tables(ps.load_table(new, cache=cache), reference)  # from the cache
+    assert np.array_equal(ps.places_of(table, saved=False).place, ps.places_of(reference, saved=False).place)
+    keep = table["clearance"] > 4
+    assert np.array_equal(ps.places_of(table, keep).place, ps.places_of(reference, keep).place)
+    for name, params in (("higher_wins", {}), ("best_per_cell_pair", {"cell": 8})):
+        audit = ps.audit(table, name, params)
+        _same_audits(audit, ps.audit(reference, name, params))
+        assert audit.summary["places"]["grouping_reads"] == "store"
+    assert sorted((name, os.path.getsize(os.path.join(new, name))) for name in os.listdir(new)) == before
+    assert not any(name.startswith(".export") for name in os.listdir(tmp_path))  # the export outside the runs
+
+
+def test_table_of_the_clips_store_is_its_text_files(tmp_path_factory, tmp_path):
+    """The clip's run (a real search) read from its store alone and from its text files alone (lines.csv,
+    lines.js: a run saved before the store): the same table, order and unrounded values bit for bit, the same
+    audits; nothing written into either run."""
+    import clip_runs
+    import tool_runs
+    args = ["--elevation-file", os.path.join(REPO, "tests", "data", "zabi_kon_nmt.tif"), "--northing", "254608",
+            "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
+            "--ortho", "never", "--nmpt", "off", "--model", "sag"]  # test_device_page's search (shared by clip_runs)
+    data = clip_runs.data_copy(tmp_path_factory, "prune-clip", args)
+    run = next(d for d in os.listdir(data / "runs") if (data / "runs" / d / "run.json").is_file())
+    store = tool_runs.store_only(str(data / "runs" / run), str(tmp_path / "runs" / "store"))
+    text = tool_runs.text_only(str(data / "runs" / run), str(tmp_path / "runs" / "text"))
+    before = tool_runs.snapshot(str(tmp_path / "runs"))
+    table, reference = ps.load_table(store, cache=False), ps.load_table(text, cache=False)
+    assert (table.source, reference.source) == ("store", "lines.js") and len(table) > 1000
+    _same_tables(table, reference)
+    for name, params in (("higher_wins", {}), ("best_per_cell_pair", {})):
+        _same_audits(ps.audit(table, name, params), ps.audit(reference, name, params))
+    assert tool_runs.snapshot(str(tmp_path / "runs")) == before

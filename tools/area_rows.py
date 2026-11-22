@@ -12,6 +12,20 @@ in the continent where they lie, each showing its own name (`Row.label`) in a co
 "Whole country · <source>" (a country of one row in a continent has no group: its row shows its title). An extra row's
 country is its `"country"`, else its title's part before ": " when that names a country of `COUNTRIES`, else its title.
 
+The parts of a country-wide source (`PARTS`, `parts()`: the states of the USA's `usa`, the provinces and territories of
+Canada's `canada`) are rows too, though no areas of the map: one download of such a country lists and checks millions
+of tiles before its first one, at every restart of a pass, a part only its own (Utah, when the rows were made: 15 min
+on an empty cache, 73 min with 199 000 tiles cached; the check itself is about fifteen times shorter since, asked by
+folder: docs/performance.md, "The check of cached tiles"); a part is also done, and usable, on its own. A part's tiles are the country-wide row's (one
+source, one cache folder): a tile on a border is found cached by the second part. A settings' `extra` of a part's name
+replaces it (Utah was an extra first, and keeps its name `utah`). The country-wide row of such a source stays, its
+label marked "(slow)" (`SLOW`), and the window says why before it starts it (`slow_note`).
+
+The rows of a source with parts download one at a time (`command_of`: `--queue <source>`, area_download.py's queue;
+the states, the country-wide row and the territories of `usa` alike), so that starting fifty states is fifty
+downloads in turn, in the rows' order (`start`: the ticket), not fifty at once on the eight connections of their
+host. The rows of the other sources start at once, as before.
+
 The settings, a JSON file outside the repository (it may name a contact and a share):
 
     {"state_dir": "<folder>", "contact": "<an e-mail address or an http(s) address>", "default_target": "cache",
@@ -24,7 +38,8 @@ The settings, a JSON file outside the repository (it may name a contact and a sh
 
 `max_memory_gb` (a target's, a row's over it; area_download.py's `--max-memory-gb`, a quarter of the machine's memory
 unless given, 0 no budget): a pass over it is started again. A target with `tiles` keeps its indexes in `data_dir` and
-its tile folders on the share: SQLite's WAL does not work over one. The tile folders are symbolic links, made when a
+its tile folders on the share (the source's own and its stand-in's, `link_folders`): SQLite's WAL does not work
+over one. The tile folders are symbolic links, made when a
 download starts: Windows lets only an administrator make them while Developer Mode is off, so there they take one UAC
 window per start.
 """
@@ -36,6 +51,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -78,6 +94,50 @@ REGION_CONTINENTS = {"fr-gp": "North America", "fr-mq": "North America", "fr-gf"
                      "fr-re": "Africa", "fr-yt": "Africa",
                      "jp-13": "Asia", "jp-22": "Asia"}
 WHOLE = "Whole country"   # the label of a country-wide row: "Whole country · <source id>"
+
+
+@dataclass(frozen=True)
+class Parts:
+    """The parts of a country-wide source that are rows of their own: (name, land km², Nominatim's name when it is
+    not "<name>, <country>") each."""
+    source: str
+    country: str    # a code of COUNTRIES: the rows' country and continent
+    dataset: str    # in the title, "<country>: <part> (<dataset>)", where the country's regions of the map have rows of
+                    # their own sources under the part's name (Canada: British Columbia); "": "<country>: <part>"
+    called: str     # what the parts are, in the note of the country-wide row: "states"
+    parts: Tuple[Tuple, ...]
+
+
+# The land km² are about, as the census offices' tables give them (the US Census Bureau's of 2010, Statistics
+# Canada's; written from those figures, not fetched): what a row shows as its size, nothing is computed from them.
+# Nominatim's names checked on 2026-11-18, each match's outline against these (a state's outline holds its
+# waters: Michigan 1.7 times its land, Prince Edward Island 4.7, Nunavut 2.1): "New York, United States" is the
+# city and "Washington, United States" the District of Columbia, hence "... State"; the District's is its city
+US_STATES = (
+    ("Alabama", 131171), ("Arizona", 294207), ("Arkansas", 134771), ("California", 403466), ("Colorado", 268431),
+    ("Connecticut", 12542), ("Delaware", 5047), ("District of Columbia", 158), ("Florida", 138887),
+    ("Georgia", 148959), ("Hawaii", 16635), ("Idaho", 214045), ("Illinois", 143793), ("Indiana", 92789),
+    ("Iowa", 144669), ("Kansas", 211754), ("Kentucky", 102269), ("Louisiana", 111898), ("Maine", 79883),
+    ("Maryland", 25142), ("Massachusetts", 20202), ("Michigan", 146435), ("Minnesota", 206232),
+    ("Mississippi", 121531), ("Missouri", 178040), ("Montana", 376962), ("Nebraska", 198974), ("Nevada", 284332),
+    ("New Hampshire", 23187), ("New Jersey", 19047), ("New Mexico", 314161),
+    ("New York", 122057, "New York State, United States"), ("North Carolina", 125920), ("North Dakota", 178711),
+    ("Ohio", 105829), ("Oklahoma", 177660), ("Oregon", 248608), ("Pennsylvania", 115883), ("Rhode Island", 2678),
+    ("South Carolina", 77857), ("South Dakota", 196350), ("Tennessee", 106798), ("Texas", 676587), ("Utah", 212818),
+    ("Vermont", 23871), ("Virginia", 102279), ("Washington", 172119, "Washington State, United States"),
+    ("West Virginia", 62259), ("Wisconsin", 140268), ("Wyoming", 251470))
+CA_PROVINCES = (
+    ("Alberta", 642317), ("British Columbia", 925186), ("Manitoba", 553556), ("New Brunswick", 71450),
+    ("Newfoundland and Labrador", 373872), ("Northwest Territories", 1183085), ("Nova Scotia", 53338),
+    ("Nunavut", 1936113), ("Ontario", 917741), ("Prince Edward Island", 5660), ("Quebec", 1365128),
+    ("Saskatchewan", 591670), ("Yukon", 474391))
+# Alaska is no part of `usa` (its own source and area of the map, us-ak); Puerto Rico and the U.S. Virgin Islands
+# are areas of the map already
+PARTS = (Parts("usa", "us", "", "states", US_STATES),
+         Parts("canada", "ca", "NRCan", "provinces and territories", CA_PROVINCES))
+SLOW = "(slow)"   # after the label of the country-wide row of a source with parts: "Whole country · usa (slow)"
+# A part whose download ran under another name before it was a row here: a row's name never changes
+PART_NAMES = {"United States: Utah": "utah"}
 
 
 class SettingsError(ValueError):
@@ -186,11 +246,42 @@ def catalogue() -> List[Row]:
             label = COUNTRIES[code]          # a territory: its own name
         else:
             label = f"{WHOLE} · {source.id}"
+            if any(group.source == source.id for group in PARTS):
+                label += f" {SLOW}"          # the user, 2026-11-18: the parts are the way; slow_note says why
         continent = continents.get(area) or REGION_CONTINENTS.get(area) or continents[code]
         rows.append(Row(slug(title), title, continent, COUNTRIES[parent], label,
                         f"osm:{src.AREA_NAMES[area]}", source.id, source.default_resolution, source.nmpt is not None,
                         round(sizes[area])))
     return rows
+
+
+def parts() -> List[Row]:
+    """A row for every part of PARTS, under its country in the country's continent: "United States: Texas"
+    (united-states-texas) showing "Texas", "Canada: Alberta (NRCan)" (canada-alberta-nrcan) showing
+    "Alberta · canada" beside the regions of the map."""
+    import sources as src
+    continents, _ = _shapes()
+    rows = []
+    for group in PARTS:
+        source = src.SOURCES[group.source]
+        country = COUNTRIES[group.country]
+        for name, km2, *query in group.parts:
+            title = f"{country}: {name} ({group.dataset})" if group.dataset else f"{country}: {name}"
+            label = f"{name} · {source.id}" if group.dataset else name
+            rows.append(Row(PART_NAMES.get(title, slug(title)), title, continents[group.country], country, label,
+                            f"osm:{query[0] if query else f'{name}, {country}'}", source.id,
+                            source.default_resolution, source.nmpt is not None, km2))
+    return rows
+
+
+def slow_note(row: Row) -> Optional[str]:
+    """What the window says before it starts the country-wide row of a source with parts (its label ends with
+    SLOW), None for any other row: the row is kept, the parts are the better way."""
+    group = next((g for g in PARTS if g.source == row.source), None)
+    if group is None or not (row.label.startswith(WHOLE) and row.label.endswith(SLOW)):
+        return None
+    return (f"{row.title}: one download of the whole country lists and checks all its tiles at every restart, and "
+            f"nothing of it is done before all of it. Its {group.called} are rows of their own.")
 
 
 def _country_of(title: str) -> Tuple[str, str]:
@@ -264,9 +355,12 @@ def _budget(entry: Dict) -> Optional[float]:
 
 
 def rows_of(settings: Settings) -> List[Row]:
-    """The window's rows, by continent, country and label: the catalogue's and the settings' `extra`, each row's
-    settings on it."""
-    rows = [*catalogue(), *(_extra_row(entry) for entry in settings.extra)]
+    """The window's rows, by continent, country and label: the catalogue's, the parts of the country-wide sources
+    and the settings' `extra`, each row's settings on it. An extra of a part's name replaces the part (the settings
+    that named Utah before it was one go on as they were); an extra never replaces an area of the map."""
+    extra = [_extra_row(entry) for entry in settings.extra]
+    named = {row.name for row in extra}
+    rows = [*catalogue(), *(row for row in parts() if row.name not in named), *extra]
     known = {row.name for row in rows}
     unknown = sorted(set(settings.rows) - known)
     if unknown:
@@ -361,21 +455,51 @@ def layer_folders(source_id: str) -> List[str]:
     return [layer.folder for layer in (source.nmt, source.nmpt) if layer is not None]
 
 
+def stand_in_folders(source_id: str) -> List[str]:
+    """The tile folders of the source's stand-in (Source.instead_without_data, which a download fetches too:
+    area_download.plans_of), those that are not the source's own: `usa/3dep-13/live` for `usa`, `usa/ifsar-5m` for
+    `alaska`; [] without a stand-in."""
+    import sources as src
+    stand_in = src.SOURCES[source_id].instead_without_data
+    if not stand_in or stand_in == source_id:
+        return []
+    own = layer_folders(source_id)
+    return [folder for folder in layer_folders(stand_in) if folder not in own]
+
+
+def link_folders(source_id: str) -> List[str]:
+    """The tile folders a download of the source fills, relative to a cache: its own and its stand-in's. With a
+    target on a share every one of them is a link to the share (links_of)."""
+    return layer_folders(source_id) + stand_in_folders(source_id)
+
+
 def links_of(row: Row, target: Target) -> Tuple[List[Link], Optional[str]]:
-    """The links a download to this target still needs, and why it cannot start, if so."""
+    """The links a download to this target still needs, and why it cannot start, if so: the folders of the
+    source's own layers and of its stand-in (link_folders), by one rule: a folder that holds tiles on this disk,
+    or links elsewhere, stops the row. A stand-in's folder left on this disk "when it holds tiles" would keep
+    every later row of the source there without a word (all the states share `usa/3dep-13/live`; the code review
+    of 2026-11-18): the tiles are moved to the share by hand, then the row starts. The message says whose tiles
+    they are and where they go: a row may be stopped by a folder of a source the user never ticked."""
     if target.tiles is None:
         return [], None
+    import sources as src
     needed = []
-    for folder in layer_folders(row.source):
+    cache_dir = os.path.join(target.data_dir, "cache")
+    stand_in = stand_in_folders(row.source)
+    for folder in link_folders(row.source):
         parts = folder.split("/")
-        cache_dir = os.path.join(target.data_dir, "cache")
         link = Link(os.path.join(cache_dir, *parts), os.path.join(target.tiles, *parts), cache_dir)
+        whose = ""
+        if folder in stand_in:
+            whose = (f" (those of {src.SOURCES[row.source].instead_without_data}, which a download of {row.source} "
+                     "fetches too)")
         if os.path.islink(link.path):
             if _plain(os.readlink(link.path)) != _plain(link.target):
-                return [], f"{link.path} links to another folder"
+                return [], f"{link.path} links to another folder{whose}, not to {link.target}"
         elif os.path.lexists(link.path):
             if os.listdir(link.path):
-                return [], f"{link.path} holds tiles on this disk"
+                return [], (f"{link.path} holds tiles on this disk{whose}: stop any download that writes there, move "
+                            f"them to {link.target}, then start again")
             os.rmdir(link.path)
             needed.append(link)
         else:
@@ -424,10 +548,15 @@ def make_links(links: Sequence[Link], state_dir: str, elevated: Callable = _elev
 # --- starting and stopping --------------------------------------------------------------------------------------
 
 def command_of(row: Row, target: Target, settings: Settings) -> List[str]:
-    """`area_download.py run` of a row, as by hand."""
+    """`area_download.py run` of a row, as by hand. A row of a source with parts (PARTS: `usa`, `canada`) is in the
+    queue of its source: the states, the country-wide row and the territories of that source download one after
+    another, in the order they were started (they share a host's connections). The rows of every other source
+    start at once, as they always did."""
     command = [sys.executable, os.path.join(HERE, "area_download.py"), "run", row.name, "--area", row.area,
                "--source", row.source, "--resolution", f"{row.resolution:g}", "--data-dir", target.data_dir,
                "--state-dir", settings.state_dir, "--min-free-gb", f"{target.min_free_gb:g}"]
+    if row.source in {group.source for group in PARTS}:
+        command += ["--queue", row.source]
     for slots in row.host_slots:
         command += ["--host-slots", slots]
     budget = target.max_memory_gb if row.max_memory_gb is None else row.max_memory_gb
@@ -445,9 +574,11 @@ def _detached() -> Dict:
 
 
 def start(row: Row, target: Target, settings: Settings) -> int:
-    """The supervisor of a row, detached; its pid. A row running already says so in its log, `run` itself refuses."""
+    """The supervisor of a row, detached; its pid. A row running already says so in its log, `run` itself refuses.
+    The time of this call is the row's place in its queue (ad.QUEUE_TICKET): rows started in a loop download in
+    that order, however their processes come up."""
     os.makedirs(settings.state_dir, exist_ok=True)
-    env = dict(os.environ)
+    env = dict(os.environ, **{ad.QUEUE_TICKET: repr(time.time())})
     if settings.contact:
         env["FINDALINE_CONTACT"] = settings.contact
     with open(ad.state_file(settings.state_dir, row.name, ".supervisor.out"), "w", encoding="utf-8") as out, \

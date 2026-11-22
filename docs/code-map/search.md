@@ -6,8 +6,16 @@ in `.claude/rules/` (search-pipeline, line-test, run-files).
 
 ## `findaline.py`
 
-Command line only: options from `params.py`, messages, questions, the list of spots, the matplotlib window;
-`cache`/`osm`/`web`/`worker` as first argument go to update.py / web.py / jobs.py
+Command line only: options from `params.py`, messages, questions, the list of spots, the matplotlib window, the
+search's last line `View it: findaline.py view <id>` (`--html` only says it is no longer used, store U10);
+`cache`/`osm`/`web`/`worker` as first argument go to update.py / web.py / jobs.py. `export` (`export_main`): a run's
+CSV or GeoJSON from its store. `view [RUN]` (`view_main`, `_run_folder`, `app_holds`): a run opened in the app at
+`/#run=<id>`, the app on `--port` when it serves this run's run.json (the local app serves its runs folder as files),
+else the app started as `web` runs it (`web.main(open_path=)`), never a second app beside another one.
+`runs remove-old (--dry-run | --yes)` (`runs_main`, docs/line-volume/spec-store.md section 2): `runs.old_runs` under
+`cache.runs_lock`, `jobs.run_facts` for the listing (owner's user id, shared, demo, favourites, the searches that leave
+Home), `Jobs.delete_run` per old run with a jobs.sqlite (the folder alone without), the leftovers `runs/index.html`
+and `findaline_map.html`, runs.js rewritten where it exists
 
 ## `params.py`
 
@@ -40,9 +48,11 @@ each once, after `SUBSET_CALLS` computations every useful anchor not known yet i
 the shape the branch country-precompute shares; the seams of filled gaps and a neighbour's data tested at the anchors
 only, `at_seams`: scipy's 3 × 3 dilation and not erosion read at the anchors,
 `tests/test_units.py::test_seams_as_before`; `Lines.terrain` = `hypsometry.statistics`), `save_run` (5: the run and
-the map, nothing downloaded; the line files of a run of `saving.MIN_LINES` lines or more by the children of
-`saving.py` when `line_threads` gives 2 or more, the small files and `map.html` by itself between the two bars; below
-that, or with one thread, in its own process as before), `orthophoto_lines` and `download_orthophoto` (the orthophoto
+the map, nothing downloaded: the view's columns and the store (`linestore.write`) in the Compute stage "saving
+results", then `map.html` (not with --no-html), `ATTRIBUTION.txt` and `run.json` last with its block `store`; no text
+file since store wave 4; anything that fails between the folder and run.json raises `SearchError` `run_not_saved` (`_not_saved` removes the run's
+folder (a tiled run keeps its tiles), view columns that fail leave a store without them and the note
+`view_columns_failed`), `orthophoto_lines` and `download_orthophoto` (the orthophoto
 for offline use, a step after the run: the lines of the best groups by the detail rules, the tiles not cached yet, the
 question over `CONFIRM_MINUTES`; `run_search` and the CLI call it right after `save_run`, the web worker after "done";
 the map names the cache folder either way and loads a tile online until it is there), `run_search`; `patch_of_line`
@@ -64,10 +74,12 @@ the tiles through `dataclasses.replace`); messages via `on_event`, questions via
 (`plan_search(limits=...)`, `Plan.limits`, `check_estimate`, anchors and lines in `_lines`: the lines of the tiles
 done already count too, and lines that would not fit into `Plan.memory` (free at the start, or `plan_search(memory=)`:
 a compute slot's budget, `slot_memory`, for every user, also for the tile size) with the grids are refused:
-`memory_needed`, `PIXEL_BYTES`, `LINE_BYTES`, `PROFILE_POINT_BYTES` for a circle's profiles of every line, also the
-tile size and `memory_warning` at the worker's start; `tile_core_size`: a tile's core from `TILE_MEMORY_SHARE` of the
-budget at `PIXEL_BYTES` per pixel, at most `TILE_PX_MAX` pixels whatever the memory), off by default, so the CLI and
-the regression checksums are unchanged; F7: `find_valid_lines(check=_early_check(...))` stops at `lines_max` (with
+`memory_needed`, `PIXEL_BYTES`, `LINE_BYTES`, `PROFILE_POINT_BYTES` for a circle's profiles of every line,
+`WARD_SPOT_BYTES` x min(lines, `mapping.SECTOR_WARD_SPOTS`)² for the sectors' clustering at saving; `lines_fitting`,
+its one inversion, names the lines that fit in the refusals and the warning; also the tile size and `memory_warning`
+at the worker's start; `tile_core_size`: a tile's core from `TILE_MEMORY_SHARE` of the budget at `PIXEL_BYTES` per
+pixel, at most `TILE_PX_MAX` pixels whatever the memory), off by default, so the CLI and the regression checksums are
+unchanged; F7: `find_valid_lines(check=_early_check(...))` stops at `lines_max` (with
 limits) or `Plan.memory` (for every user) after the first evaluated part over it (`Plan.early_stop`:
 `Limits.lines_early_stop`, set by `jobs.run_phase` from the server's `Limits` for every job; codes
 `too_many_lines_early`, `too_many_lines_memory_early`), the final `_check_lines` stays; step 4 before the groups works
@@ -102,11 +114,12 @@ file, loaded with it on resuming; a finished tile without one makes the run's te
 (`sources.filling.shore_segments`): `prepare_data(shore="segments")` into `Data.shore` after the water filling (the
 bar "uncertain shore"; a `messages.Note` `shore_uncertain` from `SHORE_WARN_M`), `Lines.shore` (`find_lines`;
 `search_lines` keeps the area's in the run folder's `SHORE_FILE` for a resumed search), `meta["shore"]` of run.json
-and data.js; where the land's terrain came from (`sources.filling.terrain_origins`, `_terrain_sources`): after
+and the store's head (data.js's in old runs); where the land's terrain came from (`sources.filling.terrain_origins`, `_terrain_sources`): after
 the gap filling, only for a run's search (`shore="segments"`, `plan.border`), an info line of the shares and a
 `messages.Note` `terrain_fallback` from `FALLBACK_WARN_SHARE` (10 %) of the land from fallbacks, into
 `Data.terrain_sources`, `Lines.terrain_sources` (a tiled search's in `ORIGINS_FILE`, as the shore's),
-`meta["terrain_sources"]` of run.json and the head of data.js only when known (not lines.js, not runs.js);
+`meta["terrain_sources"]` of run.json and the store's head (data.js's in old runs) only when known (not lines.js,
+not runs.js);
 `shore="kinds"` for the 3D view's patch (`Data.shore_kinds`, `work/shore.npy`), `shore="none"` for a
 profile and the country layer's tiles; `--min-elevation`/`--max-elevation` keep the anchors within the band in
 `_anchors` right after they are found (float32 heights; before `ANCHORS_MAX`, the prominence and the drop, so the
@@ -154,7 +167,7 @@ false: no stage, no columns, no disk counted), the coded note `access_skipped`, 
 measure's own answer; an anchor on a pixel without heights asserted impossible); `_run_params` (`access`) and
 `_search_hash` hold the option only when set; `tile_bytes` (1 B) and `estimate_search` (`ACCESS_DISK_BYTES` of the
 whole grid) count its files (docs/performance.md, "The access grid's memory"); `save_run`'s
-warning of a store that failed is the `messages.Note` `store_failed` (the exception's text on the command line only)
+`SearchError` `run_not_saved` and note `view_columns_failed` hold the exception's text on the command line only
 
 ## `area.py`
 
@@ -288,13 +301,12 @@ Sag estimator (elastic catenary + point load) and envelope table for `--model sa
 Coordinates (`coordify` adds columns; each part's different anchor pixels transformed once and gathered), grouping
 (`group_lines` → `Groups`: index arrays; its cell index `_cell_index`: one int64 key per line, a stable argsort, the
 lines of a row of cells found by `searchsorted`; its loop `grouping.greedy`), matplotlib map; `save_map` writes a
-run's (its orthophoto entry `ortho_entry`, also the 3D view's patch meta) `map.html` + `data.js` + `lines.js` for the
-viewer, chunk by chunk from the columns (`files=` which of the three; `map_head` data.js's head as a dict, also the
-store's head (`linestore.write`), `map_heads` the scripts' texts before the lines,
-`write_map_scripts` the lines of `data.js` and/or `lines.js` from them: what the children of `saving.py` run; the
-run's `terrain` in the heads of both scripts; `end_zone`, `lift` and `"ends": ["lift_needed", "lift_no_zone"]` in them
-only when the run has the options, `map_rows` putting those values before the profile; a run made with the square
-rule has `square`, `found` and `stands_for` as the last name of `ends`, each row's count before the profile);
+run's `map.html` (`map_page`: with the disk notice) and installs the viewer (its orthophoto entry
+`ortho_entry`, also the 3D view's patch meta, is in the store's head); `map_head` the store's head as a dict
+(`linestore.write`; data.js's head in old runs): the run's `terrain`; `end_zone`, `lift` and `"ends":
+["lift_needed", "lift_no_zone"]` only when the run has the options (`_ends`); a run made with the square rule has
+`square`, `found` and `stands_for` as the last name of `ends`; the writers of data.js and lines.js went with store wave
+4's item 5 (a frozen copy for the tests: `tests/old_scripts.py`);
 `view_columns(lines, groups, centre)` the result view's columns of a new run's store (view B1, docs/line-volume/
 spec-store.md 1.3, from the values as the store holds them): `spot` (`group_lines`' groups renumbered by sector, then
 by their first line's mean height), `by_spot` (rows by spot, inside a spot by mean height, clearance, length, then
@@ -312,16 +324,19 @@ final order); imported inside `group_lines`, so `import mapping` stays free of n
 
 ## `runs.py`
 
-Saved runs (`runs/<date>_<time>_<place>_<random>/`, the place in ASCII by `anyascii`: `_slug`), `runs/index.html`,
+Saved runs (`runs/<date>_<time>_<place>_<random>/`, the place in ASCII by `anyascii`: `_slug`),
 `runs/runs.js` (`write_index`, after each run of the command line and the local app: `search.Plan.index_runs`, which
-the public worker clears; `viewer=False` when the run's map installed the viewer; `_listed` leaves out the run's
-`terrain`), run names, `params_summary` (a run's description: the elevation band first among the limits);
-`save_results` writes `lines.csv` and `lines.geojson` `LINES_CHUNK` rows at a time, each part's rows in their order
+the public worker clears; `_listed` leaves out the run's `terrain`; no `runs/index.html` since store wave 4),
+`old_runs` (the runs of `findaline.py runs remove-old`: old, current, skipped with the reason, the folders a
+removal left; by `run_state`: `linestore.store_state` and run.json's `VIEW_FAILED`), `park_run` and `finish_removal`
+(a removal: the folder renamed to `_removing-<id>` under the runs lock, then deleted), run names, `params_summary` (a run's description: the elevation band first among the limits);
+`save_results` writes `lines.csv` and `lines.geojson` (for `linestore.export`; the search writes only its
+`ATTRIBUTION.txt` and `run.json`) `LINES_CHUNK` rows at a time, each part's rows in their order
 computed alone (`row_order(groups, lo, hi, at)` with `rep_positions`); `files=` which of its four files;
 `END_FIELDS`/`END_COLUMNS` (`lift_needed_m`, `lift_no_zone_m` after `clearance_nmpt_m`, in `lines.csv` and
 `lines.geojson` only when the run has the options: `fields_of`, `feature_template`), `STANDS_FOR` (`stands_for`, the
-last column and property, only in a run made with the square rule) (the children of `saving.py` write
-the line files apart, `_rows(csv=, geojson=)` skips the join of the file not wanted)
+last column and property, only in a run made with the square rule) (`_rows(csv=, geojson=)` skips the join of
+the file not wanted)
 
 ## `linestore.py`
 
@@ -329,7 +344,7 @@ A run's store (docs/line-volume/spec-store.md 1.3; since 2026-11-15 written by `
 after and beside the text files; a store that fails leaves the run without one, with a warning): `lines.arrow` (a row per line in the search's order) and `profiles.arrow` (a row
 per saved profile, `row` into `lines.arrow`), Arrow IPC files (pyarrow), uncompressed, one record batch each.
 `COLUMNS` names each column with its `LineTable` column and its decimals: the anchors int32 at 7, the grouping's
-values (`x1`…`y2`, `len`, `clr`, `hmax`) float64 as they are, the others integers of `mapping.map_rows`' decimals in
+values (`x1`…`y2`, `len`, `clr`, `hmax`) float64 as they are, the others integers of data.js's decimals in
 the narrowest int type (field metadata `decimals`), nulls where a value may miss, the end columns and `stands_for`
 (uint32) only when the lines have them; the schema metadata `findaline` holds `format` (`FORMAT`, a higher one is
 refused: `NewerStore`), the head (`mapping.map_head`) and `negative_zero` (the rows of each integer column whose value
@@ -345,7 +360,10 @@ whole. `read(run_path,
 profiles=True)` → (`LineTable`, head), the profiles as dicts of `line_profile`, the view's columns by their names
 when the store has them; `export(run_path, "csv"|"geojson",
 out)` regroups (`mapping.group_lines` with run.json's distance and value) and writes with `runs.save_results`
-with run.json's values without its `store`: the bytes of the run's `lines.csv`/`lines.geojson`. numpy and pyarrow
+with run.json's values without its `store`: the bytes the run's `lines.csv`/`lines.geojson` held before store
+wave 4. `store_state(run_path)`: "current", "no_view", "old", "missing", "unreadable", "newer" or "cannot_read" (an
+error while reading: never "unreadable") from the schema alone (what
+`findaline.py runs remove-old` counts as an old run). numpy and pyarrow
 only at module level (`runs` inside `write` and `export`, `mapping`, which groups with numba, inside `export`): never
 imported by the web process (`tests/test_linestore.py`)
 
@@ -364,23 +382,6 @@ walk's int32 indices). numba kernels (`_walk`, an indexed Dijkstra; `_stands_nea
 parallel, each pixel its own answer: the answers never depend on the threads), compiled by `warmup`; never imported
 by the web process (`tests/test_access_search.py`). Tests: `tests/test_access.py` (made-up terrain),
 `tests/test_access_search.py` (through the search, the files, tiles)
-
-## `saving.py`
-
-Step 5 in processes of its own (`search.save_run` for runs of `MIN_LINES` (100 000) lines or more with
-`processes(line_threads)` ≥ 2: `plan(count, map_files)` gives each child's files, one per file with 4, the results'
-apart from the map's with 2 or 3): `hand_over` writes the lines' columns (the end values too), the groups' arrays and
-the arrays of every `helpers.Profiles` batch the profiles come from as `.npy` into `<work>/saving/` (which line has
-which profile of which batch; dict profiles, run.json's values and the map scripts' heads of `mapping.map_heads` in
-`saving.json`), `load` memory-maps them back; `write_files` starts `python saving.py <folder> <run path> <files>` per
-child (`subprocess`, never `multiprocessing`: the worker's phase process is daemonic; `kill_tree` ends them with a
-cancelled job), each child calling `runs.save_results(files=)` / `mapping.write_map_scripts(files=)` and printing
-`"<count>\t<file>"` per chunk, which the parent turns into the bars "saving results" and "saving the map" (totals the
-lines, the count the slower file's) from its main thread (the listeners write SQLite); `between` runs the parent's
-small files (ATTRIBUTION.txt, run.json, the tiled run's "done", the message) after the first bar; a non-zero exit
-kills the others and raises `RuntimeError` with the child's stderr's last line (the whole on the parent's stderr; the
-public `Redact` masks it as any error); `save` removes the folder afterwards, also on failure; the child imports
-numpy, runs and mapping only (75 MiB, about a second), never `search`
 
 ## `progress.py`
 
