@@ -25,6 +25,8 @@ export interface DownloadOptions {
   onHeaders?(total: number | null, status: number): void;
   /** Bytes of the body read so far, of `total`; at most every REPORT_MS. */
   onBytes?(done: number, total: number | null): void;
+  /** Ends the request when it aborts (its promise rejects as a stop, when the request was sent). */
+  signal?: AbortSignal;
 }
 
 export interface Answer<T> {
@@ -63,6 +65,9 @@ export function download(url: string, type: "text" | "arraybuffer", options: Dow
     };
     xhr.onerror = () => reject(new Error(t("ui.download.failed", {url})));
     xhr.onabort = () => reject(new Error(t("ui.download.stopped", {url})));
+    if (options.signal?.aborted) { reject(new Error(t("ui.download.stopped", {url}))); return; }
+    // (`abort?.`: Node's units run this file with a stand-in request that has none)
+    options.signal?.addEventListener("abort", () => xhr.abort?.(), {once: true});
     xhr.send();
   });
 }

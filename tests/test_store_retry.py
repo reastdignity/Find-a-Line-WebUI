@@ -28,9 +28,11 @@ with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as _f:
 
 # The page's visibility as the test sets it (setVisibility: the property and its event), and the run's lines.arrow
 # requests counted (STORE_ASKED); with CUT the first one fails (an XHR "error" event, as a suspended page's request
-# ends), the page reading hidden first when CUT is "hidden"; with HOLD the next one waits for RELEASE()
+# ends), the page reading hidden first when CUT is "hidden"; with HOLD the next one waits for RELEASE(); with
+# HANG_PROFILES the first profiles.arrow request is never answered (as iOS may leave a suspended request), with
+# HANG_RETRY neither of the second try's two
 STUBS = r"""
-window.VIS = 'visible'; window.STORE_ASKED = 0; window.HELD = null;
+window.VIS = 'visible'; window.STORE_ASKED = 0; window.PROFILES_ASKED = 0; window.HELD = null;
 Object.defineProperty(Document.prototype, 'visibilityState', {configurable: true, get() { return window.VIS; }});
 Object.defineProperty(Document.prototype, 'hidden', {configurable: true, get() { return window.VIS === 'hidden'; }});
 window.setVisibility = (v) => { window.VIS = v; document.dispatchEvent(new Event('visibilitychange')); };
@@ -47,6 +49,12 @@ XMLHttpRequest.prototype.send = function (...args) {
     }
     if (window.HOLD && window.STORE_ASKED === 2) { window.HELD = () => realSend.apply(this, args); return; }
   }
+  if (/\/profiles\.arrow$/.test(this.storeUrl || '')) {
+    window.PROFILES_ASKED++;
+    if (window.HANG_PROFILES && window.PROFILES_ASKED === 1) return;
+    if (window.HANG_RETRY && window.PROFILES_ASKED === 2) return;
+  }
+  if (window.HANG_RETRY && window.STORE_ASKED === 2 && /\/lines\.arrow$/.test(this.storeUrl || '')) return;
   return realSend.apply(this, args);
 };
 """
@@ -101,5 +109,52 @@ def test_a_failure_while_visible_shows_the_error(site, page_kind):
             assert page.evaluate("() => document.querySelector('.c-error').textContent") == FAILED
             page.evaluate(FRAMES)
             assert page.evaluate("() => window.STORE_ASKED") == 1
+        finally:
+            browser.close()
+
+
+def test_a_hanging_request_never_keeps_the_page_waiting(site):
+    """The cut while hidden leaves the store's other request hanging (profiles.arrow never answered): once visible the
+    whole store is asked again at once and the run is shown (the hanging request is ended, not waited for)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=None,
+                         script=STUBS + "window.CUT = 'hidden'; window.HANG_PROFILES = true; "
+                         "try { localStorage.setItem('findaline.view', 'b'); } catch (e) {}")
+            page.wait_for_function("() => window.STORE_ASKED === 1 && window.PROFILES_ASKED === 1 && window.VIS === 'hidden'", timeout=WAIT)
+            page.evaluate(FRAMES)
+            assert page.evaluate(WAITING)
+            page.evaluate("() => setVisibility('visible')")
+            page.wait_for_function(SHOWN["view"], timeout=WAIT)
+            assert page.evaluate("() => [window.STORE_ASKED, window.PROFILES_ASKED]") == [2, 2]
+            assert FAILED not in page.evaluate("() => document.body.innerText") and page.errors == []
+        finally:
+            browser.close()
+
+
+def test_a_hanging_retry_ends_in_the_message(site):
+    """The try after a cut hangs itself (neither file answered): after load.ts STALL_MS (30 s) without an answer or a
+    byte while visible, today's message, never a spinner for ever; at 20 s still waiting (the page's clock run on by
+    Playwright's fake one, installed once the page was hidden)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=None,
+                         script=STUBS + "window.CUT = 'hidden'; window.HANG_RETRY = true; "
+                         "try { localStorage.setItem('findaline.view', 'b'); } catch (e) {}")
+            page.wait_for_function("() => window.STORE_ASKED === 1 && window.PROFILES_ASKED === 1 && window.VIS === 'hidden'", timeout=WAIT)
+            page.clock.install()
+            page.evaluate("() => setVisibility('visible')")
+            page.wait_for_function("() => window.STORE_ASKED === 2 && window.PROFILES_ASKED === 2", timeout=WAIT, polling=100)
+            page.clock.run_for(20000)  # within the deadline: still waiting, no message
+            assert page.evaluate("() => !document.querySelector('.c-error')")
+            page.clock.run_for(12000)  # past STALL_MS, and the page's render after it (its timers are the fake clock's too:
+            # a wait that polls the page would wait for that clock)
+            assert page.evaluate("() => !!document.querySelector('.c-error')")
+            assert page.evaluate("() => document.querySelector('.c-error').textContent") == FAILED
+            assert page.evaluate("() => window.STORE_ASKED") == 2
         finally:
             browser.close()
