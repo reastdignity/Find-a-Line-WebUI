@@ -36,7 +36,9 @@ jobs:
           persist-credentials: false
 
       # The newest unexpired result of an earlier run of this branch; none (the first run, an expired artifact) is said
-      # and the check goes on: --previous then reads no file and a provider not answering is a first time
+      # and the check goes on: --previous then reads no file and a provider not answering is a first time. A failing
+      # API call fails the run (never taken as "none": the rule would never fire); a listed result that does not
+      # download is a warning
       - name: The previous run's result
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,11 +46,13 @@ jobs:
           run=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=mirror-watch-result&per_page=100" --jq \
             "[.artifacts[] | select(.expired | not) | select(.workflow_run.id != $GITHUB_RUN_ID)
               | select(.workflow_run.head_branch == \"$GITHUB_REF_NAME\")] | sort_by(.created_at) | last
-              | .workflow_run.id // empty") || run=
-          if [ -n "$run" ] && gh run download "$run" -R "$GITHUB_REPOSITORY" -n mirror-watch-result -D previous; then
+              | .workflow_run.id // empty")
+          if [ -z "$run" ]; then
+            echo "No previous result (the first run, or its artifact expired): a provider not answering is a warning"
+          elif gh run download "$run" -R "$GITHUB_REPOSITORY" -n mirror-watch-result -D previous; then
             echo "The previous result: run $run"
           else
-            echo "No previous result (the first run, or its artifact expired): a provider not answering is a warning"
+            echo "::warning title=Mirror watch::the result of run $run did not download: a provider not answering is a warning this time"
           fi
 
       - name: Check the providers

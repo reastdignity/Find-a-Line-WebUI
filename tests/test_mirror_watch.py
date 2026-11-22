@@ -234,6 +234,7 @@ class Tool:
 
 
 def _tool(server, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(mw, "WATCH", {})   # the real rows are never asked: each test sets its own (Tool.rows)
     monkeypatch.setattr(mw, "SCHEMES", {"https", "http"})
     monkeypatch.setattr(mw, "REQUEST_PAUSE", 0)
     return Tool(server, tmp_path, monkeypatch, capsys)
