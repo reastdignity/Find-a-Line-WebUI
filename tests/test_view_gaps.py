@@ -1583,3 +1583,38 @@ def test_row_picker_whole_from_the_lowest_row(site, device, stop):
     print("the lowest row's picker:", device.get("viewport"), stop, got)
     for case, items in got.items():
         assert len(items) >= 2 and all(i["inside"] and i["on"] for i in items), (case, items)
+
+
+FOCUS_NOW = "() => { const a = document.activeElement; return !a || a === document.body ? 'body' : a.className.toString().slice(0, 40); }"
+
+
+@pytest.mark.parametrize("turn", ["same-frame", "other-frame"])
+def test_focus_back_after_the_sideways_notice(site, turn):
+    """The sideways notice's focus (the design re-check): a phone upright with the focus on the sheet's handle, turned
+    sideways (the notice over an inert page: the focus leaves the handle), and upright again: the focus is back on the
+    handle (375 x 667 <-> 667 x 375: the same phone frame), or, where turning drew the other frame and the handle went
+    with it (390 x 844 <-> 844 x 390), on the new frame's first stop, never on the page's body."""
+    from playwright.sync_api import sync_playwright
+    up, side = ((375, 667), (667, 375)) if turn == "same-frame" else ((390, 844), (844, 390))
+    context = {"viewport": {"width": up[0], "height": up[1]}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.focus(".u-sheet-handle")
+            before = page.evaluate(FOCUS_NOW)
+            page.set_viewport_size({"width": side[0], "height": side[1]})
+            page.wait_for_selector(".v-upright p", timeout=WAIT)
+            during = page.evaluate(FOCUS_NOW)
+            page.set_viewport_size({"width": up[0], "height": up[1]})
+            page.wait_for_function("() => !document.querySelector('.v-upright p')", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement && document.activeElement !== document.body", timeout=WAIT)
+            after = page.evaluate(FOCUS_NOW)
+            first = page.evaluate("() => { const f = document.querySelector('.v-result'); const e = f.querySelector(\"button:not([disabled]), [href], input:not([disabled]), select, [tabindex]:not([tabindex='-1'])\"); return e ? e.className.toString().slice(0, 40) : null; }")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the focus around the notice:", turn, before, during, after, "first stop", first)
+    assert "u-sheet-handle" in before and "u-sheet-handle" not in during, (before, during)
+    assert after == (before if turn == "same-frame" else first), (after, before, first)

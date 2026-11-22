@@ -258,7 +258,7 @@ const SIDEWAYS = "(pointer: coarse) and (orientation: landscape) and (max-height
  *  side is wider than the phone frame's 768 px), shown only by that media query: a desktop's window, a tablet and the
  *  phone held upright never see it. While it shows, its words are put into its alert region (so a screen reader
  *  announces them when the phone turns) and the frame's other parts are inert (no Tab, no screen reader behind it:
- *  the design review's G2-F4). */
+ *  the design review's G2-F4); upright again, the focus goes back where it was (beforeNotice). */
 function Upright() {
   const ref = useRef<HTMLDivElement>(null);
   const [on, setOn] = useState(() => typeof matchMedia === "function" && matchMedia(SIDEWAYS).matches);
@@ -272,11 +272,39 @@ function Upright() {
   useEffect(() => {
     const frame = ref.current?.parentElement;
     if (!frame) return;
+    // the element that had the focus when the notice came (before the page went inert), once per notice
+    if (on && !beforeNotice) {
+      // (where turning drew this frame anew, the element went with the other frame: the last one focused in the view)
+      const at = document.activeElement;
+      beforeNotice = {at: at && at !== document.body && frame.contains(at) ? at : lastFocused};
+    }
     const others = Array.from(frame.children).filter((e) => e !== ref.current);
     others.forEach((e) => e.toggleAttribute("inert", on));
+    // upright again (this frame, or the frame drawn anew for the new width): the focus back where it was, else to the
+    // frame's first stop where that element went with the other frame
+    if (!on && beforeNotice) {
+      const was = beforeNotice.at;
+      beforeNotice = null;
+      if (was) requestAnimationFrame(() => {
+        const to = was.isConnected && !was.closest("[inert]") ? was as HTMLElement
+          : frame.querySelector<HTMLElement>("button:not([disabled]), [href], input:not([disabled]), select, [tabindex]:not([tabindex='-1'])");
+        to?.focus({preventScroll: true});
+      });
+    }
     return () => others.forEach((e) => e.removeAttribute("inert"));
   }, [on]);
   return <div class="v-upright" role="alert" ref={ref}>{on && <p>{t("ui.view.upright")}</p>}</div>;
+}
+
+/** What had the focus when the sideways notice came (null: nothing), until the phone is upright again: kept across
+ *  the frames, since turning the phone may draw the other frame. */
+let beforeNotice: {at: Element | null} | null = null;
+/** The last element the focus went to in the view (either frame). */
+let lastFocused: Element | null = null;
+if (typeof document !== "undefined") {
+  document.addEventListener("focusin", (e) => {
+    if (e.target instanceof Element && e.target.closest(".v-result")) lastFocused = e.target;
+  }, true);
 }
 
 function Back({back}: {back?: BackAction}) {
