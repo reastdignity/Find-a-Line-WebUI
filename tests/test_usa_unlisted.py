@@ -321,6 +321,30 @@ def test_tnm_listing_a_dropped_page(monkeypatch):
         tb.tnm_listed(None, "https://tnm.example/api", "Test DEM", [box])
 
 
+def test_tnm_page_asked_again_while_it_fails(monkeypatch):
+    """A page of the index answering 500 is asked again up to TNM_RETRIES times (a renewal met three 500s in a row
+    on 2026-11-23); one more failure is IndexUnavailable."""
+    box = (0.0, 0.0, 1.0, 1.0)
+    pages = _tnm_pages({box: ["https://x/Projects/P/TIFF/USGS_1M_12_x1y1_P.tif"]}, [])
+    calls = []
+
+    def flaky(url, params=None, **kwargs):
+        calls.append(params["offset"])
+        if len(calls) < fail_first[0] + 1:
+            response = requests.Response()
+            response.status_code, response._content, response.url = 500, b"busy", url
+            return response
+        return pages(url, params=params, **kwargs)
+    monkeypatch.setattr(requests, "get", flaky)
+    fail_first = [tb.TNM_RETRIES - 1]
+    assert len(tb.tnm_listed(None, "https://tnm.example/api", "Test DEM", [box])) == 1
+    assert len(calls) == tb.TNM_RETRIES
+    calls.clear()
+    fail_first[0] = tb.TNM_RETRIES
+    with pytest.raises(IndexUnavailable, match="500"):
+        tb.tnm_listed(None, "https://tnm.example/api", "Test DEM", [box])
+
+
 # 3. The zone
 
 def test_zone_of_the_three_name_forms():

@@ -78,6 +78,9 @@ MIN_SPLIT_DEG = 0.25
 REQUESTS_AT_ONCE = 4
 BUCKET_PAGES = 3000  # 989 on 2026-11-22
 TNM_PAGES = 3000     # 415 on 2026-11-22
+# Times a page of the index is asked while it fails (backoff about 1, 2, 4, 8, 16 s): a renewal of 400 pages met one
+# 500 asked three times in a row (2026-11-23, the same page answered at once a minute later)
+TNM_RETRIES = 6
 HEADER_READS = 1000  # 302 on 2026-11-22: room for the bucket to triple its names without a zone the index lacks
 # More of the bucket's files looking unlisted than this share is an index that answered too little (a box empty for
 # a moment): an error, checked before any header is read (1.1 % on 2026-11-22)
@@ -148,9 +151,9 @@ def bucket_files(cache_dir: Optional[str], bucket: str = BUCKET, budget: Optiona
 
 def _tnm_page(cache_dir: Optional[str], api: str, dataset: str, box: Tuple[float, float, float, float],
               offset: int, budget: PageBudget) -> Dict:
-    """One page of the TNM index's products over a box; slow or failed answers asked again (net.RETRIES)."""
+    """One page of the TNM index's products over a box; slow or failed answers asked again (TNM_RETRIES)."""
     params = {"datasets": dataset, "max": TNM_PAGE, "offset": offset, "bbox": ",".join(f"{v:g}" for v in box)}
-    for attempt in range(net.RETRIES):
+    for attempt in range(TNM_RETRIES):
         budget.take()
         try:
             net.rate_turn(api)
@@ -164,7 +167,7 @@ def _tnm_page(cache_dir: Optional[str], api: str, dataset: str, box: Tuple[float
                 raise ValueError("not an answer of products")
             return page
         except (requests.RequestException, ValueError) as e:
-            if attempt == net.RETRIES - 1:
+            if attempt == TNM_RETRIES - 1:
                 raise IndexUnavailable(f"TNM API: {cache.clean_error(e)}") from e
             net._sleep(attempt)
     raise AssertionError("unreachable")
