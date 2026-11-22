@@ -1166,3 +1166,38 @@ def test_no_page_zoom_outside_the_map(site, device):
     assert pinched[0] == 1 and tapped[0] == 1, (pinched, tapped)
     assert mapped[0] == 1 and mapped[1] > start[1], (start, mapped)  # the map's own pinch
     assert gestures == [True, False] and action == "pan-x pan-y", (gestures, action)
+
+
+# --- gate 2's fix round (the code review's round 4, the design review's gate 2 changes) ---
+
+FOCUSED_HEAD = "() => { const a = document.activeElement; return a && a.classList.contains('vl-head') ? [a.dataset.col, a.getAttribute('aria-label')] : (a ? a.tagName : null); }"
+
+
+@pytest.mark.parametrize("device", ["desktop", "phone"])
+def test_head_keeps_the_focus_when_it_reverses(site, device):
+    """The design review's G2-F1: the first sector's length head pressed by the keyboard (Enter) sorts by length; Enter
+    again reverses it, and the focus stays on that head (it fell to the page's body: the new order moves the sectors);
+    a third Enter reverses it back."""
+    from playwright.sync_api import sync_playwright
+    context = DESKTOP if device == "desktop" else SMALL_PHONE
+    got = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            if device == "phone":
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            page.evaluate(f"() => ({HEAD})()[0].focus()")
+            for desc in (True, False, True):
+                page.keyboard.press("Enter")
+                page.wait_for_function(f"() => window.FINDALINE_VIEW.view.sort === 'len' && window.FINDALINE_VIEW.view.desc === {str(desc).lower()}", timeout=WAIT)
+                page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames())")
+                got.append(page.evaluate(FOCUSED_HEAD))
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the head's focus:", device, got)
+    assert [g[0] if isinstance(g, list) else g for g in got] == ["len", "len", "len"], got
+    assert got[1][1] == WORDS["ui.list.col.length"] + WORDS["ui.list.sorted_asc"], got

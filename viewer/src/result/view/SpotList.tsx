@@ -379,12 +379,35 @@ function headKey(view: SpotView, key: string): ViewSort {
  *  own first direction; on the sorted column it reverses the order. Its name is the column's, the sorted one's with
  *  the order (today's words); the mark as Head's (on the grid's cell, which holds the button). The Sort box and the
  *  direction button follow (the same view). */
-function SortHead({view, column, text}: {view: SpotView; column: string; text: string}) {
+function SortHead({view, column, text, sector}: {view: SpotView; column: string; text: string; sector: number}) {
   const key = headKey(view, column), by = view.sort === key;
   const name = by ? text + t(view.desc ? "ui.list.sorted_desc" : "ui.list.sorted_asc") : text;
-  return <span class={by ? cx("vl-by", !view.desc && "vl-asc") : undefined}>
-    <button type="button" class="vl-head" aria-label={name} aria-pressed={by} onClick={() => by ? reverse(view) : sortBy(view, key)}>
+  const press = (e: Event) => {
+    const had = document.activeElement === e.currentTarget;  // pressed by the keyboard, or focused by the press
+    // the sector the person sorts from stays open (else the first sector of the new order would be the only one open by
+    // itself, and this one, with the pressed head, would close)
+    changePanels(view, (s) => { if (sector >= 0 && !s.open.has(sector)) s.open.set(sector, true); });
+    if (by) reverse(view); else sortBy(view, key);
+    // the new order moves the sectors (Preact moves their nodes, which drops a focus inside them): a head that had the
+    // focus keeps it (the design review's G2-F1, as the stepper keeps its own)
+    if (had) keepHeadFocus(`.vl-sec[data-sector="${sector}"] > .vl-cols .vl-head[data-col="${column}"]`);
+  };
+  return <span class={cx("vl-hcell", by && "vl-by", by && !view.desc && "vl-asc")}>
+    <button type="button" class="vl-head" data-col={column} aria-label={name} aria-pressed={by} onClick={press}>
       {by && <Icon name="sort" />}{text}</button></span>;
+}
+
+/** Give the focus back to a head (`selector`) while the page draws the new order (a few frames: the drawing may come
+ *  after the first), wherever it fell to the page's body (its node was moved); a focus the person moved elsewhere
+ *  meanwhile is left alone. */
+function keepHeadFocus(selector: string) {
+  let frames = 6;
+  const go = () => {
+    const at = document.activeElement;
+    if (!at || at === document.body || !at.isConnected) document.querySelector<HTMLElement>(selector)?.focus({preventScroll: true});
+    if (--frames > 0) requestAnimationFrame(go);
+  };
+  requestAnimationFrame(go);
 }
 
 /** The headings of the rows (each hidden from a screen reader: a row's values carry their names); sorted by the
@@ -393,10 +416,10 @@ function SortHead({view, column, text}: {view: SpotView; column: string; text: s
  *  (SortHead: their mark follows the direction; the top block's stay marks, best first); `help`: the columns' info
  *  button in the first cell, above the marks (the top block's heads only; a screen reader reaches it); `stars`: the
  *  rows end with a star. */
-function Heads({view, ranked, tree, help, stars}: {view: SpotView; ranked: boolean; tree?: boolean; help?: {open: boolean; toggle(): void};
-                                                   stars: boolean}) {
+function Heads({view, ranked, tree, help, stars, sector = -1}: {view: SpotView; ranked: boolean; tree?: boolean;
+                                                                help?: {open: boolean; toggle(): void}; stars: boolean; sector?: number}) {
   const by = !ranked ? "" : view.sort === "len" ? "len" : view.sort === "clr" ? "clr" : view.sort === "n" ? "n" : "h";
-  const head = (key: string, text: string) => tree ? <SortHead view={view} column={key} text={text} />
+  const head = (key: string, text: string) => tree ? <SortHead view={view} column={key} text={text} sector={sector} />
     : <Head by={by === key} text={text} />;
   return <div class={cx("vl-cols", withAccess(view) && "vl-with-acc", stars && "vl-starred")}>
     {help ? <IconButton icon="info" label={t("ui.view.col.about")} plain expanded={help.open} aria-controls={COL_HELP}
@@ -505,7 +528,7 @@ function SectorRows({p, sector, k}: SectorProps) {
               onClick={() => map?.showSector(n)}><Icon name="locate" /></button>
     </div>
     {open && <>
-      <Heads view={view} ranked tree stars={stars} />
+      <Heads view={view} ranked tree stars={stars} sector={n} />
       <Rows view={view} label={name} stars={stars}>
         {shown.map((spot, r) => <Row key={spot} {...p} spot={spot} row={view.shownOf(spot)} id={`vl-row-${spot}`}
                                      tab={r === stop} height={height} />)}
