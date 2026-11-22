@@ -173,8 +173,9 @@ def test_rows_and_toggles_are_the_kits():
             if names and not kit & set(names):
                 own.add(names[0])
     assert own <= kept | {"u-on", "u-plain", ""}, sorted(own - kept)
-    # a plain icon button (a favourite's star, the tree's fold, a card's menu) shows the hover's fill (the user, 2026-11-22)
-    assert "background: var(--hover)" in _rule(_css("ui/ui.css"), ".ui .u-ib.u-plain:hover")
+    # a plain icon button (a favourite's star, the tree's fold, a card's menu) shows the hover's fill (the user, 2026-11-22);
+    # an open one (a menu's button, u-on) keeps its own fill under the mouse
+    assert "background: var(--hover)" in _rule(_css("ui/ui.css"), ".ui .u-ib.u-plain:not(.u-on):hover")
     assert not [sel for sel, _, _ in _css_rules(_css("app/c/c.css")) if re.search(r"c-(tree-fold|fav-star):hover", sel)]
     for rel, needle in (("app/c/Home.tsx", 'class="u-item c-menu-item"'), ("app/c/FavouritesPage.tsx", 'class="u-item c-tree-name"'),
                         ("app/c/FavouritesPage.tsx", 'class="u-ib u-plain u-round c-fav-star"'),

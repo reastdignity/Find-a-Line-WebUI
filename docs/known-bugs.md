@@ -691,9 +691,9 @@ G3 put the free screens' text actions, rows, closes, badges and checkboxes on th
   filters" count badge is neutral there too (Q8 a: the accent only for the bottom bar's count), "How to read the
   result" (`ui/Intro.tsx`, the kit's text action) takes a label's weight, today's page's tab the kit's look and its ring.
 - **"The account" of C6**: stage 1's note named the account's title, but the h1 of `Account.tsx` is `MapPage`'s (the OSM
-  page's and the layer explorer's titles); the account page's "Account" is a section's title with no section of the
-  same size under it. "24 px, every page" was built on every page's h1: Admin, Home's searches, the OSM page, the layer
-  explorer.
+  page's and the layer explorer's titles); the account page's "Account" is a Panel's title. "24 px, every page" was built
+  on every page's h1 (Admin, Home's searches, the OSM page, the layer explorer) and, after the reviews (the user,
+  "Yes, every page 24 px"), on the account's and Favourites' Panel titles (`Panel`'s `page`) and New search's title.
 - **"How to read the result" is 44 px high on a touch screen** wherever the kit's text action stands (the user,
   2026-11-22: "Keep the 44 px target"): on today's result page on the Pixel the list starts 25 to 28 px lower than
   before; round 6's view takes the same where it shows the intro's link.

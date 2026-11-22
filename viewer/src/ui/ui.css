@@ -74,7 +74,7 @@
   border-radius: var(--r-2); border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); padding: 0; cursor: pointer; }
 .ui .u-ib:hover { background: var(--hover); }
 .ui .u-ib.u-plain { border-color: transparent; background: transparent; }
-.ui .u-ib.u-plain:hover { background: var(--hover); }  /* a plain icon button shows the hover's fill too */
+.ui .u-ib.u-plain:not(.u-on):hover { background: var(--hover); }  /* a plain icon button shows the hover's fill too; an open one keeps its fill */
 .ui .u-ib.u-round { border-radius: var(--r-round); }
 .ui .u-ib.u-on { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
 /* The close of a box (step 3d G3, Q9 a): one plain icon button, 24 px, 44 px on a touch screen (R2) */
