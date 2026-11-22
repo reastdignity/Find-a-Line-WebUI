@@ -1649,3 +1649,36 @@ def test_layers_press_inside_then_hover_leaves_the_sheet(boxes_site):
             browser.close()
     print("press inside, then hover:", snap)
     assert snap == "half", snap
+
+
+# The pressed head's top at every animation frame after its press, for ten frames (window.TOPS)
+FRAME_TOPS = """(sel) => new Promise((ok) => { const out = [], h = () => document.querySelector(sel); let n = 10;
+  const step = () => { const e = h(); out.push(e ? Math.round(e.getBoundingClientRect().top) : null); if (--n > 0) requestAnimationFrame(step); else ok(out); };
+  h().click(); requestAnimationFrame(step); })"""
+
+
+def test_head_new_key_never_jumps(site):
+    """A head's new key with a spot selected (the tree's second-last; the code review's round 5 on sortBy's `still`):
+    the head is drawn where it stood in every frame after the press. (Measured: this holds also without `still`, the
+    put-back alone holds the head in the first frame, so the test guards the put-back, not `still`.)"""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            tree = page.evaluate("() => window.FINDALINE_VIEW.view.sectors.flatMap((s) => s.spots)")
+            spot = tree[-2]
+            _state(page, f"view.select({spot});")
+            page.wait_for_selector(f"#vl-row-{spot} > .vl-main", timeout=WAIT)
+            sector = page.evaluate(f"() => window.FINDALINE_VIEW.view.sectorOf({spot})")
+            head = f".vl-sec[data-sector='{sector}'] > .vl-cols .vl-head[data-col='clr']"
+            page.evaluate(f"() => {{ const h = document.querySelector(\"{head}\"), box = h.closest('.vl-body'); box.scrollTop += h.getBoundingClientRect().top - box.getBoundingClientRect().top - 200; }}")
+            page.evaluate("() => T.frames()")
+            start = page.evaluate(f"() => Math.round(document.querySelector(\"{head}\").getBoundingClientRect().top)")
+            tops = page.evaluate(FRAME_TOPS, head)
+            assert page.evaluate("() => window.FINDALINE_VIEW.view.sort") == "clr"
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the head's top frame by frame:", start, tops)
+    assert all(t is not None and abs(t - start) <= 1 for t in tops), (start, tops)
