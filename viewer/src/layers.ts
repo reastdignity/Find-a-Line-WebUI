@@ -3,7 +3,11 @@
 
 import type { Credit, Ortho } from "./types";
 import { t } from "./i18n";
-import { ICONS } from "./ui/icons";
+
+// The kit's arrow (ui/icons.tsx ICONS.next) of the credits' disclosure, a copy: that module imports the logo's SVG
+// files, which the Node tests' bundles of this module cannot load (as view3d/icon.ts); tests/test_controls_kit.py
+// holds the two equal
+const NEXT_ICON = '<path d="M9 5l7 7-7 7"/>';
 
 /** The operator's API key of ArcGIS Location Platform (settings.WebKeys, restricted to the site's address):
  *  from the server's runs.js (window.FINDALINE_APP) or the app page's meta; none on a map opened from disk,
@@ -66,6 +70,6 @@ export function creditsHtml(credits: Credit[], notices: string, toggle?: {label:
     (notices ? ' <a href="' + escape(notices) + '" target="_blank">' + t("ui.credits.notices") + "</a>" : "");
   if (!toggle) return html;
   return '<button type="button" class="u-credits-toggle" aria-expanded="' + toggle.open + '">' + escape(toggle.label) +
-    '<svg class="u-ic u-credits-mark" viewBox="0 0 24 24" aria-hidden="true">' + ICONS.next + '</svg>' +
+    '<svg class="u-ic u-credits-mark" viewBox="0 0 24 24" aria-hidden="true">' + NEXT_ICON + '</svg>' +
     '</button><span class="u-credits' + (toggle.open ? " u-open" : "") + '">' + html + "</span>";
 }

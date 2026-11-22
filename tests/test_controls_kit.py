@@ -184,7 +184,10 @@ def test_no_characters_as_icons_in_free_css():
         for selector, body, _ in _css_rules(re.sub(r"/\*.*?\*/", "", text, flags=re.S)):
             for content in re.findall(r"(?<![-\w])content:\s*([^;]+)", body):
                 assert not re.search(r""""[^"]+"|'[^']+'""", content), (rel, selector, content)  # no drawn text
-    assert "u-credits-mark" in _read("layers.ts") and "ICONS.next" in _read("layers.ts")
+    layers = _read("layers.ts")
+    assert "u-credits-mark" in layers and "+ NEXT_ICON +" in layers
+    copy = re.search(r"const NEXT_ICON = '([^']+)'", layers).group(1)
+    assert f"  next: '{copy}'," in _read("ui/icons.tsx")  # the copy is the kit's arrow
     ui = _css("ui/ui.css")
     assert "rotate(90deg)" in _rule(ui, '.ui .u-credits-toggle[aria-expanded="true"] .u-credits-mark')
     search = _css("search/search.css")
