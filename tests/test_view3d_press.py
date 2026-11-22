@@ -44,7 +44,8 @@ def test_view3d_a_press_gives_the_view_back(clip_data, monkeypatch, device, engi
     """The stage computes `user-select: none` and its rule holds `-webkit-touch-callout: none` (the iPhone's callout:
     no Windows browser computes it), so a selection of the whole stage holds none of its words; a selection over the
     bar's words and the focus on a control of the bar end with a tap on the stage (no text selected, the focus on the
-    page's body); the orbit view then turns under a drag across the stage (its camera moves)."""
+    page's body); the orbit view then turns under a drag across the stage (its camera moves) and its keys work
+    (Escape closes "About this view")."""
     from playwright.sync_api import sync_playwright
     data, path, line = _site(clip_data, monkeypatch, "view3dpress")
     with _server(data, start_scheduler=True) as port, sync_playwright() as p:
@@ -76,6 +77,12 @@ def test_view3d_a_press_gives_the_view_back(clip_data, monkeypatch, device, engi
             page.mouse.move(left["x"] + 60, left["y"] + 10, steps=6)
             page.mouse.up()
             page.wait_for_function(f"(was) => ({CAMERA})() !== was", arg=before, timeout=WAIT)
+            # and its keys: "About this view" opened (the phone level's button, pressed by script), Escape from the
+            # keyboard closes it
+            page.evaluate("() => document.querySelector('.v3-info').click()")
+            page.wait_for_function("() => document.querySelector('.v3-info').getAttribute('aria-expanded') === 'true'", timeout=WAIT)
+            page.keyboard.press("Escape")
+            page.wait_for_function("() => document.querySelector('.v3-info').getAttribute('aria-expanded') === 'false'", timeout=WAIT)
             assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
         finally:
             browser.close()
