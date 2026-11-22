@@ -1055,6 +1055,21 @@ function useLayersLowerTheSheet(col: {current: HTMLElement | null}, map: L.Map |
   }, [map]);
 }
 
+/** A phone: no zoom of the page but on the map (the user's gate-2 answer 6 b). The frame's touch-action (mapbar.css:
+ *  panning only, so neither a pinch nor a double tap zooms the page; the map's own pinch and double tap are Leaflet's)
+ *  and, for iOS Safari, whose pinch does not follow touch-action, its gesture events stopped outside the map. */
+function useNoPageZoom() {
+  useEffect(() => {
+    const stop = (e: Event) => {
+      const at = e.target instanceof Element ? e.target : null;
+      if (!at?.closest(".leaflet-container")) e.preventDefault();
+    };
+    const kinds = ["gesturestart", "gesturechange"];
+    kinds.forEach((k) => document.addEventListener(k, stop, {passive: false}));
+    return () => kinds.forEach((k) => document.removeEventListener(k, stop));
+  }, []);
+}
+
 function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, ortho, base, folder, show,
                 panels, measured, onMeasured, firstShow, measuredLink, selections}: FrameProps) {
   useSpotView(view);
@@ -1210,6 +1225,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   useViewLink(view, canvas, line, nav, hashOf, fitPadding, (l) => onMeasured(l, true), toNote);
   useNoteAfterCrossing(view, measured, toNote);
   useLayersLowerTheSheet(colRef, map, () => snapNow.current, () => moveSheet("peek"));
+  useNoPageZoom();
   useCornersAboveSheet(phoneRef, ref, true);  // the attribution and the scale above the sheet
   useRunCredits(map, data, base, folder);
   // The sheet moved: the bar's foot stays above it, and once it rests the view's rectangle is taken again (the

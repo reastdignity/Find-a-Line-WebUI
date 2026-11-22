@@ -310,3 +310,7 @@
     padding: 24px; background: var(--surface); color: var(--ink); text-align: center; font: 600 var(--fs-5)/28px var(--display); }
   .ui .v-result .v-upright p { margin: 0; max-width: 32ch; }
 }
+
+/* gate 2's 6 b: on a phone the page does not zoom but on the map: the frame takes panning only (no pinch, no double
+   tap zoom of the page); the map's own pinch and double tap are Leaflet's (its container: touch-action none) */
+.ui .c-result-phone.v-result { touch-action: pan-x pan-y; }

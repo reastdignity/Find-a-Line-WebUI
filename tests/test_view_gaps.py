@@ -1117,3 +1117,52 @@ def test_phone_held_sideways_is_asked_upright(site, case):
         assert got["shown"] and got["over"] and got["text"] == WORDS["ui.view.upright"], got
     else:
         assert not got["shown"], got
+
+
+# The page's zoom (the visual viewport's scale) and the map's
+ZOOMS = "() => [window.visualViewport ? window.visualViewport.scale : 1, window.FINDALINE_MAP.getZoom()]"
+
+
+def _pinch(page, x: float, y: float, scale: float = 2.0):
+    """A finger's pinch out at (x, y) (Chromium's synthesized touch pinch, CDP)."""
+    cdp = page.context.new_cdp_session(page)
+    cdp.send("Input.synthesizePinchGesture", {"x": x, "y": y, "scaleFactor": scale, "relativeSpeed": 800, "gestureSourceType": "touch"})
+    cdp.detach()
+
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_no_page_zoom_outside_the_map(site, device):
+    """6 b: on a phone a pinch on the sheet (its body at half) does not zoom the page (the visual viewport's scale stays
+    1), nor does a double tap there; a pinch on the map zooms the map, not the page. The frame takes panning only
+    (touch-action), and a gesturestart outside the map (iOS Safari's pinch) is stopped, on the map not."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", device, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "half")
+            start = page.evaluate(ZOOMS)
+            body = page.evaluate("() => { const r = document.querySelector('.u-sheet-body').getBoundingClientRect(); return [(r.left + r.right) / 2, r.top + 60]; }")
+            _pinch(page, *body)
+            page.evaluate("() => new Promise((ok) => setTimeout(ok, 300))")
+            pinched = page.evaluate(ZOOMS)
+            page.touchscreen.tap(*body)
+            page.touchscreen.tap(*body)
+            page.evaluate("() => new Promise((ok) => setTimeout(ok, 500))")
+            tapped = page.evaluate(ZOOMS)
+            m = page.evaluate("() => { const r = window.FINDALINE_MAP.getContainer().getBoundingClientRect(), s = document.querySelector('.u-sheet').getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + 120 + s.top) / 2]; }")
+            _pinch(page, *m)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => new Promise((ok) => setTimeout(ok, 300))")
+            mapped = page.evaluate(ZOOMS)
+            gestures = page.evaluate("""() => ['.u-sheet-body', '.leaflet-container'].map((sel) => { const e = new Event('gesturestart', {bubbles: true, cancelable: true});
+              document.querySelector(sel).dispatchEvent(e); return e.defaultPrevented; })""")
+            action = page.evaluate("() => getComputedStyle(document.querySelector('.c-result-phone')).touchAction")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("page zoom:", device.get("viewport"), {"start": start, "pinched": pinched, "tapped": tapped, "map": mapped, "gestures": gestures, "action": action})
+    assert pinched[0] == 1 and tapped[0] == 1, (pinched, tapped)
+    assert mapped[0] == 1 and mapped[1] > start[1], (start, mapped)  # the map's own pinch
+    assert gestures == [True, False] and action == "pan-x pan-y", (gestures, action)
