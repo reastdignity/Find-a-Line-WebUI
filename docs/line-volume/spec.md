@@ -188,6 +188,16 @@ basisdata.nl, neither on a run's files). Then 2c's wave 4, second deploy, in `ma
 end of the page's reader of `data.js`: `spec-store.md` 1.9). Open: 2d, 2e, 2g, 3c (after the UX session's design
 pilot, the user's "a"), 3d.
 
+**State on 2026-11-22.** Done (round 6, branch `view-3c`; started once the UX session's pilot was accepted): 3c and
+3d. Step 3c joined today's features to the result view in the places of an interactive mock-up the user judged at
+gate 1, with the design review's list of 2026-11-17 (`docs/roadmap.md`); step 3d listed every check of today's result
+page and of the pages around it, ported each missing one to the view or recorded a decision (`spec-view.md` B.7), and
+brought `tools/ui_shots.py` and `tools/ui_walks.py` to the view. Gate 2, the user's checks on an iPhone over the
+local network (`tools/lan_app.py`), added six changes and fixed the store's load when a phone's screen goes off; then
+the view became a run's page by default (`spec-view.md` B.10, on the user's "yes"). What was decided: section 6.8;
+the looks: docs/DESIGN.md rows 100 to 130; left: docs/known-bugs.md ("Line volume, round 6") and docs/roadmap.md
+("Line volume round 6: open"). Not met: T7 (`spec-view.md` B.8). Open: 2d, 2e, 2g.
+
 ## 6. The user's choices
 Classes: **before** = decide before building that work; **mock-up** = decided at that task's mock-up; **measure** =
 decided by a measurement first; **planner** = taken as recommended by the planner unless the user objects.
@@ -327,6 +337,21 @@ The user's words, verbatim, each on the question named.
 | – | Push and deploy today's `main` before wave 4 ("a"; "VPS is depleyed already"), then wave 4's first deploy ("a") | section 5 |
 | – | Before the PC's removal: `perf_reach`'s three named runs moved to a reference folder ("1. a"); the two favourite lines let go ("2. c"); the three stopped tiled folders deleted too ("b"); then "remove on PC" | `spec-store.md` 2 "As run" |
 | – | On the server: "remove on server"; its stopped tiled folders left ("2. a"); no demo for now ("3.b") | `spec-store.md` 2 "As run" |
+
+### 6.8 Decided in round 6 (2026-11-20 to 2026-11-22)
+The user's words, verbatim, each on the question named; the planner's decisions within them are in the task's notes.
+
+| Id | Decided | Where it is applied |
+|---|---|---|
+| – | The plan's fifteen questions: "1.a 2a 3a 4a 5. a … 15. a" (3c, then 3d, the default at its own gate; one interactive mock-up; B-3 as built; B-4 drawn apart; B-5 hidden; all of today's run actions; the hint first on a phone; the numbers measured first; help on touch; the words picked at gate 1; the kit's layers icon; the profile's leftovers fixed; the focus rings left to the UX task; today's page kept behind `?view=today`; no later point) | section 5; `spec-view.md` B.2 "As built in round 6"; DESIGN.md rows 100 to 124 |
+| view B-3, B-4, B-5 | Applied as taken in 6.2: a favourite is its spot's shown line; Compare's lines drawn apart in each run's colour, not counted; "Open spot" hidden | DESIGN.md rows 112, 113 |
+| – | Gate 1 on the mock-up: "4D a, 4P d, 7D b, 7P b, 10 a, N1 b, N2 a, W1 a … W14 a, S c, P c, L b, R a, T a, K a, H a", and question 11 "a: accept as shown" | `spec-view.md` B.2, B.8; DESIGN.md rows 100 to 107, 115 |
+| – | The coarser box on a small phone: "Chip, like the shore"; both chips at half with a level held: "Known bug for now" | DESIGN.md row 105; `docs/known-bugs.md` |
+| – | The screenshot gate of wave B: "GA a, GB b, GC a, GD a, GE a, GF a, GG a, M1 keep … M14 keep" | DESIGN.md rows 107, 118, 119, 123; `docs/known-bugs.md` |
+| – | Wave C's parity gaps: P1 "a: add it" (its place "A: arrows in the head"), P2 "b: known difference", P3 "a: as today, drop to half", P4 "a: add a direction button", P5 "b: known difference now" | `spec-view.md` B.2, B.7; DESIGN.md rows 113, 116, 121, 122, 124 |
+| – | A press after a pinch: first "thats fine" for a zoom out, then "yes" to a pan at the same zoom | DESIGN.md row 123 |
+| – | Gate 2's triage: 1 a, 2 a, 3 a, 10 a (bugs); 4 a ("Turn your phone upright to use this page."), 6 b, 8 a, 9 a, 11 a, 12 a, 13 a (decisions); finding 1 "Keep as is, recheck"; the 3D view's photos "Roadmap only"; "Top level" per spot "add it to road map as a possible search filter" | DESIGN.md rows 125 to 129; `docs/roadmap.md` |
+| – | Gate 2's second check: Safari's CSP line "Leave it, known bug"; the long list's sheet "Implement 41, and create a bug report for fixing it properly"; the 2D credits pill and R2: "(a) Accept 14 px"; the flip: "yes" | `docs/known-bugs.md`; DESIGN.md row 130 and R2; `spec-view.md` B.10 |
 
 ## 7. Findings of phase 4 to fix later
 Each is also an entry of `docs/known-bugs.md` (the "Line volume" entries) unless it is a measurement.
