@@ -2,8 +2,9 @@
 
 2026-11-15, second version (after a scope review and a builder's read of the first). The specification of a data
 server ("the mirror") from which every Find-a-Line installation downloads the tiles of the sources that cannot be
-read from their provider on demand. Nothing of it is built. The bar: complete enough that a later session's agents
-build it without new decisions; what is still open is listed in section 9, never hidden.
+read from their provider on demand. Built on 2026-11-16 (the task `mirror-hosting-build`); the text describes what
+exists, the sentences the build changed name the decision (U27-U57) or the planner's ruling behind them. What is
+still open is listed in section 9, never hidden.
 
 ## 1. How to read it
 
@@ -13,8 +14,9 @@ with: Decision, Behaviour, Data and interfaces, Files and pairs, Tests, Acceptan
 Section 8 is security and misuse, 9 what is still open, 10 the order of building with the files each agent owns,
 11 the rollout, 12 the definition of done, 13 the later payloads this design must not block.
 
-**Names.** "A.5" is behaviour 5 of solution A. U1-U26 are the user's decisions, P1-P28 the planner's, S1-S17 the
-security rows, M2, E1 and E2 the open items. `<host>` stands for the mirror's host name, `mirror.findaline.lukawski.org` (U23).
+**Names.** "A.5" is behaviour 5 of solution A. U1-U57 are the user's decisions (U27-U57 taken during the build),
+P1-P28 the planner's, S1-S17 the
+security rows, M2, M4, E1 and E2 the items of section 9. `<host>` stands for the mirror's host name, `mirror.findaline.lukawski.org` (U23).
 
 **Sources.** The user's decisions are quoted with their date; "(planner)" marks a decision taken without the
 user's own word, which the user can overturn. Facts about the code were read on `main` 47c5fa7. "(wave 0: ...)"
@@ -32,7 +34,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 
 ## 2. What was decided
 
-### 2.1 By the user (2026-11-15)
+### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17; U68 and U75-U80 2026-11-18/19; U86-U89 2026-11-21; U93, U94 2026-11-22)
 | Id | Question | The user's answer |
 | --- | --- | --- |
 | U1 | Who may download | "Any installation, anonymous" |
@@ -61,6 +63,50 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 | U24 | A recut with other values: a new folder name, or always swap in place | "new folder" |
 | U25 | The site's server: 16 MB/s per request, 32 MB/s in practice | "ok" |
 | U26 | The rule "personal data never in a log": name the mirror's log as its one exception | "ok" |
+| U27 | E2: how the publishing key reaches the home server, and what it may write | "SFTP container" (a small SSH/SFTP container that mounts only the mirror's root and listens on the LAN alone) |
+| U28 | rclone on the PC (1.76 or newer) | "Yes, with winget" |
+| U29 | The PC free for the build's heavy runs | "Free, the state is right" |
+| U30 | The exact line of `CLAUDE.md` for U26 | approved as shown: "Keys, tokens and personal data never in the repository, a run's files, a printed text or a log; the one exception: the mirror's request log (`deploy/mirror`) holds addresses, for 14 days." |
+| U31 | Slovakia's `PUBLISHABLE` row | "a" (approve; CC BY 4.0 by the owner's own terms) |
+| U32 | The publishing container's image | "Own minimal image": Alpine and OpenSSH built in the repository, with a command gate |
+| U33 | Where its compose file lives | "Own project in the repo": `deploy/mirror/publish/` |
+| U34 | A rename the server does as a copy | "a": a README requirement only (one mount; the door refuses a rename it cannot do); no timing bound in the tool |
+| U35 | The sha256 check trusts the rclone config, not the server | "a": the tool hashes its own lock file on the server right after writing it and refuses if that fails |
+| U36 | The whole master hashed before every publish and resume | "a": kept, no flag to skip it |
+| U37 | Turning the data server off on Windows (an empty value deletes the variable there) | "a": the setting also accepts `off`; the privacy sentence then names `off`, its exact words shown to the user first |
+| U38 | The start check when the local folder holds the dataset | "a": as built, no request and no fall-back (the mixed case named) |
+| U39 | A busy server (429) at the start check | "a": the start check stops at the first 429 and counts it as answering |
+| U40 | 3D views of a finished run while the server is down | "a": accepted, with a clear message that the data server does not answer |
+| U41 | The one failing test of `tests/test_web.py` | "a": the client agent adds the one line |
+| U42 | How SWAG is attached to the mirror's network | "a": a command that attaches the running SWAG container, repeated after SWAG is recreated, with a check that shows when it is missing; the other way described with its risk |
+| U43 | The publishing container's own log (the PC's LAN address, the key's fingerprint) | "a": kept, and said in the README |
+| U44 | One log word (`conn`) for two limits | "a": accepted |
+| U45 | The request log has no size bound | "a": the hourly cleanup also caps the log folder's size, the oldest files first; the number brought to the user after measuring; under a flood fewer than 14 days |
+| U46 | The privacy text's last sentence, with `off` | "To never contact the data server, set `FINDALINE_MIRROR_URL` to `off`; the regions it serves then use coarser data." |
+| U47 | "It keeps this for 14 days" (a flood can make the log hold less) | "It keeps this for at most 14 days", and the same two words in the `CLAUDE.md` line of U30 |
+| U48 | The log's size bound (hourly; the oldest days first; today's file emptied whole and started again when it alone passes it) | 2 GB |
+| U49 | CI's job `mirror` (about 75 minutes with its self-test) | it runs only when the mirror's files or its check script change, plus by hand |
+| U50 | A dataset that reads the mirror but is not on the data server (Porto Santo, the Desertas, the Selvagens) | "a": the client reads the server's dataset list first and treats an unlisted dataset as unavailable, as it was before the mirror; a dataset starts working by itself when it is published |
+| U53 | Madeira's islets: limit Madeira's source to its island (an islet then falls to the coarse source), publish the islets, both, or leave them | "b": publish Porto Santo, the Desertas and the Selvagens; their three `PUBLISHABLE` rows are brought to the user for approval before they are written; Madeira's source is not limited |
+| U54 | The data server's host name in the public site's failure texts: keep it or hide it | "a": keep it |
+| U55 | The islets' three `PUBLISHABLE` rows (the basis of Madeira's row, U11; against it the regional order's price of Porto Santo's 5 m model) | "a": all three approved as drafted (porto-santo, desertas, selvagens), 2026-11-17 |
+| U56 | The islets' served cards (two left out a change under "Changes made": the Desertas' replaced reference-system label, Porto Santo's float64 to float32) | "a": both fixed first; the new card texts shown to the user before anything is published |
+| U57 | Keeping the master's `README.md` files in step with the served cards (Porto Santo's and the Desertas' on the master are older than their cards of U56) | both: the publish tool notes a dataset's `README.md` that is missing or differs from the card it serves, at every `publish` and every `verify` of a master folder; the two files are rewritten once on the master by the cutting tool (`mirror_tiles.py cut`, which cuts nothing for a finished dataset), on the user's word |
+| U68 | The door's path from the publishing PC | "a": Husarnet as a sidecar in the door's own compose project; `sftp` runs in its network namespace (`network_mode: service:husarnet`); no port published on the home server at all; `PUBLISH_ADDRESS` and `PUBLISH_PORT` dropped; only the door's port 2222 reached, by the user's Husarnet peers (history: the sidecar dropped by U89) |
+| U75 | The door's Husarnet sidecar image (Husarnet's newest stable image is 2.0.180 of October 2023, on old OS libraries) | "Own image, fresh OS": a small Dockerfile on a current Debian slim with Husarnet's package from Husarnet's apt repository, checked first that the repository serves it (history: the sidecar dropped by U89) |
+| U76 | The door left stopped after the sidecar was down for more than about 30 s, or after a reboot | "README line only": no scheduled `up -d`; `docker compose ps`, then `docker compose up -d` when a publish finds the door down (history: the sidecar dropped by U89) |
+| U77 | The door worker's choices (own start script, healthy only with a peer of the user's so the PC joins first, `sftp` restarting itself, the sidecar as root with default capabilities and `NET_ADMIN`) | "Accept all"; memory and process limits added to the sidecar (history: the sidecar dropped by U89) |
+| U78 | The stable repository serves only 2.0.180 (statically linked, October 2023) | "look for Husarnet 3": Husarnet 3.0 moved its control plane on 2025-12-08; its daemon is the nightly line only; 2.0.180 works through a compatibility layer to be shut down (history: the sidecar dropped by U89) |
+| U79 | The sidecar's health after a restart with the join done once | "Drop 'joined'": health = a connection to Husarnet's base and control servers, and a peer other than Husarnet's own on the allow list (history: the sidecar dropped by U89) |
+| U80 | The door's Husarnet daemon line | "Nightly 2.0.349": the 3.0-protocol daemon from Husarnet's nightly apt repository on the own Debian image, its version pinned; the PC's client a nightly too (history: the sidecar dropped by U89) |
+| U86 | The door at all (2026-11-21) | "lets change how we do it - it is too complicated. Scrap door idea." The user makes a VPN link of their own between the PC and the home server; then "SSH straight to box": no door container; the publish tool's rclone SFTP remote aimed at the home server's own sshd at its address on that link; the home server hashes (`sha256sum`); the WireGuard sidecar (U81-U85) dropped (history: superseded by U89) |
+| U87 | The door code already built | the sidecar removed, not `publish/` (as revised by U89): Husarnet's sidecar (`husarnet.sh`, `husarnet-sidecar.Dockerfile`, its compose service and settings), its checks, CI steps and README text removed from the build; `publish/`'s `sftp` kept; the WireGuard door's branch kept unmerged; the Husarnet door removed from the home server |
+| U88 | Claude's use of the home server's address over the link | "Publishing only": rclone only (publishing and its checks); commands on the home server stay with the user |
+| U89 | The door, revised (2026-11-21) | the user: "keep docker with sftp, but no door": the sftp container stays (gate, read-only, one mount), its port published on PUBLISH_ADDRESS, reached over the user's own VPN link; no sidecar (Husarnet's U68/U75-U80 and the WireGuard U81-U85 dropped) |
+| U93 | Keeping SWAG on the mirror's network across SWAG's updates (2026-11-22; an update had dropped the attachment and the mirror answered 502) | "1": a scheduled job on the home server attaches SWAG again when it is missing, every 5 minutes (the network in SWAG's platform template was tried and failed: on some Docker releases the default bridge cannot be combined with the mirror's network, README "SWAG") |
+| U94 | The numbers of A.5, C.3 and C.6 after M2 | kept as they are: "ok, do step 4" after M2's results and the planner's advice to keep them (the VPS's two connections had not met their mark at the time of the measurement) |
+
+History, not in this branch: U81-U85 (2026-11-20/21), a WireGuard sidecar in place of Husarnet's for the door, was built and dropped (U86, U89).
 
 The request itself: "specification, architecture and DoD for mirror hosting inside docker compose", "possible issues
 with security, missuse", "For now it will host only data which is requiring mirror, but later on also country
@@ -122,6 +168,10 @@ PC (cuts datasets, master on Z:) ── tools/mirror_publish.py + rclone (SFTP) 
 ```
 
 - The PC that holds `FINDALINE_MIRROR` keeps reading the folder; HTTP serves every machine without it.
+- The PC reaches `<root>` through the publishing door: a second compose project on the home server
+  (`deploy/mirror/publish/`, an SFTP container with a command gate, its one port published on `PUBLISH_ADDRESS`,
+  the server's address the PC reaches: on the LAN, or over a VPN or WireGuard link of the operator's own, never
+  the internet; U27, U32, U33, U89; no sidecar since U89).
 - The VPS's worker has no local copy any more (U4): it is the mirror's heaviest correct client and gets a class
   of its own in the limits.
 - One host name under the project's domain (U10), pointing straight at the home address (U9). No AAAA record
@@ -139,8 +189,15 @@ U1, U2, U3, U14, U17, U18, U19; P1, P2, P6, P7, P13-P20, P24.
    config, the landing page, `robots.txt` and the start script copied in (P13). It mounts `<root>/public`
    read-only and `<root>/logs` writable (owned by the image's uid 101), and nothing else of the host; it publishes
    no port. Its only network is one the project makes itself, marked `internal` (no route out of the host), with a
-   fixed subnet (`MIRROR_SUBNET`); SWAG's container is attached to it as a second network (U18), so the mirror's
-   only neighbour is SWAG and it can reach nothing else. Hardening as the site's containers: the non-root user,
+   fixed subnet (`MIRROR_SUBNET`); SWAG's container is attached to it as a second network (U18), by default with
+   `docker network connect findaline-mirror_mirror swag` on the running SWAG, repeated after SWAG is recreated, with
+   a check that prints `NOT ATTACHED` (U42), so the mirror's only neighbour is SWAG and it can reach nothing else.
+   The publishing door is a project of its own (`findaline-mirror-publish` in `deploy/mirror/publish/`, one service
+   `sftp`: Alpine and OpenSSH, key only, a command gate allowing the SFTP server and `sha256sum` of one file under the
+   mounted `<root>`; U27, U32, U33); "one service, no published port" holds for the mirror's project, and the door
+   publishes one port on one address of the server (`PUBLISH_ADDRESS`, required: the address the publishing PC
+   reaches, on the LAN or over the operator's own VPN or WireGuard link; U89). No sidecar: Husarnet's (U68,
+   U75-U80) and the WireGuard one (U81-U85) were dropped (U86, U87, U89). Hardening as the site's containers: the non-root user,
    read-only root, a tmpfs for `/tmp`, all capabilities dropped, no-new-privileges, memory and pid limits with
    `memswap_limit` equal to `mem_limit`, json-file logs with a size cap, a healthcheck, `restart: unless-stopped`,
    `init: true` (the start script's loop is reaped). The start script is the image's entry point: it writes what
@@ -149,7 +206,10 @@ U1, U2, U3, U14, U17, U18, U19; P1, P2, P6, P7, P13-P20, P24.
    step, owned by uid 101 (Docker would make a missing folder as root, and the server could not write).
    The healthcheck asks `robots.txt` on 127.0.0.1 and looks at the cleanup's heartbeat file (7); its requests are
    not logged.
-2. **What is served.** `GET` and `HEAD` only (anything else 405; a request body is never read). Exactly these
+2. **What is served.** `GET` and `HEAD` only (anything else 405; a request body is never read; a request with a
+   body over 1 KB sent to the mirror itself is answered 413 before the limits, while through SWAG its own 405 or 413
+   comes first: the planner's ruling). Every refusal (404, 400, 405, 416) passes the limits as any request does (the
+   code review's F1). Exactly these
    paths, by regular expressions written in the config and built in the tests from `grid_tile_name` and
    `gridtiles.res_name`:
    - `/` (the landing page), `/robots.txt` (disallow all), `/v1/datasets.json`;
@@ -191,11 +251,16 @@ U1, U2, U3, U14, U17, U18, U19; P1, P2, P6, P7, P13-P20, P24.
    passed without the header and held with it).
 6. **Timeouts** for a slow visitor (P24): headers 10 s, sending 30 s between two writes, keep-alive 15 s.
 7. **The log** (P1, P19, P20), one JSON line per request: time, status, bytes sent, request time, the dataset (the
-   first path part after `/v1/tiles/`, else `-`), the visitor's address, the limit that refused (or
-   `-`), and the client's version (the `Find-a-Line/<version>` token of the User-Agent, else `other`). Never the
-   tile's path, the query or the rest of the User-Agent. One file per day in `<root>/logs`; a loop started by the
-   start script beside the server deletes, every hour, each file whose date is 14 or more days back, and touches a
-   heartbeat file the healthcheck reads (a dead loop makes the container unhealthy). Nothing of the requests goes
+   first path part after `/v1/tiles/`, only for a request of a served shape and at most 40 characters, else `-`),
+   the visitor's address, the limit that refused (or `-`; `rate`, `conn` for both a visitor's limits on concurrent
+   requests (U44), `trusted`), and the client's version (the `Find-a-Line/<version>` token of the User-Agent by the
+   planner's rule: two or three numbers of at most three digits, optionally `a`, `b`, `rc`, `.dev` or `.post`
+   without its number, a local label dropped; `unknown` as it is; else `other`). Never the tile's path, the query or
+   the rest of the User-Agent. One file per day (UTC) in `<root>/logs`; a loop started by the start script beside
+   the server deletes, every hour, each file whose date is 14 or more days back, then the oldest days' files while
+   the folder is above `LOG_CAP_BYTES`, 2 GB (today's file emptied in place when it alone is above it; U45, U48:
+   under a flood the log may hold fewer than 14 days, hence the privacy text's "at most", U47), and touches a heartbeat file the healthcheck reads (a dead loop makes the
+   container unhealthy). Nothing of the requests goes
    to the container's stdout, so Docker's own log holds no visitor data; the server's error log runs at its
    "critical" level (P18; wave 0: server, a refused symlink wrote the full request at error level).
    This log holds addresses by design. The project's rule is "personal data never in a log"; what the user
@@ -205,7 +270,8 @@ U1, U2, U3, U14, U17, U18, U19; P1, P2, P6, P7, P13-P20, P24.
    (an explicit `server_name`) with SWAG's certificate; pass every request to `files` with SWAG's standard
    `proxy.conf` (it sets `X-Real-IP` itself); refuse every method but `GET` and `HEAD` itself and accept a request
    body of at most 1 KB (SWAG's sample confs allow any size and would write a posted body to SWAG's disk before
-   the mirror's 405); set no `proxy_ignore_headers`; write no access log for this host. SWAG's own log would hold
+   the mirror's 405); set no `proxy_ignore_headers`; write no access log for this host; listen on IPv4 only (no
+   AAAA record, section 3: the code review's F4). SWAG's own log would hold
    the tile paths, and its three ban rules that read it then never see the mirror's visitors, which is P2.
 9. **The landing page** says what the server is, lists the published datasets with their credits (it reads
    `/v1/datasets.json` in the browser), carries the privacy text (D), and names a contact for abuse and takedown:
@@ -227,14 +293,18 @@ start script with a read-only root, the day in the log file's name, the cleanup'
 
 ### Data and interfaces
 The service stores only its log. `deploy/mirror/.env.example`: `MIRROR_ROOT` (the host path holding `public` and
-`logs`), `MIRROR_SUBNET` (with a default), `MIRROR_TRUSTED_ADDRESSES`, `MIRROR_CONTACT`, `MIRROR_MEMORY`. The
-limits' numbers are constants of the config in the repo, not settings.
+`logs`), `MIRROR_SUBNET` (with a default), `MIRROR_TRUSTED_ADDRESSES`, `MIRROR_CONTACT` (required), `MIRROR_MEMORY`.
+The limits' numbers are constants of the config in the repo, not settings; so is the log's size bound
+(`LOG_CAP_BYTES` in the start script, U45). The door's `publish/.env.example`: `MIRROR_ROOT`, `PUBLISH_KEYS`,
+`PUBLISH_ADDRESS`, `PUBLISH_PORT`.
 
 ### Files and pairs
 New: `deploy/mirror/Dockerfile`, `compose.yaml`, `compose.test.yaml`, `.env.example`, the server's config and
 start script, `swag/findaline-mirror.subdomain.conf`, `landing/index.html`, `robots.txt`, `README.md` (install on
 a server that runs plain docker compose, the attachment of SWAG to the project's network and how to make it
-lasting, the certificate step, the pinned image's update, the check commands); `tests/test_mirror_deploy.py`;
+lasting, the certificate step, the pinned image's update, the check commands, the publishing door), the door's
+`publish/` (Dockerfile, `sshd_config`, `gate.sh`, `compose.yaml`, `.env.example`; U32, U33, U89), the check script's
+`test/` files; `tests/test_mirror_deploy.py`;
 `tests/mirror_check.sh`; a CI job `mirror`. The site's `compose.yaml` services and `tests/test_deploy.py` are not
 touched. Pairs: the served patterns ↔ `grid_tile_name`, `res_name` and the publish tool's layout; the log's keys
 ↔ `mirror_publish.py stats` ↔ the privacy texts (D); the limits ↔ the client's entries (C.6; the test is wave
@@ -279,9 +349,11 @@ root, no capability, no published port, no route out, and no log file older than
   record in place and answering first, the validation's way in checked from outside. **No trial with SWAG's
   staging switch on a live SWAG**: switching it on is itself one of the ten changes and would revoke and delete
   the production certificate, and switching back would do it again.
-- SWAG's second network: where a platform drops a container's second network when that container is updated,
-  the mirror is unreachable until it is attached again: an outage, never an exposure. The README says how to make
-  the attachment lasting and how to check it.
+- SWAG's second network: a recreated SWAG container (an update) drops it, and the mirror is unreachable until it
+  is attached again: an outage, never an exposure (SWAG answers 502, its other sites go on). The README attaches it
+  by a command by default, again after every SWAG update, with a check; the lasting way (an external network in
+  SWAG's own compose file) is described with its risk, SWAG and its sites not starting while that network is
+  missing (U42).
 - SWAG's connections are shared by all its sites, and a proxied request takes two; the mirror's totals (8 visitors
   and 4 trusted) are far below SWAG's default of 1024 per worker (wave 0: server, from SWAG's base config).
 - A pinned image gets no automatic security updates, and a compose plugin skips digest-pinned images in its
@@ -291,7 +363,7 @@ root, no capability, no published port, no route out, and no log file older than
   client's start check allows 30 s). The README says so.
 
 ### Needs the user's word
-M2's result (section 11, step 3); E2 (the publishing account).
+M2's result (section 11, step 3; given: the numbers kept, U94). E2 (the publishing account) was answered by U27, U32 and U33.
 
 ## 5. Solution B: the address contract and the publish tool
 
@@ -306,7 +378,9 @@ U1, U5, U8, U10, U11, U12, U20; P21, P22, P23, P27.
   mirror folder; `title`, `licence` and `source` (the page that states the basis) come from the dataset's
   `PUBLISHABLE` row, `attribution` from the catalogue (P22); `products` are all folders with an `index.json`
   (the averaged ones too), `tiles` the tiles with data, `bytes` those tiles plus the index, both taken from the
-  server's copy.
+  server's copy. The client's start check reads it (C.3, U50): a product is published when its mirror folder is a
+  `datasets[].products[].path` (the pair: `tests/test_mirror_pairs.py`
+  `test_the_clients_reading_of_the_list_the_tool_writes`).
 - `/v1/cubes/` and `/v1/cache/` are reserved and answer 404.
 - A later change of the layout gets `/v2/`; `/v1/` keeps answering as long as releases that know only it are in
   use, then 410.
@@ -323,28 +397,35 @@ U1, U5, U8, U10, U11, U12, U20; P21, P22, P23, P27.
 - `verify <folder or remote>`: for every `index.json` below it: every listed tile exists and has its sha256, no
   tile file that the index does not list, not `partial`. On a folder the tool hashes itself; on an rclone remote
   the server hashes (`rclone checksum sha256` against a SUM file made from the indexes). Exit code 1 and the list
-  of faults otherwise.
+  of faults otherwise. An index that is not what the cutting tools write (its keys, the sha256 as 64 hex digits,
+  `"block"` present and 10, the client's `BLOCK`) is a fault (the planner's ruling, fix round 1).
 - `publish <dataset> --to <remote>:<root>`: refuses when the dataset has no approved row in `PUBLISHABLE`, when
-  `verify` fails on the master, when a resolution the catalogue declares for the source (`GridTiles(averaged=)`)
-  has no folder (P12), or when `<root>` has less free space than the bytes not staged yet plus 10 GB. Then:
-  1. takes the lock (`<root>/staging/.lock`, a file that names the PC and the time; a second publish or
-     unpublish refuses while it exists; `--break-lock` after a crash);
+  `verify` fails on the master (hashed on every publish and every resume, U36), or when a resolution the catalogue
+  declares for the source (`GridTiles(averaged=)`) has no folder (P12). Then:
+  1. takes the lock (`<root>/staging/.lock`, a file that names the PC, the time, the command and a token of the run,
+     read back after writing; a second publish or unpublish refuses while it exists; `--break-lock` after a crash).
+     Under the lock it refuses, the lock released: a server whose sha256 of the lock file is not the tool's own
+     (U35; not with `--read-back`), a dataset already published unless `--same-values`, and a `<root>` with less
+     free space than the bytes not staged yet plus 10 GB (rclone's free blocks, which on Linux include root's
+     reserve);
   2. copies exactly the files the indexes list, the indexes and nothing else into `<root>/staging/<dataset>/`
      (`rclone copy --files-from`; a rerun skips what is there), and writes the card `README.md` there from the
-     tool's card text for the dataset (P21);
+     tool's card text for the dataset (P21); a master's own `README.md` that is missing or differs from that
+     card is noted before the copy, never refused (U57; `verify` of a master folder notes it too);
   3. verifies the staged copy on the server against the master's indexes;
   4. moves `<root>/public/v1/tiles/<dataset>` to `<root>/trash/<dataset>-<UTC>` if it exists, then staging to
      `<root>/public/v1/tiles/<dataset>` (`rclone moveto`, a rename on the server), and after each move checks
      that the source is gone and the target's file count is the expected one (a move that fell back to copying
-     would show here; the tool then stops with the dataset in whichever place is complete);
+     would show here; the tool then stops with the dataset in whichever place is complete). The README requires one
+     mount for `<root>`, and the door refuses a rename it cannot do instead of copying (U34);
   5. writes `datasets.json` from the server's copy of every published dataset (through a name outside the served
      patterns and a rename), releases the lock.
   A folder with content cannot be replaced by one rename, so between the two moves of 4 the dataset is absent for
   a moment; the client's rule covers it (C.2).
 - `unpublish <dataset> --to ...`: the dataset to trash, `datasets.json` rewritten; one command (a takedown).
 - `clean --to ... [--keep-days 7]`: removes trash older than that (P27).
-- `stats --from <remote>:<root>/logs`: requests and bytes per day and dataset, refusals per limit, client versions;
-  its output never holds an address.
+- `stats --from <remote>:<root>/logs`: requests and bytes per day and dataset, refusals per limit, client versions
+  (by the server's version rule, A.7: `client_version`); its output never holds an address.
 - rclone (U20): found on `PATH` or by `FINDALINE_RCLONE`; the tool refuses a version below 1.76 and a remote that
   does not report sha256 among its hashes, and falls back to hashing by reading back
   (`rclone checksum --download`) only with `--read-back` (E1). The remote (an SFTP one with the server's
@@ -356,15 +437,19 @@ U1, U5, U8, U10, U11, U12, U20; P21, P22, P23, P27.
   `basis_kind` (licence, metadata statement, written permission), `licence`, `licence_url`, `basis_url`,
   `basis_quote` (the original sentence), `basis_checked` (date), `changes` (per product, the averaging too),
   `not_endorsed` (the sentence), `notes`, `approved` (the user's word and its date). A field without a fact holds
-  the word "none" (P23). The rows of today (wave 0: publish, quotes dated 2026-11-15):
+  the word "none" (P23). The rows of today, six (wave 0: publish, quotes dated 2026-11-15; the islets'
+  2026-11-17), each with the user's approval it rests on:
 
   | Dataset | Basis | Notes for the row |
   | --- | --- | --- |
-  | Slovakia (DMR 5.0, DMP 1.0) | CC BY 4.0 (the owner's terms: "Autor ÚGKK SR / Licencia CC-BY 4.0") | the card's "Changes made" must name the 2 m and 5 m averaging (today only under "Layout") |
+  | Slovakia (DMR 5.0, DMP 1.0) | CC BY 4.0 (the owner's terms: "Autor ÚGKK SR / Licencia CC-BY 4.0"); approved by U31 | the card's "Changes made" must name the 2 m and 5 m averaging (today only under "Layout") |
   | Valle d'Aosta (DTM 2005/2008) | CC BY 4.0 by the region's licence PDF the catalogue already records ("distribuire ... Modificare ... anche commerciale"); approved by U12 | a second PDF on the same server says CC BY 2.5 Italia, and its own sentence does not name distributing |
   | Madeira (DTM 2 m) | a metadata statement, **weak**: the national catalogue's record says "No conditions apply"; `licence` and `licence_url` "none"; approved by U11 | against, all in the regional order 36/2022: obtaining the owner's products "is subject to payment", its price table lists "MDT 2 m (folha)" at 42 €, use licences are to be published by the owner (not found), commercial use is named only for the region's own services; whether today's free file is that priced product is not established. `unpublish` answers an objection |
-  | Wallonia (batch 6) | CC BY 4.0, "Il peut publier les données et l'œuvre dérivée à condition de citer les sources"; the terrain model's record also asks for "mention explicite des modifications" | row written with batch 6 |
-  | Hong Kong (batch 6) | **none found**: no sentence allows a changed copy on the internet | no row: not publishable (section 11, step 7) |
+  | Porto Santo (DTM 5 m) | a metadata statement, **weak**: the same national catalogue record and sentences as Madeira's (the record of the 5 m model of every island, "No conditions apply"); `licence` and `licence_url` "none"; approved by U55 (2026-11-17) | against, sharper than for Madeira: the regional order 36/2022's price table lists "MDT 5 m (Porto Santo)" at 500 €; whether the record's free file is that priced product is not established. The card names the float64 values stored as float32 (U56). `unpublish` answers an objection |
+  | The Desertas (DTM 5 m) | as Porto Santo's; approved by U55 (2026-11-17) | against: the same order's "MDT 5 m (folha)" at 37 € a sheet. The file's reference-system label (EPSG:3061) is replaced by the system its coast fits (PTRA08, EPSG:5016), nothing reprojected; the card names it (U56) |
+  | The Selvagens (DTM 5 m) | as Porto Santo's; approved by U55 (2026-11-17) | against: the same order's "MDT 5 m (folha)" at 37 € a sheet |
+
+  Not rows of the tool: Wallonia (batch 6; CC BY 4.0, "Il peut publier les données et l'œuvre dérivée à condition de citer les sources"; the terrain model's record also asks for "mention explicite des modifications"), its row written with batch 6; Hong Kong (batch 6; **none found**: no sentence allows a changed copy on the internet), no row: not publishable (section 11, step 7).
 
 Compared and not chosen for the transport: the tool's own tar over SSH with `sha256sum -c` (no new program; the
 planner's recommendation), a share with read-back, robocopy and rsync (no sha256).
@@ -417,8 +502,10 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
 1. **Where the tiles come from.** `TileBases.bases()`: the local folder when `FINDALINE_MIRROR` is set and holds
    the dataset (unchanged), then `<MIRROR_URL>/v1/tiles/<mirror path>` (e.g. `.../v1/tiles/slovakia/dmr5/1m`),
    then the catalogue's `urls` (still empty). `MIRROR_URL` is the origin only (`https://<host>`), a constant in
-   `sources/readers/tilebases.py`, overridden by the environment's `FINDALINE_MIRROR_URL`; an empty value turns
-   the mirror off. The text for "no base at all" names both settings.
+   `sources/readers/tilebases.py`, overridden by the environment's `FINDALINE_MIRROR_URL`; `off` (in any case) or
+   an empty value turns the mirror off (U37: Windows deletes an empty variable, and the default would be used); any
+   other value that is not an `http://` or `https://` address, or one with a user or a password, is an error
+   (`MirrorUrlError`), refused at every search's start. The text for "no base at all" names both settings.
 2. **Index-driven over HTTP**, the rules of a local folder: a tile whose key is null, or beyond the extent of a
    complete index, is "no data" without a request; an index that says `partial` or lacks the key inside its
    extent sends the tile to the next base; a listed tile is downloaded and its sha256 compared **before** the
@@ -426,22 +513,48 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
    data", and writes no "missing" row. On a 404 of a listed tile, a 404 of the index or a mismatch, the client
    waits `net`'s usual pause (`net._sleep`), fetches the index again once and the tile once more (this heals a
    dataset being swapped, B); if that fails the next base is tried, and after the last base the search fails
-   with a text naming the tile and the mirror. An index is fetched when a download first needs it (under a lock
-   per base: eight threads download) or by the start check (3), is kept in memory for 300 s (P11) and then taken
-   again. Index requests take the host's rate turn; tile requests take the host's slot as today.
+   with a text naming the tile and the data server by its host only, with the kind of failure in fixed words
+   ("Could not download <layer> tile <name>: the data server at <host> does not answer (<kind>)", or "is busy
+   (HTTP 429)" after a 429; U40). The kinds (`tilebases._failure_kind`): "HTTP <status>", "its answer was not the
+   data" (a 200 that was not), "its certificate was refused", "no answer in time", "the connection broke",
+   "waited too long for its turn" (the host's rate turn) and "no answer". Every text of a failure names the data
+   server by its host alone, never its address, a path or a query (U40): "index.json is not on the server at
+   <host> (HTTP 404) ...", "the tile is not on the server at <host> ...", "the data server at <host> does not
+   answer (<kind>)". An index is fetched when a download or an estimate (7) first needs it (under a lock per base:
+   eight threads download), is kept in memory for 300 s (P11) and then taken again; the start check never asks it
+   (3). Index requests take the host's rate turn; tile requests take the host's slot as today.
 3. **The start check** (U6, U7, P10). `unavailable()` stays as it is today: no request, and it knows only "no
-   base at all". The question "does the mirror answer" is a second one, `reach`, asked only where a caller
+   base at all" (a wrong setting raises `MirrorUrlError` there, C.1). The question "does the mirror answer" is a second one, `reach`, asked only where a caller
    passes `reach=True`; everywhere else the default is off, so nothing new can ask by accident.
-   `reach` fetches the native resolution's `index.json` of each layer of the source that has a remote base:
-   `timeout=(10, 20)` (10 s to connect, 20 s for each read), two attempts. An index it gets is kept as in 2; a
-   failure is remembered for 60 s, and only for later `reach` calls (so a quick lane that lives long neither
-   repeats the wait at every estimate nor keeps an outage). "Does not answer" is: no HTTP answer, any 5xx (a 503
-   too: the mirror itself refuses only with 429, so a 503 comes from the proxy in front and means the mirror
-   behind it is not reachable), or a 404 of the index (the dataset is not published). A 429 is an answer: the
-   mirror is there and busy, the source is used, and the download's own retries deal with it. A source that does
-   not answer counts as unavailable
-   with "the data copy at <host> does not answer" (or its status), also when the cache holds every tile (U7):
-   `--source auto` takes the next source as today, a source named by `--source` is an error as today.
+   When the local folder comes first (it holds the dataset), `reach` answers without a request and nothing falls
+   back (U38); a folder without the averaged tiles then reads them from the server with no start check, and a
+   server that does not answer fails the phase (the mixed case).
+   `reach` asks the data server for its list of datasets, `/v1/datasets.json` (written by `mirror_publish.py`
+   after every publish and unpublish, B), never a product's index: one request for all products of a process,
+   `timeout=(10, 20)` (10 s to connect, 20 s for each read), two attempts, kept in memory for 300 s as an index
+   is, and fetched once for the threads that wait for it (they take its answer, a failure too).
+   - **Listed**: a product whose mirror folder is a `path` of the list answers.
+   - **Not listed** (U50): the product is not published there, and the source is unavailable as it was before
+     the mirror, with "<layer>: <product's folder> is not published on the data server at <host>, and no local
+     copy is set up":
+     `--source auto` takes the next source of the place, a named source is an error. Nothing is remembered as the
+     server's failure, and a dataset starts working by itself once it is published (at the latest 300 s later,
+     when the kept list is taken again).
+   - **No list** ("does not answer"): no HTTP answer, any 5xx (a 503 too: the mirror itself refuses only with 429,
+     so a 503 comes from the proxy in front and means the mirror behind it is not reachable), a 404 of the list (a
+     server that publishes nothing has none) or a list that cannot be read. A failure is remembered for 60 s,
+     and only for later `reach` calls (so a quick lane that lives long neither repeats the wait at every estimate
+     nor keeps an outage). The source counts as unavailable with "<layer>: the data copy at <host> does not
+     answer (<detail>)", also when the cache holds every tile (U7): `--source auto` takes the next source as
+     today, a source named by `--source` is an error as today.
+   - **A 429**: an answer at once (the start check stops at the first 429 with no further attempt or pause,
+     `net._get(stop_on=)`; U39), and the product counts as listed; the download's own retries deal with the busy
+     server.
+   A listed product whose index is missing or cannot be read fails its phase at the index (U6's "fail in the
+   middle", as an index that disappears during a search; after a 429 an unlisted product the same). Another
+   remote base (a catalogue URL, none today) is asked for its index as before. Where the catalogue gives a
+   region's next source (Madeira's for its islets), `auto` takes it, as `main` does with a local copy holding
+   Madeira but no islet: the run names Madeira's source and the gap filling fills the islet.
    Who passes `reach=True`, and nobody else:
    - **the first planning of a search**: the command line's search, and a web job's first phase. The reason of a
      fall-back is in that phase's messages, which the page shows.
@@ -450,8 +563,9 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
      the band plans (never inside `band_plan`, which the workers share). Down is an error and the run does not
      start, as an unavailable own source already stops it today; that holds for a resume whose tiles are all
      cached too (a country counted on the fall-back's data would be useless, and the rule stays one rule).
-   - **The probe** (`findaline.py sources check`): its row for these layers shows the index's state, and it reads
-     the first tile the index lists with data.
+   - **The probe** (`findaline.py sources check`): its row for these layers shows the start check's state and
+     reads the first tile the product's index lists with data; a product the list does not name is a row with
+     that note, not a failure.
    Who never does:
    - **Later phases of the same job never choose again**: `plan_search` gets the first phase's source as an
      argument of its own (the job's stored `source`, which the first phase already writes and which holds
@@ -473,8 +587,8 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
    - **The web process**: it reads names, credits and orthophoto addresses of the catalogue only; a test asserts
      that building the form's schema, the about page, the privacy page and `ortho_origins` makes no request.
 4. **Fail in the middle.** A tile that cannot be downloaded after `net._get`'s attempts (429 and 503 with its
-   longer back-off) ends the phase with the existing "Could not download ..." text; running it again resumes
-   from the cache. A refusal because the mirror is full (A.5's totals: a fifth installation at the same time) is
+   longer back-off) ends the phase with the existing "Could not download ..." text, naming the data server by its
+   host (C.2); running it again resumes from the cache. A refusal because the mirror is full (A.5's totals: a fifth installation at the same time) is
    such a failure (P8).
 5. **Averaged resolutions** (Slovakia's 2 m, 5 m) are available over HTTP whenever a remote base is set, as today
    (P12): the choice must be the same in every phase and process, so it cannot depend on a request. `publish`
@@ -484,17 +598,21 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
    block mean of the native ones, byte for byte), it only costs downloads.
 6. **Good manners** (P25). `net.HOST_SLOTS_OF` gets the mirror's host with 2 connections and `net.HOST_RATES_OF`
    with 600 requests a minute: half a visitor's per-address numbers, so two installations behind one address
-   fit. Index requests take no slot, so an installation can have 2 tiles and an index or two under way: within
+   fit. A data server under another address (a LAN, the test stack) takes the same manners (`net.LIMITS_AS`,
+   `net.limits_host`). Index requests take no slot, so an installation can have 2 tiles and an index or two under way: within
    the 4 requests an address may have at once, for visitors and for the trusted class alike. Accepted: several
    processes of one machine fetching indexes at the same moment can pass 4, and a request refused three times
    then fails its phase, which is run again (rare: an index is fetched once per process and 300 s). Requests to the
    mirror pass `timeout=(10, 300)` (today one 300 s value serves as both: a dead home server would cost 3 x
    300 s a tile).
-7. **Estimates.** For a remote base `GridTiles.estimate` uses a kept index when there is one (null tiles are not
-   counted); without one it counts every tile of the grid that is not cached, an upper bound. A local folder's
-   estimate stays as it is today.
-8. **Tests and tools.** `tests/conftest.py` sets `FINDALINE_MIRROR_URL` to empty for every test.
-   `tests/regression.py` sets it to empty too unless `--mirror-url <address>` is given; an entry with
+7. **Estimates.** For a remote base `GridTiles.estimate` uses the product's index: the kept one, or fetched when
+   tiles are to be downloaded (`TileBases.index_for_estimate`; the start check keeps none), so null tiles are not
+   counted. That fetch has the start check's manners (`timeout=(10, 20)`, two attempts, a 429 ending it at once),
+   so it waits at most `ESTIMATE_WAIT_MAX`, 96 s, below the quick lane's 120 s; when it fails it counts every
+   tile of the grid that is not cached, an upper bound, and never
+   fails. A local folder's estimate stays as it is today.
+8. **Tests and tools.** `tests/conftest.py` sets `FINDALINE_MIRROR_URL` to `off` for every test (U37).
+   `tests/regression.py` sets it to `off` too unless `--mirror-url <address>` is given; an entry with
    `needs_path` runs when the folder exists (as today) or when `--mirror-url` is given. Tools that are online by
    nature (`check_source`, the studies) use the default address.
 
@@ -506,8 +624,14 @@ env examples). New: `Layer.reach()` and `Reader.reach()` (default: None, "answer
 reader's), `ResolutionBases.reach` (the native reader's), `TileBases.reach`; `choose.source_unreachable(source)`
 (the layers' `reach`); `choose_source(..., reach=False)`, which asks it after `source_unavailable` where today's
 three lines ask that (`choose.py:84, 97, 100`); `search.plan_search(..., reach=False, source_id=None)`;
-`net._get` gets `binary_types=("json",)` from the index's caller, a `retries=` keyword (default as today), and
-the timeout as a tuple (no change for other callers). `source_unavailable` and its other callers
+`net._get` gets `binary_types=("json",)` from the index's caller, a `retries=` keyword (default as today), a
+`stop_on=` tuple of statuses that end the attempts at once (the start check's 429, U39), and the timeout as a tuple
+(no change for other callers). Also new: `tilebases.MirrorUrlError`, `OFF`, `IndexMissing`, `IndexUnreadable` (an
+index of another shape or another `"block"` than `BLOCK`, treated as a mismatch), `net.LIMITS_AS` and
+`net.limits_host` (C.6), `net.TurnTimeout` (a rate turn not had in time); for U50 `tilebases.DATASETS_PATH`
+(`v1/datasets.json`), `tilebases.NotPublished` (reach's answer for an unlisted product: a text, not a failure),
+`tilebases._published(origin)` (the kept list of an origin's product paths) and `_checked_list` (the paths of a
+`datasets.json`, else `IndexUnreadable`), `TileBases.index_for_estimate()` (C.7). `source_unavailable` and its other callers
 (`filling.py:1325`, `country.py:1454`, `probe.py:600`) do not change, except that the probe also asks `reach`.
 
 ### Files and pairs
@@ -515,7 +639,7 @@ the timeout as a tuple (no change for other callers). `source_unavailable` and i
 `sources/choose.py`, `country.py` (the main process's one reach), `search.py` (`plan_search`'s two new arguments
 and the call of `choose_source`), `findaline.py` (the command line's search passes `reach=True`), `jobs.py` (only
 what passes `reach=True` in the first phase and the quick lane's estimate, and the stored source to the later
-phase), `sources/probe.py`, `sources/net.py`, the texts of the three sources in the catalogue ("from the local
+phase), `sources/probe.py`, `sources/net.py`, the texts of the sources that read the mirror in the catalogue ("from the local
 mirror" becomes "from the project's data server or a local copy") and with them the generated table of
 `README.md` (by `tools/source_docs.py`, which C changes only if the texts need it; the rest of README is wave
 2's); tests: `conftest.py`, `http_server.py` (a list of the requests it served, if it has none), `regression.py`,
@@ -524,7 +648,8 @@ mirror" becomes "from the project's data server or a local copy") and with them 
 `tilebases.py` too), `test_probe.py`, a new `tests/test_mirror_client.py`.
 Pairs of `.claude/rules/sources.md` and `providers.md` to keep: the patched names (`net._get`, `net._sleep`
 called and patched through their module); every request path to a rated host takes its turn; a new numeric limit
-goes into the dicts with its source; the mirror's `origin` ↔ `GridTiles(origin=)`.
+goes into the dicts with its source; the mirror's `origin` ↔ `GridTiles(origin=)`; the client's reading of
+`datasets.json` ↔ `mirror_publish.write_datasets`' format (U50; `.claude/rules/mirror.md`).
 
 ### Tests
 With `tests/http_server.py` serving a fixture mirror: the same cache files as from the folder, byte for byte;
@@ -533,19 +658,27 @@ error and leaves no row and no file; a tile, then an index, with a wrong hash; a
 (old index, new tiles) heals by one refetch; the index 404 for a moment heals after the pause; `partial` goes to
 the next base; the server down at the first planning: unreachable with the reason within the timeouts (the
 test's clock is the timeout's value, never a wait), `auto` falls back, a named source raises; a 429 at the
-start check is "answers" and a 503 is "does not answer"; a remembered failure expires after 60 s and an index after 300 s of the patched
-clock; a later phase with the mirror down and the tiles cached completes on the first phase's source, with the
+list is "answers" (the product counts as listed; an unlisted product then fails its phase with no file and no
+row) and a 503 is "does not answer"; the list asked once for two products and by eight threads, and its failure
+taken by the threads that wait; an unlisted product under `auto` (passed over, the next source, nothing
+remembered, no index request) and named (refused with the text), also the catalogue's islet on a server
+publishing only Madeira; the list's 404, 503, no answer, and a list that is not `datasets.json`; the list kept
+300 s and a dataset published meanwhile starting by itself; a later phase asking no list; the estimate after a
+start check with the index's numbers (the upper bound when its index fails); the probe's row of an unlisted
+product (not a failure); each failure text as the public site stores it holding the host alone; a remembered
+failure expires after 60 s and an index after 300 s of the patched clock; a later phase with the mirror down and the tiles cached completes on the first phase's source, with the
 search's hash and `run.json`'s `source` as the user gave it; a job that fell back in its first phase computes on
 the fall-back's source although the mirror is back; down in the middle: the phase's error, and a second run
 completes from the cache; a finished run's profile and 3D patch with the mirror down and the tiles cached, also
 within 60 s of a failed estimate in the same process; an averaged grid over HTTP reads the averaged tiles, and
-without their index fails clearly; eight threads fetch the index once; `FINDALINE_MIRROR_URL` empty: no request
-at all; the local folder wins; a neighbour whose mirror is down is skipped with today's text; a country run's
+without their index fails clearly; eight threads fetch the index once; `FINDALINE_MIRROR_URL` `off` or empty: no
+request at all; the local folder wins; a neighbour whose mirror is down is skipped with today's text; a country run's
 main process reaches once, stops when its own source does not answer, and its workers never reach; the web
 process's pages make no request.
 
 ### Acceptance
-- Results pinned: regression rows R13, R21, R34, R80 and R81 from an empty cache with `--mirror-url` (the mirror's
+- Results pinned: regression rows R13, R21, R34, R80, R81, R86, R87 and R88 from an empty cache with
+  `--mirror-url` (the mirror's
   test stack on the PC, serving a copy on a local disk of exactly the tiles those rows need with their indexes:
   Docker Desktop showed the mapped network drive as empty) give the counts and the `lines.csv` sha256 of the
   baseline. No baseline changes. The copy is made by running those rows once from the folder into an empty
@@ -566,10 +699,13 @@ process's pages make no request.
 - When the mirror's visitor total is full (four installations downloading at once), a further installation's
   phase fails after about a minute of retries (an estimate from `net._get`'s pauses; P8) and is run again.
 - Index traffic: about 1.2 MB per Slovak product and process before compression, a few percent of a small
-  search; A.3's gzip cuts it.
+  search; A.3's gzip cuts it. The start check adds one small request per process (the list, kept 300 s); an
+  estimate that has tiles to download takes the product's index, which the download then reuses.
+- A dataset cut but not yet published (U50) is unavailable without a local copy until it is published; the next
+  source of the place takes over (for an islet Madeira's when Madeira's is available, by the catalogue's order).
 
 ### Needs the user's word
-Nothing before the build; the numbers of 3 and 6 are confirmed or corrected after M2.
+Nothing before the build; the numbers of 3 and 6 were confirmed after M2 (U94).
 
 ## 7. Solution D: the site's switch, the monitoring and the docs
 
@@ -589,10 +725,14 @@ U4, U13, U15, U16; P3, P26.
 3. **The rules** (to the site's contact point; ids the next free ones of the site's group, titles starting with
    the id as the pinned set requires): "Mirror down", no good answer for 45 minutes (P26: short maintenance stops
    of the home server are normal and must not page), written so that a vanished series alerts too, as the
-   existing "source silent" rule is; "Mirror certificate", as the site's. One row on the *Site* dashboard: up,
-   answer time, certificate days. The VPS's own traffic to the mirror shows in the existing per-host counts.
-4. **The monthly item** in `docs/deployment.md`: check the mirror's base image for a newer digest, run
-   `mirror_publish.py stats` and `clean`. Nothing reminds automatically.
+   existing "source silent" rule is, and as one alert instance (one series without labels: each host's best
+   result code of the last 3 minutes, then the worst host; 1 when no samples came), so that one wait runs through a
+   gap of the samples in an outage (the code review's S1); one good answer within 3 minutes resets the wait; "Mirror certificate", as the site's. One row on the *Site* dashboard: up,
+   answer time, certificate days; the *Overview* has two tiles of them beside the site's (its test asks a tile
+   for every row with a rule). The VPS's own traffic to the mirror shows in the existing per-host counts.
+4. **The monthly item** in `docs/deployment.md`: check the mirror's base image for a newer digest (the door's
+   too), run `mirror_publish.py stats` and `clean`; after every SWAG update, attach SWAG to the mirror's network
+   again and run the README's check (U42). Nothing reminds automatically.
 5. **The privacy page** (`web.privacy_page`, whose texts are in `web.py` itself) gets one entry, always shown,
    pinned in the privacy test of `tests/test_public.py`.
 6. **The docs**: `docs/deployment.md` (a new section for the mirror machine; that file's section 10, the VPS's
@@ -603,7 +743,7 @@ U4, U13, U15, U16; P3, P26.
    `docs/code-map/*`, the rules `deploy.md`, `providers.md`, `sources.md`, `metrics.md`, `web-app.md` (the new
    pairs named in A, B, C and below), and `CLAUDE.md`'s line on personal data in logs (A.7, U26).
 
-### Privacy texts (approved by the user on 2026-11-15: U13 "yes", U22 "a"; used word for word)
+### Privacy texts (approved by the user on 2026-11-15: U13 "yes", U22 "a"; the last two sentences as changed on 2026-11-16: U46, U47; used word for word)
 A visitor of the public site never reaches the mirror: the site's server asks it.
 - Privacy page, a new entry with its title and its text as the page's other entries have them. Title:
   "Elevation data from the project's data server". Text: "The elevation data of some regions come from a data
@@ -611,9 +751,9 @@ A visitor of the public site never reaches the mirror: the site's server asks it
 - README and the mirror's landing page: "An installation that downloads from the project's data server shows it
   its address and which tiles it asks for. The server writes down the time, the address, the dataset (not the
   tile), the size, whether the request was served or refused, how long it took, and the Find-a-Line version of
-  each request. It keeps this for 14 days, to hold the service within its limits, and uses it for nothing else.
-  To never contact the data server, set `FINDALINE_MIRROR_URL` to empty; the regions it serves then use coarser
-  data."
+  each request. It keeps this for at most 14 days, to hold the service within its limits, and uses it for nothing
+  else. To never contact the data server, set `FINDALINE_MIRROR_URL` to `off`; the regions it serves then use
+  coarser data."
 The pair to keep: these texts ↔ the log's keys and its 14 days (A.7); another key or period changes the texts,
 with the user's yes. (The log's status and "the limit that refused" are "whether the request was served or
 refused"; the log has no other key than the sentence names.)
@@ -622,7 +762,7 @@ refused"; the log has no other key than the sentence names.)
 No stored data changes on the site. `findaline.env.example` gains the commented `FINDALINE_MIRROR_URL`.
 
 ### Files and pairs
-`deploy/monitoring/telegraf.conf`, `grafana/provisioning/alerting/rules.yaml`, the *Site* dashboard,
+`deploy/monitoring/telegraf.conf`, `grafana/provisioning/alerting/rules.yaml`, the *Site* and *Overview* dashboards,
 `tests/test_monitoring.py` (its pinned sets of rules, inputs and tags), a new `tests/test_mirror_pairs.py` (the
 server's limits against the client's entries; Telegraf's address against `MIRROR_URL`; the SWAG conf's and the
 server config's host) and the one line of `tests/conftest.py` that exempts that module from the emptying of the
@@ -654,25 +794,26 @@ Nothing before the build.
 | S4 | Slow readers hold connections | A.6 timeouts; the caps bound what one address and all together can hold; SWAG's shared connections are far above the totals | a reader just above the timeouts holds its slots; no minimum-speed rule exists |
 | S5 | Range and query tricks | A.4 one range; A.2 a query is refused; no cache in front | - |
 | S6 | Reading outside the data | only `<root>/public` served, read-only; A.2's patterns; symlinks, dot-files, `.part` refused; staging and trash outside the served tree | - |
-| S7 | The home network | no published port; an internal network with SWAG as the only neighbour; nothing mounted but public data and the log folder; no secret in the container | SWAG and the router, as before the mirror; the home address is now tied to the project's name (U9) |
+| S7 | The home network | no published port of the mirror's project (the publishing door: one port on one address of the server, `PUBLISH_ADDRESS`, reached by the PC on the LAN or over the operator's own VPN or WireGuard link, never forwarded from the internet; U27, U33, U89); an internal network with SWAG as the only neighbour; nothing mounted but public data and the log folder; no secret in the container | SWAG and the router, as before the mirror; the home address is now tied to the project's name (U9); the operator's link, outside the repository |
 | S8 | A dataset without the right to redistribute | B's `PUBLISHABLE` with the user's approval is the only way in; cards and the landing page carry the credits; `unpublish` | a wrong row, reviewed like code; Madeira's weak basis (U11) |
 | S9 | Damaged, cut-short or mixed tiles | C.2: sha256 before any use; B: staging, verify, moves | a re-encoding published with `--same-values` that does change values: the promise is the publisher's |
 | S10 | The home server taken over serves crafted tiles | U8: the mirror is trusted as every provider is; TLS; the worker on the VPS runs in its hardened container | every installation trusts the home server's files (the user's decision; pinning hashes in the repo was the alternative) |
-| S11 | Privacy of those who download | A.7's log; SWAG's access log off for the host; the texts of D | the operator can see live traffic; said in the text |
+| S11 | Privacy of those who download | A.7's log; SWAG's access log off for the host; the texts of D | the operator can see live traffic; said in the text; the door's own log holds the publishing PC's address (on the LAN or the operator's link) and the key's fingerprint (U43, U89) |
 | S12 | The site depends on a home server | U6, U7; later phases and finished runs work from the cache (C.3); D's alert | coarser results on mirrored ground while it is down |
 | S13 | A limit set wrong throttles the site or opens the line | the site's class; the client at half the limits; the pair's test; the start script refuses a bad trusted list | several installations behind one address share one allowance; a fifth installation at the same time fails its phase and repeats it |
 | S14 | An old image nobody updates | digest pin; the monthly item (D.4) | a manual step at home |
 | S15 | The public copy fills the storage | B: the free-space check before a publish; `clean` | - |
-| S16 | A request body or an odd method reaches SWAG's disk | A.8: SWAG refuses other methods and bodies above 1 KB itself | - |
-| S17 | The publishing key or the PC is taken over: whoever can write `<root>/public` decides what every installation downloads (with U8, the same outcome as S10) | the README requires a key used for publishing only, never placed on the VPS or in the repository, and an account that can write `<root>` and nothing else of the server (E2 says how, per platform); the public folder is read-only for the container | the PC that publishes is a trusted machine; where the server's SSH offers only its administrator, the key is the whole server's key until E2 is solved |
+| S16 | A request body or an odd method reaches SWAG's disk | A.8: SWAG refuses other methods and bodies above 1 KB itself; the mirror answers 413 to a body above 1 KB sent to it directly (A.2) | - |
+| S17 | The publishing key or the PC is taken over: whoever can write `<root>/public` decides what every installation downloads (with U8, the same outcome as S10) | the README requires a key used for publishing only, never placed on the VPS or in the repository; the key opens only the publishing door (U27, U32, U33): SFTP and `sha256sum` under `<root>`, nothing else of the server, its port on one address of the server (`PUBLISH_ADDRESS`, U89), reached over the LAN or the operator's own link; the public folder is read-only for the container | the PC that publishes is a trusted machine; the key can read the door container's own host key; the setuid bit over SFTP is not refused by the door (the README names `nosuid`: the planner's ruling) |
 
 ## 9. Still open
 
 | Id | What | Who | When |
 | --- | --- | --- | --- |
-| M2 | On the real server through SWAG, from the VPS and from one outside address: the first byte of a tile after ten idle minutes under 2 s; two connections sustain at least 80 % of twice the class's rate; the per-address cap refuses through the real SWAG; a 5 km Slovak search's tiles (189 MB) arrive within 45 s at a visitor's limits (24 s by the numbers). Numbers of A.5, C.3 and C.6 confirmed or corrected with the user | measured at rollout step 3 | rollout |
-| E1 | The server's shell has `sha256sum` (inferred from its package list, not seen), and rclone's behaviour on a refused rename | checked at the first install; without `sha256sum` publishing runs with `--read-back` | rollout step 1 |
-| E2 | Which account the publishing key opens on the server, and what it can write (not established; some platforms give SSH to the administrator only). Ways: an account limited to `<root>`; a key restricted to SFTP inside `<root>`; a small SFTP container that mounts only `<root>` and listens on the LAN alone | the user, with the build's contract (the server agent's README then describes the chosen way) | before rollout step 1 |
+| M2 | On the real server through SWAG, from the VPS and from one outside address: the first byte of a tile after ten idle minutes under 2 s; two connections sustain at least 80 % of twice the class's rate; the per-address cap refuses through the real SWAG; a 5 km Slovak search's tiles (189 MB) arrive within 45 s at a visitor's limits (24 s by the numbers). Numbers of A.5, C.3 and C.6 confirmed or corrected with the user | closed in rollout step 3 (2026-11-22): from one outside address the first byte 0.11 s, two connections 7.41 MB/s (mark 6.40), the cap 4 served and 4 refused through the real SWAG, the 189 MB in 25.5 s; from the VPS the first byte, the cap and the 45 s mark met, the two connections' mark not met at the time of the measurement; the numbers kept as they are (U94); LV17 through the real SWAG left to M4 | - |
+| M4 | LV17 of `mirror_check.sh --live` through the real SWAG: held downloads show that SWAG streams a tile (`X-Accel-Buffering`) instead of buffering it; it needs tiles of 16 MB or more | when the first dataset with such tiles is published (batch 6's 0.5 m tiles, about 22 MB) | that dataset's publishing |
+| E1 | rclone's behaviour on a refused rename (the door's `sha256sum` is its own, U32; the tool proves the server's hashing on its lock file before any copy, U35) | closed in rollout step 1 (2026-11-20): the four folders on one device and one mount, and a folder moved from `staging` to `trash` by a server-side move through the door; the README requires one mount (U34) | - |
+| E2 | Which account the publishing key opens on the server | closed by U27, U32, U33: the publishing door, an SFTP container of the repository's own (`deploy/mirror/publish/`) | - |
 | - | The home server's facts (platform, uplink, the proxy's certificates, storage, how the PC reaches it, power and maintenance, the VPS's transfer quota) | answered by the user on 2026-11-15 and, by U16, kept out of the repository; what they set stands above as requirements | - |
 
 Dropped from the plan, with the reason: the measurement of the site's demand (M3): the VPS's transfer allowance is
@@ -683,17 +824,18 @@ total (U21), the log's keys (U22).
 ## 10. The order of building
 
 In a later session, under `docs/agent-workflow.md`. Before wave 1 the planner writes the contract; the server agent's README needs E2's answer (how the
-publishing key reaches only the mirror's folders), which the user is checking.
+publishing key reaches only the mirror's folders), given by U27, U32 and U33 (the server agent built the door too).
 
 | Wave | Agent | Builds | Owns |
 | --- | --- | --- | --- |
 | 1 | server | solution A | `deploy/mirror/**`, `tests/test_mirror_deploy.py`, `tests/mirror_check.sh`, the job `mirror` of `.github/workflows/ci.yml` (the only edit of that file in wave 1) |
 | 1 | publish | solution B | `tools/mirror_publish.py`, `tests/test_mirror_publish.py`, the card texts in `tools/sk_tiles.py` and `tools/mirror_tiles.py` with the tests that pin them |
 | 1 | client | solution C | the files of C's "Files and pairs" |
-| 2 | site | solution D; the pair tests; the regression and `check_source` acceptance over HTTP against the test stack | the files of D's "Files and pairs"; `docs/code-map/tools.md` gets the publish tool's row here |
+| 2 | site | solution D; the pair tests; CI's rclone; the docs, the rules and this text in line with the build | the files of D's "Files and pairs"; `docs/code-map/tools.md` gets the publish tool's row here |
+| 2 | accept | the regression and `check_source` acceptance over HTTP against the test stack (split from "site" by the planner, 2026-11-16) | nothing in the repository |
 
 Wave 1's three agents touch no common file. The publish tests are skipped in CI until wave 2 installs rclone
-there; the publish agent runs them on the PC. Effort: A medium, B medium, C high (the search's source choice
+there (it does: the test parts of CI install rclone 1.76.0 by its sha256); the publish agent runs them on the PC. Effort: A medium, B medium, C high (the search's source choice
 across phases, results pinned), D medium. Every build passes the scope reviewer and the code reviewer (high for
 C). Milestones that come first in the briefs: B proves its rclone commands on a throw-away SFTP server; C
 traces the two phases in `jobs.py` and writes the later-phase test before the change.
@@ -707,10 +849,18 @@ step 4.
 The whole build enters `main` as one squash at step 4. Steps 1-3 therefore run the mirror stack and the publish
 tool from the task's branch: `deploy/mirror/` is copied to the home server from that branch.
 
-1. The DNS record of `<host>`; the stack on the home server from A's README; SWAG attached to its network; the
-   name added to SWAG's certificate in a maintenance stop (A's Risks); `mirror_check.sh --live` with an empty
-   public folder; E1.
-2. Publish Madeira (0.33 GB), check; then Valle d'Aosta, then Slovakia; `verify` on the remote after each.
+1. The DNS record of `<host>`; the stack on the home server from A's README; SWAG attached to its network
+   (`docker network connect findaline-mirror_mirror swag`, U42); the name added to SWAG's certificate in a
+   maintenance stop (A's Risks); the publishing door (`PUBLISH_ADDRESS`, the server's address on the
+   operator's own link (U89), `PUBLISH_PORT`, `PUBLISH_KEYS`; its binding checked with
+   `docker compose port sftp 2222`; one mount for `<root>`, U34); `mirror_check.sh --live`
+   with an empty public folder; E1. `--live`'s cap check through the real SWAG (LV15: eight requests at once from
+   one address) needs a tile of 1 MB or more, so it runs after the first publish (Madeira's tiles are about
+   1.8 MB); LV17 (held downloads: SWAG streams instead of buffering) needs tiles of 16 MB, which no dataset has
+   today (M4).
+2. Publish Madeira (0.33 GB), check; then its islets Porto Santo, the Desertas and the Selvagens (U53, U55; 3.5 MB
+   in all); then Valle d'Aosta, then Slovakia; `verify` on the remote after each. Step 1's cap
+   check (LV15) keeps Madeira's tiles: no islet has a tile of 1 MB.
 3. M2 on the real path; the user confirms or corrects the numbers; a rework round if they change.
 4. The squash into `main` (the client and the address in one commit), push; the VPS updated (its Telegraf then
    checks a mirror that already answers).
@@ -724,7 +874,7 @@ Follow-ups, not part of the build's definition of done:
    still within the in-memory download), several products under one dataset folder with one card, folders with
    a hyphen in their name. By that task's reading of the terms (2026-11-15): Wallonia, Valle d'Aosta's surface
    model, Saint Vincent, South Australia and the Australian Capital Territory can be published on a licence;
-   Madeira's other islands rest on the same catalogue statement as Madeira; New South Wales cannot be published
+   New South Wales cannot be published
    until its owner answers; Hong Kong cannot, and is planned as an ordinary on-demand source, so it needs no
    mirror dataset. A dataset that cannot be published and is kept as an own copy would reach the site only by a
    local copy on the VPS, an exception to U4 that the user decides then. Each new dataset needs its
@@ -742,11 +892,13 @@ The build is done when every line below holds; each names its test or command.
 
 **The mirror stack (A)**
 - [ ] `pytest tests/test_mirror_deploy.py` green.
-- [ ] `tests/mirror_check.sh` in the CI job `mirror`: every line PASS, and its self-test FAILs every check with
-      the behaviour switched off.
-- [ ] `tests/mirror_check.sh --live https://<host>`: every line PASS (the cap through the real SWAG among them).
+- [ ] `tests/mirror_check.sh` in CI's job `mirror`, a workflow of its own (`.github/workflows/mirror.yml`: run when
+      the mirror's files, the check script, its static test or the workflow change, and by hand: U49; at most 150
+      minutes): every line PASS, and its self-test FAILs every check with the behaviour switched off.
+- [ ] `tests/mirror_check.sh --live https://<host>`: every line PASS (the cap through the real SWAG among them,
+      LV15, from 1 MB tiles); LV17 a SKIP until a dataset has tiles of 16 MB (M4).
 - [ ] On the home server the README's check commands: read-only root, no capability, no published port, no route
-      out, no log file older than 14 days.
+      out, no log file older than 14 days; SWAG attached (U42); the door's port on `PUBLISH_ADDRESS` only (`docker compose port sftp 2222`, U89).
 
 **The address contract and the publish tool (B)**
 - [ ] `pytest tests/test_mirror_publish.py` green on the PC and in CI's Linux and Windows jobs with rclone.
@@ -758,10 +910,11 @@ The build is done when every line below holds; each names its test or command.
 **The client (C)**
 - [ ] `pytest tests/test_mirror_client.py tests/test_sources.py tests/test_madeira_aosta.py tests/test_rates.py
       tests/test_probe.py tests/test_regression_needs.py` green; no test asks the real mirror.
-- [ ] `tests/regression.py --mirror-url ...` for R13, R21, R34, R80, R81 from an empty cache: the baseline's
+- [ ] `tests/regression.py --mirror-url ...` for R13, R21, R34, R80, R81, R86, R87, R88 from an empty cache: the
+      baseline's
       counts and `lines.csv` sha256; the 5 m Slovak search equal to the folder's.
-- [ ] `findaline.py sources check slovakia madeira aosta_valley` and `tools/check_source.py` for the three pass
-      over HTTP.
+- [ ] `findaline.py sources check slovakia madeira aosta_valley porto_santo desertas selvagens` and
+      `tools/check_source.py` for the six pass over HTTP.
 - [ ] `git log`: the client and `MIRROR_URL` enter `main` in the same commit.
 
 **The site and the docs (D)**
@@ -775,7 +928,7 @@ The build is done when every line below holds; each names its test or command.
       mirror's log are not the app's data).
 
 **Rollout**
-- [ ] Steps 1-5 of section 11 done, each on the user's word; M2's marks met or the numbers corrected by the user.
+- [ ] Steps 1-5 of section 11 done, each on the user's word; M2's marks met, or the numbers confirmed or corrected by the user.
 
 ## 13. Later payloads: what this design keeps possible
 

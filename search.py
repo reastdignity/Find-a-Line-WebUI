@@ -407,14 +407,20 @@ def _print(kind: str, text: str):
 
 def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] = None,
                 with_margin: bool = True, limits: Optional[Limits] = None, memory: Optional[int] = None,
-                tiled: bool = True) -> Plan:
+                tiled: bool = True, reach: bool = False, source_id: Optional[str] = None) -> Plan:
     """Choose the source and the grid, and describe the search. The grid covers the area
     and _margin around it, unless with_margin is False (a profile needs no anchor values).
     With limits, a search over them is refused (SearchError) before anything costly.
     `memory`: the bytes this search may use (a compute slot of the web worker: slot_memory),
     for its tiles and Plan.memory, with or without limits; None: the memory free now (with
     limits; without them Plan.memory stays None). tiled=False: an area gets no tiles (its grid
-    has its area_shape; the country layer cuts it into fixed_tiles itself)."""
+    has its area_shape; the country layer cuts it into fixed_tiles itself).
+    reach: the first planning of a search (the command line's, a web job's download phase) and an
+    estimate also ask whether the project's data server answers (choose_source(reach=True): a source whose
+    copy does not answer is unavailable now); every other planning never does. source_id: the source a
+    job's first phase chose (jobs.source), which a later phase takes as named instead of choosing again;
+    params.source stays as the user gave it (the search's hash, a tiled area's resume, run.json). Ignored
+    with an elevation file; None chooses as before."""
     emit = on_event or _print
     src.used_data.clear()  # several searches may run in one process
     cache.check_layout(paths.cache)
@@ -447,11 +453,14 @@ def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] 
                               f"a smaller --radius", "circle_too_large", km2=round(km2, 1), max=limits.area_km2_max)
     _check_box(limits, *_area_box(area))  # before the source is chosen (its country) and any data
 
+    chosen = source_id if source_id in src.SOURCES and not params.elevation_file else None
     try:
-        source, reason = src.choose_source(params.source, center_lat, center_lon, paths.cache,
-                                           params.elevation_file, params.surface_file)
+        source, reason = src.choose_source(chosen or params.source, center_lat, center_lon, paths.cache,
+                                           params.elevation_file, params.surface_file, reach=reach and not chosen)
     except ValueError as e:
         raise SearchError.of(e, code="no_source", reason=cache.clean_error(e))
+    if chosen:
+        reason = "chosen when the search started"
     src.OpenTopographyTiles.api_key = params.opentopo_key
     nmpt = params.nmpt_mode
     if nmpt and source.nmpt is None:

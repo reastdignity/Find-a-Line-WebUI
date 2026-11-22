@@ -1,0 +1,40 @@
+# The publishing door's sshd (deploy/mirror/publish): one account, key only, no shell (the gate),
+# no TTY, no forwarding of any kind. sshd runs as the account itself (uid 1000, not root), so it
+# serves that one account and cannot chroot: the account sees the container's read-only files and
+# its own host key besides /mirror (README.md, "The publishing account").
+Port 2222
+PidFile none
+HostKey /keys/host/ssh_host_ed25519_key
+AuthorizedKeysFile /keys/authorized_keys
+StrictModes yes
+
+AllowUsers publish
+PermitRootLogin no
+AuthenticationMethods publickey
+PubkeyAuthentication yes
+PasswordAuthentication no
+PermitEmptyPasswords no
+KbdInteractiveAuthentication no
+HostbasedAuthentication no
+UsePAM no
+MaxAuthTries 3
+LoginGraceTime 30
+
+PermitTTY no
+PermitUserRC no
+PermitUserEnvironment no
+DisableForwarding yes
+AllowTcpForwarding no
+AllowStreamLocalForwarding no
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+GatewayPorts no
+
+PrintMotd no
+ClientAliveInterval 60
+ClientAliveCountMax 3
+
+# The gate decides what the key may run (sftp-server, sha256sum of one file under /mirror)
+Subsystem sftp /usr/lib/ssh/sftp-server
+ForceCommand /usr/local/bin/gate

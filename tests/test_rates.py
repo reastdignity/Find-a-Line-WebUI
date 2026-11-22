@@ -367,7 +367,7 @@ def test_published_limits():
     """The rates and slot caps of the providers' terms (the comments in net.py quote them)."""
     assert net.HOST_RATES_OF == {"data.geo.admin.ch": 36, "wmts.geo.admin.ch": 1080,
                                  "environment.data.gov.uk": 180, "data.geopf.fr": 2160,
-                                 "tiles-eu1.arcgis.com": 54}
+                                 "tiles-eu1.arcgis.com": 54, "mirror.findaline.lukawski.org": 600}
     assert net.HOST_SLOTS_OF == {"data.bev.gv.at": 2, "www.nic.funet.fi": 4, "mirrors.nic.funet.fi": 4,
                                  "servicios.idee.es": 4,
                                  "wcs-mds.idee.es": 4, "malta.coverage.wetransform.eu": 4,
@@ -391,17 +391,20 @@ def test_published_limits():
                                  "www.daten-hamburg.de": 2, "ws.gisetl.lrc.gov.on.ca": 2, "gdi2.geo.bremen.de": 2,
                                  "gic-tokyo.s3.ap-northeast-1.amazonaws.com": 2,
                                  "virtual-shizuoka.s3.ap-northeast-1.amazonaws.com": 2,
-                                 "bulkdata.csdi.gov.hk": 2, "portal.csdi.gov.hk": 2}
+                                 "bulkdata.csdi.gov.hk": 2, "portal.csdi.gov.hk": 2,
+                                 "mirror.findaline.lukawski.org": 2}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())
 
 
 def test_catalogue_hosts_named():
     """Every host with a rate or a cap is one the catalogue names (a renamed host would lose its
     limit); of Funet's two names of the same servers, one is enough. SlackMap's hosts are those of
-    tools/slackmap_data.py (the truth check), not the catalogue's."""
+    tools/slackmap_data.py (the truth check), not the catalogue's; the project's data server is
+    sources/readers/tilebases.py's MIRROR_URL."""
     import inspect
     import sources.catalogue as catalogue
-    text = "".join(inspect.getsource(m) for m in catalogue.FAMILIES)
+    import sources.readers.tilebases as tilebases
+    text = "".join(inspect.getsource(m) for m in (*catalogue.FAMILIES, tilebases))
     funet = {"www.nic.funet.fi", "mirrors.nic.funet.fi"}
     tools = {"data.slackmap.com", "api.slackmap.com"}
     with open(os.path.join(REPO, "tools", "slackmap_data.py"), encoding="utf-8") as f:

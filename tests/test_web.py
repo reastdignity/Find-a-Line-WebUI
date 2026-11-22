@@ -343,7 +343,7 @@ def test_two_jobs_computing_at_once(tmp_path, monkeypatch):
     # The budget given to a phase process is the search's Plan.memory (and sizes its tiles)
     seen = []
 
-    def plan_search(params, paths, on_event, limits=None, memory=None):
+    def plan_search(params, paths, on_event, limits=None, memory=None, **kwargs):
         seen.append(memory)
         raise ValueError("planned")
     monkeypatch.setattr(search, "plan_search", plan_search)

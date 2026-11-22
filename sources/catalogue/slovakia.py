@@ -7,8 +7,8 @@ from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.gridtiles import GridTiles
 
 UGKK_CREDIT = Credit("DMR 5.0 / DMP 1.0 (ÚGKK SR, Slovakia)", "© ÚGKK SR", *CC_BY)
-# Our own copy of ÚGKK SR's national ALS models (tools/sk_tiles.py): only the local mirror
-# (FINDALINE_MIRROR) for now; the Hugging Face base goes here once the tiles are uploaded
+# Our own copy of ÚGKK SR's national ALS models (tools/sk_tiles.py): from the local mirror (FINDALINE_MIRROR) or the
+# project's data server (sources/readers/tilebases.py MIRROR_URL); a further remote base would go here
 SLOVAK_TILES: List[str] = []
 # The factors of the 1 m tiles the dataset also keeps (tools/sk_tiles.py FACTORS): 2 m and 5 m
 AVERAGED = (2, 5)

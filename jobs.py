@@ -1744,7 +1744,11 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
             if params.tile_size is None and os.path.exists(tile_file):
                 with open(tile_file, encoding="utf-8") as f:
                     params = params.model_copy(update={"tile_size": json.load(f)})
-        plan = search.plan_search(params, paths, on_event, limits=limits, memory=memory)
+        # The download phase is the search's first planning: it asks whether the data server answers (a source
+        # whose copy does not answer is unavailable then) and stores the source chosen (set_search); the compute
+        # phase takes that source as named, never choosing again (docs/mirror-hosting/spec.md C.3)
+        first = {"reach": True} if phase == "download" else {"source_id": job["source"]} if job["source"] else {}
+        plan = search.plan_search(params, paths, on_event, limits=limits, memory=memory, **first)
         plan.owner = job["user_id"]  # a tiled search resumes only for the same user
         plan.index_runs = not public  # runs.js of the runs folder: read locally only
         if safeguards is not None:  # the server's switch, also for a user without limits (its memory budget)
@@ -1819,7 +1823,7 @@ def quick_estimate(data_dir: str, request: Dict, limits: Optional[Limits] = None
     try:
         paths = search.Paths(data_dir, folder)
         plan = search.plan_search(params, paths, lambda kind, text: notes.append(_message(kind, text)), limits=limits,
-                                  memory=SLOT_MEMORY)  # the tiles of the job
+                                  memory=SLOT_MEMORY, reach=True)  # the tiles of the job; what a search would do
         result = search.estimate_search(plan)
         search.check_estimate(plan, result)
     finally:

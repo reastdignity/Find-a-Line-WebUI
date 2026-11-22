@@ -1,6 +1,6 @@
 """Portugal: Madeira island's 2 m terrain model and the 5 m terrain models of Porto Santo, the Desertas and the
-Selvagens (DROTe, Região Autónoma da Madeira) as our own 2 km tiles in the local mirror (tools/mirror_tiles.py). The
-rest of Portugal keeps FABDEM / Copernicus (europe)."""
+Selvagens (DROTe, Região Autónoma da Madeira) as our own 2 km tiles from the project's data server or a local copy
+(tools/mirror_tiles.py). The rest of Portugal keeps FABDEM / Copernicus (europe)."""
 
 from typing import List
 
@@ -14,8 +14,9 @@ from ..layers.gridtiles import GridTiles
 # PTRA08 / UTM zone 28N (EPSG:5016), its pixel edges on odd metres (the corner 287 861, 3 666 229), no data -32768
 # and -999, heights in metres with millimetre values (the sea at 0.2-0.3 m). Its valid pixels cover Madeira island
 # only (742 km²); the 5 m ZIP of the same record holds a raster per island (below). tools/mirror_tiles.py cuts it into
-# 2 km tiles on its own pixel grid (origin (1, 1)) into the local mirror (FINDALINE_MIRROR/madeira/dtm/2m); without
-# the mirror the source is unavailable and --source auto takes europe. A frozen survey: a versioned folder. The file
+# 2 km tiles on its own pixel grid (origin (1, 1)) into the mirror (madeira/dtm/2m: FINDALINE_MIRROR, or the data
+# server); without either the source is unavailable and --source auto takes europe. A frozen survey: a versioned
+# folder. The file
 # server (irig-storage.madeira.gov.pt) publishes no request limits: the tool downloads the ZIP once
 MADEIRA_RECORD = ("https://snig.dgterritorio.gov.pt/rndg/srv/por/catalog.search#/metadata/"
                   "abba9a83-cb1c-4d2c-ad1d-ccb592247754")
@@ -47,8 +48,11 @@ MADEIRA_ORTHO = OrthoService("Orthophoto 2023 (DROTe, Madeira)",
 # choice changes about 3 km east of the data, beyond that operation's area (-16.23 E): sea only. The Desertas' file is
 # labelled EPSG:3061 but lies in PTRA08 (EPSG:5016: its coast against OSM's and the orthophoto's, 2026-11-15), the
 # Selvagens' is in PTRA08; both hold -32768 outside, -999 at the coast and coast pixels averaged with -999 (below -1 m:
-# no data, tools/mirror_tiles.py). Without their mirror folders --source auto takes Madeira's source there
-# (unavailable too: then europe)
+# no data, tools/mirror_tiles.py). Where an islet's tiles cannot be had (no local folder, and the data server not
+# set, not answering or not publishing it) --source auto takes the region's next source, Madeira's: available where
+# the data server publishes Madeira or a local folder holds it (its tiles do not reach the islets, so europe fills
+# them under Madeira's name), else unavailable too, and then europe. The data server publishes the islets (the user's
+# U53, U55, 2026-11-17): with it they are read as Madeira is
 MADEIRA_5M_CREDIT = Credit("MDT 5 m (DROTe, Região Autónoma da Madeira)",
                            "DTM 5 m: Direção Regional do Ordenamento do Território (DROTe), Região Autónoma da "
                            "Madeira, 2018-2019", "No conditions apply", MADEIRA_RECORD)
@@ -67,13 +71,13 @@ def _madeira_island(sid: str, name: str, crs: str, folder: str, area: str, box, 
     return Source(
         id=sid, name=f"DROTe {name} (MDT 5 m)",
         description=f"DROTe (Regiao Autonoma da Madeira): terrain model 5 m of {where} (photogrammetry 2018-2019); "
-                    "our own tiles from the local mirror",
+                    "our own tiles from the project's data server or a local copy",
         nmt=layer, countries=("pt",), regions=("pt-30",), crs=crs, default_resolution=5.0, grid_origin=ISLAND_ORIGIN,
         ortho=MADEIRA_ORTHO, credits=(MADEIRA_5M_CREDIT,), fallback="europe", bbox=box,
         listing=ReadmeRow(f"{name} (PT)", "DROTe MDT 5 m, photogrammetry 2018–2019", "–", "DROTe orthophoto 2023"),
         offline=(("pt-30", box),), sample=sample,
-        note=f"{note} Its tiles come from the local mirror (tools/mirror_tiles.py); no surface model, so trees are "
-             "not checked.",
+        note=f"{note} Its tiles come from the project's data server or a local copy (tools/mirror_tiles.py); no "
+             "surface model, so trees are not checked.",
         coverage=Coverage(provider="DROTe", added="2026-11-15", areas=(area,), survey="2018–2019"))
 
 
@@ -92,7 +96,7 @@ SOURCES: List[Source] = [
     Source(
         id="madeira", name="DROTe Madeira (MDT 2 m)",
         description="DROTe (Regiao Autonoma da Madeira): terrain model 2 m of Madeira island (photogrammetry "
-                    "2018-2019), PTRA08 / UTM 28N; our own tiles from the local mirror",
+                    "2018-2019), PTRA08 / UTM 28N; our own tiles from the project's data server or a local copy",
         nmt=MADEIRA_DTM, countries=("pt",), regions=("pt-30",), crs="EPSG:5016", default_resolution=2.0,
         grid_origin=MADEIRA_ORIGIN, ortho=MADEIRA_ORTHO, credits=(MADEIRA_CREDIT,),
         # the sea, and the other islands while their mirror folders are missing, from FABDEM / Copernicus
@@ -103,6 +107,7 @@ SOURCES: List[Source] = [
         # box (27-43.9 N, 18.6 W-4.4 E) holds Portugal and Madeira too
         offline=(("pt-30", (32.6, 32.9, -17.35, -16.6)),), sample=(32.8630, -17.1941),
         note="Madeira's terrain model (DROTe, 2 m, photogrammetry 2018-2019) covers Madeira island only; no surface "
-             "model, so trees are not checked. Its tiles come from the local mirror (tools/mirror_tiles.py).",
+             "model, so trees are not checked. Its tiles come from the project's data server or a local copy "
+             "(tools/mirror_tiles.py).",
         coverage=Coverage(provider="DROTe", added="2026-11-15", survey="2018–2019")),
 ]

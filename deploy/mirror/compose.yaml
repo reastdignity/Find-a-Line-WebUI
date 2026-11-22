@@ -1,0 +1,72 @@
+# Find-a-Line's data server ("the mirror", docs/mirror-hosting/spec.md, section 4): one service,
+# `files`, built from Dockerfile next to this file (nginx's unprivileged image pinned by digest),
+# serving <root>/public read-only and writing its log into <root>/logs. A project of its own,
+# started, updated and stopped without touching anything else on the machine (README.md here).
+#
+# It publishes no port: its only network is its own, internal (no route out of the host), and the
+# reverse proxy in front (SWAG, swag/findaline-mirror.subdomain.conf) is attached to that network
+# as its second one and reaches the service by the alias findaline-mirror-files. For tests and for
+# a mirror on a PC, compose.test.yaml adds a stand-in proxy on 127.0.0.1.
+#
+#   docker compose up -d --build --wait          (from this folder; .env next to this file)
+#
+# Settings in .env (copy .env.example): MIRROR_ROOT, MIRROR_CONTACT, MIRROR_TRUSTED_ADDRESSES,
+# MIRROR_SUBNET, MIRROR_MEMORY. The limits are constants of nginx.conf, not settings.
+
+name: findaline-mirror
+
+services:
+  files:
+    build:
+      context: .
+    read_only: true
+    user: "101:101"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true                   # reaps the cleanup loop's children (start.sh)
+    restart: unless-stopped
+    mem_limit: ${MIRROR_MEMORY:-128m}
+    memswap_limit: ${MIRROR_MEMORY:-128m}
+    pids_limit: 64
+    environment:
+      MIRROR_TRUSTED_ADDRESSES: ${MIRROR_TRUSTED_ADDRESSES:-}
+      MIRROR_SUBNET: ${MIRROR_SUBNET:-172.29.42.0/24}
+      MIRROR_CONTACT: "${MIRROR_CONTACT:?MIRROR_CONTACT missing - copy .env.example to .env}"
+    volumes:
+      # Made by the README's install step; never created by Docker (as root, unwritable for uid 101)
+      - type: bind
+        source: "${MIRROR_ROOT:?MIRROR_ROOT missing - copy .env.example to .env}/public"
+        target: /srv/public
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: "${MIRROR_ROOT:?MIRROR_ROOT missing - copy .env.example to .env}/logs"
+        target: /var/log/mirror
+        bind: {create_host_path: false}
+      - type: tmpfs
+        target: /tmp
+        tmpfs: {size: 16777216}   # 16 MB: nginx's pid and temporary paths, /tmp/mirror
+    networks:
+      mirror:
+        aliases: [findaline-mirror-files]
+    healthcheck:
+      # robots.txt on the loopback (not logged) and the cleanup loop's heartbeat
+      test: ["CMD", "/usr/local/bin/mirror-start", "health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      start_interval: 1s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "1m", max-file: "3"}
+
+networks:
+  # Internal: no route out of the host. SWAG joins it as a second network (README.md, "SWAG");
+  # its name is findaline-mirror_mirror
+  mirror:
+    internal: true
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: ${MIRROR_SUBNET:-172.29.42.0/24}

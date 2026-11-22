@@ -1,0 +1,25 @@
+# tests/mirror_check.sh's layer on top of publish/compose.yaml (the publishing door): the mirror
+# folder and the keys in volumes the script prepares (volumes are merged by their target), so that
+# the keys have the owner and modes sshd demands on any host. Port and address from the script.
+services:
+  sftp:
+    volumes:
+      - {type: volume, source: root, target: /mirror}
+      - type: volume
+        source: keys
+        target: /keys/authorized_keys
+        read_only: true
+        volume: {subpath: authorized_keys}
+      - type: volume
+        source: keys
+        target: /keys/host/ssh_host_ed25519_key
+        read_only: true
+        volume: {subpath: ssh_host_ed25519_key}
+
+volumes:
+  root:
+    external: true
+    name: ${DOOR_ROOT_VOLUME:?}
+  keys:
+    external: true
+    name: ${DOOR_KEYS_VOLUME:?}

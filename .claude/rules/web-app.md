@@ -70,7 +70,8 @@ tests that start Edge).
   `accounts.SESSION_DAYS`/`IDLE_DAYS`/`OAUTH_SECONDS`, `Limits.keep_events_days`, `jobs.DAY` (usage),
   `audit.KEEP_DAYS`, a search's area and country (`jobs.area_km2`/`country`), the account's country of its time zone
   (`users.country`), the operator's statistics without personal data and without a time limit (the metrics:
-  docs/monitoring.md, "Privacy", holds the accepted wording), no IP addresses; a new stored field, cookie or retention
+  docs/monitoring.md, "Privacy", holds the accepted wording), no IP addresses, the project's data server's entry (the
+  user's text of docs/mirror-hosting/spec.md section 7, word for word); a new stored field, cookie or retention
   changes it too. A credit, orthophoto or note naming `sources.YEAR` is filled with the year of the run wherever a
   run's credits are written (`search.save_run`: run.json, ATTRIBUTION.txt, the store's head, so the export's
   lines.geojson) and reads

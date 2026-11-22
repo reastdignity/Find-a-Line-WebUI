@@ -250,7 +250,7 @@ def _main_output(monkeypatch, capsys, tmp_path, **options) -> str:
     """findaline.main with the search stubbed (no grid, no lines): what it prints after a run is saved."""
     import findaline
     import params as pm
-    monkeypatch.setattr(search, "plan_search", lambda params, paths, emit: _Stub(group_distance=20))
+    monkeypatch.setattr(search, "plan_search", lambda params, paths, emit, **kwargs: _Stub(group_distance=20))
     monkeypatch.setattr(search, "estimate_search", lambda plan: _Stub(reasons=[]))
     monkeypatch.setattr(search, "search_lines", lambda plan: (None, None))
     monkeypatch.setattr(findaline, "print_lines", lambda *args: [])
