@@ -679,6 +679,12 @@ rows 87 to 91; `tests/test_viewer.py::test_free_css_on_the_scales` and its `OFF_
   Chrome 122 and Firefox 120 gives `::backdrop` no custom property); a test keeps them the same.
 - **The page's 13 px on html** (`app/base.css`) stays written out: no token reaches html and body, and Leaflet's rem
   sizes (the map's credits before R1's rules) come from it.
+- **One legend** (DESIGN.md row 90): the place map's "Everywhere else" swatch, drawn transparent by
+  `coverageLayer.ts`, is now only the swatch's inset edge of 12 % ink (a 1 px `--line` box before): faint on the
+  box's white, as on the picture the user answered on. The coverage page's legend keeps one item a line (the
+  picture's); the kit alone would pair its items where two fit. The result view's `.v-legend` and the profile's
+  legend (round 6's files) keep their own rules until G6 puts them on `.u-legend-*` (the view's swatches would
+  then gain the inset edge).
 
 ## Step 3d, group G5 (the words): what stays (2026-11-21)
 

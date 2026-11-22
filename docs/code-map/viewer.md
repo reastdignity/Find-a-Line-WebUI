@@ -53,7 +53,8 @@ copied to `runs/_viewer/` by every run. The app (`app/app.tsx`: the app's one in
 removed on 2026-11-04, so `?ui=` chooses only the kits and a stale `b` or `d` gives C, `ui/choice.ts`; "Copy link"
 gives no `?ui=`; the old app with tabs was removed on 2026-10-30; docs/roadmap.md, "UI prototypes B, C and D"): `ui/`
 tokens (`tokens.css`: the colours, the type and radius steps, the layers `--z-*` and elevation `--shadow*`, which the
-free CSS names: docs/DESIGN.md rows 87 to 91), icons and components under a `.ui` root (`components.tsx` `Splitter`: a draggable, focusable separator,
+free CSS names: docs/DESIGN.md rows 87 to 91; `ui.css` the kit's look, a legend's `.u-legend-*` among it: row 90),
+icons and components under a `.ui` root (`components.tsx` `Splitter`: a draggable, focusable separator,
 WAI-ARIA's window splitter, our own (react-resizable-panels would need preact/compat, split.js is unmaintained);
 `Sheet` the phones' bottom sheet (peek, half, full); `SidePanel.tsx` a side panel beside a map (its edge, collapse tab
 and rail, `useWidthOf`; `sidepanel.css`: the result's and the highline layer's); no Rail, Toast or Tabs since B went;
