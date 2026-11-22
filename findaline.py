@@ -116,7 +116,7 @@ def main(params: pm.SearchParams, options: pm.CliOptions, paths: search.Paths):
     """One search; a search.SearchError ends it with its message."""
     confirm = confirmer(options.yes)
     try:
-        plan = search.plan_search(params, paths, print_event)
+        plan = search.plan_search(params, paths, print_event, reach=True)  # the first planning: the start check
         estimate = search.estimate_search(plan)
         if estimate.reasons:
             confirm("expensive", "\n".join(estimate.reasons))

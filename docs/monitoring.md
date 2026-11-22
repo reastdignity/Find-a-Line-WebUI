@@ -152,6 +152,8 @@ Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 d
 | C4 | nginx's connections (active, reading, writing, waiting) | background for SSE and slow clients | `stub_status` on a loopback-only port → input `nginx` | P2 | 1 |
 | C5 | Days until the certificate expires | alert: < 14 days (certbot renews from 30) | `x509_cert` of `https://<site>` | P1 | 1 |
 | C6 | The site seen from the host: status and time | alert: not 200 | `http_response` | P1 | 1 |
+| C7 | The project's data server (`deploy/mirror`, on the home server; docs/mirror-hosting/spec.md) seen from the VPS: its list of datasets every minute, status, time, that the body names `"datasets"` | alert: no good answer for 45 min (short maintenance stops of the home server must not page; a vanished series too) | `http_response` named `mirror_http_response` (a measurement of its own, so C6 and G2 never see it), `https://mirror.findaline.lukawski.org/v1/datasets.json`, the client's address (`tests/test_mirror_pairs.py`) | P1 | 1 |
+| C8 | Days until the data server's certificate expires (SWAG's) | alert: < 14 days, as C5 | `x509_cert` named `mirror_x509_cert` | P1 | 1 |
 
 **D. Services and security**
 | # | What | Why / alert | How | Priority | Phase |
@@ -203,7 +205,7 @@ one message too.
 
 | Level | Rows |
 | --- | --- |
-| alert | A1, A2, A3, A4, A8, B1, B2, C1, C2, C5, C6, D1, D2, D3, E1, F1, F2, F3, F5, F7, F11, F13, G1, G2 |
+| alert | A1, A2, A3, A4, A8, B1, B2, C1, C2, C5, C6, C7, C8, D1, D2, D3, E1, F1, F2, F3, F5, F7, F11, F13, G1, G2 |
 | info | A7, D4, F6, F8 |
 
 ## Dashboards
@@ -213,9 +215,9 @@ rows F were one dashboard, *Find-a-Line*, of about 60 panels.
 
 | Dashboard (uid) | Rows | Default range |
 | --- | --- | --- |
-| Overview (`overview`), Grafana's home page | One tile for every row with an alert rule, G1 and a few of the info rows (the site; the server: A, B, D1, D3, E1, G2; the application: F1-F3, F5-F8, F10, F11, F13, F14, F19), each with its alert's threshold and a link to its dashboard; the alerts firing; four charts (requests by status, searches by status, CPU and memory, error lines of the logs) | 24 h |
+| Overview (`overview`), Grafana's home page | One tile for every row with an alert rule, G1 and a few of the info rows (the site; the data server, C7 and C8, in a row of its own at the end; the server: A, B, D1, D3, E1, G2; the application: F1-F3, F5-F8, F10, F11, F13, F14, F19), each with its alert's threshold and a link to its dashboard; the alerts firing; four charts (requests by status, searches by status, CPU and memory, error lines of the logs) | 24 h |
 | VPS (`vps`) | A, F9 (the runs and the cache by folder), B, G2 | 24 h |
-| Site (`site`) | C, F12 (the application's routes), D, E, G1 | 24 h |
+| Site (`site`) | C, F12 (the application's routes), D, E, G1; the data server (C7, C8: up, answer time, certificate days) in a row of its own at the end | 24 h |
 | Searches (`searches`) | F1-F5, F13: the queue and the worker, the searches finished and their errors, the quick lane, the housekeeping | 24 h |
 | Use (`use`) | F6-F8, F14-F17: accounts and activity, favourites, the area by day and country, users by country, the coverage map | 30 days |
 | Data and computing (`performance`) | F11, F18, F19: the outside services, the downloads per layer and the cache, the Mpx computed, seconds per Mpx, steps, stages and the funnel of the line search | 7 days |

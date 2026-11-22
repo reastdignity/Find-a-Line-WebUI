@@ -16,6 +16,7 @@ from http_server import HttpServer  # noqa: E402
 # A PYTHONIOENCODING of the calling shell hid the quick lane's "km²" from the tests (4901833)
 for _name in ("PYTHONIOENCODING", "PYTHONUTF8"):
     os.environ.pop(_name, None)
+os.environ["FINDALINE_MIRROR_URL"] = "off"  # no test asks the project's data server (a test may set a local one)
 
 
 @pytest.fixture
@@ -33,7 +34,7 @@ def no_host_rates(request, monkeypatch):
     """No waiting for the turns of sources.net.rate_turn (HOST_RATES_OF emptied), so a test that
     names a real host with a rate (the probe's swisstopo addresses) neither waits nor writes to the
     machine's shared bucket; tests/test_rates.py keeps the rates and moves the bucket into tmp_path."""
-    if request.module.__name__.endswith("test_rates"):
+    if request.module.__name__.endswith(("test_rates", "test_mirror_pairs")):  # the latter reads the mirror's rate
         yield
         return
     from sources import net

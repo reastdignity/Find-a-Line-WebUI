@@ -1,0 +1,33 @@
+# tests/mirror_check.sh's layer on top of compose.yaml and compose.test.yaml: the fixture tree
+# (test/fixture.sh) in a volume instead of ${MIRROR_ROOT}/public, the log in a volume instead of
+# ${MIRROR_ROOT}/logs (volumes are merged by their target), and the stand-in's SWAG conf from
+# MIRROR_CHECK_SWAG_CONF (the self-test's variants; by default the real one).
+services:
+  fixture:
+    image: nginx/nginx-unprivileged:1.30.7-alpine3.24@sha256:0c53a1f2890c3526bfd201440f0fd3970e5b78f80630f58284aad0d34b5ec7bd
+    user: "0:0"
+    entrypoint: ["/bin/sh", "/fixture.sh"]
+    command: []
+    network_mode: none
+    volumes:
+      - {type: volume, source: public, target: /f}
+      - {type: volume, source: logs, target: /l}
+      - {type: bind, source: ./test/fixture.sh, target: /fixture.sh, read_only: true}
+
+  files:
+    volumes:
+      - {type: volume, source: public, target: /srv/public, read_only: true}
+      - {type: volume, source: logs, target: /var/log/mirror}
+    depends_on:
+      fixture: {condition: service_completed_successfully}
+
+  proxy:
+    volumes:
+      - type: bind
+        source: ${MIRROR_CHECK_SWAG_CONF:-./swag/findaline-mirror.subdomain.conf}
+        target: /etc/standin/findaline-mirror.subdomain.conf
+        read_only: true
+
+volumes:
+  public:
+  logs:

@@ -1753,6 +1753,24 @@ def _requeue_border_tiles(manifest: Manifest, country: Country, plans: Dict, ban
     return total
 
 
+def _check_reach(country: Country):
+    """The run's one start check (docs/mirror-hosting/spec.md C.3), in the main process before the band plans:
+    the country's own source must answer (the project's data server: choose.source_unreachable), or the run
+    does not start, also a resume whose tiles are all cached (a country counted on a fall-back's data would be
+    useless). Never in band_plan, which the workers share: they plan without it."""
+    import sources as src
+    from sources.choose import source_unreachable
+    from sources.readers.tilebases import MirrorUrlError
+    if country.options.get("elevation_file") or country.source not in src.SOURCES:
+        return  # local files (band_plan builds that source), or a name band_plan refuses itself
+    try:
+        why = source_unreachable(src.SOURCES[country.source])
+    except MirrorUrlError as e:  # FINDALINE_MIRROR_URL neither an address nor off: the run's message, not a traceback
+        raise CountryError(str(e)) from None
+    if why:
+        raise CountryError(f"{country.source} cannot be used now: {why}")
+
+
 def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, say) -> int:
     import search
     from progress import progress
@@ -1763,6 +1781,7 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
     selected = list(bands) if bands else names
     for name in selected:
         country.band(name)
+    _check_reach(country)
     plans = {b.name: band_plan(country, b, folder, data_dir) for b in country.bands}
     first = next(iter(plans.values()))
     neighbours_sha = ensure_neighbours(country, folder, first.paths.cache, first.crs, say)

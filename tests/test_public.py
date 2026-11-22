@@ -1801,6 +1801,10 @@ def test_privacy_and_about_pages(run_people):
         "leash fall space, pretension, webbing stretch and weight, athlete mass); at most 10. Why: to fill your "
         "searches with them. Kept until you delete them.") + "</dd>" in text
     assert "rigs saved, changed and deleted (not their names or values)" in text
+    # the project's data server (the user's approved wording, docs/mirror-hosting/spec.md section 7), always shown
+    assert "<dt>Elevation data from the project&#x27;s data server</dt><dd>" + web.html.escape(
+        "The elevation data of some regions come from a data server run by the project. This site's server asks it "
+        "for them; your browser and your address never reach it.") + "</dd>" in text
     # a removed search (the user's approved wording, 2026-11-17)
     assert web.html.escape(
         "the search itself is kept: in your list until you remove it (a cancelled search) or delete its run, then "

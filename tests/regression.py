@@ -2,6 +2,7 @@
 
     python tests/regression.py                 # the quick set (R13)
     python tests/regression.py R1 R7           # chosen tests
+    python tests/regression.py R80 --mirror-url http://127.0.0.1:8080   # our own tiles from that data server
     python tests/regression.py --set pl        # a set: quick, pl, search, sources, water, network
     python tests/regression.py --all           # everything (R12 only with OPENTOPOGRAPHY_API_KEY)
     python tests/regression.py R1 --update     # store the new results as expected
@@ -9,7 +10,10 @@
     python tests/regression.py R1 --browser    # also count the spots of the map in a headless browser (the app)
 
 Each test runs with its own temporary data folder (runs, map, work) whose cache/ links
-to the real cache (or to --cache, e.g. an empty folder to test downloads). The output
+to the real cache (or to --cache, e.g. an empty folder to test downloads). The project's data
+server is never asked (FINDALINE_MIRROR_URL off) unless --mirror-url names one (a local copy of
+the mirror stack): the entries that read our own tiles (needs_path) then run without the local
+mirror folder too, which FINDALINE_MIRROR may hold first (clear it to test the server). The output
 of every search is in the log folder printed at the end, which is removed when no test
 differs, unless --keep.
 
@@ -50,6 +54,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cache  # noqa: E402
@@ -383,11 +388,14 @@ def number(n) -> str:
     return f"{n:,}".replace(",", " ")
 
 
-def unmet_needs(test: dict):
+def unmet_needs(test: dict, mirror_url: Optional[str] = None):
     """Why a test cannot run here, or None: its needs_env not set, or a folder of its needs_path (below the folder
     that variable names: our own tiles' mirror, e.g. "madeira/dtm/2m") missing there, as in a mirror with
-    Slovakia's tiles only (the VPS) or a process's stale value of the variable."""
+    Slovakia's tiles only (the VPS) or a process's stale value of the variable. With mirror_url (--mirror-url) an
+    entry that names its mirror folders (needs_path) runs: the data server has them."""
     env = test.get("needs_env")
+    if mirror_url and test.get("needs_path"):
+        return None
     if env and not os.environ.get(env):
         return f"{env} not set"
     missing = [p for p in test.get("needs_path", ())
@@ -457,7 +465,11 @@ def main():
                         help="keep the log folder (runs, maps, output) also when no test differs")
     parser.add_argument("--cache", help="cache folder for the searches (default: the real one, "
                                          "cache/ in FINDALINE_DATA or the repository)")
+    parser.add_argument("--mirror-url", help="the project's data server for our own tiles (a local copy of the "
+                                              "mirror stack, http://...); default: none, it is never asked")
     args = parser.parse_args()
+    # The searches (and the profiles checked here) ask only the data server named: none by default
+    os.environ["FINDALINE_MIRROR_URL"] = args.mirror_url or "off"
 
     tests = load()
     ids = list(args.ids)
@@ -477,7 +489,7 @@ def main():
     failed, skipped, results = [], [], {}
     for test_id in ids:
         test = tests[test_id]
-        unmet = unmet_needs(test)
+        unmet = unmet_needs(test, args.mirror_url)
         if unmet:
             print(f"{test_id}: skipped ({unmet})")
             skipped.append(test_id)

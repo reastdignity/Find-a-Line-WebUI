@@ -41,3 +41,31 @@ loads with `deploy/monitoring/` too.
   go per server, never into `conf.d/`). Anything written at run time must go to the data folder or `/tmp` (`HOME`,
   `NUMBA_CACHE_DIR`, `MPLCONFIGDIR` point into `/data/home`); a file the image needs at run time must not be excluded
   by `.dockerignore` (it keeps only the scripts and `viewer/dist`).
+
+## The project's data server (`deploy/mirror/`, docs/mirror-hosting/spec.md)
+
+- Not on the VPS: the home server, two projects (`findaline-mirror`: one service, no port; `findaline-mirror-publish`:
+  the SFTP door, one service, its one port on `PUBLISH_ADDRESS`). The repository names its host
+  (`mirror.findaline.lukawski.org`) and SWAG and Unraid as setups it supports, never a fact of the user's own
+  server (platform, uplink, addresses, other services, power).
+- Must stay in step (`tests/test_mirror_deploy.py`, `tests/test_mirror_pairs.py`): the base images' digests of
+  `Dockerfile`, `test/*`, `publish/Dockerfile`, `test/sshclient.Dockerfile` and `mirror_check.sh`'s `CURL_IMAGE`; the
+  served patterns and `grid_tile_name`, `res_name`, the publish tool's layout and `DATASET_NAME`; the limits of
+  `nginx.conf` and the client's `net.HOST_SLOTS_OF`/`HOST_RATES_OF` (at most half of one visitor's); the log's keys
+  `t s b rt ds a lim v` and 14 days, `mirror_publish.py stats`, the privacy texts (spec section 7, README, the landing
+  page, `mirror_check.sh`'s `PRIVACY`, CLAUDE.md's exception): another key or period changes the texts, with the
+  user's yes; the `$mirror_version` map, `mirror_publish.CLIENT_VERSION` and pyproject's version form; the door's
+  rclone settings in `deploy/mirror/README.md` (`shell_type`, `hashes`, `sha256sum_command`, `known_hosts_file`, the
+  top `/mirror`) and `mirror_publish.NO_SHA256`'s text.
+- The door (`publish/`, U89): one service, no sidecar (U68's and the later sidecar dropped); its port
+  published on `PUBLISH_ADDRESS` only (required; never `0.0.0.0` or `::`), the address the PC reaches on the LAN or
+  over the operator's own link, outside the repository. D29 reads exactly that one TCP binding (inspect and `docker
+  port`), D39 sshd's banner through it; their controls are the self-test's port variants. A port bound on an address
+  that comes up after Docker: the README's "An address that comes up after Docker" (seen on Docker 29 in dind).
+- SWAG is attached by `docker network connect findaline-mirror_mirror swag`, again after every SWAG update (the
+  monthly item of docs/deployment.md), or by a scheduled job of the host (README "SWAG"). `mirror_check.sh --self-test` takes about 90 min: `--timeout 7200` under the lock;
+  in CI it is the job `mirror` of its own workflow `.github/workflows/mirror.yml` (when the mirror's files, the
+  script, `tests/test_mirror_deploy.py` or the workflow change, and by hand; 150 minutes).
+- Test stacks never ask the real data server: CI's docker job appends `FINDALINE_MIRROR_URL=off` to its findaline.env
+  (a local replay copies that step), the tests' processes get `off` from conftest; the VPS leaves it unset. CI's
+  rclone (test parts, by sha256) stays at `mirror_publish.MIN_VERSION` or newer; no `RCLONE_*` name in its step.

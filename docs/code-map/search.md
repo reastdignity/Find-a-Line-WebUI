@@ -26,7 +26,10 @@ default; the topic "lines" `same_line_square` (the square rule: 0, or `SAME_LINE
 
 ## `search.py`
 
-The search as a library: `plan_search`, `estimate_search` (the layers' indexes at once, as `download_layers`; the
+The search as a library: `plan_search` (`reach=True` only in the first planning of a search: the command line's,
+a web job's download phase, the quick lane's estimate, which then ask whether the project's data server answers;
+`source_id=` the source a job's first phase chose, which a later phase takes without choosing again;
+docs/mirror-hosting/spec.md C.3), `estimate_search` (the layers' indexes at once, as `download_layers`; the
 working grids from `work_bytes`, the bytes per pixel `prepare_data` writes, for a tiled search those of the whole grid
 plus `AREA_TEMP_BYTES` of step 1's temporaries and the largest tile's copies, `tile_bytes`:
 `tests/test_offline.py::test_work_estimate_counts_the_grids_written`), `download_data` (cache only, for the web
