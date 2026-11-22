@@ -250,12 +250,33 @@ function Title({data}: {data: RunData}) {
   </div>;
 }
 
+/** The media query of a phone held sideways (mapbar.css shows the notice by the same one). */
+const SIDEWAYS = "(pointer: coarse) and (orientation: landscape) and (max-height: 499.98px)";
+
 /** A phone held sideways (a coarse pointer, the window wider than high and lower than 500 px: mapbar.css) is asked to
  *  turn upright: a notice over the whole page (the user's gate-2 answer 4 a). Drawn in both frames (a phone on its
  *  side is wider than the phone frame's 768 px), shown only by that media query: a desktop's window, a tablet and the
- *  phone held upright never see it. */
+ *  phone held upright never see it. While it shows, its words are put into its alert region (so a screen reader
+ *  announces them when the phone turns) and the frame's other parts are inert (no Tab, no screen reader behind it:
+ *  the design review's G2-F4). */
 function Upright() {
-  return <div class="v-upright" role="alert"><p>{t("ui.view.upright")}</p></div>;
+  const ref = useRef<HTMLDivElement>(null);
+  const [on, setOn] = useState(() => typeof matchMedia === "function" && matchMedia(SIDEWAYS).matches);
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
+    const query = matchMedia(SIDEWAYS), change = () => setOn(query.matches);
+    query.addEventListener("change", change);
+    change();
+    return () => query.removeEventListener("change", change);
+  }, []);
+  useEffect(() => {
+    const frame = ref.current?.parentElement;
+    if (!frame) return;
+    const others = Array.from(frame.children).filter((e) => e !== ref.current);
+    others.forEach((e) => e.toggleAttribute("inert", on));
+    return () => others.forEach((e) => e.removeAttribute("inert"));
+  }, [on]);
+  return <div class="v-upright" role="alert" ref={ref}>{on && <p>{t("ui.view.upright")}</p>}</div>;
 }
 
 function Back({back}: {back?: BackAction}) {

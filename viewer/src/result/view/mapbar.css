@@ -308,7 +308,8 @@
 @media (pointer: coarse) and (orientation: landscape) and (max-height: 499.98px) {
   .ui .v-result .v-upright { display: flex; position: fixed; inset: 0; z-index: 2000; align-items: center; justify-content: center;
     padding: 24px; background: var(--surface); color: var(--ink); text-align: center; font: 600 var(--fs-5)/28px var(--display); }
-  .ui .v-result .v-upright p { margin: 0; max-width: 32ch; }
+  /* (its lines balanced: no word alone on the last one, the design review's G2-F4) */
+  .ui .v-result .v-upright p { margin: 0; max-width: 32ch; text-wrap: balance; }
 }
 
 /* gate 2's 6 b: on a phone the page does not zoom but on the map: the frame takes panning only (no pinch, no double

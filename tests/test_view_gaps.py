@@ -1410,3 +1410,43 @@ def test_anchors_head_on_the_heads_line(site, device):
     print("the heads' word bottoms:", device, got)
     anchors = got.pop(WORDS["ui.list.col.anchors"])
     assert got and all(abs(anchors - b) <= 1 for b in got.values()), (anchors, got)
+
+
+# The sideways notice: its words, the words of each of its lines, what in the frame is inert, and where Tab goes
+NOTICE = """() => { const n = document.querySelector('.v-upright'), p = n && n.querySelector('p'), text = p && p.firstChild, lines = [];
+  if (text) { let at = 0; for (const word of text.textContent.split(' ')) { const r = document.createRange(); r.setStart(text, at); r.setEnd(text, at + word.length); at += word.length + 1;
+    const top = Math.round(r.getBoundingClientRect().top); const line = lines.find((l) => Math.abs(l.top - top) <= 2); if (line) line.words.push(word); else lines.push({top, words: [word]}); } }
+  const frame = n.parentElement;
+  return {role: n.getAttribute('role'), text: p ? p.textContent : null, lines: lines.map((l) => l.words.length),
+          inert: Array.from(frame.children).filter((e) => e !== n).every((e) => e.inert), others: frame.children.length - 1}; }"""
+
+
+@pytest.mark.parametrize("device", ["iphone", "pixel"])
+def test_sideways_notice_hides_the_page(site, device):
+    """The design review's G2-F4: a phone held sideways: the notice is an alert region holding its words (put in when
+    it shows, so a screen reader announces it), the rest of the view's frame is inert (Tab reaches nothing behind it),
+    and no word stands alone on its last line ("page."). Upright again: nothing inert, the words gone from the region."""
+    from playwright.sync_api import sync_playwright
+    size = {"iphone": (844, 390, 3), "pixel": (839, 412, 2.625)}[device]
+    context = {"viewport": {"width": size[0], "height": size[1]}, "device_scale_factor": size[2], "is_mobile": True, "has_touch": True}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            page.evaluate("() => T.frames()")
+            side = page.evaluate(NOTICE)
+            tabbed = []
+            for _ in range(6):
+                page.keyboard.press("Tab")
+                tabbed.append(page.evaluate("() => { const a = document.activeElement; return !a || a === document.body ? 'body' : (a.closest('.v-upright') ? 'notice' : a.className.toString().slice(0, 30)); }"))
+            page.set_viewport_size({"width": size[1], "height": size[0]})
+            page.wait_for_function("() => !document.querySelector('.v-upright p')", timeout=WAIT)
+            upright = page.evaluate(NOTICE)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the sideways notice:", device, side, tabbed, upright)
+    assert side["role"] == "alert" and side["text"] == WORDS["ui.view.upright"] and side["inert"] and side["others"] > 0, side
+    assert len(side["lines"]) == 1 or side["lines"][-1] >= 2, side
+    assert all(t in ("body", "notice") for t in tabbed), tabbed
+    assert upright["text"] is None and not upright["inert"], upright

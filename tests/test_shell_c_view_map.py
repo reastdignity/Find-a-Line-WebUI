@@ -255,8 +255,9 @@ window.T = {
 # layout under it (kept for a phone whose page is not locked, as one turned while the notice is up)
 UPRIGHT_SHOWN = """() => { const n = document.querySelector('.v-upright'), hit = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
   return !!n && getComputedStyle(n).display !== 'none' && n.textContent.trim() === %s && !!hit && n.contains(hit); }""" % json.dumps(WORDS["ui.view.upright"])
-# (a rule added through the CSSOM to the page's own sheet: the page's CSP refuses a <style> element)
-UPRIGHT_HIDDEN = "() => { const sheet = [...document.styleSheets].find((x) => { try { return !!x.cssRules; } catch (e) { return false; } }); sheet.insertRule('.ui .v-result .v-upright { display: none !important; }', sheet.cssRules.length); }"
+# (a rule added through the CSSOM to the page's own sheet: the page's CSP refuses a <style> element; and the page's
+# parts made inert behind the notice made reachable again, also when the page turns and the notice comes back)
+UPRIGHT_HIDDEN = "() => { const sheet = [...document.styleSheets].find((x) => { try { return !!x.cssRules; } catch (e) { return false; } }); sheet.insertRule('.ui .v-result .v-upright { display: none !important; }', sheet.cssRules.length); const lift = () => document.querySelectorAll('.v-result > [inert]').forEach((e) => e.removeAttribute('inert')); lift(); new MutationObserver(lift).observe(document.body, {subtree: true, attributes: true, attributeFilter: ['inert']}); }"
 
 
 def _upright_then_hidden(page):
