@@ -140,7 +140,7 @@ export function Histogram({name, title, bars, axis, open, wide, kind, onPick, on
   return <section class={`c-layer-hist${open ? " c-layer-hist-open" : ""}`} data-hist={name} data-bars={bars.length}
                   data-kind={kind} style={{"--bars": bars.length} as Record<string, number>} aria-label={title}>
     <h3 class="c-layer-hist-title">{wide ? title
-      : <button type="button" class="c-layer-hist-name" aria-expanded={open} title={title} onClick={onTitle}
+      : <button type="button" class="u-item c-layer-hist-name" aria-expanded={open} title={title} onClick={onTitle}
                 onFocus={revealInStrip}>{title}</button>}</h3>
     <div class="c-layer-hist-bars" role="group" aria-label={title}>
       {bars.map((b, k) => {

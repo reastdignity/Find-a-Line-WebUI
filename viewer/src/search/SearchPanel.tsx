@@ -144,7 +144,7 @@ const Dotted = ({on, children}: {on: boolean; children: string}) => <span class=
 /** "reset": Basic's value back, the focus to the field. */
 function ResetButton({s, names, focusId}: {s: SearchState; names: string[]; focusId?: string}) {
   if (!names.some((n) => s.differs(n))) return null;
-  return <button type="button" class="s-reset" title={t("basic.reset_title")}
+  return <button type="button" class="u-link s-reset" title={t("basic.reset_title")}
                  onClick={() => {
                    s.setValues(names.reduce((v, n) => withBasicValue(v, n, s.base, s.defaults), s.values));
                    // the button goes with the change: the focus to the field
@@ -200,7 +200,7 @@ function ParamInput({field, value, onChange, id, invalid}:
                     {field: SchemaField; value: unknown; onChange(v: unknown): void; id: string; invalid: boolean}) {
   const shown = value === undefined ? field.default : value;
   if (field.type === "boolean") {
-    return <input id={id} type="checkbox" class="s-check" checked={!!shown} onChange={(e) => onChange(e.currentTarget.checked)} />;
+    return <input id={id} type="checkbox" class="u-check s-check" checked={!!shown} onChange={(e) => onChange(e.currentTarget.checked)} />;
   }
   if (field.type === "choice") {
     return <select id={id} class="u-input" value={shown === null || shown === undefined ? "" : String(shown)}
@@ -320,10 +320,10 @@ function MoreSettings({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
   const [open, setOpen] = useState(asked);
   useLayoutEffect(() => { if (asked()) setOpen(true); }, [s.focus?.n]);
   return <div class="s-more" data-field="more">
-    <button type="button" class="s-more-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+    <button type="button" class="u-item s-more-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <Icon name="filter" /><span class="u-grow">{t("ui.search.more")}</span>
       {changed > 0 && <span class="u-badge">{t("basic.changed", {count: changed})}</span>}
-      <span class="u-badge u-n">{fields.length}</span><Icon name={open ? "down" : "next"} />
+      <span class="u-badge">{fields.length}</span><Icon name={open ? "down" : "next"} />
     </button>
     {open && <div class="s-topics">
       {topics.map(([topic, title]) => {
@@ -466,7 +466,7 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
       <p class={cx("s-bar-line", state === "warn" && "s-warn", quiet && "s-quiet")}>
         {line}{warnings.length > 0 && `${line ? "; " : ""}${t("ui.search.warnings", {count: warnings.length})}`}
         {(status === "paused" && !s.estimate.retrying || status === "unavailable") &&
-          <>{" "}<button type="button" class="s-link" onClick={s.estimate.retry}>{t("ui.search.retry")}</button></>}</p>}
+          <>{" "}<button type="button" class="u-link u-inline" onClick={s.estimate.retry}>{t("ui.search.retry")}</button></>}</p>}
     <Button kind="primary" large disabled={!s.canStart} onClick={s.start} iconRight="next" class="s-start">
       {t(s.busy ? "ui.search.starting" : "ui.search.start")}</Button>
   </div>;

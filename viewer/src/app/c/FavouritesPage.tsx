@@ -77,7 +77,7 @@ function useDnd(shelf: Shelf, drag: Dragged | null, target: number | null | unde
 function MoveTargets({tree, can, onPick}: {tree: FolderTree; can(target: number | null): boolean;
                                            onPick(target: number | null): void}) {
   const item = (id: number | null, name: string, depth: number) =>
-    <button key={id ?? "top"} type="button" role="menuitem" class="c-menu-item c-move-target" disabled={!can(id)}
+    <button key={id ?? "top"} type="button" role="menuitem" class="u-item c-menu-item c-move-target" disabled={!can(id)}
             style={{paddingLeft: `${10 + 14 * depth}px`}} onClick={() => onPick(id)}>
       <Icon name={id === null ? "star" : "folder"} />{name}</button>;
   return <>{item(null, t("ui.favourites.top_level"), 0)}{tree.flat().map(({folder, depth}) => item(folder.id, folder.name, depth))}</>;
@@ -97,7 +97,7 @@ function RowMenu({label, children, move}: {label: string; children: (close: () =
         ? <><span class="u-small c-menu-head">{t("ui.favourites.move_head")}</span>
             <MoveTargets tree={move.tree} can={move.can} onPick={(t) => { close(); move.pick(t); }} /></>
         : <>{children(close)}
-            <button type="button" role="menuitem" class="c-menu-item" onClick={() => setMoving(true)}>
+            <button type="button" role="menuitem" class="u-item c-menu-item" onClick={() => setMoving(true)}>
               <Icon name="folder" />{t("ui.favourites.move")}</button></>}
     </div>
   </Popover>;
@@ -124,10 +124,10 @@ function TreeNode({shelf, folder, depth, counts, unfolded, toggle}:
   return <li>
     <div ref={dnd.ref as any} class={"c-tree-row" + (shelf.current === folder.id ? " u-on" : "") + dnd.cls}
          style={{paddingLeft: `${4 + 14 * depth}px`}}>
-      {kids.length ? <button type="button" class="c-tree-fold" aria-expanded={open}
+      {kids.length ? <button type="button" class="u-ib u-plain c-tree-fold" aria-expanded={open}
                              aria-label={t(open ? "ui.favourites.fold" : "ui.favourites.unfold", {name: folder.name})} onClick={() => toggle(folder.id)}>
           <Icon name={open ? "down" : "next"} /></button> : <span class="c-tree-fold" />}
-      <button type="button" class="c-tree-name" aria-current={shelf.current === folder.id ? "true" : undefined}
+      <button type="button" class="u-item c-tree-name" aria-current={shelf.current === folder.id ? "true" : undefined}
               onClick={() => shelf.choose(folder.id)}>
         <Icon name="folder" /><span class="u-grow">{folder.name}</span>
         <span class="u-small">{counts.get(folder.id) || 0}</span></button>
@@ -142,7 +142,7 @@ function TreeTop({shelf, total}: {shelf: Shelf; total: number}) {
   const dnd = useDnd(shelf, null, null);
   return <div ref={dnd.ref as any} class={"c-tree-row" + (shelf.current === null ? " u-on" : "") + dnd.cls}>
     <span class="c-tree-fold" />
-    <button type="button" class="c-tree-name" aria-current={shelf.current === null ? "true" : undefined}
+    <button type="button" class="u-item c-tree-name" aria-current={shelf.current === null ? "true" : undefined}
             onClick={() => shelf.choose(null)}>
       <Icon name="star" fav /><span class="u-grow">{t("ui.app.favourites")}</span><span class="u-small">{total}</span></button>
   </div>;
@@ -157,17 +157,17 @@ function FolderRow({shelf, folder, count}: {shelf: Shelf; folder: FavouriteFolde
                                                      onDone={(name) => { setRenaming(false); if (name) shelf.rename(folder.id, name); }} /></li>;
   }
   return <li ref={dnd.ref as any} class={"c-fav c-folder-row" + dnd.cls} data-folder={folder.id}>
-    <button type="button" class="c-fav-open c-folder-open" onClick={() => shelf.choose(folder.id)}>
+    <button type="button" class="u-item c-fav-open c-folder-open" onClick={() => shelf.choose(folder.id)}>
       <Icon name="folder" /><span class="u-grow"><b>{folder.name}</b>
         <span class="u-small c-fav-run">{t("ui.result.lines", {count, n: count})}</span></span>
       <Icon name="next" /></button>
     <RowMenu label={t("ui.favourites.actions_of", {name: folder.name})}
              move={{tree: shelf.tree, can: (t) => shelf.tree.canMove(folder.id, t), pick: (t) => shelf.moveFolder(folder.id, t)}}>
       {(close) => <>
-        <button type="button" role="menuitem" class="c-menu-item" onClick={() => { close(); setRenaming(true); }}>
+        <button type="button" role="menuitem" class="u-item c-menu-item" onClick={() => { close(); setRenaming(true); }}>
           <Icon name="edit" />{t("ui.favourites.rename")}</button>
-        <button type="button" role="menuitem" class="c-menu-item c-danger" onClick={() => { close(); shelf.askDelete(folder.id); }}>
-          <Icon name="close" />{t("ui.common.delete_ask")}</button>
+        <button type="button" role="menuitem" class="u-item c-menu-item c-danger" onClick={() => { close(); shelf.askDelete(folder.id); }}>
+          <Icon name="bin" />{t("ui.common.delete_ask")}</button>
       </>}
     </RowMenu>
   </li>;
@@ -179,9 +179,9 @@ function FavRow({shelf, r, extra}: {shelf: Shelf; r: FavouriteRow; extra: Return
   const dnd = useDnd(shelf, {kind: "fav", run: f.run_id, line: f.line}, undefined);
   const here = shelf.tree.known(f.folder_id);
   return <li ref={dnd.ref as any} class={"c-fav" + dnd.cls} data-line={favKey(f)}>
-    <button type="button" class="c-fav-star" aria-label={t("ui.favourites.unmark")} title={t("ui.favourites.unmark")}
+    <button type="button" class="u-ib u-plain u-round c-fav-star" aria-label={t("ui.favourites.unmark")} title={t("ui.favourites.unmark")}
             onClick={() => shelf.removeFav(f)}><Icon name="star" fav /></button>
-    <a class="c-fav-open" href={runHash(f.run_id, f.line)} draggable={false}>
+    <a class="u-item c-fav-open" href={runHash(f.run_id, f.line)} draggable={false}>
       <span class="u-grow">
         <b>{formatValue(sortKey("len"), r)} m</b>, {parts("ui.favourites.clear", {value: formatValue(sortKey("clr"), r)})}
         {extra && <span class="u-small">, {extra.head} {formatValue(extra, r)}{extra.unit}</span>}
@@ -192,9 +192,9 @@ function FavRow({shelf, r, extra}: {shelf: Shelf; r: FavouriteRow; extra: Return
     <RowMenu label={t("ui.favourites.line_actions")}
              move={{tree: shelf.tree, can: (t) => t !== here, pick: (t) => shelf.drop({kind: "fav", run: f.run_id, line: f.line}, t)}}>
       {(close) => <>
-        <a role="menuitem" class="c-menu-item" href={runHash(f.run_id, f.line)} onClick={close}><Icon name="next" />{t("ui.common.open")}</a>
-        <button type="button" role="menuitem" class="c-menu-item c-danger" onClick={() => { close(); shelf.removeFav(f); }}>
-          <Icon name="close" />{t("ui.common.remove")}</button>
+        <a role="menuitem" class="u-item c-menu-item" href={runHash(f.run_id, f.line)} onClick={close}><Icon name="next" />{t("ui.common.open")}</a>
+        <button type="button" role="menuitem" class="u-item c-menu-item c-danger" onClick={() => { close(); shelf.removeFav(f); }}>
+          <Icon name="bin" />{t("ui.common.remove")}</button>
       </>}
     </RowMenu>
   </li>;
@@ -301,9 +301,9 @@ export function FavouritesPage({wide}: {wide: boolean}) {
 
   const contents = <section class="c-shelf-main" aria-label={t("ui.favourites.contents")}>
     <nav class="c-crumbs" aria-label={t("ui.favourites.path")}>
-      <button type="button" class="c-link" onClick={() => choose(null)}>{t("ui.app.favourites")}</button>
+      <button type="button" class="u-link" onClick={() => choose(null)}>{t("ui.app.favourites")}</button>
       {path.map((f) => <span key={f.id}> / {f.id === current ? <b>{f.name}</b>
-        : <button type="button" class="c-link" onClick={() => choose(f.id)}>{f.name}</button>}</span>)}
+        : <button type="button" class="u-link" onClick={() => choose(f.id)}>{f.name}</button>}</span>)}
     </nav>
     {failed && <p class="c-error u-small" role="alert">{failed}</p>}
     {deleted && <div class="c-card-panel c-confirm" role="alertdialog" aria-label={t("ui.favourites.delete_title")} ref={confirmRef}

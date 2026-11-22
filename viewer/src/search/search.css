@@ -41,11 +41,8 @@
 @media (pointer: coarse) { .ui .s-help-link { min-height: 44px; } }
 .ui select.u-input { padding-right: 8px; }
 .ui .s-row-end { display: flex; justify-content: flex-end; margin: -8px 0 -4px; }
-.ui .s-link { border: 0; background: none; padding: 0; color: var(--accent); font-weight: 500; cursor: pointer; text-decoration: underline; }
-/* "Show every setting": a control on a line of its own, with the kit's arrow */
-.ui .s-every { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
+/* "Show every setting": the kit's text action on a line of its own, with the kit's arrow */
 .ui .s-every .u-ic { width: 16px; height: 16px; }
-@media (pointer: coarse) { .ui .s-every { min-height: 44px; } }
 
 /* Presets: cards */
 .ui .s-card:disabled { opacity: .5; cursor: not-allowed; }
@@ -65,8 +62,8 @@
   background: currentColor; vertical-align: 2px; }  /* the dot of a changed value, drawn (R9); off R7: a mark's own size */
 .ui .s-problem { color: var(--bad); font-weight: 500; }
 .ui .u-input.s-invalid { border-color: var(--bad); }
-.ui .s-reset { display: inline-flex; align-items: center; min-height: 24px; border: 0; background: none; padding: 0; font: 500 var(--fs-1) var(--font);
-  color: var(--accent); cursor: pointer; text-decoration: underline; }
+/* a field's "reset": the kit's text action in the small type */
+.ui .s-reset { font-size: var(--fs-1); }
 /* a touch screen: a 44 px target that keeps the row's height: more of it above the word than under it, down to
    the field's box (as the "?": ui.css .u-hint) */
 @media (pointer: coarse) { .ui .s-reset { min-width: 44px; min-height: 44px; justify-content: flex-end; padding: 14px 0 6px; margin: -14px 0 -6px; } }
@@ -74,7 +71,6 @@
 .ui .s-unit-box { position: relative; display: block; }
 .ui .s-unit-box > .u-input { padding-right: calc(20px + var(--s-unit, 1ch)); }
 .ui .s-unit { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
-.ui .s-check { width: 20px; height: 20px; accent-color: var(--accent); }
 /* a setting that is a checkbox: its label's row is the target too (a press on the label ticks the box): 24 px,
    44 px on a touch screen (R2) */
 .ui .u-field:has(> .s-check) .u-field-name > label { display: inline-flex; align-items: center; min-height: 24px; cursor: pointer; }
@@ -84,9 +80,9 @@
 /* More settings: a fold on the ground between two thin rules, its topics parted by rules (R8: no grey box); a
    topic's arrow is the kit's icon, turned while it is open (R9) */
 .ui .s-more { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
-.ui .s-more-head { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 4px 0; border: 0; background: none;
-  font-weight: 500; color: var(--ink); text-align: left; cursor: pointer; border-radius: var(--r-1); }
-.ui .s-more-head:hover, .ui .s-topic > summary:hover { background: var(--hover); }
+/* its head the kit's row (.u-item) */
+.ui .s-more-head { width: 100%; min-height: 48px; padding: 4px 0; font-weight: 500; border-radius: var(--r-1); }
+.ui .s-topic > summary:hover { background: var(--hover); }
 .ui .s-more-head > .u-ic { color: var(--ink-2); }
 .ui .s-topics { display: flex; flex-direction: column; }
 .ui .s-topic { border-top: 1px solid var(--rule); }
@@ -126,9 +122,9 @@
 /* raised (R8): the rigs to choose from lie over the form */
 .ui .s-rig-list { display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: var(--r-2);
   background: var(--surface); box-shadow: var(--shadow); }
-.ui .s-rig-item { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; min-height: var(--touch, 36px);
-  padding: 8px 12px; border: 0; border-radius: var(--r-1); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.ui .s-rig-item:hover { background: var(--hover); }
+/* a rig of the list: the kit's row (.u-item), its name over its summary */
+.ui .s-rig-item { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; min-height: var(--touch, 36px);
+  padding: 8px 12px; border-radius: var(--r-1); color: inherit; font: inherit; }
 .ui .s-rig-item[aria-pressed="true"], .ui .s-rig-item[aria-pressed="true"]:hover { background: var(--accent-soft); }
 .ui .s-rig-item b { font-weight: 600; }
 .ui .s-rig-item span { font-size: var(--fs-2); color: var(--ink-2); }
@@ -146,7 +142,12 @@
 .ui .s-rig-grid label { font-weight: 500; min-width: 0; }
 .ui .s-fx { display: block; font: 400 var(--fs-1)/16px var(--font); color: var(--muted); }
 .ui .s-rig-more { border-top: 1px solid var(--rule); padding-top: 8px; }
-.ui .s-rig-more > summary { cursor: pointer; font-weight: 500; color: var(--ink-2); padding: 4px 0; min-height: 24px; }
+/* its summary marked by the kit's arrow (R9; step 3d G3, C10), turned while open, not the browser's triangle */
+.ui .s-rig-more > summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; color: var(--ink-2);
+  padding: 4px 0; min-height: 24px; }
+.ui .s-rig-more > summary::-webkit-details-marker { display: none; }
+.ui .s-rig-more-mark { width: 16px; height: 16px; color: var(--ink-2); }
+.ui .s-rig-more[open] > summary .s-rig-more-mark { transform: rotate(90deg); }
 @media (pointer: coarse) { .ui .s-rig-more > summary { min-height: 44px; padding: 12px 0; } }
 .ui .s-rig-more .s-rig-grid { margin-top: 8px; }
 .ui .s-rig-cost { color: var(--ink-2); font-size: var(--fs-2); }  /* a plain line: no box around a sentence (R8) */

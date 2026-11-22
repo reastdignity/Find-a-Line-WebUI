@@ -52,9 +52,9 @@ export function Trip({full = false, limit}: {full?: boolean; limit?: number}) {
     </div>
     <ul class="c-trip-list">
       {shown.map((r) => <li class="c-fav" key={r.fav.run_id + "|" + r.fav.line}>
-        <button type="button" class="c-fav-star" aria-label={t("ui.favourites.unmark")} title={t("ui.favourites.unmark")}
+        <button type="button" class="u-ib u-plain u-round c-fav-star" aria-label={t("ui.favourites.unmark")} title={t("ui.favourites.unmark")}
                 onClick={() => remove(r)}><Icon name="star" fav /></button>
-        <a class="c-fav-open" href={runHash(r.fav.run_id, r.fav.line)}>
+        <a class="u-item c-fav-open" href={runHash(r.fav.run_id, r.fav.line)}>
           <span class="u-grow">
             <b>{formatValue(sortKey("len"), r)} m</b>, {parts("ui.favourites.clear", {value: formatValue(sortKey("clr"), r)})}
             {extra && <span class="u-small">, {extra.head} {formatValue(extra, r)}{extra.unit}</span>}
@@ -65,7 +65,7 @@ export function Trip({full = false, limit}: {full?: boolean; limit?: number}) {
         </a>
       </li>)}
     </ul>
-    {limit && sorted.length > limit && <button type="button" class="c-link" onClick={() => setAll(!all)}>
+    {limit && sorted.length > limit && <button type="button" class="u-link c-trip-all" onClick={() => setAll(!all)}>
       {all ? t("ui.favourites.fewer") : t("ui.favourites.show_all", {n: sorted.length})}</button>}
     <div class="u-h4">{t("ui.favourites.export_trip")}</div>
     <div class="u-row">

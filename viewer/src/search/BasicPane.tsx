@@ -101,11 +101,11 @@ function RigRow({s, onOpen}: {s: SearchState; onOpen(ask: RigAsk): void}) {
           {t("basic.change")}</button>
       </div>
       {open && <div class="s-rig-list" id={listId}>
-        {r.rigs.map((rig) => <button type="button" key={rig.id} class="s-rig-item" aria-pressed={rig.id === r.inUse!.id}
+        {r.rigs.map((rig) => <button type="button" key={rig.id} class="u-item s-rig-item" aria-pressed={rig.id === r.inUse!.id}
                                      data-rig={rig.id}
                                      onClick={() => { r.choose(rig.id); setOpen(false); }}>
           <b>{rig.name}</b><span>{rigSummary(rig.values)}</span></button>)}
-        <button type="button" class="s-rig-item s-rig-add" disabled={full}
+        <button type="button" class="u-item s-rig-item s-rig-add" disabled={full}
                 onClick={() => { setOpen(false); onOpen({mode: "new", values: null}); }}>
           {full ? t("basic.rigs_ten", {max: r.max}) : <><Icon name="plus" />{t("basic.add_rig")}</>}</button>
       </div>}
@@ -150,7 +150,7 @@ export function BasicBottom({s, onRig, onEvery}: {s: SearchState; onRig(ask: Rig
   return <>
     <AccessRow s={s} />
     <RigRow s={s} onOpen={onRig} />
-    <div><button type="button" class="s-link s-every" onClick={onEvery}>{t("basic.show_every")}<Icon name="next" /></button></div>
+    <div><button type="button" class="u-link s-every" onClick={onEvery}>{t("basic.show_every")}<Icon name="next" /></button></div>
   </>;
 }
 
@@ -294,7 +294,7 @@ export function RigWindow({s, ask, onClose}: {s: SearchState; ask: RigAsk; onClo
         {number("fall_zone", "m")}
       </div>
       <details class="s-rig-more">
-        <summary>{t("rig.more")}</summary>
+        <summary><Icon name="next" class="s-rig-more-mark" />{t("rig.more")}</summary>
         <div class="s-rig-grid">
           {number("pretension", "kN")}
           {number("stretch", "%")}

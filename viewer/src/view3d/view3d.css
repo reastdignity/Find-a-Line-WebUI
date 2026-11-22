@@ -54,9 +54,6 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
   #view3d .v3-activity.v3-activity-notice { left: var(--v3-strip, 60px); right: 8px; transform: none; width: auto; max-width: none; }
 }
 #view3d .v3-activity-action { flex: none; min-height: 28px; padding: 0 12px; white-space: nowrap; }
-#view3d .v3-activity-dismiss { flex: none; min-width: 28px; min-height: 28px; padding: 0; border-color: transparent;
-                               background: transparent; color: var(--ink-2); }
-#view3d .v3-activity-dismiss .u-ic { width: 16px; height: 16px; }
 /* a strip higher than the stage (five tools on a phone held sideways) goes on in a second column: no tool is cut by
    the stage's foot or lies over the bar */
 .v3-tools { position: absolute; left: 8px; top: 8px; z-index: var(--z-up-2); display: flex; flex-flow: column wrap;
@@ -201,7 +198,6 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 @media (pointer: coarse) {
   #view3d .v3-tool, #view3d .v3-views button, #view3d .v3-speed, #view3d .v3-motion { min-width: 44px; }
   #view3d .v3-activity-action { min-height: 44px; }
-  #view3d .v3-activity-dismiss { min-width: 44px; min-height: 44px; }
 }
 
 /* The compact bar of phones and narrow screens: the readout on one line (wrapping, never scrolling), the walk,
@@ -288,7 +284,7 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 #view3d .v3-infobox { display: none; }
 #view3d .v3-info { display: none; flex: none; min-width: var(--touch); padding: 0; border-color: transparent; background: transparent;
                    color: var(--ink-2); }
-#view3d .v3-info:hover, #view3d .v3-infobox-close:hover { background: var(--hover); }
+#view3d .v3-info:hover { background: var(--hover); }
 #view3d .v3-info[aria-expanded="true"] { color: var(--accent-ink); background: var(--accent-soft); }
 .v3-infobox { position: absolute; z-index: var(--z-up-3); right: 8px; bottom: 8px; box-sizing: border-box;
               width: min(560px, calc(100% - 16px)); max-height: calc(100% - 16px); overflow-y: auto;
@@ -299,8 +295,6 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 .v3-infobox-head { position: sticky; top: 0; z-index: var(--z-up); display: flex; align-items: center;
                    justify-content: space-between; gap: 8px; padding-top: 4px; background: var(--surface); }
 #view3d .v3-infobox-title { margin: 0; font: 600 var(--fs-3)/1.4 var(--font); color: var(--ink); }
-#view3d .v3-infobox-close { flex: none; min-width: var(--touch); padding: 0; border-color: transparent; background: transparent;
-                            color: var(--ink-2); }
 /* a line of the box: a copy of a note with the note's classes (the views' rules and .v3-hidden hide it as they hide
    the note), in the box's own type */
 #view3d .v3-infobox .v3-infobox-line { flex: none; margin: 0 12px 8px 0; font-size: var(--fs-2); line-height: 1.5;

@@ -192,7 +192,7 @@ export function CoveragePage({shapesUrl, site}: {shapesUrl: string; site: "publi
         <div class="cov-legend"><Legend lang={lang} scale={scale} onScale={changeScale} /></div>
       </div>
       <p class="cov-small cov-muted cov-world">
-        <button type="button" class="cov-link" onClick={() => pick("world")}>{word("world.name")}</button>
+        <button type="button" class="u-link u-inline cov-link" onClick={() => pick("world")}>{word("world.name")}</button>
         {`: ${resText(COVERAGE.world.res, lang)}. ${word("note.world")}`}</p>
       <AreaList lang={lang} scale={scale} selected={selected} onPick={pick} />
       <p class="cov-cta"><a class="u-btn u-pri u-lg" href="/">{word("page.cta")}</a></p>
