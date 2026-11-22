@@ -67,7 +67,7 @@ import "./mapbar.css";
 /** Is the result view a run's page by default (step 3d: switched on at gate 2, after the phone test and on the
  *  user's word). False: today's page opens and `?view=b` asks for the view; true: the view opens and today's page
  *  stays behind `?view=today` (and for the runs the view cannot show: opensView). */
-export const VIEW_DEFAULT: boolean = false;
+export const VIEW_DEFAULT: boolean = true;
 
 const VIEW_KEY = "findaline.view";
 
