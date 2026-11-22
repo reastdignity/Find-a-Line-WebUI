@@ -34,6 +34,7 @@ import { BEST_ROWS } from "../viewgeom";
 import { Icon } from "../../ui/icons";
 import { IconButton } from "../../ui/components";
 import { count, cx, Swatch, TightIcon, TightKey } from "./common";
+import { FavouritePicker } from "./FavouritePicker";
 import { Shape } from "./Shape";
 import type { PanelProps } from "./SpotPanels";  // types only: SpotPanels.tsx imports the slots, which import this file
 import { SpotSummary } from "./SpotSummary";
@@ -108,7 +109,7 @@ export function RowAccess({view, row}: {view: SpotView; row: number}) {
  *  without one). */
 export function rowKeys(e: KeyboardEvent) {
   const target = e.target as HTMLElement, star = target.closest?.(".vl-star") as HTMLElement | null;
-  const at = (star ? star.parentElement?.querySelector(":scope > .vl-main") : target.closest?.(".vl-main")) as HTMLElement | null;
+  const at = (star ? star.closest(".vl-row")?.querySelector(":scope > .vl-main") : target.closest?.(".vl-main")) as HTMLElement | null;
   if (!at) return;
   if (e.key === "Tab") {
     // one tab stop per list: Tab (Shift+Tab) from a row or a star the arrows reached leaves the list in one press, also
@@ -126,7 +127,8 @@ export function rowKeys(e: KeyboardEvent) {
     }
     return;
   }
-  const starOf = (main: HTMLElement | undefined) => main?.parentElement?.querySelector<HTMLElement>(":scope > .vl-star") ?? null;
+  const starOf = (main: HTMLElement | undefined) =>
+    main?.parentElement?.querySelector<HTMLElement>(":scope > .vl-star, :scope > .r-popwrap > .vl-star") ?? null;
   if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
     const to = e.key === "ArrowRight" ? (star ? null : starOf(at)) : (star ? at : null);
     if (to) { e.preventDefault(); to.focus(); }
@@ -161,14 +163,60 @@ export function favouriteRows(view: SpotView): Set<number> {
   return known.rows;
 }
 
-/** A row's star (LinesTable's titles): a press adds the row's line to the folder used last, or removes it
- *  (ResultModel.toggleFavourite: its Line made at the press only); its name names the row's spot as the row shows it
- *  (`label`: "Add B3 to favourites", the user's G-G a). Out of the tab order: the list's arrows reach it (rowKeys). */
-function RowStar({view, row, label}: {view: SpotView; row: number; label: string}) {
-  const on = favouriteRows(view).has(row), model = view.model;
+/** The row whose star has its folders open, per view (its list item's id and its line): that row draws the folder
+ *  picker in its star's place while it is open (one Line, made for it alone); every other row, and that row once the
+ *  picker closed, the plain star. */
+const pickerOf = new WeakMap<SpotView, {id: string; row: number}>();
+
+/** Where the focus goes when a row's open picker went: the row's plain star, else the row that took the row's place in
+ *  its list (`place`: as lostRowPlaces), else the list's rest. */
+function pickerFocus(id: string, place: ReturnType<typeof placeOf>) {
+  keepFocus(`#${id} > .vl-star`, ...(place ? [`${place.list} > li:nth-child(${place.index + 1}) > .vl-main`,
+                                             `${place.list} > li:last-child > .vl-main`, place.head] : []), ...FOCUS_REST);
+}
+
+/** The folder picker in a row's star's place while it is open (RowStar). Closed, the row draws its plain star again
+ *  and the focus goes to it (or where a row's focus goes when the row went: a removal under "Favourites only"). The
+ *  row leaving the list while it is open (the map moved under "Best in view", its sector closed or paged away) ends
+ *  it too, so it never opens again by itself when the row comes back (the code review's G1). */
+function RowPicker({view, picked}: {view: SpotView; picked: {id: string; row: number}}) {
+  const model = view.model, {id, row} = picked;
+  // the row's place while it is drawn (its list and index), for the focus once it went
+  const place = useRef<ReturnType<typeof placeOf>>(null);
+  useEffect(() => {
+    const main = document.getElementById(id)?.querySelector(":scope > .vl-main");
+    place.current = main ? placeOf(main) : null;
+  });
+  useEffect(() => () => {
+    if (pickerOf.get(view) !== picked) return;  // closed already (onOpen)
+    pickerOf.delete(view);
+    pickerFocus(id, place.current);
+  }, []);
+  return <FavouritePicker model={model} line={model.lineAt(row)} icon opened buttonClass="vl-star" buttonTabIndex={-1}
+                          onOpen={(open) => {
+                            if (open) return;
+                            const main = document.getElementById(id)?.querySelector(":scope > .vl-main");
+                            if (main) place.current = placeOf(main);
+                            changePanels(view, () => { if (pickerOf.get(view) === picked) pickerOf.delete(view); });
+                            pickerFocus(id, place.current);
+                          }} />;
+}
+
+/** A row's star (LinesTable's titles; its name names the row's spot as the row shows it, `label`: "Add B3 to
+ *  favourites", the user's G-G a): a press opens the same folder list as the details' star (FavouritePicker, under
+ *  the row's right end; the user's gate-2 answer 13 a): the row then draws the picker, mounted open (its Line made
+ *  at the press only), until it closes (a folder chosen, Esc, a press elsewhere): the plain star again, the focus on
+ *  it where the picker had it; a phone's sheet rises to full for it, as for the details' star. Out of the tab order:
+ *  the list's arrows reach it (rowKeys). */
+function RowStar({view, row, id, label, sheet}: {view: SpotView; row: number; id: string; label: string; sheet?: PanelProps["sheet"]}) {
+  const on = favouriteRows(view).has(row), model = view.model, picked = pickerOf.get(view);
+  if (picked && picked.id === id && picked.row === row) return <RowPicker view={view} picked={picked} />;
   return <button type="button" class={cx("vl-star", on && "vl-on")} tabIndex={-1} data-row={row}
                  aria-label={t(on ? "ui.view.star_remove" : "ui.view.star_add", {label})} aria-pressed={on}
-                 title={on ? "favourite" : "add to favourites"} onClick={() => model.toggleFavourite(model.lineAt(row))}>
+                 title={on ? "favourite" : "add to favourites"} onClick={() => {
+                   sheet?.setSnap("full");
+                   changePanels(view, () => { pickerOf.set(view, {id, row}); });
+                 }}>
     <Icon name="star" fav={on} /></button>;
 }
 
@@ -294,7 +342,7 @@ interface RowProps extends PanelProps {
 }
 
 /** A row of the top block or of the tree. */
-function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowProps) {
+function Row({view, map, padding, sheet, spot, row, id, tab, mark, pick, height}: RowProps) {
   const sel = view.selected;
   // a pick's row is the selected one only while its own line is selected (another line of the spot: the row
   // selects the pick's line)
@@ -320,7 +368,7 @@ function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowPr
       <Value name={t("ui.list.col.lines")} class="vl-n">{count(view.passingCount(spot))}</Value>
       {over && <OverWords />}
     </button>
-    {stars && <RowStar view={view} row={row} label={mark ?? label} />}
+    {stars && <RowStar view={view} row={row} id={id} label={mark ?? label} sheet={sheet} />}
     {DOOR && <button type="button" class="vl-door" aria-label={t("ui.view.door_label", {label})} title={t("ui.view.door")}>›</button>}
   </li>;
 }
@@ -343,15 +391,84 @@ function columnHelp(view: SpotView): [string, string][] {
 
 const COL_HELP = "vl-help-cols";  // the id of the columns' help text
 
+/** The sort key a head of the tree sorts by: its column's (the height's column: the highest point while the list is
+ *  sorted by it, else the mean height). */
+function headKey(view: SpotView, key: string): ViewSort {
+  return key === "h" ? (view.sort === "hmax" ? "hmax" : "hmean") : key as ViewSort;
+}
+
+/** A head of the tree (the user's gate-2 answer 12 a): a button that sorts the tree by its column, in the column's
+ *  own first direction; on the sorted column it reverses the order. Its name is the column's, the sorted one's with
+ *  the order (today's words); the mark as Head's (on the grid's cell, which holds the button). The Sort box and the
+ *  direction button follow (the same view). */
+function SortHead({view, column, text, sector}: {view: SpotView; column: string; text: string; sector: number}) {
+  const key = headKey(view, column), by = view.sort === key;
+  const name = by ? text + t(view.desc ? "ui.list.sorted_desc" : "ui.list.sorted_asc") : text;
+  const press = (e: Event) => {
+    const button = e.currentTarget as HTMLElement;
+    const had = document.activeElement === button;  // pressed by the keyboard, or focused by the press
+    const top = button.getBoundingClientRect().top;
+    // the sector the person sorts from stays open (else the first sector of the new order would be the only one open by
+    // itself, and this one, with the pressed head, would close)
+    changePanels(view, (s) => { if (sector >= 0 && !s.open.has(sector)) s.open.set(sector, true); });
+    if (by) reverse(view); else sortBy(view, key, true);
+    // the new order moves the sectors (Preact moves their nodes, which drops a focus inside them): the pressed head
+    // keeps its place under the pointer (the code review's G4) and, where it had it, the focus (the design review's
+    // G2-F1, as the stepper keeps its own)
+    keepHead(`.vl-sec[data-sector="${sector}"] > .vl-cols .vl-head[data-col="${column}"]`, top, had);
+  };
+  return <span class={cx("vl-hcell", by && "vl-by", by && !view.desc && "vl-asc")}>
+    <button type="button" class="vl-head" data-col={column} aria-label={name} aria-pressed={by} onClick={press}>
+      {by && <Icon name="sort" />}{text}</button></span>;
+}
+
+/** While the page draws the new order (a few frames: the drawing may come after the first), a pressed head
+ *  (`selector`) is put back at `top` (the viewport's px it stood at) by its list's scroll, and, with `focus`, given the
+ *  focus wherever it fell to the page's body (its node was moved); a focus the person moved elsewhere meanwhile is
+ *  left alone. */
+let headKept: {selector: string; top: number; end(): void} | null = null;  // the head being put back now
+function keepHead(selector: string, top: number, focus: boolean) {
+  // a press on the same head before the last was put back (Enter pressed twice): its place is the first press's
+  if (headKept) {
+    if (headKept.selector === selector) top = headKept.top;
+    headKept.end();
+  }
+  let frames = 6, theirs = false;
+  // the person's own scroll meanwhile (a wheel, a finger, a key; not a press on a head, which puts its head back
+  // itself) stands: nothing more is put back (a scroll the browser makes to keep its anchor in place is not one)
+  const stop = (e: Event) => { if (!(e.target instanceof Element && e.target.closest(".vl-head"))) theirs = true; };
+  const kept = {selector, top, end: () => { theirs = true; }};
+  headKept = kept;
+  const kinds = ["wheel", "touchstart", "pointerdown", "keydown"];
+  kinds.forEach((k) => document.addEventListener(k, stop, {capture: true, passive: true}));
+  const go = () => {
+    const head = theirs ? null : document.querySelector<HTMLElement>(selector);
+    if (head) {
+      const box = head.closest<HTMLElement>(".vl-body, .u-sheet-body"), moved = head.getBoundingClientRect().top - top;
+      if (box && Math.abs(moved) >= 1) box.scrollTop += moved;
+      const at = document.activeElement;
+      if (focus && (!at || at === document.body || !at.isConnected)) head.focus({preventScroll: true});
+    }
+    if (--frames > 0 && !theirs) requestAnimationFrame(go);
+    else {
+      kinds.forEach((k) => document.removeEventListener(k, stop, {capture: true}));
+      if (headKept === kept) headKept = null;
+    }
+  };
+  requestAnimationFrame(go);
+}
+
 /** The headings of the rows (each hidden from a screen reader: a row's values carry their names); sorted by the
  *  highest point, that value stands in the mean height's column; `ranked`: the column the list is sorted by is marked
- *  with the sort icon (not for the picks, which are not ranked); `tree`: the tree's heads, whose mark follows the
- *  direction (the top block's stays best first); `help`: the columns' info button in the first cell, above the marks
- *  (the top block's heads only; a screen reader reaches it); `stars`: the rows end with a star. */
-function Heads({view, ranked, tree, help, stars}: {view: SpotView; ranked: boolean; tree?: boolean; help?: {open: boolean; toggle(): void};
-                                                   stars: boolean}) {
+ *  with the sort icon (not for the picks, which are not ranked); `tree`: the tree's heads, buttons that sort the tree
+ *  (SortHead: their mark follows the direction; the top block's stay marks, best first); `help`: the columns' info
+ *  button in the first cell, above the marks (the top block's heads only; a screen reader reaches it); `stars`: the
+ *  rows end with a star. */
+function Heads({view, ranked, tree, help, stars, sector = -1}: {view: SpotView; ranked: boolean; tree?: boolean;
+                                                                help?: {open: boolean; toggle(): void}; stars: boolean; sector?: number}) {
   const by = !ranked ? "" : view.sort === "len" ? "len" : view.sort === "clr" ? "clr" : view.sort === "n" ? "n" : "h";
-  const head = (key: string, text: string) => <Head by={by === key} text={text} asc={tree && !view.desc} />;
+  const head = (key: string, text: string) => tree ? <SortHead view={view} column={key} text={text} sector={sector} />
+    : <Head by={by === key} text={text} />;
   return <div class={cx("vl-cols", withAccess(view) && "vl-with-acc", stars && "vl-starred")}>
     {help ? <IconButton icon="info" label={t("ui.view.col.about")} plain expanded={help.open} aria-controls={COL_HELP}
                         class="vl-info vl-cols-info" onClick={help.toggle} />
@@ -459,7 +576,7 @@ function SectorRows({p, sector, k}: SectorProps) {
               onClick={() => map?.showSector(n)}><Icon name="locate" /></button>
     </div>
     {open && <>
-      <Heads view={view} ranked tree stars={stars} />
+      <Heads view={view} ranked tree stars={stars} sector={n} />
       <Rows view={view} label={name} stars={stars}>
         {shown.map((spot, r) => <Row key={spot} {...p} spot={spot} row={view.shownOf(spot)} id={`vl-row-${spot}`}
                                      tab={r === stop} height={height} />)}
@@ -486,7 +603,7 @@ function sectorSig({view, map, wide}: PanelProps, sector: SectorRow, k: number):
   const ui = panelState(view), sel = view.selected;
   const mine = sel && view.sectorOf(sel.spot) === sector.n ? sel.spot : -1;
   return [view.version, view.sort, view.desc ? 1 : 0, k, isOpen(ui, sector.n, k), limitOf(ui, sector.n), mine, map ? 1 : 0, wide ? 1 : 0,
-          view.model.favouritesOn ? 1 : 0].join("|");
+          view.model.favouritesOn ? 1 : 0, pickerOf.get(view)?.id ?? ""].join("|");
 }
 
 /** A sector, drawn again only when its picture changes (a move of the map redraws the list at its end: the top
@@ -608,13 +725,14 @@ function NonePass({view}: {view: SpotView}) {
 }
 
 /** Scroll the nearest scrolling ancestor of a row so that the row is in it (not scrollIntoView, which would scroll
- *  every ancestor, the map's too). */
+ *  every ancestor, the map's too), clear of its block's heads, which stay at the scroller's top (the user's 11 a). */
 function scrollToRow(row: HTMLElement) {
+  const heads = row.closest(".vl-sec, .vl-topblock")?.querySelector<HTMLElement>(":scope > .vl-cols")?.offsetHeight ?? 0;
   for (let box = row.parentElement; box; box = box.parentElement) {
     const overflow = getComputedStyle(box).overflowY;
     if ((overflow === "auto" || overflow === "scroll") && box.scrollHeight > box.clientHeight) {
-      const r = row.getBoundingClientRect(), b = box.getBoundingClientRect();
-      if (r.top < b.top + 8) box.scrollTop -= b.top + 8 - r.top;
+      const r = row.getBoundingClientRect(), b = box.getBoundingClientRect(), top = b.top + 8 + heads;
+      if (r.top < top) box.scrollTop -= top - r.top;
       else if (r.bottom > b.bottom - 8) box.scrollTop += r.bottom - b.bottom + 8;
       return;
     }

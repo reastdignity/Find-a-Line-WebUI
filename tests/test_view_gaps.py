@@ -872,3 +872,617 @@ def test_pill_menus_over_the_sheet_at_full(site, device):
     print("the pill's menus at full:", device.get("viewport"), got)
     assert menus and all(got[m] and all(i["on"] for i in got[m]) for m in menus), got
     assert got["pill"] and all(i["on"] for i in got["pill"]) and got["handle"][0]["on"], got
+
+
+# --- gate 2's answers (the user's iPhone test, 2026-11-22) ---
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_layers_menu_lowers_the_sheet(boxes_site, device):
+    """9 a: the map's layers menu (the run with both coast boxes: its base maps and two overlays) opened by a tap while
+    the sheet is at half drops the sheet to its low stop, and every row of the menu lies inside the window and on top
+    (a press at its middle reaches it); closing the menu leaves the sheet low. The pill's Download menu has the kit's
+    raised shadow and an edge."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, boxes_site + f"#run={BOXES}", device, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "half")
+            _tap_on(page, ".v-map .leaflet-control-layers-toggle")
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", timeout=WAIT)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            rows = page.evaluate(HIT, ".v-map .leaflet-control-layers-expanded label")
+            height = page.evaluate("() => innerHeight")
+            # closed again (Leaflet's collapse, as a tap on the map does): the sheet stays low
+            page.evaluate("() => document.querySelector('.v-map .leaflet-control-layers').classList.remove('leaflet-control-layers-expanded')")
+            page.evaluate("() => T.frames()")
+            after = page.evaluate("() => F.snap()")
+            # the pill's Download menu
+            page.evaluate("() => [...document.querySelectorAll('.c-pill .r-actions button[aria-expanded]')].pop().click()")
+            page.wait_for_selector(".c-pill .r-pop", timeout=WAIT)
+            look = page.evaluate("() => { const s = getComputedStyle(document.querySelector('.c-pill .r-pop')); return [s.boxShadow, s.borderTopWidth, s.borderTopStyle]; }")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("layers at half:", device.get("viewport"), rows, "after", after, "download menu", look)
+    assert rows and all(r["on"] and r["y"][0] >= 0 and r["y"][1] <= height for r in rows), rows
+    assert after == "peek", after
+    assert look[0] != "none" and look[1] == "1px" and look[2] == "solid", look
+
+
+# The first open sector's heads after its rows were scrolled under the scroller's top (`box`: the list's scroller):
+# their top against the scroller's, and what a press at the middle of each of their cells reaches
+STICKY = r"""([box]) => { const scroller = document.querySelector(box), sec = (window.HEAD_SEC = window.HEAD_SEC ?? document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec').dataset.sector, document.querySelector(`.vl-tree .vl-sec[data-sector="${window.HEAD_SEC}"]`));
+  const heads = sec.querySelector(':scope > .vl-cols'), rows = sec.querySelector('.vl-rows');
+  scroller.scrollTop += rows.getBoundingClientRect().top - scroller.getBoundingClientRect().top + 200;
+  const h = heads.getBoundingClientRect(), s = scroller.getBoundingClientRect(), r = rows.getBoundingClientRect();
+  const cells = [...heads.children].map((c) => { const b = c.getBoundingClientRect(), hit = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+    return !!hit && heads.contains(hit); });
+  const right = document.elementFromPoint(s.right - 20, (h.top + h.bottom) / 2);
+  return {heads: Math.round(h.top), scroller: Math.round(s.top), rowsAbove: Math.round(s.top - r.top), cells, right: !!right && heads.contains(right) || !!(right && right.closest('.vl-cols'))}; }"""
+
+
+@pytest.mark.parametrize("device", ["desktop", "390", "412"])
+def test_heads_stay_at_the_top(site, device):
+    """11 a: the tree's first sector scrolled so that 200 px of its rows lie above the list's scroller (a desktop's list
+    body; a phone's sheet body, the sheet at full): its column heads stand at the scroller's top, and a press anywhere
+    on them (each cell, and the right end where the rows' stars stand) reaches the heads, not a row."""
+    from playwright.sync_api import sync_playwright
+    context = {"desktop": DESKTOP, "390": SMALL_PHONE, "412": PIXEL}[device]
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            if device != "desktop":
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            page.wait_for_selector(".vl-tree .vl-sec .vl-rows", timeout=WAIT)
+            got = page.evaluate(STICKY, [".vl-body" if device == "desktop" else ".u-sheet-body"])
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("sticky heads:", device, got)
+    assert got["rowsAbove"] >= 150, got  # (the state tests something: rows scrolled under the scroller's top)
+    assert abs(got["heads"] - got["scroller"]) <= 1, got
+    assert all(got["cells"]) and got["right"], got
+
+
+# The heads of the sector first open when first read (window.HEAD_SEC: that sector stays open once one of its heads
+# was pressed): each one's name, pressed state, class and height; the view's sort and direction, the Sort box's value
+# and the direction button's name
+HEADS = r"""() => { const v = window.FINDALINE_VIEW.view, heads = [...(window.HEAD_SEC = window.HEAD_SEC ?? document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec').dataset.sector, document.querySelector(`.vl-tree .vl-sec[data-sector="${window.HEAD_SEC}"]`)).querySelectorAll(':scope > .vl-cols .vl-head')];
+  return {sort: v.sort, desc: v.desc, box: document.querySelector('.vl-tree select.r-sort').value, dir: document.querySelector('.vl-tree .vl-dir').getAttribute('aria-label'),
+    heads: heads.map((b) => ({name: b.getAttribute('aria-label'), pressed: b.getAttribute('aria-pressed'), asc: b.parentElement.classList.contains('vl-asc'),
+                              h: Math.round(b.getBoundingClientRect().height), hidden: !!b.closest('[aria-hidden="true"]')})),
+    best: Array.from(v.inView.best), order: Array.from(v.order)}; }"""
+HEAD = r"""() => (window.HEAD_SEC = window.HEAD_SEC ?? document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec').dataset.sector, document.querySelector(`.vl-tree .vl-sec[data-sector="${window.HEAD_SEC}"]`)).querySelectorAll(':scope > .vl-cols .vl-head')"""
+
+
+@pytest.mark.parametrize("device", ["desktop", "phone"])
+def test_heads_sort_the_tree(site, device):
+    """12 a: the tree's heads are buttons. A press on a column's name sorts the tree by it, largest first (each key's
+    first direction); a second press reverses it; the Sort box and the direction button follow, and a change of the Sort
+    box moves the heads' mark. The sorted head's name carries the order in today's words; the heads are not hidden from
+    a screen reader; Enter on a focused head sorts too; 44 px high on a touch phone. "Best in view" keeps its order
+    (best first) when the direction is reversed."""
+    from playwright.sync_api import sync_playwright
+    context = DESKTOP if device == "desktop" else SMALL_PHONE
+    names = [WORDS["ui.list.col.length"], WORDS["ui.list.col.mean"], WORDS["ui.view.col.clear"], WORDS["ui.list.col.lines"]]
+    keys = ["len", "hmean", "clr", "n"]
+    steps = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            if device == "phone":
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            start = page.evaluate(HEADS)
+
+            def press(k):
+                if device == "phone":
+                    # (the sector's heads brought into the sheet's view first: a finger presses what it sees; once the
+                    # last press's head was put back: its frames)
+                    page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames()).then(() => T.frames())")
+                    box = page.evaluate(f"() => {{ const e = ({HEAD})()[{k}]; e.scrollIntoView({{block: 'center'}}); const r = e.getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }}")
+                    page.wait_for_function("() => performance.now() - (window.TOUCHED || -1000) > 700", timeout=WAIT)
+                    page.touchscreen.tap(box[0], box[1])
+                    page.evaluate("() => { window.TOUCHED = performance.now(); }")
+                else:
+                    page.evaluate(f"() => ({HEAD})()[{k}].click()")
+                page.evaluate("() => T.frames()")
+                return page.evaluate(HEADS)
+            # each head: largest first; again: smallest first (the heads' order: length, height, clearance, lines;
+            # the anchors' name is no head)
+            for k, key in enumerate(keys):
+                first = press(k)
+                again = press(k)
+                steps.append((key, first, again))
+            # by the keyboard: Enter on the length's head
+            page.evaluate(f"() => ({HEAD})()[0].focus()")
+            page.keyboard.press("Enter")
+            page.evaluate("() => T.frames()")
+            keyed = page.evaluate(HEADS)
+            # the Sort box moves the heads' mark
+            page.select_option(".vl-tree select.r-sort", "clr")
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.sort === 'clr'", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            boxed = page.evaluate(HEADS)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("heads sort:", device, [(k, f["sort"], f["desc"], a["desc"], a["heads"][keys.index(k)]["name"]) for k, f, a in steps])
+    assert [h["name"] for h in start["heads"]] == [names[0], names[1] + WORDS["ui.list.sorted_desc"], names[2], names[3]], start["heads"]
+    assert not any(h["hidden"] for h in start["heads"]), start
+    for (key, first, again), name in zip(steps, names):
+        k = keys.index(key)
+        assert first["sort"] == key and first["box"] == key and first["desc"] and first["dir"] == WORDS["ui.view.dir_desc"], (key, first)
+        assert first["heads"][k]["pressed"] == "true" and first["heads"][k]["name"] == name + WORDS["ui.list.sorted_desc"], (key, first["heads"])
+        assert sum(h["pressed"] == "true" for h in first["heads"]) == 1, first["heads"]
+        assert again["sort"] == key and not again["desc"] and again["dir"] == WORDS["ui.view.dir_asc"], (key, again)
+        assert again["heads"][k]["asc"] and again["heads"][k]["name"] == name + WORDS["ui.list.sorted_asc"], (key, again["heads"])
+        assert again["order"] == first["order"] and again["best"] == first["best"], key  # Best in view: best first
+    assert keyed["sort"] == "len" and keyed["desc"], keyed
+    assert boxed["sort"] == "clr" and boxed["heads"][2]["pressed"] == "true" and boxed["desc"], boxed
+    if device == "phone":
+        assert all(h["h"] >= 44 for h in start["heads"]), start["heads"]
+
+
+@pytest.mark.parametrize("device", ["desktop", "phone"])
+def test_list_star_opens_the_folders(site, device):
+    """13 a: a row's star in the list opens the same folder list as the details' star (FavouritePicker: "Save to a
+    folder", its folders, "New folder"), under the row's right end, not a direct save; "New folder" with a name makes
+    the folder and saves the row's line into it (on the server), and the star then shows it a favourite. Esc closes the
+    picker with nothing saved, the row's plain star back with the focus."""
+    from playwright.sync_api import sync_playwright
+    context = DESKTOP if device == "desktop" else SMALL_PHONE
+    name = "Gate two folder"
+    saved = """([run]) => fetch('/api/runs/' + encodeURIComponent(run) + '/favourites').then((r) => r.json()).then((b) => Array.isArray(b) ? {lines: b, in: {}} : b)"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
+            if device == "phone":
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            star = ".vl-tree .vl-rows > li:nth-child(2) .vl-star"
+            page.wait_for_selector(star, timeout=WAIT)
+            row = page.evaluate(f"() => Number(document.querySelector('{star}').closest('li').querySelector('.vl-main').dataset.row)")
+            before = page.evaluate(saved, [BIG])
+            page.evaluate(f"() => document.querySelector('{star}').click()")
+            page.wait_for_selector(".vl-tree .vl-row .r-picker", timeout=WAIT)
+            opened = page.evaluate("""() => { const p = document.querySelector('.vl-row .r-pop'), li = p.closest('li'), r = p.getBoundingClientRect(), l = li.getBoundingClientRect();
+              return {title: p.querySelector('.u-h4').textContent, folders: p.querySelectorAll('.r-folder').length, right: Math.round(l.right - r.right), below: r.top >= li.querySelector('.vl-main').getBoundingClientRect().top}; }""")
+            nothing = page.evaluate(saved, [BIG])
+            # Esc closes it, nothing saved
+            page.wait_for_function("() => !!document.activeElement.closest('.r-pop')", timeout=WAIT)
+            page.keyboard.press("Escape")
+            page.wait_for_selector(".vl-row .r-picker", state="detached", timeout=WAIT)
+            # the row's plain star again, with the focus
+            page.wait_for_function(f"() => document.activeElement === document.querySelector('{star}')", timeout=WAIT)
+            # again, "New folder": a name, Create
+            page.evaluate(f"() => document.querySelector('{star}').click()")
+            page.wait_for_selector(".vl-row .r-picker", timeout=WAIT)
+            page.evaluate("() => [...document.querySelectorAll('.vl-row .r-picker .u-btn')].find((b) => b.textContent.includes('New folder')).click()")
+            page.wait_for_selector(".vl-row .r-newfolder input", timeout=WAIT)
+            page.fill(".vl-row .r-newfolder input", name)
+            page.evaluate("() => document.querySelector('.vl-row .r-newfolder button[type=submit]').click()")
+            page.wait_for_selector(".vl-row .r-picker", state="detached", timeout=WAIT)
+            link = page.evaluate(f"() => {{ const m = window.FINDALINE_VIEW.view.model; return m.lineLink(m.lineAt({row})); }}")
+            page.wait_for_function(f"([run]) => fetch('/api/runs/' + encodeURIComponent(run) + '/favourites').then((r) => r.json()).then((b) => (Array.isArray(b) ? b : b.lines).includes({json.dumps(link)}))",
+                                   arg=[BIG], timeout=WAIT)
+            folder = page.evaluate(f"""() => {{ const m = window.FINDALINE_VIEW.view.model, f = m.folderOf(m.lineAt({row}));
+              return f === undefined ? 'none' : f === null ? 'top' : m.tree.path(f); }}""")
+            page.wait_for_selector(f"{star}[aria-pressed='true']", timeout=WAIT)
+            filled = page.evaluate(f"() => !!document.querySelector('{star} svg.u-fav')")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the list's star:", device, opened, "folder", folder, "filled", filled)
+    assert opened["title"] == "Save to a folder" and opened["folders"] >= 1 and abs(opened["right"]) <= 24 and opened["below"], opened
+    assert nothing == before, (before, nothing)  # the press saved nothing by itself
+    assert folder == name and filled, (folder, filled)
+
+
+# Is the upright notice shown over the page: its display, the words, and what a press at the window's middle reaches
+UPRIGHT = """() => { const n = document.querySelector('.v-upright'), hit = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+  return {shown: !!n && getComputedStyle(n).display !== 'none', text: n ? n.textContent.trim() : null, over: !!n && !!hit && n.contains(hit)}; }"""
+
+
+@pytest.mark.parametrize("case", ["iphone-side", "pixel-side", "iphone-upright", "pixel-upright", "desktop-side", "tablet-side"])
+def test_phone_held_sideways_is_asked_upright(site, case):
+    """4 a: a phone held sideways (a touch screen, the window wider than high and lower than 500 px: the iPhone 13 at
+    844 x 390, the Pixel at 839 x 412) shows "Turn your phone upright to use this page." over the whole page; upright it
+    does not; a desktop window of 844 x 390 with a mouse and a tablet on its side (1024 x 768, touch) do not either."""
+    from playwright.sync_api import sync_playwright
+    contexts = {
+        "iphone-side": {"viewport": {"width": 844, "height": 390}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True},
+        "pixel-side": {"viewport": {"width": 839, "height": 412}, "device_scale_factor": 2.625, "is_mobile": True, "has_touch": True},
+        "iphone-upright": {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True},
+        "pixel-upright": PIXEL,
+        "desktop-side": {"viewport": {"width": 844, "height": 390}},
+        "tablet-side": {"viewport": {"width": 1024, "height": 768}, "device_scale_factor": 2, "is_mobile": True, "has_touch": True},
+    }
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", contexts[case], script=HELP)
+            page.evaluate("() => T.frames()")
+            got = page.evaluate(UPRIGHT)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("upright notice:", case, got)
+    if case.endswith("-side") and case.split("-")[0] in ("iphone", "pixel"):
+        assert got["shown"] and got["over"] and got["text"] == WORDS["ui.view.upright"], got
+    else:
+        assert not got["shown"], got
+
+
+# The page's zoom (the visual viewport's scale) and the map's
+ZOOMS = "() => [window.visualViewport ? window.visualViewport.scale : 1, window.FINDALINE_MAP.getZoom()]"
+
+
+def _pinch(page, x: float, y: float, scale: float = 2.0):
+    """A finger's pinch out at (x, y) (Chromium's synthesized touch pinch, CDP: the command answers once the gesture's
+    events were sent), then the page drawn and the map still."""
+    cdp = page.context.new_cdp_session(page)
+    cdp.send("Input.synthesizePinchGesture", {"x": x, "y": y, "scaleFactor": scale, "relativeSpeed": 800, "gestureSourceType": "touch"})
+    cdp.detach()
+    page.evaluate("() => T.frames()")
+    page.wait_for_function(STILL, timeout=WAIT)
+    page.evaluate("() => T.frames()")
+
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_no_page_zoom_outside_the_map(site, device):
+    """6 b: on a phone a pinch on the sheet (its body at half) does not zoom the page (the visual viewport's scale stays
+    1), nor does a double tap there; a pinch on the map zooms the map, not the page. The frame takes panning only
+    (touch-action), and a gesturestart outside the map (iOS Safari's pinch) is stopped, on the map not."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", device, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "half")
+            start = page.evaluate(ZOOMS)
+            body = page.evaluate("() => { const r = document.querySelector('.u-sheet-body').getBoundingClientRect(); return [(r.left + r.right) / 2, r.top + 60]; }")
+            _pinch(page, *body)
+            pinched = page.evaluate(ZOOMS)
+            # a double tap: the second tap's click awaited (a counter of the page's clicks), then the page drawn
+            page.evaluate("() => { window.CLICKS = 0; document.addEventListener('click', () => { window.CLICKS++; }, true); }")
+            page.touchscreen.tap(*body)
+            page.touchscreen.tap(*body)
+            page.wait_for_function("() => window.CLICKS >= 2", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            page.wait_for_function(STILL, timeout=WAIT)
+            tapped = page.evaluate(ZOOMS)
+            m = page.evaluate("() => { const r = window.FINDALINE_MAP.getContainer().getBoundingClientRect(), s = document.querySelector('.u-sheet').getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + 120 + s.top) / 2]; }")
+            _pinch(page, *m)
+            page.wait_for_function(f"() => window.FINDALINE_MAP.getZoom() !== {start[1]}", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            mapped = page.evaluate(ZOOMS)
+            gestures = page.evaluate("""() => ['.u-sheet-body', '.leaflet-container'].map((sel) => { const e = new Event('gesturestart', {bubbles: true, cancelable: true});
+              document.querySelector(sel).dispatchEvent(e); return e.defaultPrevented; })""")
+            action = page.evaluate("() => getComputedStyle(document.querySelector('.c-result-phone')).touchAction")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("page zoom:", device.get("viewport"), {"start": start, "pinched": pinched, "tapped": tapped, "map": mapped, "gestures": gestures, "action": action})
+    assert pinched[0] == 1 and tapped[0] == 1, (pinched, tapped)
+    assert mapped[0] == 1 and mapped[1] > start[1], (start, mapped)  # the map's own pinch
+    assert gestures == [True, False] and action == "pan-x pan-y", (gestures, action)
+
+
+# --- gate 2's fix round (the code review's round 4, the design review's gate 2 changes) ---
+
+FOCUSED_HEAD = "() => { const a = document.activeElement; return a && a.classList.contains('vl-head') ? [a.dataset.col, a.getAttribute('aria-label')] : (a ? a.tagName : null); }"
+
+
+@pytest.mark.parametrize("device", ["desktop", "phone"])
+def test_head_keeps_the_focus_when_it_reverses(site, device):
+    """The design review's G2-F1: the first sector's length head pressed by the keyboard (Enter) sorts by length; Enter
+    again reverses it, and the focus stays on that head (it fell to the page's body: the new order moves the sectors);
+    a third Enter reverses it back."""
+    from playwright.sync_api import sync_playwright
+    context = DESKTOP if device == "desktop" else SMALL_PHONE
+    got = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            if device == "phone":
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            page.evaluate(f"() => ({HEAD})()[0].focus()")
+            for desc in (True, False, True):
+                page.keyboard.press("Enter")
+                page.wait_for_function(f"() => window.FINDALINE_VIEW.view.sort === 'len' && window.FINDALINE_VIEW.view.desc === {str(desc).lower()}", timeout=WAIT)
+                page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames())")
+                got.append(page.evaluate(FOCUSED_HEAD))
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the head's focus:", device, got)
+    assert [g[0] if isinstance(g, list) else g for g in got] == ["len", "len", "len"], got
+    assert got[1][1] == WORDS["ui.list.col.length"] + WORDS["ui.list.sorted_asc"], got
+
+
+def test_heads_at_least_24_px_on_a_desktop(site):
+    """The design review's G2-F2: on a desktop every sort head of the tree is at least 24 px high (R2) and as tall as
+    the others (Length, Clearance and Lines were 20 px beside a two-line "Mean height")."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            got = page.evaluate(HEADS)["heads"]
+            assert page.errors == []
+        finally:
+            browser.close()
+    heights = [h["h"] for h in got]
+    print("desktop heads' heights:", heights)
+    assert min(heights) >= 24 and max(heights) - min(heights) <= 1, heights
+
+
+def test_row_picker_ends_with_its_row(site):
+    """The code review's G1: a row's folder picker open (the star of "Best in view"'s first row) when its row leaves the
+    list (the map moved away: the row is no longer among the best in view) ends with it: the focus does not fall to the
+    page's body, and when the map comes back the row draws its plain star, no picker open by itself."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
+            _state(page, "view.setLevel('spots');")
+            star = ".vl-topblock .vl-rows > li:first-child > .vl-star"
+            page.wait_for_selector(star, timeout=WAIT)
+            row_id = page.evaluate(f"() => document.querySelector('{star}').closest('li').id")
+            page.evaluate(f"() => document.querySelector('{star}').click()")
+            page.wait_for_selector(".vl-topblock .vl-row .r-picker", timeout=WAIT)
+            page.wait_for_function("() => !!document.activeElement.closest('.r-pop')", timeout=WAIT)
+            home = page.evaluate(CENTRE)
+            _state(page, "leaflet.panBy([4000, 3000], {animate: false});")
+            page.wait_for_function(f"() => !document.getElementById('{row_id}')", timeout=WAIT)
+            page.evaluate("() => T.frames().then(() => T.frames())")
+            away = page.evaluate("() => [document.activeElement ? document.activeElement.tagName : null, !!document.querySelector('.r-picker')]")
+            _state(page, f"leaflet.setView([{home[0]}, {home[1]}], {home[2]}, {{animate: false}});")
+            page.wait_for_function(f"() => !!document.getElementById('{row_id}')", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            back = page.evaluate(f"() => [!!document.querySelector('.r-picker'), !!document.querySelector('#{row_id} > .vl-star')]")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the row's picker:", {"away": away, "back": back})
+    assert away[0] != "BODY" and not away[1], away
+    assert back == [False, True], back
+
+
+@pytest.mark.parametrize("width", [260, 340, 372, 500])
+def test_list_never_scrolls_sideways(site, width):
+    """The code review's G2: the sticky heads' ground (its layer past the heads' sides) does not widen the desktop list's
+    scroller: at every kept list width the list body is as wide as its content (no sideways scroll); a phone's sheet
+    body neither."""
+    from playwright.sync_api import sync_playwright
+    layout = ("try { localStorage.setItem('findaline.layout', JSON.stringify({v: 1, list: {w: %d, open: true}, details: {w: 380, open: true}, "
+              "profile: {h: 300, folded: false, l: 12, r: 12}})); } catch (e) {}" % width)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", {"viewport": {"width": 1400, "height": 900}}, script=HELP + layout)
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            got = page.evaluate("() => { const b = document.querySelector('.vl-body'); b.scrollLeft = 60; return [b.scrollWidth, b.clientWidth, b.scrollLeft, Math.round(b.getBoundingClientRect().width)]; }")
+            page.context.close()
+            page = _open(browser, site + f"#run={BIG}", SMALL_PHONE, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "full")
+            phone = page.evaluate("() => { const b = document.querySelector('.u-sheet-body'); b.scrollLeft = 60; return [b.scrollWidth, b.clientWidth, b.scrollLeft]; }")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("sideways:", width, "desktop", got, "phone", phone)
+    assert got[0] <= got[1] and got[2] == 0, got
+    assert phone[0] <= phone[1] and phone[2] == 0, phone
+
+
+def test_layers_hover_leaves_the_sheet(boxes_site):
+    """The code review's G3: a narrow window with a mouse (760 x 900: the phone frame, no touch), the sheet at half: the
+    mouse passing over the layers button opens the menu (Leaflet's hover) but leaves the sheet at half; a click on it
+    (and Enter on its button) opened by a press drops the sheet to its low stop (9 a)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, boxes_site + f"#run={BOXES}", {"viewport": {"width": 760, "height": 900}}, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "half")
+            box = page.evaluate("() => { const r = document.querySelector('.v-map .leaflet-control-layers').getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }")
+            page.mouse.move(*box)
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", timeout=WAIT)
+            page.evaluate("() => T.frames().then(() => T.frames())")
+            hovered = page.evaluate("() => F.snap()")
+            page.mouse.move(5, 450)  # away: Leaflet closes it
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", state="detached", timeout=WAIT)
+            # by the keyboard: Enter on the layers' button opens it by a press
+            page.focus(".v-map .leaflet-control-layers-toggle")
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", timeout=WAIT)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            keyed = page.evaluate("() => F.snap()")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("layers by hover and by a key:", hovered, keyed)
+    assert hovered == "half" and keyed == "peek", (hovered, keyed)
+
+
+@pytest.mark.parametrize("selected", [True, False], ids=["selected", "none"])
+def test_head_press_keeps_its_place(site, selected):
+    """The code review's G4 (the final design check's F4 for the heads): with a spot selected (the tree's second-last;
+    and with none, in the tree's first sector), a press on a head for a new key, then on it again (the reverse), leaves
+    the heads where they were under the pointer (they ran to y 2 before: the list scrolled to the selected row; with
+    none, the new order put other sectors above it), and a selected row is still drawn."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            tree = page.evaluate("() => window.FINDALINE_VIEW.view.sectors.flatMap((s) => s.spots)")
+            spot = tree[-2] if selected else tree[0]
+            if selected:
+                _state(page, f"view.select({spot});")
+            page.wait_for_selector(f"#vl-row-{spot} > .vl-main", timeout=WAIT)
+            sector = page.evaluate(f"() => window.FINDALINE_VIEW.view.sectorOf({spot})")
+            head = f".vl-sec[data-sector='{sector}'] > .vl-cols .vl-head[data-col='len']"
+            page.evaluate(f"() => {{ const h = document.querySelector(\"{head}\"), box = h.closest('.vl-body'); box.scrollTop += h.getBoundingClientRect().top - box.getBoundingClientRect().top - 200; }}")
+            page.evaluate("() => T.frames()")
+            top = lambda: page.evaluate(f"() => Math.round(document.querySelector(\"{head}\").getBoundingClientRect().top)")
+            places = [top()]
+            # (with a spot selected a mouse's press; with none the keyboard's: Enter on the focused head, twice)
+            if not selected:
+                page.evaluate(f"() => document.querySelector(\"{head}\").focus({{preventScroll: true}})")
+            for desc in (True, False):
+                if selected:
+                    page.click(head)
+                else:
+                    page.keyboard.press("Enter")
+                page.wait_for_function(f"() => window.FINDALINE_VIEW.view.sort === 'len' && window.FINDALINE_VIEW.view.desc === {str(desc).lower()}", timeout=WAIT)
+                page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames())")
+                places.append(top())
+            drawn = page.evaluate(f"() => !!document.querySelector('#vl-row-{spot} > .vl-main[aria-pressed=\"true\"]')")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the head's place:", selected, places, "row drawn", drawn)
+    assert max(places) - min(places) <= 1, places
+    assert drawn or not selected
+
+
+@pytest.mark.parametrize("width", [260, 300])
+def test_row_picker_inside_a_narrow_list(site, width):
+    """The code review's note on 13 a: with the list kept at 260 (and 300) px, a row's folder picker stays inside the
+    window and inside the list's column."""
+    from playwright.sync_api import sync_playwright
+    layout = ("try { localStorage.setItem('findaline.layout', JSON.stringify({v: 1, list: {w: %d, open: true}, details: {w: 380, open: true}, "
+              "profile: {h: 300, folded: false, l: 12, r: 12}})); } catch (e) {}" % width)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP + layout)
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
+            star = ".vl-tree .vl-rows > li:nth-child(2) > .vl-star"
+            page.wait_for_selector(star, timeout=WAIT)
+            page.evaluate(f"() => document.querySelector('{star}').click()")
+            page.wait_for_selector(".vl-row .r-picker", timeout=WAIT)
+            got = page.evaluate("""() => { const p = document.querySelector('.vl-row .r-pop').getBoundingClientRect(), l = document.querySelector('.c-col-list').getBoundingClientRect();
+              return {pop: [Math.round(p.left), Math.round(p.right)], list: [Math.round(l.left), Math.round(l.right)], window: innerWidth}; }""")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the picker in a narrow list:", width, got)
+    assert got["pop"][0] >= 0 and got["pop"][1] <= got["window"], got
+    assert got["pop"][0] >= got["list"][0] and got["pop"][1] <= got["list"][1], got
+
+
+# The bottom of each head's words in the first open sector (a text range's last line box): the buttons' and the
+# anchors' name
+WORD_BOTTOMS = """() => { const sec = document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec'), out = {};
+  for (const e of sec.querySelectorAll(':scope > .vl-cols > .vl-hcell .vl-head, :scope > .vl-cols > .vl-cell-acc')) {
+    const r = document.createRange(); r.selectNodeContents(e); const rects = [...r.getClientRects()].filter((x) => x.width > 0);
+    out[e.textContent.trim()] = Math.round(Math.max(...rects.map((x) => x.bottom)) * 10) / 10; }
+  return out; }"""
+
+
+@pytest.mark.parametrize("device", ["desktop", "390", "412"])
+def test_anchors_head_on_the_heads_line(site, device):
+    """The design review's G2-F5: in a sector's heads the anchors' name (no sort head) stands on the line of the sort
+    heads' words (it stood about 2 to 4 px lower on the phones): the bottoms of their words within 1 px."""
+    from playwright.sync_api import sync_playwright
+    context = {"desktop": DESKTOP, "390": SMALL_PHONE, "412": PIXEL}[device]
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            if device != "desktop":
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            got = page.evaluate(WORD_BOTTOMS)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the heads' word bottoms:", device, got)
+    anchors = got.pop(WORDS["ui.list.col.anchors"])
+    assert got and all(abs(anchors - b) <= 1 for b in got.values()), (anchors, got)
+
+
+# The sideways notice: its words, the words of each of its lines, what in the frame is inert, and where Tab goes
+NOTICE = """() => { const n = document.querySelector('.v-upright'), p = n && n.querySelector('p'), text = p && p.firstChild, lines = [];
+  if (text) { let at = 0; for (const word of text.textContent.split(' ')) { const r = document.createRange(); r.setStart(text, at); r.setEnd(text, at + word.length); at += word.length + 1;
+    const top = Math.round(r.getBoundingClientRect().top); const line = lines.find((l) => Math.abs(l.top - top) <= 2); if (line) line.words.push(word); else lines.push({top, words: [word]}); } }
+  const frame = n.parentElement;
+  return {role: n.getAttribute('role'), text: p ? p.textContent : null, lines: lines.map((l) => l.words.length),
+          inert: Array.from(frame.children).filter((e) => e !== n).every((e) => e.inert), others: frame.children.length - 1}; }"""
+
+
+@pytest.mark.parametrize("device", ["iphone", "pixel"])
+def test_sideways_notice_hides_the_page(site, device):
+    """The design review's G2-F4: a phone held sideways: the notice is an alert region holding its words (put in when
+    it shows, so a screen reader announces it), the rest of the view's frame is inert (Tab reaches nothing behind it),
+    and no word stands alone on its last line ("page."). Upright again: nothing inert, the words gone from the region."""
+    from playwright.sync_api import sync_playwright
+    size = {"iphone": (844, 390, 3), "pixel": (839, 412, 2.625)}[device]
+    context = {"viewport": {"width": size[0], "height": size[1]}, "device_scale_factor": size[2], "is_mobile": True, "has_touch": True}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            page.evaluate("() => T.frames()")
+            side = page.evaluate(NOTICE)
+            tabbed = []
+            for _ in range(6):
+                page.keyboard.press("Tab")
+                tabbed.append(page.evaluate("() => { const a = document.activeElement; return !a || a === document.body ? 'body' : (a.closest('.v-upright') ? 'notice' : a.className.toString().slice(0, 30)); }"))
+            page.set_viewport_size({"width": size[1], "height": size[0]})
+            page.wait_for_function("() => !document.querySelector('.v-upright p')", timeout=WAIT)
+            upright = page.evaluate(NOTICE)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the sideways notice:", device, side, tabbed, upright)
+    assert side["role"] == "alert" and side["text"] == WORDS["ui.view.upright"] and side["inert"] and side["others"] > 0, side
+    assert len(side["lines"]) == 1 or side["lines"][-1] >= 2, side
+    assert all(t in ("body", "notice") for t in tabbed), tabbed
+    assert upright["text"] is None and not upright["inert"], upright
+
+
+def test_head_quick_presses_keep_its_place(site):
+    """A head's two quick presses by the keyboard (Enter, Enter: a new key, then the reverse, before the first was put
+    back): the head stays where it stood before the first, with the focus (the second press took the first's place to
+    keep; before, it kept the place the first press's new order had pushed it to)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            page.evaluate(f"() => {{ const h = ({HEAD})()[0]; h.scrollIntoView({{block: 'center'}}); h.focus(); }}")
+            read = f"() => {{ const h = ({HEAD})()[0]; return [Math.round(h.getBoundingClientRect().top), document.activeElement === h]; }}"
+            before = page.evaluate(read)
+            page.keyboard.press("Enter")
+            page.keyboard.press("Enter")
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.sort === 'len' && !window.FINDALINE_VIEW.view.desc", timeout=WAIT)
+            page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames()).then(() => T.frames())")
+            after = page.evaluate(read)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("two quick presses:", before, after)
+    assert abs(after[0] - before[0]) <= 1 and after[1], (before, after)

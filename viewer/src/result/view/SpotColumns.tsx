@@ -250,6 +250,35 @@ function Title({data}: {data: RunData}) {
   </div>;
 }
 
+/** The media query of a phone held sideways (mapbar.css shows the notice by the same one). */
+const SIDEWAYS = "(pointer: coarse) and (orientation: landscape) and (max-height: 499.98px)";
+
+/** A phone held sideways (a coarse pointer, the window wider than high and lower than 500 px: mapbar.css) is asked to
+ *  turn upright: a notice over the whole page (the user's gate-2 answer 4 a). Drawn in both frames (a phone on its
+ *  side is wider than the phone frame's 768 px), shown only by that media query: a desktop's window, a tablet and the
+ *  phone held upright never see it. While it shows, its words are put into its alert region (so a screen reader
+ *  announces them when the phone turns) and the frame's other parts are inert (no Tab, no screen reader behind it:
+ *  the design review's G2-F4). */
+function Upright() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [on, setOn] = useState(() => typeof matchMedia === "function" && matchMedia(SIDEWAYS).matches);
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
+    const query = matchMedia(SIDEWAYS), change = () => setOn(query.matches);
+    query.addEventListener("change", change);
+    change();
+    return () => query.removeEventListener("change", change);
+  }, []);
+  useEffect(() => {
+    const frame = ref.current?.parentElement;
+    if (!frame) return;
+    const others = Array.from(frame.children).filter((e) => e !== ref.current);
+    others.forEach((e) => e.toggleAttribute("inert", on));
+    return () => others.forEach((e) => e.removeAttribute("inert"));
+  }, [on]);
+  return <div class="v-upright" role="alert" ref={ref}>{on && <p>{t("ui.view.upright")}</p>}</div>;
+}
+
 function Back({back}: {back?: BackAction}) {
   if (!back) return null;
   return <Button kind="ghost" icon="back" class="c-back" onClick={back.onClick}>{back.label}</Button>;
@@ -753,6 +782,7 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
   // (the panels' padding serves only their reveal of a selected line: SpotList, FanPanel)
   const p: PanelProps = {view, map: canvas, wide: true, padding: fitPadding, linkOf, view3dOf, measured};
   return <div class="c-result v-result">
+    <Upright />
     <header class="c-subtop c-result-top">
       <Back back={back} />
       <Title data={data} />
@@ -1026,6 +1056,55 @@ function useNoteAfterCrossing(view: SpotView, measured: Line | null, onNote: () 
   }, [view]);  // once, when the frame is made
 }
 
+/** How long after a press on the layers control its opening counts as that press's, ms (a finger's tap opens it by the
+ *  mouse events the browser makes after the touch; a key opens it at once). */
+const LAYERS_PRESS_MS = 800;
+
+/** A phone: the map's layers menu opened by a press while the sheet stands above its low stop drops the sheet there,
+ *  so the whole menu shows over the map (the user's gate-2 answer 9 a); closing the menu does not raise it again. The
+ *  menu's open state is Leaflet's class on its control (`leaflet-control-layers-expanded`), watched as it changes; an
+ *  opening counts only right after a press on the control (a pointer's press, Enter or Space on its button), never a
+ *  passing mouse's hover, which Leaflet also opens it on (the code review's G3: a narrow window with a mouse). */
+function useLayersLowerTheSheet(col: {current: HTMLElement | null}, map: L.Map | null, snap: () => Snap, lower: () => void) {
+  const latest = useRef({snap, lower});
+  latest.current = {snap, lower};
+  useEffect(() => {
+    const control = col.current?.querySelector<HTMLElement>(".leaflet-control-layers");
+    if (!map || !control) return;
+    let open = control.classList.contains("leaflet-control-layers-expanded"), pressed = -Infinity;
+    const press = () => { pressed = performance.now(); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") press(); };
+    control.addEventListener("pointerdown", press, true);
+    control.addEventListener("keydown", key, true);
+    const watch = new MutationObserver(() => {
+      const now = control.classList.contains("leaflet-control-layers-expanded");
+      if (now && !open && performance.now() - pressed < LAYERS_PRESS_MS && latest.current.snap() !== "peek") latest.current.lower();
+      open = now;
+    });
+    watch.observe(control, {attributes: true, attributeFilter: ["class"]});
+    return () => {
+      watch.disconnect();
+      control.removeEventListener("pointerdown", press, true);
+      control.removeEventListener("keydown", key, true);
+    };
+  }, [map]);
+}
+
+/** A phone: no zoom of the page but on the map (the user's gate-2 answer 6 b). The frame's touch-action (mapbar.css:
+ *  panning only, so neither a pinch nor a double tap zooms the page; the map's own pinch and double tap are Leaflet's)
+ *  and, for iOS Safari, whose pinch does not follow touch-action, its gesture events stopped outside the map. */
+function useNoPageZoom() {
+  useEffect(() => {
+    const stop = (e: Event) => {
+      const at = e.target instanceof Element ? e.target : null;
+      if (!at?.closest(".leaflet-container")) e.preventDefault();
+    };
+    const kinds = ["gesturestart", "gesturechange"];
+    kinds.forEach((k) => document.addEventListener(k, stop, {passive: false}));
+    return () => kinds.forEach((k) => document.removeEventListener(k, stop));
+  }, []);
+}
+
 function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, ortho, base, folder, show,
                 panels, measured, onMeasured, firstShow, measuredLink, selections}: FrameProps) {
   useSpotView(view);
@@ -1180,6 +1259,8 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   const toNote = () => setSnap((s) => s === "peek" ? "half" : s);
   useViewLink(view, canvas, line, nav, hashOf, fitPadding, (l) => onMeasured(l, true), toNote);
   useNoteAfterCrossing(view, measured, toNote);
+  useLayersLowerTheSheet(colRef, map, () => snapNow.current, () => moveSheet("peek"));
+  useNoPageZoom();
   useCornersAboveSheet(phoneRef, ref, true);  // the attribution and the scale above the sheet
   useRunCredits(map, data, base, folder);
   // The sheet moved: the bar's foot stays above it, and once it rests the view's rectangle is taken again (the
@@ -1209,6 +1290,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   // Compare needs room the phone's top bar does not have (as today's page)
   const phoneShow = (["measure", "share", "download"] as const).filter((a) => !show || show.includes(a));
   return <div class="c-result c-result-phone v-result" ref={phoneRef}>
+    <Upright />
     <div class="c-col-map v-map" ref={colRef} data-choosing={choice ? choice.choices.length : undefined}>
       <div class="c-leaflet" ref={ref} />
       {/* the measuring tip or the map's message: the first line of the status line's box while it lasts (the pilot's

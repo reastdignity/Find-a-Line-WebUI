@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_public import account_settings  # noqa: E402,F401
 from test_shell_c import BIG  # noqa: E402
-from test_shell_c_view_map import (DESKTOP, PHONE, SIDE_PHONE, WAIT, _crowded, _open, _state, _tap,  # noqa: E402,F401
+from test_shell_c_view_map import (DESKTOP, PHONE, SIDE_PHONE, WAIT, _crowded, _open, _state, _tap, _upright_then_hidden,  # noqa: E402,F401
                                    site, view_clip)
 from test_web import EDGE, _playwright  # noqa: E402
 
@@ -805,12 +805,16 @@ def _sheet_page(browser, site, context):
 @pytest.mark.parametrize("height", [375, 360])
 def test_sheet_room_band(site, height):
     """A phone on its side (667 px wide): the room under the switch and above the credits band at half is smaller than
-    a zoom needs (the code review's F2): a short line just above the low sheet comes into it at the same zoom."""
+    a zoom needs (the code review's F2): a short line just above the low sheet comes into it at the same zoom. (Such a
+    phone sees the notice to turn it upright over an inert page, the user's gate-2 answer 4 a: asserted first, then
+    hidden for the band's checks, which still guard the sheet's room.)"""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             page = _sheet_page(browser, site, {**SIDE_PHONE, "viewport": {"width": 667, "height": height}})
+            assert page.evaluate("() => [...document.querySelector('.v-upright').parentElement.children].filter((e) => !e.classList.contains('v-upright')).every((e) => e.inert)")
+            _upright_then_hidden(page)  # (4 a: the notice over an inert page; the band's checks under it)
             page.evaluate("() => P.short(30)")
             page.evaluate("() => T.frames()")
             before = page.evaluate("() => ({seen: S.seen(), where: S.where()})")
