@@ -733,6 +733,15 @@ phases), the computing seconds outside its steps, the steps `orthophoto` and `ot
 (number, the largest one's Mpx) from its "--- Tile k of N" lines; jobs from before migration 16 from their info
 events; no ids, titles or places; `tests/test_job_stats.py`
 
+## `tools/wesm_summary.py`
+
+Run by hand: counts of USGS's table of surveys (WESM, one row per 3DEP survey; `--csv` a file or its address, one
+GET with the app's User-Agent): by default the lidar surveys that have an OPR DEM and no 1 m DEM (357 on
+2026-11-22), `--all` every lidar survey with an OPR DEM (2,207), counted by the 1 m DEM's status and reason, the
+height unit and the kind of vertical CRS, the kind and unit of the horizontal CRS, the pixel class and the state;
+`--json` writes the counts and each row's classes. Read-only; made for the plan of OPR DEMs for the USA
+(docs/usa-data.md); `tests/test_wesm_summary.py` (a small CSV fixture)
+
 ## `tools/test_lock.py`, `tools/test_lock_page.py`
 
 The test lock of parallel sessions and agents:
