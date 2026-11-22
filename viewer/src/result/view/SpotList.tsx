@@ -427,12 +427,16 @@ function SortHead({view, column, text, sector}: {view: SpotView; column: string;
  *  focus wherever it fell to the page's body (its node was moved); a focus the person moved elsewhere meanwhile is
  *  left alone. */
 function keepHead(selector: string, top: number, focus: boolean) {
-  let frames = 6;
+  let frames = 6, scroller: HTMLElement | null = null, left = -1;  // the list's scroller and its scroll as last left
   const go = () => {
     const head = document.querySelector<HTMLElement>(selector);
     if (head) {
-      const box = head.closest<HTMLElement>(".vl-body, .u-sheet-body"), moved = head.getBoundingClientRect().top - top;
+      const box = head.closest<HTMLElement>(".vl-body, .u-sheet-body");
+      // the person (or anything else) scrolled the list meanwhile: their scroll stands, nothing more is put back
+      if (box && box === scroller && Math.abs(box.scrollTop - left) >= 1) return;
+      const moved = head.getBoundingClientRect().top - top;
       if (box && Math.abs(moved) >= 1) box.scrollTop += moved;
+      if (box) { scroller = box; left = box.scrollTop; }
       const at = document.activeElement;
       if (focus && (!at || at === document.body || !at.isConnected)) head.focus({preventScroll: true});
     }
