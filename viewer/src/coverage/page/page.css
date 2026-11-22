@@ -90,8 +90,10 @@ html { scroll-padding-top: var(--cov-top, 0px); }
 .cov-legend { position: absolute; left: 8px; bottom: 8px; z-index: var(--z-map-top); background: var(--surface);
   border-radius: var(--r-2); padding: 12px; box-shadow: var(--shadow); max-width: min(320px, calc(100% - 16px)); }
 .cov-legend-body { display: flex; flex-direction: column; gap: 8px; }
-/* its title, items and swatches: the kit's legend (ui.css .u-legend-*; docs/DESIGN.md row 90); a level's tag in the
-   item's size, in --muted */
+/* its title, items and swatches: the kit's legend (ui.css .u-legend-*; docs/DESIGN.md row 90), one item a line (as
+   the picture the user picked from, 2026-11-22, Q6 b: the phone's two columns before); a level's tag in the item's
+   size, in --muted */
+.cov .cov-legend .u-legend-items { flex-direction: column; align-items: flex-start; }
 .cov-tag { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* the list's swatch (AreaList.tsx: a row's level), the legend's colours too */
 .cov .cov-list .cov-sw { display: inline-block; width: 22px; height: 14px; border-radius: var(--r-1); border: 1px solid var(--line); vertical-align: -2px; flex: none; }
