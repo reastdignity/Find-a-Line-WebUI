@@ -379,7 +379,10 @@
    its mark; a hover fill; the kit's ring; 44 px high on a touch screen (R2) */
 .ui .vl-cols > span > .vl-head { display: flex; align-items: flex-end; justify-content: flex-end; width: 100%; font: inherit; color: inherit;
   background: none; border: 0; padding: 2px 0; margin: 0; text-align: right; white-space: normal; cursor: pointer; border-radius: var(--r-1); }
-.ui .vl-cols > span > .vl-head .u-ic { flex: none; margin-bottom: 2px; }
+/* the words and the mark as one inline run, the mark kept with the first word on its first line (G2-F6) */
+.ui .vl-cols > span > .vl-head > .vl-head-t { display: block; }
+.ui .vl-head-t > .vl-head-1 { white-space: nowrap; }
+.ui .vl-head-1 .u-ic { margin-right: 2px; }  /* (a desktop's 45 px cell holds "↓Mean" whole, clear of the neighbour) */
 .ui .vl-cols > span > .vl-head:hover { background: var(--hover); }
 @media (pointer: coarse) { .ui .vl-cols > span > .vl-head { min-height: 44px; } }
 /* 13 a: the row whose star opened the folders draws the details' picker in its place: its button keeps the star's

@@ -1486,3 +1486,43 @@ def test_head_quick_presses_keep_its_place(site):
             browser.close()
     print("two quick presses:", before, after)
     assert abs(after[0] - before[0]) <= 1 and after[1], (before, after)
+
+
+# --- gate 2's last small round (the design re-check's G2-F6, G2-F7; the notice's focus) ---
+
+# The sorted head's mark: its box, its own head's box, the first line of its own word, and the text box of the head
+# before it (the neighbour's words)
+MARK = """() => { const sec = document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec');
+  const heads = [...sec.querySelectorAll(':scope > .vl-cols > .vl-hcell > .vl-head')], at = heads.findIndex((h) => h.querySelector('.u-ic'));
+  const head = heads[at], icon = head.querySelector('.u-ic').getBoundingClientRect(), box = head.getBoundingClientRect();
+  const words = (e) => { const r = document.createRange(); r.selectNodeContents(e.querySelector('.vl-head-t') || e); return [...r.getClientRects()].filter((x) => x.width > 2); };
+  const own = words(head).filter((x) => x.width > icon.width + 2), lines = [...new Set(own.map((x) => Math.round(x.top)))].sort((a, b) => a - b);
+  const before = at > 0 ? words(heads[at - 1]) : [];
+  return {col: head.dataset.col, icon: [icon.left, icon.top, icon.right, icon.bottom], box: [box.left, box.top, box.right, box.bottom],
+          firstLine: lines[0], lines: lines.length, gap: before.length ? icon.left - Math.max(...before.map((x) => x.right)) : null}; }"""
+
+
+@pytest.mark.parametrize("device", ["desktop", "390", "412"])
+def test_sort_mark_by_its_own_word(site, device):
+    """The design re-check's G2-F6: in the first view (sorted by mean height, a head of two lines) the sort mark lies
+    inside its own head's box, on the first line of its own word ("↓ Mean / height"), and at least 4 px clear of the
+    neighbour's words (it stood flush after "Length", reading "Length↓")."""
+    from playwright.sync_api import sync_playwright
+    context = {"desktop": DESKTOP, "390": SMALL_PHONE, "412": PIXEL}[device]
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            if device != "desktop":
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head .u-ic", timeout=WAIT)
+            got = page.evaluate(MARK)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the sort mark:", device, got)
+    i, b = got["icon"], got["box"]
+    assert got["col"] == "h" and b[0] - 0.5 <= i[0] and i[2] <= b[2] + 0.5 and b[1] - 0.5 <= i[1] and i[3] <= b[3] + 0.5, got
+    assert got["lines"] == 1 or abs(i[1] - got["firstLine"]) <= 8, got  # on its word's first line
+    assert got["gap"] is not None and got["gap"] >= 4, got

@@ -404,6 +404,8 @@ function headKey(view: SpotView, key: string): ViewSort {
 function SortHead({view, column, text, sector}: {view: SpotView; column: string; text: string; sector: number}) {
   const key = headKey(view, column), by = view.sort === key;
   const name = by ? text + t(view.desc ? "ui.list.sorted_desc" : "ui.list.sorted_asc") : text;
+  // the word's first word goes with the mark, never apart from it
+  const cut = text.indexOf(" "), first = cut < 0 ? text : text.slice(0, cut), rest = cut < 0 ? "" : text.slice(cut);
   const press = (e: Event) => {
     const button = e.currentTarget as HTMLElement;
     const had = document.activeElement === button;  // pressed by the keyboard, or focused by the press
@@ -419,7 +421,9 @@ function SortHead({view, column, text, sector}: {view: SpotView; column: string;
   };
   return <span class={cx("vl-hcell", by && "vl-by", by && !view.desc && "vl-asc")}>
     <button type="button" class="vl-head" data-col={column} aria-label={name} aria-pressed={by} onClick={press}>
-      {by && <Icon name="sort" />}{text}</button></span>;
+      {/* the mark inline before its own word, on the word's first line ("↓ Mean / height"), never beside a
+          neighbour's: the design review's G2-F6 */}
+      <span class="vl-head-t">{by ? <><span class="vl-head-1"><Icon name="sort" />{first}</span>{rest}</> : text}</span></button></span>;
 }
 
 /** While the page draws the new order (a few frames: the drawing may come after the first), a pressed head
