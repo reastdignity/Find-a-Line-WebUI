@@ -141,6 +141,8 @@ below is the task as it was handed over.
 
 ## Task 4: OPR DEMs as a terrain layer of the `usa` source
 
+**Measured and re-ordered on 2026-11-22** (usa-data.md, "Where the 1 m DEM is missing, and what could fill it"; the roadmap's USA section has the user's decisions). OPR is the second of three steps now: first the 1 m files the TNM index does not list and the renewal of the index, then OPR as a lower-ranked member of the source's own terrain (not a fallback: decision 1 below), then the 1/9″ DEM. Decision 2 below: the files' own CRS, warped into UTM blocks, files of 1 m or finer only. Decision 3: the height unit is measured per file against the 1/3″ DEM, since neither the files nor USGS's table give it reliably. The text below is the task as it was written on 2026-11-08.
+
 **Goal.** Where USGS has lidar but no 1 m DEM (about 2 % of CONUS land, including western Oregon), the `usa` source reads the OPR DEM before falling back to the 1/3″ DEM.
 
 **Why.**
@@ -159,7 +161,7 @@ below is the task as it was handed over.
 - 9 of 30 files have no vertical CRS.
 - Tiles of 0.75–2.5 km and 1–27 MB. One 3.4 GB file (eastern Minnesota).
 - All tiled GeoTIFFs, so window reads work.
-- USGS's table of surveys (usa-data.md, "WESM") names each survey's year, CRS code and the unit of its heights, and the 357 lidar surveys that have an OPR DEM and no 1 m DEM (found 2026-11-22, after this task was written: it answers decision 3 below for all but 7 of them).
+- USGS's table of surveys (usa-data.md, "WESM") names each survey's year and the 357 lidar surveys that have an OPR DEM and no 1 m DEM (found 2026-11-22, after this task was written). Its CRS code, pixel size and height unit are not reliable for a single survey: the unit it gives is wrong for most surveys delivered as one or two big files.
 
 **Decisions for the user.**
 1. **An OPR layer in the fallback chain** (`usa`: 1 m → OPR → 1/3″) or only where the 1 m layer has no data? Keep the 1 m DEM first wherever it exists?
