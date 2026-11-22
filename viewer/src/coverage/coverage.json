@@ -89,6 +89,19 @@
    "survey": "",
    "trees": "no"
   },
+  "be-wal": {
+   "added": "2026-11-23",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "SPW",
+   "res": [
+    1
+   ],
+   "source": "wallonia",
+   "survey": "2021–2022",
+   "trees": "yes"
+  },
   "bl": {
    "added": "2026-11-15",
    "level": 1,
@@ -1437,8 +1450,11 @@
    "trees": "no"
   }
  },
- "countries": 33,
+ "countries": 34,
  "partly": {
+  "be": [
+   "be-wal"
+  ],
   "de": [
    "de-bb",
    "de-be",

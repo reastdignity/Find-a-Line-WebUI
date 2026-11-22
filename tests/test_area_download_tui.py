@@ -111,7 +111,7 @@ def test_the_whole_list_by_continent_and_country(settings):
     async def body(pilot):
         groups = {group.id: group.title for group in app.query(Collapsible)}
         assert groups == {
-            "group-europe": "Europe (52)", "group-europe-finland": "Finland (2)", "group-europe-germany": "Germany (16)",
+            "group-europe": "Europe (53)", "group-europe-finland": "Finland (2)", "group-europe-germany": "Germany (16)",
             "group-europe-italy": "Italy (6)", "group-europe-norway": "Norway (3)", "group-europe-portugal": "Portugal (4)",
             "group-europe-spain": "Spain (2)",
             "group-europe-united-kingdom": "United Kingdom (4)",
@@ -121,7 +121,7 @@ def test_the_whole_list_by_continent_and_country(settings):
             "group-oceania-australia": "Australia (3)", "group-south-america": "South America (3)",
             "group-asia": "Asia (4)", "group-asia-japan": "Japan (2)", "group-africa": "Africa (2)",
             "group-africa-france": "France (2)"}
-        assert len(app.area_rows()) == 146   # 83 areas of the map, 50 states, 13 provinces and territories
+        assert len(app.area_rows()) == 147   # 84 areas of the map, 50 states, 13 provinces and territories
         assert [row.row.name for row in _group(app, "North America", "France").query(tui.AreaRow)] == [
             "france-guadeloupe", "france-martinique", "saint-barthelemy", "saint-martin-france",
             "saint-pierre-and-miquelon"]
@@ -142,9 +142,10 @@ def test_the_whole_list_by_continent_and_country(settings):
         assert str(app.row_of("portugal-madeira").query_one(".name").render()) == "Madeira"
         assert str(app.row_of("austria").query_one(".name").render()) == "Austria"
         europe = _group(app, "Europe").query_one("Contents").children
-        assert [child.id for child in europe[:9]] == [
-            "row-austria", "row-czechia", "row-denmark", "row-estonia", "row-faroe-islands", "group-europe-finland",
-            "row-france", "group-europe-germany", "row-iceland"]
+        assert [child.id for child in europe[:10]] == [
+            "row-austria", "row-belgium-wallonia", "row-czechia", "row-denmark", "row-estonia", "row-faroe-islands",
+            "group-europe-finland", "row-france", "group-europe-germany", "row-iceland"]
+        assert str(app.row_of("belgium-wallonia").query_one(".name").render()) == "Belgium: Wallonia"
     _drive(app, body)
 
 
@@ -366,7 +367,7 @@ def test_the_question_says_why_a_whole_country_with_parts_is_slow(settings):
 
     async def body(pilot):
         assert str(app.row_of("united-states").query_one(".name").render()) == "Whole country · usa (slow)"
-        app.row_of("united-states-texas").box.value = True   # far down the list of 146: no click reaches it
+        app.row_of("united-states-texas").box.value = True   # far down the list of 147: no click reaches it
         await pilot.pause()
         await pilot.click("#start")
         await pilot.pause()
