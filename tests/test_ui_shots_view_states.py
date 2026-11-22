@@ -26,6 +26,11 @@ COVERED = {
     "X1 shore": "c-view-box-shore",
     "card open": "c-view-card", "card folded": "c-view-card-folded", "boxes": "c-view-boxes", "chips": "c-view-boxes",
     "rails": "c-view-rails", "map.html": "c-view-map", "map.html line": "c-view-map-line", "share link": "c-view-shared",
+    # C4's (step 3d: the spot stepper, the sort's direction, the star's picker on a phone)
+    "C4 stepper, desktop": "c-view-stepper", "C4 stepper, phone at half": "c-view-stepper-half",
+    "C4 stepper, phone low": "c-view-stepper-low", "C4 Previous off": "c-view-stepper-first",
+    "C4 Next off": "c-view-stepper-last", "C4 smallest first": "c-view-sort-asc",
+    "C4 picker, phone": "c-view-picker-low",
 }
 SHORE = {"c-view-boxes", "c-view-chips-held", "c-view-box-coarser", "c-view-box-shore", "c-view-link-centre"}
 CLICKS = {ui_shots.VIEW_DESKTOP, ui_shots.VIEW_PHONE, ".r-card .r-fold"}  # the only steps that are clicks
@@ -58,8 +63,9 @@ def test_the_states_open_the_view():
     # a desktop's state: a phone finds no header's middle; a phone's: a desktop has no pill
     desktop = [n for n, p in ui_shots.VIEW_STATES.items() if ui_shots.VIEW_DESKTOP in p[2]]
     phone = [n for n, p in ui_shots.VIEW_STATES.items() if ui_shots.VIEW_PHONE in p[2]]
-    assert set(desktop) == {"c-view-other-run", "c-view-card", "c-view-card-folded", "c-view-rails"}
-    assert set(phone) == {"c-view-chips-held", "c-view-box-coarser", "c-view-box-shore"}
+    assert set(desktop) == {"c-view-other-run", "c-view-card", "c-view-card-folded", "c-view-rails", "c-view-stepper"}
+    assert set(phone) == {"c-view-chips-held", "c-view-box-coarser", "c-view-box-shore", "c-view-stepper-half",
+                          "c-view-stepper-low", "c-view-picker-low"}
     assert ui_shots.select_pages("c-view-") and set(ui_shots.VIEW_STATES) <= set(ui_shots.select_pages("c-view"))
 
 
@@ -94,4 +100,28 @@ def test_the_owners_header_has_edit_and_run_again():
     assert all(ui_shots.VIEW_JOB_STUB not in ui_shots.page_storage(n) for n in ui_shots.PAGES if n != "c-view-share")
     assert "pathname !== '/api/jobs'" in ui_shots.VIEW_JOB_STUB and "init.method !== 'GET'" in ui_shots.VIEW_JOB_STUB
     assert "Edit & run again" in ui_shots.PAGES["c-view-share"][2][1]
+
+
+def test_c4s_states():
+    """C4's states: the stepper's pair waited for (the tree's second spot: both on), each end's button waited for off
+    (the tree's first and last spot); the picker opened from the low stop waits for its focus inside it; the tree
+    smallest first by the direction button, after the states that keep filters (its "Clear all" first) and last of
+    all (the direction is kept in the browser)."""
+    steps = {n: ui_shots.PAGES[n][2] for n in ("c-view-stepper", "c-view-stepper-half", "c-view-stepper-low",
+                                               "c-view-stepper-first", "c-view-stepper-last")}
+    for name in ("c-view-stepper", "c-view-stepper-half", "c-view-stepper-low"):
+        assert ui_shots.VIEW_TREE_PICK % "1" in steps[name] and steps[name][-1] == ui_shots.VIEW_STEPPER, name
+    assert ui_shots.VIEW_TREE_PICK % "0" in steps["c-view-stepper-first"]
+    prev_off, next_off = ui_shots.VIEW_STEP_OFF("prev"), ui_shots.VIEW_STEP_OFF("next")
+    assert steps["c-view-stepper-first"][-1] == prev_off and "vl-spot-prev" in prev_off
+    assert ui_shots.VIEW_TREE_PICK % "tree.length - 1" in steps["c-view-stepper-last"]
+    assert steps["c-view-stepper-last"][-1] == next_off and "disabled === true" in next_off
+    assert "view.sectors.flatMap" in ui_shots.VIEW_TREE_PICK and "view.select(tree[" in ui_shots.VIEW_TREE_PICK
+    picker = ui_shots.PAGES["c-view-picker-low"][2]
+    assert "js:" + ui_shots.VIEW_HALF not in picker and picker[-1] == "wait:!!document.activeElement?.closest('.r-pop')"
+    names, sort = list(ui_shots.VIEW_STATES), ui_shots.PAGES["c-view-sort-asc"][2]
+    assert names[-1] == "c-view-sort-asc" and names.index("c-view-none") < names.index("c-view-sort-asc")
+    assert sort[1] == "js:" + ui_shots.VIEW_PRESS % ".vl-clear"
+    assert "wait:window.FINDALINE_VIEW.view.desc === false" in sort
+    assert "js:" + ui_shots.VIEW_PRESS % ".vl-tree .vl-dir" in sort
 

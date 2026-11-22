@@ -573,6 +573,11 @@ VIEW_SHORE = "wait:document.querySelector('.u-shore-ctl:not([hidden])')"
 VIEW_SELECTED_AT = [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1, "js:" + VIEW_SELECT, VIEW_SELECTED]
 VIEW_LINE = [VIEW_READY, VIEW_SPOTS, "js:" + VIEW_HALF, "js:" + VIEW_SELECT, VIEW_SELECTED, VIEW_CHART, VIEW_DOCK_DONE]
 VIEW_FULL = [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1, "js:" + VIEW_HALF]
+# The tree's spot `%s` (its index top to bottom, every sector's spots) selected, as a press on its row (C4's stepper
+# steps through the same order); the stepper's pair drawn; one of the pair turned off ("prev" or "next")
+VIEW_TREE_PICK = "js:" + VIEW_DO % "const tree = view.sectors.flatMap((s) => s.spots); view.select(tree[%s])"
+VIEW_STEPPER = "wait:document.querySelector('.vl-dhead .vl-spot-next, .vl-sheet-row .vl-spot-next')"
+VIEW_STEP_OFF = "wait:document.querySelector('.vl-dhead .vl-spot-{0}, .vl-sheet-row .vl-spot-{0}')?.disabled === true".format
 VIEW_STATES = {
     # B1: the map fitted to the search area at Area, its dashed outline, the legend open (the gate's G5); two best
     # spots' lines favourites (their halos); Lines with the best line a favourite and selected; Measure's finished line
@@ -646,12 +651,35 @@ VIEW_STATES = {
                                              "wait:document.querySelector('.u-shore-ctl:not(.u-coarse-ctl):not(.u-shore-folded)')"]),
     "c-view-link-centre": ("c", "#run={run}", [VIEW_READY, VIEW_ZOOM_OUT, VIEW_SHORE, VIEW_LINK % VIEW_CENTRE,
                                                "wait:!!window.FINDALINE_VIEW.measured", VIEW_CHART]),
+    # step 3d's spot stepper (C4, the user's P1 A): "Previous spot" / "Next spot" in the details' head (a desktop), in
+    # the phone's sheet head at half and at the low stop (the tree's second spot selected: both on); each turned off at
+    # its end (the tree's first and last spot; a phone at half); the star's folders opened from the sheet's low stop
+    # (a phone: the sheet rises to full, the picker under the head's right end)
+    "c-view-stepper": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP, VIEW_TREE_PICK % "1", VIEW_SELECTED, VIEW_STEPPER]),
+    "c-view-stepper-half": ("c", "#run={run}", [VIEW_READY, VIEW_PHONE, "js:" + VIEW_HALF, VIEW_TREE_PICK % "1", VIEW_SELECTED,
+                                                VIEW_STEPPER]),
+    "c-view-stepper-low": ("c", "#run={run}", [VIEW_READY, VIEW_PHONE, VIEW_TREE_PICK % "1", VIEW_SELECTED, VIEW_STEPPER]),
+    "c-view-stepper-first": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, VIEW_TREE_PICK % "0", VIEW_SELECTED,
+                                                 VIEW_STEP_OFF("prev")]),
+    "c-view-stepper-last": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, VIEW_TREE_PICK % "tree.length - 1", VIEW_SELECTED,
+                                                VIEW_STEP_OFF("next")]),
+    "c-view-picker-low": ("c", "#run={run}", [VIEW_READY, VIEW_PHONE, VIEW_FAV_STUB, "js:" + VIEW_SELECT, VIEW_SELECTED,
+                                              "wait:document.querySelector('.vl-sheet-row .r-fav')",
+                                              "js:" + VIEW_PRESS % ".vl-sheet-row .r-fav", "wait:document.querySelector('.r-picker')",
+                                              "wait:!!document.activeElement?.closest('.r-pop')"]),
     # last of all (the filters they set are kept in the browser, "findaline.filters", for the pass's later pages): a link
     # to a line the filters hide (the note first in the list); no line passing the filters (the sentence, "Clear all")
     "c-view-note": ("c", "#run={run}", [VIEW_READY, VIEW_NOTE, "wait:document.querySelector('.vl-lnote')"]),
     "c-view-none": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1,
                                         "js:" + VIEW_DO % "const m = view.model; m.setFilters({...m.filters, lenMin: 1000000})",
                                         "wait:document.querySelector('.vl-none')"]),
+    # after them (the direction is kept in the browser, "findaline.view.v1", for the pass's later pages; "Clear all"
+    # first, which a pass's c-view-none leaves to press): the tree smallest first (C4's P4), its direction button
+    # showing its edge (a phone: the sheet at full)
+    "c-view-sort-asc": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_PRESS % ".vl-clear", "js:" + VIEW_HALF, "js:" + VIEW_HALF,
+                                            "js:" + VIEW_PRESS % ".vl-tree .vl-dir",
+                                            "wait:window.FINDALINE_VIEW.view.desc === false",
+                                            "js:document.querySelector('.vl-tree .vl-block-head')?.scrollIntoView({block: 'start'})"]),
 }
 # A finished job of the shown run in the app's list of jobs, so the header has the run's "Edit & run again"
 # (AppC.tsx editJob): /api/jobs answered in the page before the app asks (the site's jobs are not written), the run's
