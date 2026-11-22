@@ -394,3 +394,7 @@
 /* the heads' ground reaches the block's edges and no further: a block clips what runs past its sides (not a scroller:
    the heads stay sticky to the list's), so the list never scrolls sideways (the code review's G2) */
 .ui .vl-topblock, .ui .vl-sec { overflow-x: clip; }
+/* a row's folder picker no wider than its list (less 16 px): right-aligned at the row's end it stays inside the list,
+   so inside the window, at every list width (260 px kept: 340 px of picker ran past the window's left edge) */
+.ui .vl-body, .ui .v-result .u-sheet-body { container-type: inline-size; }
+.ui .v-result .vl-row .r-pop { width: min(340px, calc(100cqw - 16px)); }

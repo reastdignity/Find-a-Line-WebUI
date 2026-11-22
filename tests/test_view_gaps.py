@@ -1345,3 +1345,29 @@ def test_head_press_keeps_its_place(site):
     print("the head's place:", places, "row drawn", drawn)
     assert max(places) - min(places) <= 1, places
     assert drawn
+
+
+@pytest.mark.parametrize("width", [260, 300])
+def test_row_picker_inside_a_narrow_list(site, width):
+    """The code review's note on 13 a: with the list kept at 260 (and 300) px, a row's folder picker stays inside the
+    window and inside the list's column."""
+    from playwright.sync_api import sync_playwright
+    layout = ("try { localStorage.setItem('findaline.layout', JSON.stringify({v: 1, list: {w: %d, open: true}, details: {w: 380, open: true}, "
+              "profile: {h: 300, folded: false, l: 12, r: 12}})); } catch (e) {}" % width)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP + layout)
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
+            star = ".vl-tree .vl-rows > li:nth-child(2) > .vl-star"
+            page.wait_for_selector(star, timeout=WAIT)
+            page.evaluate(f"() => document.querySelector('{star}').click()")
+            page.wait_for_selector(".vl-row .r-picker", timeout=WAIT)
+            got = page.evaluate("""() => { const p = document.querySelector('.vl-row .r-pop').getBoundingClientRect(), l = document.querySelector('.c-col-list').getBoundingClientRect();
+              return {pop: [Math.round(p.left), Math.round(p.right)], list: [Math.round(l.left), Math.round(l.right)], window: innerWidth}; }""")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the picker in a narrow list:", width, got)
+    assert got["pop"][0] >= 0 and got["pop"][1] <= got["window"], got
+    assert got["pop"][0] >= got["list"][0] and got["pop"][1] <= got["list"][1], got
