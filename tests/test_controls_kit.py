@@ -52,14 +52,16 @@ def _rule(css: str, selector: str, media: str = "") -> str:
 def test_text_action_is_one_kit_class():
     """Q7 a: the kit's text action (.u-link) is accent text at a label's weight with no underline at rest, underlined
     under the mouse and the keyboard's focus, a 24 px target (44 px on a touch screen), and none of its own inside a
-    sentence (.u-inline); the free screens' text actions take it and keep no look of their own (c-link and s-link are
-    gone, n-intro-link, cov-link, s-reset are hooks of tests and ui_shots only)."""
+    sentence (.u-inline), where it is always underlined (the user, 2026-11-22); the free screens' text actions take it
+    and keep no look of their own (c-link and s-link are gone, n-intro-link, cov-link, s-reset are hooks of tests and
+    ui_shots only). What the browser applies: test_text_action_underlines_in_the_browser."""
     ui = _css("ui/ui.css")
     rest = _rule(ui, ".ui .u-link")
     assert "color: var(--accent)" in rest and "text-decoration: none" in rest and "min-height: 24px" in rest
     assert "text-decoration: underline" in _rule(ui, ".ui .u-link:hover, .ui .u-link:focus-visible")
     assert "min-height: 44px" in _rule(ui, ".ui .u-link", "pointer: coarse")
-    assert "min-height: 0" in _rule(ui, ".ui .u-link.u-inline")
+    inline = _rule(ui, ".ui .u-link.u-inline")
+    assert "min-height: 0" in inline and "text-decoration: underline" in inline
     code = _free((".tsx", ".ts"))
     for old in ("c-link", "s-link"):
         assert not [p for p, t in code.items() if re.search(r"""["'` ]%s["'` ]""" % old, t)], old
@@ -79,7 +81,8 @@ def test_one_close_button():
     x = _rule(ui, ".ui .u-ib.u-x")
     assert "width: 24px" in x and "height: 24px" in x and "background: transparent" in x
     assert "width: 44px" in _rule(ui, ".ui .u-ib.u-x", "pointer: coarse")
-    assert 'class="u-ib u-x cov-x"' in _read("coverage/page/card.tsx")
+    assert '<CloseButton label={ct(lang, "close")} class="cov-x"' in _read("coverage/page/card.tsx")
+    assert 'class={cx("u-x", cls)}' in _read("ui/components.tsx")  # CloseButton: the kit's plain icon button and u-x
     assert '"u-ib u-x v3-activity-dismiss"' in _read("view3d/chrome.ts")
     assert '"u-ib u-x v3-infobox-close"' in _read("view3d/info.ts")
     for rel, sel in (("coverage/page/page.css", "cov-x"), ("view3d/view3d.css", "v3-activity-dismiss"),
@@ -89,11 +92,12 @@ def test_one_close_button():
 
 def test_close_icon_means_close_only():
     """Q10 a: Delete… and Remove take the kit's bin, Cancel the search the stop square; the close mark stands for no
-    menu item (Home's card menu, the Favourites page's folder and line menus)."""
+    menu item (Home's card menu, the Favourites page's folder and line menus); the close mark stays for closing a box,
+    the search form's Clear and the cancelled chip. What the browser draws: test_menu_icons_in_the_browser."""
     icons = _read("ui/icons.tsx")
     assert re.search(r"^  bin: '", icons, re.M) and re.search(r"^  stop: '<rect ", icons, re.M)
     for rel in ("app/c/Home.tsx", "app/c/FavouritesPage.tsx"):
-        items = re.findall(r'<Icon name="(\w+)" />\{t\("([\w.]+)"\)\}', _read(rel))
+        items = re.findall(r'<Icon name="(\w+)" />\s*\{t\("([\w.]+)"\)\}', _read(rel))
         assert items, rel
         want = {"ui.common.delete_ask": "bin", "ui.common.remove": "bin", "ui.card.remove": "bin", "ui.card.cancel": "stop"}
         for icon, key in items:
@@ -169,6 +173,9 @@ def test_rows_and_toggles_are_the_kits():
             if names and not kit & set(names):
                 own.add(names[0])
     assert own <= kept | {"u-on", "u-plain", ""}, sorted(own - kept)
+    # a plain icon button (a favourite's star, the tree's fold, a card's menu) shows the hover's fill (the user, 2026-11-22)
+    assert "background: var(--hover)" in _rule(_css("ui/ui.css"), ".ui .u-ib.u-plain:hover")
+    assert not [sel for sel, _, _ in _css_rules(_css("app/c/c.css")) if re.search(r"c-(tree-fold|fav-star):hover", sel)]
     for rel, needle in (("app/c/Home.tsx", 'class="u-item c-menu-item"'), ("app/c/FavouritesPage.tsx", 'class="u-item c-tree-name"'),
                         ("app/c/FavouritesPage.tsx", 'class="u-ib u-plain u-round c-fav-star"'),
                         ("app/c/FavouritesPage.tsx", 'class="u-ib u-plain c-tree-fold"'),
@@ -205,6 +212,12 @@ def test_page_titles_a_step_above_their_sections():
             if 'class="u-h' in tag:
                 assert "u-title" in tag, (rel, tag)
     assert 'kind="ghost" iconRight="next" href={runHash(r.run_id)}' in _read("app/c/AdminC.tsx")
+    # the pages titled by a Panel (the account, Favourites) and New search take the same title (the user, 2026-11-22)
+    app = _read("app/c/AppC.tsx")
+    assert 'title={t("ui.app.favourite_lines")} page' in app and 'title={t("ui.app.account")} page' in app
+    assert 'cx("u-h", page && "u-title")' in _read("ui/components.tsx")
+    assert '<h1 class="u-h u-title c-subtitle">' in _read("app/c/NewSearch.tsx")
+    assert "font" not in _rule(_css("app/c/c.css"), ".ui .c-subtitle")
 
 
 # ---- in a browser ---------------------------------------------------------------------------------------------------
@@ -244,4 +257,83 @@ def test_webkit_draws_the_checkbox_ring(wsite):
     focused = ring_pixels()
     page.evaluate("() => document.activeElement.blur()")
     assert focused >= 40 and ring_pixels() == 0, (focused, accent)
+    page.context.close()
+
+
+ICON_PATHS = {name: path for name, path in re.findall(r"^  (\w+): '([^']+)'", _read("ui/icons.tsx"), re.M)}
+HOME_MENUS = """async () => {
+  const wait = (f) => new Promise((done) => { const t0 = Date.now(); const look = () => f() || Date.now() - t0 > 8000 ? done(f()) : setTimeout(look, 50); look(); });
+  const out = [];
+  for (const card of [...document.querySelectorAll('.c-card')]) {
+    const button = card.querySelector('.c-card-menu'); if (!button) continue;
+    button.click();
+    const items = await wait(() => card.querySelectorAll('.c-menu-item').length && [...card.querySelectorAll('.c-menu-item')]);
+    for (const it of items || []) out.push([it.textContent.trim(), it.querySelector('svg')?.innerHTML || null]);
+    document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); button.click();
+    await wait(() => !card.querySelector('.c-menu-item'));
+  }
+  return out; }"""
+
+
+@pytest.fixture(scope="module")
+def menus_site(site, tmp_path_factory):
+    """The app's page (test_shell_c's stubs) over a data folder with a waiting search (Cancel the search), a cancelled
+    one (Remove…) and a favourites folder (Delete…), in the keyboard tests' Edge (one Playwright in the module):
+    (browser, the server's address, the path)."""
+    from jobs import Jobs
+    from test_shell_c import stub_page
+    from test_web import _server
+    data = tmp_path_factory.mktemp("menus")
+    (data / "runs").mkdir()
+    jobs = Jobs(str(data))
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    jobs.add(request, "Waiting search")
+    assert jobs.request_cancel(jobs.add(request, "Cancelled search"))
+    jobs.add_folder(None, "Tatras")
+    path = stub_page(data, "menus")
+    with _server(data) as port:
+        yield site[1], f"http://127.0.0.1:{port}", path
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_menu_icons_in_the_browser(menus_site):
+    """Q10 a, as drawn: in the rendered menus Cancel the search shows the stop square, Remove… and the folder's
+    Delete… the bin, and no item shows the close mark (Home's card menus, the Favourites page's folder menu)."""
+    browser, base, path = menus_site
+    page = browser.new_context(viewport={"width": 1400, "height": 900}).new_page()
+    page.goto(f"{base}/{path}?ui=c")
+    page.wait_for_function("() => document.querySelectorAll('.c-card .c-card-menu').length >= 2", timeout=20000)
+    items = page.evaluate(HOME_MENUS)
+    page.goto(f"{base}/{path}?ui=c#favourites")
+    page.wait_for_selector(".c-folder-row .c-row-menu", timeout=20000)
+    page.click(".c-folder-row .c-row-menu")
+    page.wait_for_selector(".c-menu .c-menu-item", timeout=10000)
+    items += page.evaluate("() => [...document.querySelectorAll('.c-menu .c-menu-item')].map((it) => "
+                           "[it.textContent.trim(), it.querySelector('svg')?.innerHTML || null])")
+    seen = {text: svg for text, svg in items}
+    norm = lambda s: re.sub(r"></(path|rect|circle)>", ">", re.sub(r"\s+", "", s or "")).replace("/>", ">")  # noqa: E731
+    want = {"Cancel the search": "stop", "Remove…": "bin", "Delete…": "bin"}
+    assert set(want) <= set(seen), seen
+    for text, icon in want.items():
+        assert norm(seen[text]) == norm(ICON_PATHS[icon]), (text, seen[text])
+    assert not [t for t, svg in items if norm(svg) == norm(ICON_PATHS["close"])], items
+    page.context.close()
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_text_action_underlines_in_the_browser(site):
+    """Q7 a, as applied: "How a search works" has no underline at rest and one when a Tab press focuses it; "Rest of
+    the world", a text action inside a sentence on the coverage page, is underlined at rest."""
+    page = _open(site, "search", {"viewport": {"width": 1400, "height": 900}})
+    link = ".s-intro .n-intro-link"
+    deco = "(s) => getComputedStyle(document.querySelector(s)).textDecorationLine"
+    assert page.evaluate(deco, link) == "none"
+    page.evaluate("(s) => document.querySelector(s).focus()", link)
+    page.keyboard.press("Shift+Tab")
+    page.keyboard.press("Tab")
+    assert page.evaluate("(s) => document.activeElement === document.querySelector(s)", link)
+    assert page.evaluate(deco, link) == "underline"
+    page.context.close()
+    page = _open(site, "coverage", {"viewport": {"width": 1400, "height": 900}})
+    assert page.evaluate(deco, ".cov-world .cov-link") == "underline"
     page.context.close()
