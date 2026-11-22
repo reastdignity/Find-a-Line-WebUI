@@ -301,3 +301,12 @@
 .ui .v-leaflet { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .ui .v-leaflet.v-target { cursor: pointer; }
 .ui .v-anchor-mark svg { width: 18px; height: 18px; }
+
+/* gate 2's 4 a: a phone held sideways is asked to turn upright (SpotColumns.tsx Upright): a notice over the whole page,
+   above every layer of the view (its sheet 7, its top bar 8, the menus 1100) */
+.ui .v-upright { display: none; }
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 499.98px) {
+  .ui .v-result .v-upright { display: flex; position: fixed; inset: 0; z-index: 2000; align-items: center; justify-content: center;
+    padding: 24px; background: var(--surface); color: var(--ink); text-align: center; font: 600 var(--fs-5)/28px var(--display); }
+  .ui .v-result .v-upright p { margin: 0; max-width: 32ch; }
+}

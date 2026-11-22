@@ -1082,3 +1082,38 @@ def test_list_star_opens_the_folders(site, device):
     assert opened["title"] == "Save to a folder" and opened["folders"] >= 1 and abs(opened["right"]) <= 24 and opened["below"], opened
     assert nothing == before, (before, nothing)  # the press saved nothing by itself
     assert folder == name and filled, (folder, filled)
+
+
+# Is the upright notice shown over the page: its display, the words, and what a press at the window's middle reaches
+UPRIGHT = """() => { const n = document.querySelector('.v-upright'), hit = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+  return {shown: !!n && getComputedStyle(n).display !== 'none', text: n ? n.textContent.trim() : null, over: !!n && !!hit && n.contains(hit)}; }"""
+
+
+@pytest.mark.parametrize("case", ["iphone-side", "pixel-side", "iphone-upright", "pixel-upright", "desktop-side", "tablet-side"])
+def test_phone_held_sideways_is_asked_upright(site, case):
+    """4 a: a phone held sideways (a touch screen, the window wider than high and lower than 500 px: the iPhone 13 at
+    844 x 390, the Pixel at 839 x 412) shows "Turn your phone upright to use this page." over the whole page; upright it
+    does not; a desktop window of 844 x 390 with a mouse and a tablet on its side (1024 x 768, touch) do not either."""
+    from playwright.sync_api import sync_playwright
+    contexts = {
+        "iphone-side": {"viewport": {"width": 844, "height": 390}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True},
+        "pixel-side": {"viewport": {"width": 839, "height": 412}, "device_scale_factor": 2.625, "is_mobile": True, "has_touch": True},
+        "iphone-upright": {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True},
+        "pixel-upright": PIXEL,
+        "desktop-side": {"viewport": {"width": 844, "height": 390}},
+        "tablet-side": {"viewport": {"width": 1024, "height": 768}, "device_scale_factor": 2, "is_mobile": True, "has_touch": True},
+    }
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", contexts[case], script=HELP)
+            page.evaluate("() => T.frames()")
+            got = page.evaluate(UPRIGHT)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("upright notice:", case, got)
+    if case.endswith("-side") and case.split("-")[0] in ("iphone", "pixel"):
+        assert got["shown"] and got["over"] and got["text"] == WORDS["ui.view.upright"], got
+    else:
+        assert not got["shown"], got

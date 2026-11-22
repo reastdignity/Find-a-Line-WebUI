@@ -250,6 +250,14 @@ function Title({data}: {data: RunData}) {
   </div>;
 }
 
+/** A phone held sideways (a coarse pointer, the window wider than high and lower than 500 px: mapbar.css) is asked to
+ *  turn upright: a notice over the whole page (the user's gate-2 answer 4 a). Drawn in both frames (a phone on its
+ *  side is wider than the phone frame's 768 px), shown only by that media query: a desktop's window, a tablet and the
+ *  phone held upright never see it. */
+function Upright() {
+  return <div class="v-upright" role="alert"><p>{t("ui.view.upright")}</p></div>;
+}
+
 function Back({back}: {back?: BackAction}) {
   if (!back) return null;
   return <Button kind="ghost" icon="back" class="c-back" onClick={back.onClick}>{back.label}</Button>;
@@ -753,6 +761,7 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
   // (the panels' padding serves only their reveal of a selected line: SpotList, FanPanel)
   const p: PanelProps = {view, map: canvas, wide: true, padding: fitPadding, linkOf, view3dOf, measured};
   return <div class="c-result v-result">
+    <Upright />
     <header class="c-subtop c-result-top">
       <Back back={back} />
       <Title data={data} />
@@ -1230,6 +1239,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   // Compare needs room the phone's top bar does not have (as today's page)
   const phoneShow = (["measure", "share", "download"] as const).filter((a) => !show || show.includes(a));
   return <div class="c-result c-result-phone v-result" ref={phoneRef}>
+    <Upright />
     <div class="c-col-map v-map" ref={colRef} data-choosing={choice ? choice.choices.length : undefined}>
       <div class="c-leaflet" ref={ref} />
       {/* the measuring tip or the map's message: the first line of the status line's box while it lasts (the pilot's
