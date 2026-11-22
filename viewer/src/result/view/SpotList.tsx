@@ -34,6 +34,7 @@ import { BEST_ROWS } from "../viewgeom";
 import { Icon } from "../../ui/icons";
 import { IconButton } from "../../ui/components";
 import { count, cx, Swatch, TightIcon, TightKey } from "./common";
+import { FavouritePicker } from "./FavouritePicker";
 import { Shape } from "./Shape";
 import type { PanelProps } from "./SpotPanels";  // types only: SpotPanels.tsx imports the slots, which import this file
 import { SpotSummary } from "./SpotSummary";
@@ -108,7 +109,7 @@ export function RowAccess({view, row}: {view: SpotView; row: number}) {
  *  without one). */
 export function rowKeys(e: KeyboardEvent) {
   const target = e.target as HTMLElement, star = target.closest?.(".vl-star") as HTMLElement | null;
-  const at = (star ? star.parentElement?.querySelector(":scope > .vl-main") : target.closest?.(".vl-main")) as HTMLElement | null;
+  const at = (star ? star.closest(".vl-row")?.querySelector(":scope > .vl-main") : target.closest?.(".vl-main")) as HTMLElement | null;
   if (!at) return;
   if (e.key === "Tab") {
     // one tab stop per list: Tab (Shift+Tab) from a row or a star the arrows reached leaves the list in one press, also
@@ -126,7 +127,8 @@ export function rowKeys(e: KeyboardEvent) {
     }
     return;
   }
-  const starOf = (main: HTMLElement | undefined) => main?.parentElement?.querySelector<HTMLElement>(":scope > .vl-star") ?? null;
+  const starOf = (main: HTMLElement | undefined) =>
+    main?.parentElement?.querySelector<HTMLElement>(":scope > .vl-star, :scope > .r-popwrap > .vl-star") ?? null;
   if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
     const to = e.key === "ArrowRight" ? (star ? null : starOf(at)) : (star ? at : null);
     if (to) { e.preventDefault(); to.focus(); }
@@ -161,14 +163,38 @@ export function favouriteRows(view: SpotView): Set<number> {
   return known.rows;
 }
 
-/** A row's star (LinesTable's titles): a press adds the row's line to the folder used last, or removes it
- *  (ResultModel.toggleFavourite: its Line made at the press only); its name names the row's spot as the row shows it
- *  (`label`: "Add B3 to favourites", the user's G-G a). Out of the tab order: the list's arrows reach it (rowKeys). */
-function RowStar({view, row, label}: {view: SpotView; row: number; label: string}) {
-  const on = favouriteRows(view).has(row), model = view.model;
+/** The row whose star has its folders open, per view (its list item's id and its line): that row draws the folder
+ *  picker in its star's place while it is open (one Line, made for it alone); every other row, and that row once the
+ *  picker closed, the plain star. */
+const pickerOf = new WeakMap<SpotView, {id: string; row: number}>();
+
+/** A row's star (LinesTable's titles; its name names the row's spot as the row shows it, `label`: "Add B3 to
+ *  favourites", the user's G-G a): a press opens the same folder list as the details' star (FavouritePicker, under
+ *  the row's right end; the user's gate-2 answer 13 a): the row then draws the picker, mounted open (its Line made
+ *  at the press only), until it closes (a folder chosen, Esc, a press elsewhere): the plain star again, the focus on
+ *  it where the picker had it; a phone's sheet rises to full for it, as for the details' star. Out of the tab order:
+ *  the list's arrows reach it (rowKeys). */
+function RowStar({view, row, id, label, sheet}: {view: SpotView; row: number; id: string; label: string; sheet?: PanelProps["sheet"]}) {
+  const on = favouriteRows(view).has(row), model = view.model, picked = pickerOf.get(view);
+  if (picked && picked.id === id && picked.row === row) {
+    return <FavouritePicker model={model} line={model.lineAt(row)} icon opened buttonClass="vl-star" buttonTabIndex={-1}
+                            onOpen={(open) => {
+                              if (open) return;
+                              // the row's place while it is there (a removal under "Favourites only" takes the row away)
+                              const main = document.getElementById(id)?.querySelector(":scope > .vl-main"), place = main ? placeOf(main) : null;
+                              changePanels(view, () => { if (pickerOf.get(view) === picked) pickerOf.delete(view); });
+                              // the focus (the picker's, or its button's after Esc) to the row's plain star, else to the row
+                              // that took the row's place (as a row's star pressed when the row goes: lostRowPlaces)
+                              keepFocus(`#${id} > .vl-star`, ...(place ? [`${place.list} > li:nth-child(${place.index + 1}) > .vl-main`,
+                                                                         `${place.list} > li:last-child > .vl-main`, place.head] : []), ...FOCUS_REST);
+                            }} />;
+  }
   return <button type="button" class={cx("vl-star", on && "vl-on")} tabIndex={-1} data-row={row}
                  aria-label={t(on ? "ui.view.star_remove" : "ui.view.star_add", {label})} aria-pressed={on}
-                 title={on ? "favourite" : "add to favourites"} onClick={() => model.toggleFavourite(model.lineAt(row))}>
+                 title={on ? "favourite" : "add to favourites"} onClick={() => {
+                   sheet?.setSnap("full");
+                   changePanels(view, () => { pickerOf.set(view, {id, row}); });
+                 }}>
     <Icon name="star" fav={on} /></button>;
 }
 
@@ -294,7 +320,7 @@ interface RowProps extends PanelProps {
 }
 
 /** A row of the top block or of the tree. */
-function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowProps) {
+function Row({view, map, padding, sheet, spot, row, id, tab, mark, pick, height}: RowProps) {
   const sel = view.selected;
   // a pick's row is the selected one only while its own line is selected (another line of the spot: the row
   // selects the pick's line)
@@ -320,7 +346,7 @@ function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowPr
       <Value name={t("ui.list.col.lines")} class="vl-n">{count(view.passingCount(spot))}</Value>
       {over && <OverWords />}
     </button>
-    {stars && <RowStar view={view} row={row} label={mark ?? label} />}
+    {stars && <RowStar view={view} row={row} id={id} label={mark ?? label} sheet={sheet} />}
     {DOOR && <button type="button" class="vl-door" aria-label={t("ui.view.door_label", {label})} title={t("ui.view.door")}>›</button>}
   </li>;
 }
@@ -506,7 +532,7 @@ function sectorSig({view, map, wide}: PanelProps, sector: SectorRow, k: number):
   const ui = panelState(view), sel = view.selected;
   const mine = sel && view.sectorOf(sel.spot) === sector.n ? sel.spot : -1;
   return [view.version, view.sort, view.desc ? 1 : 0, k, isOpen(ui, sector.n, k), limitOf(ui, sector.n), mine, map ? 1 : 0, wide ? 1 : 0,
-          view.model.favouritesOn ? 1 : 0].join("|");
+          view.model.favouritesOn ? 1 : 0, pickerOf.get(view)?.id ?? ""].join("|");
 }
 
 /** A sector, drawn again only when its picture changes (a move of the map redraws the list at its end: the top

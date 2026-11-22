@@ -613,6 +613,9 @@ VIEW_STATES = {
                                              "js:document.querySelector('.vl-topblock .vl-block-head')?.scrollIntoView({block: 'start'})"]),
     "c-view-refused": ("c", "#run={run}", [VIEW_READY, VIEW_FAV_REFUSED, VIEW_SPOTS, "js:" + VIEW_HALF,
                                            "js:document.querySelector('.vl-rows > li > .vl-star')?.click()",
+                                           # the row's folder list (the user's gate-2 answer 13 a): "Favourites (top level)"
+                                           "wait:document.querySelector('.vl-row .r-picker .r-folder')",
+                                           "js:document.querySelector('.vl-row .r-picker .r-folder')?.click()",
                                            "wait:document.querySelector('.vl-lnote')",
                                            "js:" + VIEW_PRESS % ".vl-cols .vl-cols-info", "wait:document.querySelector('.vl-helpt')",
                                            "js:(document.querySelector('.u-sheet-body') || document.querySelector('.c-col-list .vl-body'))?.scrollTo(0, 0)"]),

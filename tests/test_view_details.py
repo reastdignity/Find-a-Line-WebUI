@@ -486,8 +486,9 @@ def test_list_stars(site, device):
     """A star at each row's end in "Best in view", "Start here" and the tree (B-3, 11 a; a phone keeps them: 10 a), also
     on a run with no favourite yet: the row button's sibling (a row stays one button), out of the tab order, 24 px on a
     desktop and 44 px on a phone, today's titles and names that name the row's spot as the row shows it ("Add B3 to
-    favourites": the user's G-G a); the heads stand over the row's button. A press adds to the
-    folder used last, or removes (today's rule; on the server); a favourite's dash wears the halo. The arrows: right
+    favourites": the user's G-G a); the heads stand over the row's button. A press opens the details' folder list (the
+    user's gate-2 answer 13 a, which highlights the folder used last): a folder chosen saves it there, its "Remove
+    from favourites" removes it (on the server); a favourite's dash wears the halo. The arrows: right
     from a row to its star, left back, up, down, Home and End from a star along the stars' column; Tab (Shift+Tab)
     leaves the list from a star in one press, also when the list's tab stop lies after (before) it; a star pressed by
     the keyboard whose row goes ("Favourites only") leaves the focus on a row. In a row of two lines the star stands on
@@ -517,26 +518,37 @@ def test_list_stars(site, device):
             ends = page.evaluate("() => { const h = [...document.querySelectorAll('.vl-topblock .vl-cols > span')].pop().getBoundingClientRect(), "
                                  "n = document.querySelector('.vl-topblock .vl-n').getBoundingClientRect(); return [h.right, n.right]; }")
             assert abs(ends[0] - ends[1]) <= 1.5, ends
-            # a press: a favourite on the server, the star pressed with today's other name, the dash's halo; again: gone
+            # a press opens the folder list (13 a); "Favourites (top level)": a favourite on the server, the star pressed
+            # with today's other name, the dash's halo; again, "Remove from favourites": gone
             first = page.evaluate("() => D.stars('.vl-topblock')[0].row")
             link = page.evaluate(f"() => D.link({first})")
             page.click(".vl-topblock .vl-rows > li:first-child > .vl-star")
+            page.wait_for_selector(".vl-topblock .vl-row .r-picker .r-folder", timeout=WAIT)
+            page.click(".vl-topblock .vl-row .r-picker .r-folder")
             page.wait_for_function(f"() => D.saved().then((s) => s.lines.includes({link!r}))", timeout=WAIT)
             page.wait_for_function("() => D.stars('.vl-topblock')[0].star.pressed === 'true'", timeout=WAIT)
             row = page.evaluate("() => D.stars('.vl-topblock')[0]")
             assert row["star"]["name"] == WORDS["ui.view.star_remove"].replace("{{label}}", row["label"]) == f"Remove {row['label']} from favourites"
             assert row["star"]["title"] == "favourite" and row["star"]["filled"] and row["halo"], row
             page.click(".vl-topblock .vl-rows > li:first-child > .vl-star")
+            page.wait_for_selector(".vl-topblock .vl-row .r-picker .r-unfav", timeout=WAIT)
+            page.click(".vl-topblock .vl-row .r-picker .r-unfav")
             page.wait_for_function(f"() => D.saved().then((s) => !s.lines.includes({link!r}))", timeout=WAIT)
             page.wait_for_function("() => D.stars('.vl-topblock')[0].star.pressed === 'false' && !D.stars('.vl-topblock')[0].halo", timeout=WAIT)
-            # the folder used last: a new folder chosen once, then a row's star adds into it
+            # the folder used last: a new folder chosen once, then a row's star's folder list highlights it (13 a), and
+            # the highlighted folder chosen adds the row's line into it
             folder = page.evaluate("() => D.m().newFolder('Step 3c', null)")
             assert isinstance(folder, int)
             page.evaluate(f"() => {{ localStorage.setItem('findaline.lastFolder', '{folder}'); }}")
             page.click(".vl-topblock .vl-rows > li:nth-child(2) > .vl-star")
+            page.wait_for_selector(".vl-topblock .vl-row .r-picker .r-folder", timeout=WAIT)
+            highlighted = page.evaluate("() => document.querySelector('.vl-topblock .vl-row .r-picker .r-folder.u-on')?.textContent.trim()")
+            assert highlighted == "Step 3c", highlighted
+            page.click(".vl-topblock .vl-row .r-picker .r-folder.u-on")
             second = page.evaluate("() => D.stars('.vl-topblock')[1].row")
             page.wait_for_function(f"() => D.m().folderOf(D.m().lineAt({second})) === {folder}", timeout=WAIT)
             page.wait_for_function(f"() => D.saved().then((s) => s.in[{page.evaluate(f'() => D.link({second})')!r}] === {folder})", timeout=WAIT)
+            page.wait_for_selector(".vl-topblock .vl-rows > li:nth-child(2) > .vl-star", timeout=WAIT)
             # the keys: right to the star, down and up the stars, End, Home, left back to the row; Tab leaves the list
             page.focus(".vl-topblock .vl-rows > li:first-child > .vl-main")
             stars = ".vl-topblock .vl-rows > li > .vl-star"
@@ -565,15 +577,22 @@ def test_list_stars(site, device):
                 page.keyboard.press(key)
                 assert page.evaluate(f"() => !!document.activeElement && document.activeElement !== document.body && !document.activeElement.closest('{rows}')"), key
             page.evaluate("() => D.v().select(null)")
-            # Enter on a star presses it; with "Favourites only" the row goes and the focus stays on a row
+            # Enter on a star presses it (its folder list opens, 13 a: Enter on its first folder, the focus there, saves);
+            # with "Favourites only" the row goes and the focus stays on a row
             page.focus(".vl-topblock .vl-rows > li:first-child > .vl-main")
             page.keyboard.press("ArrowRight")
+            page.keyboard.press("Enter")
+            page.wait_for_function("() => !!document.activeElement.closest('.vl-row .r-pop')", timeout=WAIT)
             page.keyboard.press("Enter")
             page.wait_for_function("() => D.stars('.vl-topblock')[0].star.pressed === 'true'", timeout=WAIT)
             page.evaluate("() => { const m = D.m(); m.setFilters({...m.filters, favOnly: true}); }")
             page.wait_for_function("() => D.v().counts.lines <= 2", timeout=WAIT)
             page.focus(".vl-tree .vl-rows > li:first-child > .vl-main")
             page.keyboard.press("ArrowRight")
+            page.keyboard.press("Enter")
+            # (its folder list: "Remove from favourites" by the keyboard)
+            page.wait_for_function("() => !!document.activeElement.closest('.vl-row .r-pop')", timeout=WAIT)
+            page.focus(".vl-row .r-picker .r-unfav")
             page.keyboard.press("Enter")
             page.wait_for_function("() => D.v().counts.lines <= 1", timeout=WAIT)
             # the row went with its star: the focus to the row that took its place, the tree's one row left
@@ -703,6 +722,9 @@ def test_note_first_in_the_list(site, device):
             page.evaluate("() => { window.FAIL_SAVES = true; }")
             assert page.evaluate(f"() => D.toEnd('{scroller}')") > 0
             page.evaluate("() => document.querySelector('.vl-tree .vl-rows > li:first-child > .vl-star').click()")
+            # the folder list opens (the user's 13 a): "Favourites (top level)"
+            page.wait_for_selector(".vl-row .r-picker .r-folder", timeout=WAIT)
+            page.evaluate("() => document.querySelector('.vl-row .r-picker .r-folder').click()")
             page.wait_for_selector(".vl-lnote", timeout=WAIT)
             page.wait_for_function("() => D.inView('.vl-lnote')", timeout=WAIT)
             failed = page.evaluate(f"() => [D.kids('{holder}')[0], document.querySelector('.vl-lnote-text').textContent, !!document.querySelector('.vl-lnote-act')]")
@@ -843,6 +865,9 @@ def test_note_in_view_over_a_selected_rows_scroll(site, how):
             page.evaluate("() => { window.FAIL_SAVES_SLOW = true; }")
             if how == "row-star":
                 page.evaluate(f"() => document.querySelector('#vl-row-{spot} > .vl-star').click()")
+                # the folder list opens (the user's 13 a): "Favourites (top level)"
+                page.wait_for_selector(".vl-row .r-picker .r-folder", timeout=WAIT)
+                page.evaluate("() => document.querySelector('.vl-row .r-picker .r-folder').click()")
             else:
                 page.click(".vl-dhead .r-fav")
                 page.wait_for_selector(".r-picker .r-folder", timeout=WAIT)
@@ -904,6 +929,9 @@ def test_a_note_is_placed_once(site):
             page = _open(browser, f"{site}#run={BIG}", DESKTOP, script=SCRIPT)
             _view(page)
             page.evaluate("() => { window.FAIL_SAVES = true; document.querySelector('.vl-tree .vl-rows > li:first-child > .vl-star').click(); }")
+            # the folder list opens (the user's 13 a): "Favourites (top level)"
+            page.wait_for_selector(".vl-row .r-picker .r-folder", timeout=WAIT)
+            page.evaluate("() => document.querySelector('.vl-row .r-picker .r-folder').click()")
             page.wait_for_selector(".vl-lnote", timeout=WAIT)
             page.wait_for_function("() => D.inView('.vl-lnote')", timeout=WAIT)
             end = page.evaluate("() => D.toEnd('.vl-body')")

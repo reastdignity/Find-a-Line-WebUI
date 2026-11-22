@@ -1025,3 +1025,60 @@ def test_heads_sort_the_tree(site, device):
     assert boxed["sort"] == "clr" and boxed["heads"][2]["pressed"] == "true" and boxed["desc"], boxed
     if device == "phone":
         assert all(h["h"] >= 44 for h in start["heads"]), start["heads"]
+
+
+@pytest.mark.parametrize("device", ["desktop", "phone"])
+def test_list_star_opens_the_folders(site, device):
+    """13 a: a row's star in the list opens the same folder list as the details' star (FavouritePicker: "Save to a
+    folder", its folders, "New folder"), under the row's right end, not a direct save; "New folder" with a name makes
+    the folder and saves the row's line into it (on the server), and the star then shows it a favourite. Esc closes the
+    picker with nothing saved, the row's plain star back with the focus."""
+    from playwright.sync_api import sync_playwright
+    context = DESKTOP if device == "desktop" else SMALL_PHONE
+    name = "Gate two folder"
+    saved = """([run]) => fetch('/api/runs/' + encodeURIComponent(run) + '/favourites').then((r) => r.json()).then((b) => Array.isArray(b) ? {lines: b, in: {}} : b)"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
+            if device == "phone":
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            star = ".vl-tree .vl-rows > li:nth-child(2) .vl-star"
+            page.wait_for_selector(star, timeout=WAIT)
+            row = page.evaluate(f"() => Number(document.querySelector('{star}').closest('li').querySelector('.vl-main').dataset.row)")
+            before = page.evaluate(saved, [BIG])
+            page.evaluate(f"() => document.querySelector('{star}').click()")
+            page.wait_for_selector(".vl-tree .vl-row .r-picker", timeout=WAIT)
+            opened = page.evaluate("""() => { const p = document.querySelector('.vl-row .r-pop'), li = p.closest('li'), r = p.getBoundingClientRect(), l = li.getBoundingClientRect();
+              return {title: p.querySelector('.u-h4').textContent, folders: p.querySelectorAll('.r-folder').length, right: Math.round(l.right - r.right), below: r.top >= li.querySelector('.vl-main').getBoundingClientRect().top}; }""")
+            nothing = page.evaluate(saved, [BIG])
+            # Esc closes it, nothing saved
+            page.wait_for_function("() => !!document.activeElement.closest('.r-pop')", timeout=WAIT)
+            page.keyboard.press("Escape")
+            page.wait_for_selector(".vl-row .r-picker", state="detached", timeout=WAIT)
+            # the row's plain star again, with the focus
+            page.wait_for_function(f"() => document.activeElement === document.querySelector('{star}')", timeout=WAIT)
+            # again, "New folder": a name, Create
+            page.evaluate(f"() => document.querySelector('{star}').click()")
+            page.wait_for_selector(".vl-row .r-picker", timeout=WAIT)
+            page.evaluate("() => [...document.querySelectorAll('.vl-row .r-picker .u-btn')].find((b) => b.textContent.includes('New folder')).click()")
+            page.wait_for_selector(".vl-row .r-newfolder input", timeout=WAIT)
+            page.fill(".vl-row .r-newfolder input", name)
+            page.evaluate("() => document.querySelector('.vl-row .r-newfolder button[type=submit]').click()")
+            page.wait_for_selector(".vl-row .r-picker", state="detached", timeout=WAIT)
+            link = page.evaluate(f"() => {{ const m = window.FINDALINE_VIEW.view.model; return m.lineLink(m.lineAt({row})); }}")
+            page.wait_for_function(f"([run]) => fetch('/api/runs/' + encodeURIComponent(run) + '/favourites').then((r) => r.json()).then((b) => (Array.isArray(b) ? b : b.lines).includes({json.dumps(link)}))",
+                                   arg=[BIG], timeout=WAIT)
+            folder = page.evaluate(f"""() => {{ const m = window.FINDALINE_VIEW.view.model, f = m.folderOf(m.lineAt({row}));
+              return f === undefined ? 'none' : f === null ? 'top' : m.tree.path(f); }}""")
+            page.wait_for_selector(f"{star}[aria-pressed='true']", timeout=WAIT)
+            filled = page.evaluate(f"() => !!document.querySelector('{star} svg.u-fav')")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the list's star:", device, opened, "folder", folder, "filled", filled)
+    assert opened["title"] == "Save to a folder" and opened["folders"] >= 1 and abs(opened["right"]) <= 24 and opened["below"], opened
+    assert nothing == before, (before, nothing)  # the press saved nothing by itself
+    assert folder == name and filled, (folder, filled)

@@ -1,8 +1,10 @@
 // The favourite button of a line's details with its folders (as a browser's "bookmark this page"): a
 // click opens the user's folders; picking one marks the line there, or moves it there when it is a
 // favourite already; "New folder" makes one in the folder highlighted and saves the line into it;
-// "Remove" unmarks it. The list's star (LinesTable) adds to the last folder used without asking. The result view's
-// details (SpotActions.tsx) draw its button as the kit's star icon (`icon`) and follow its opening (`onOpen`).
+// "Remove" unmarks it. Today's list's star (LinesTable) adds to the last folder used without asking. The result view's
+// details (SpotActions.tsx) draw its button as the kit's star icon (`icon`) and follow its opening (`onOpen`); its list's
+// star (SpotList.tsx RowStar, the user's gate-2 answer 13 a) mounts it open at the press (`opened`) with the row's own
+// class on its button (`buttonClass`).
 
 import { useState } from "preact/hooks";
 import { Button, IconButton } from "../../ui/components";
@@ -20,11 +22,17 @@ export interface FavouritePickerProps {
   icon?: boolean;
   /** Told when the folders open and close (a phone's sheet rises for them). */
   onOpen?(open: boolean): void;
+  /** Mounted with its folders open (a press made before it was drawn: the list's star). */
+  opened?: boolean;
+  /** More classes for the icon button (the list's star: `vl-star`), and its place in the tab order (the list's star:
+   *  -1, reached by the list's arrows). */
+  buttonClass?: string;
+  buttonTabIndex?: number;
 }
 
-export function FavouritePicker({model, line, icon, onOpen}: FavouritePickerProps) {
+export function FavouritePicker({model, line, icon, onOpen, opened = false, buttonClass, buttonTabIndex}: FavouritePickerProps) {
   useModel(model);
-  const [open, setOpenState] = useState(false);
+  const [open, setOpenState] = useState(opened);
   const setOpen = (v: boolean) => {
     if (v !== open) onOpen?.(v);
     setOpenState(v);
@@ -67,7 +75,7 @@ export function FavouritePicker({model, line, icon, onOpen}: FavouritePickerProp
                   onOpen={(v) => { setOpen(v); if (!v) setNaming(false); }}
                   button={(on, toggle) => icon
                     ? <IconButton icon="star" label={named} title={title} plain fav={favourite} expanded={on}
-                                  class={cx("r-fav", favourite && "r-on")} onClick={toggle} />
+                                  class={cx("r-fav", favourite && "r-on", buttonClass)} tabIndex={buttonTabIndex} onClick={toggle} />
                     : <Button class={cx("r-fav", favourite && "r-on")} aria-expanded={on} onClick={toggle} title={title}>
                       <Icon name="star" fav={favourite} />{named}
                       <Icon name="down" /></Button>}>
