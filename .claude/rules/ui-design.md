@@ -17,9 +17,14 @@ paths:
   picks.
 - Colours and other values come from viewer/src/ui/tokens.css; font sizes, radii and spacing from DESIGN.md's
   scales where a rule in force names one (R5 to R7); a value off them needs a reason in a comment.
+- No raw z-index or literal shadow: the layers `--z-*` and elevation `--shadow*` of tokens.css; a value off the
+  tokens or scales also needs its row in tests/test_viewer.py's `OFF_THE_SCALES` (DESIGN.md rows 87 to 91).
 - The anchors stay: the logo, Barlow Condensed headings, the magenta line, the accepted layouts. The rest of the
   look changes only through a mock-up the user accepted; its decisions go into DESIGN.md in the same branch.
 - Words: docs/wording.md (the words to use and not to use, the characters written out, the style rules by link);
   a word changes only with the user's yes, as a row with its source; `tests/test_words.py` reads its "Not" column.
 - A screen's change goes to the design reviewer with the numbers of tools/ui_metrics.py and tools/ui_walks.py
   before and after and its screenshots on the desktop and both phones, light and dark (DESIGN.md, R12).
+- One control family (DESIGN.md rows 96 to 99): a text action `.u-link`, a list's row `.u-item`, a close `.u-ib.u-x`,
+  a badge `.u-badge` (neutral; a state's soft fill; the accent only for a count), a checkbox `.u-check`; a new control
+  takes the kit's class and its own class keeps only its place and size (`tests/test_controls_kit.py`).

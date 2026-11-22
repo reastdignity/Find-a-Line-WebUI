@@ -34,7 +34,7 @@ export function OsmC({place, onStarted}: {place: PlaceMap; onStarted(): void}) {
     {error && <p class="c-error" role="alert">{error}</p>}
     {state && (state.regions.length ? <ul class="c-admin-list">{state.regions.map((r) => <li key={r.id} class="c-admin-row">
       <div class="c-admin-head"><b>{r.name}</b><span class="u-small u-mono">{r.id}</span>
-        {r.downloaded ? <span class="u-badge u-n">{t("ui.osm.downloaded")}</span>
+        {r.downloaded ? <span class="u-badge">{t("ui.osm.downloaded")}</span>
           : <Button icon="download" onClick={() => start("download", r.id)}>{t("ui.osm.download")}</Button>}</div>
     </li>)}</ul> : <p class="u-small">{t("ui.osm.none_here")}</p>)}
     <h2 class="u-h4">{t("ui.osm.downloaded_title")}</h2>

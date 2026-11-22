@@ -58,7 +58,7 @@ export function NewSearch({edit, cell = null, schema, usage, wide, onStarted}:
     <div class="c-subtop">
       {ofCell ? <Button kind="ghost" icon="back" href={layerHash(ofCell.country)}>{t("ui.new.back_layer")}</Button>
         : <Button kind="ghost" icon="back" href="#home">{t("ui.app.home")}</Button>}
-      <h1 class="c-subtitle">{t(edit ? "ui.app.edit_again" : cell ? "ui.new.cell" : "ui.app.new_search")}</h1>
+      <h1 class="u-h u-title c-subtitle">{t(edit ? "ui.app.edit_again" : cell ? "ui.new.cell" : "ui.app.new_search")}</h1>
     </div>
     <div class="c-newmap" ref={mapRef} />
     {error && <p class="c-error c-form">{error}</p>}

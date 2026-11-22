@@ -668,7 +668,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
 
     {fold.length > 0 && <details class="c-layer-more" open={more}
                                  onToggle={(e) => setMore((e.currentTarget as HTMLDetailsElement).open)}>
-      <summary>{t("ui.layer.more")} <span class="u-badge u-n">{foldCount}</span>
+      <summary>{t("ui.layer.more")} <span class="u-badge">{foldCount}</span>
         {foldSet.length > 0 && <span class="c-layer-more-set">{t("ui.layer.more_set", {count: foldSet.length})}</span>}
         <Icon name="down" /></summary>
       <div class="c-layer-more-body">
@@ -688,12 +688,13 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
     </div>}
 
     <section class="c-layer-legend" aria-label={t("ui.layer.per_km2_of", {noun: Noun})}>
-      <h2 class="u-h4">{t("ui.layer.per_km2_of", {noun: Noun})}</h2>
-      <ul class="c-layer-classes">
-        {labels.map((text, k) => <li key={k}><span class={`c-layer-swatch c-layer-k${k + 1}`} aria-hidden="true" />{text}</li>)}
+      <h2 class="u-h4 u-legend-title">{t("ui.layer.per_km2_of", {noun: Noun})}</h2>
+      <ul class="c-layer-classes u-legend-items u-legend-classes">
+        {labels.map((text, k) => <li key={k} class="u-legend-item">
+          <span class={`c-layer-swatch u-legend-sw c-layer-k${k + 1}`} aria-hidden="true" />{text}</li>)}
       </ul>
-      {partnerRows && !outlineMode && <div class="c-layer-legend-extra">
-        <span class="c-layer-swatch c-layer-hatch" aria-hidden="true" />{t("ui.layer.legend_beyond", {name: hatchName})}</div>}
+      {partnerRows && !outlineMode && <div class="c-layer-legend-extra u-legend-item">
+        <span class="c-layer-swatch u-legend-sw c-layer-hatch" aria-hidden="true" />{t("ui.layer.legend_beyond", {name: hatchName})}</div>}
       <Field label={t("ui.layer.scale")}>
         <Segmented label={t("ui.layer.scale")} value={state.scale} onChange={(scale) => set({scale})}
                    options={[{value: "fit", label: t("ui.layer.scale_fit")}, {value: "fixed", label: t("ui.layer.scale_fixed")}]} />

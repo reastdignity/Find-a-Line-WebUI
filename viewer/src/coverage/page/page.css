@@ -14,20 +14,16 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
   padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .cov .cov-muted { color: var(--muted); }
 .cov .cov-small { font-size: var(--fs-2); }
-.cov .cov-label { font: 600 var(--fs-2)/1.3 var(--font); color: var(--ink-2); }
 .cov .cov-h, .cov .cov-h1 { font-family: var(--display); font-weight: 600; letter-spacing: .01em; margin: 0; text-wrap: balance; }
 .cov .cov-h { font-size: var(--fs-5); line-height: 1.2; }
 .cov .cov-h1 { font-size: var(--fs-7); line-height: 1.1; }
 .cov p { margin: 0; }
-.cov .cov-link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; text-align: left;
-  text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: 2px; }
-.cov .cov-link:hover { text-decoration-color: currentColor; }
 
 /* header: sticky on a wide screen; on a phone it scrolls away with the page (the user's pick L6 b: the phone block).
    What is scrolled into view stops under it (CoveragePage.tsx sets --cov-top, its height): a focused row of the list
    by Shift+Tab was wholly under it (docs/DESIGN.md row 81) */
 html { scroll-padding-top: var(--cov-top, 0px); }
-.cov-top { position: sticky; top: 0; z-index: 1300; background: var(--bg); border-bottom: 1px solid var(--rule);
+.cov-top { position: sticky; top: 0; z-index: var(--z-head); background: var(--bg); border-bottom: 1px solid var(--rule);
   padding-top: env(safe-area-inset-top, 0px); }
 .cov-top-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-height: 56px; padding-block: 8px; }
 .cov .cov-brand { display: inline-flex; align-items: center; min-height: 24px; text-decoration: none; }
@@ -66,13 +62,13 @@ html { scroll-padding-top: var(--cov-top, 0px); }
 .cov-dot { stroke: var(--cov-surface); stroke-width: 1.5; }
 .cov-f1 { fill: var(--cov-l1); } .cov-f2 { fill: var(--cov-l2); } .cov-f3 { fill: var(--cov-land); }
 .cov-hf1 { fill: url(#cov-hatch1); } .cov-hf2 { fill: url(#cov-hatch2); }
-.cov-tip { position: absolute; z-index: 1150; pointer-events: none; background: var(--ink); color: var(--bg); border-radius: var(--r-2);
+.cov-tip { position: absolute; z-index: var(--z-tip); pointer-events: none; background: var(--ink); color: var(--bg); border-radius: var(--r-2);
   padding: 4px 8px; font-size: var(--fs-2); white-space: nowrap; transform: translate(-50%, -140%); }
 .cov-tip[hidden] { display: none; }
-.cov-status { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); z-index: 1100; }
+.cov-status { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); z-index: var(--z-map-top); }
 
 /* the zoom presets: raised controls over the map (no edge, 8 px corners, as the place map's: choices 35 and 64) */
-.cov-zoombar { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 1100; display: flex; flex-wrap: wrap; gap: 8px;
+.cov-zoombar { position: absolute; top: 8px; left: 8px; right: 8px; z-index: var(--z-map-top); display: flex; flex-wrap: wrap; gap: 8px;
   pointer-events: none; }
 .cov .cov-zoombar button { pointer-events: auto; border: 0; background: var(--surface); color: var(--ink);
   border-radius: var(--r-2); padding: 4px 12px; min-height: 32px; cursor: pointer; box-shadow: var(--shadow); font-size: var(--fs-2); }
@@ -88,13 +84,16 @@ html { scroll-padding-top: var(--cov-top, 0px); }
 .cov .leaflet-control-attribution { font-size: 11px; }  /* the map's credits: R1's named exception (10 px at least) */
 
 /* the legend: raised over the map's corner on wide screens, on the ground under the map on phones */
-.cov-legend { position: absolute; left: 8px; bottom: 8px; z-index: 1100; background: var(--surface);
+.cov-legend { position: absolute; left: 8px; bottom: 8px; z-index: var(--z-map-top); background: var(--surface);
   border-radius: var(--r-2); padding: 12px; box-shadow: var(--shadow); max-width: min(320px, calc(100% - 16px)); }
 .cov-legend-body { display: flex; flex-direction: column; gap: 8px; }
-.cov-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.cov-it { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: center; font-size: var(--fs-2); }
-.cov-tag { color: var(--muted); font-size: var(--fs-1); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.cov .cov-sw { display: inline-block; width: 22px; height: 14px; border-radius: var(--r-1); border: 1px solid var(--line); vertical-align: -2px; flex: none; }
+/* its title, items and swatches: the kit's legend (ui.css .u-legend-*; docs/DESIGN.md row 90), one item a line (as
+   the picture the user picked from, 2026-11-22, Q6 b: the phone's two columns before); a level's tag in the item's
+   size, in --muted */
+.cov .cov-legend .u-legend-items { flex-direction: column; align-items: flex-start; }
+.cov-tag { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* the list's swatch (AreaList.tsx: a row's level), the legend's colours too */
+.cov .cov-list .cov-sw { display: inline-block; width: 22px; height: 14px; border-radius: var(--r-1); border: 1px solid var(--line); vertical-align: -2px; flex: none; }
 .cov .cov-sw1 { background: var(--cov-l1); } .cov .cov-sw2 { background: var(--cov-l2); } .cov .cov-sw3 { background: var(--cov-land); }
 .cov .cov-swh { background: repeating-linear-gradient(135deg, var(--cov-l1) 0 3px, var(--cov-land) 3px 6px); }
 .cov .cov-sw2.cov-swh { background: repeating-linear-gradient(135deg, var(--cov-l2) 0 3px, var(--cov-land) 3px 6px); }
@@ -113,18 +112,13 @@ html { scroll-padding-top: var(--cov-top, 0px); }
 .cov .cov-star.cov-off { color: var(--cov-star-off); }
 
 /* the card: raised beside the map on wide screens (no edge), a bottom sheet on phones */
-.cov-card { position: absolute; top: 8px; right: 8px; max-height: calc(100% - 16px); width: min(352px, calc(100% - 16px)); z-index: 1200;
+.cov-card { position: absolute; top: 8px; right: 8px; max-height: calc(100% - 16px); width: min(352px, calc(100% - 16px)); z-index: var(--z-card);
   background: var(--surface); border-radius: var(--r-2); box-shadow: var(--shadow); padding: 16px;
   overflow: auto; overscroll-behavior: contain; }
 .cov-card:focus-visible { box-shadow: var(--focus), var(--shadow); }
 .cov-card-body { display: flex; flex-direction: column; gap: 12px; }
 .cov-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
 .cov-title { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
-.cov .cov-x { border: 0; background: var(--surface-2); border-radius: var(--r-2); width: 32px; height: 32px; cursor: pointer; flex: none;
-  display: grid; place-items: center; color: var(--ink); padding: 0; }
-.cov .cov-x:hover { background: var(--hover); }
-@media (pointer: coarse) { .cov .cov-x { width: 44px; height: 44px; } }
-.cov-x svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .cov-lvl { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .cov-lvl-words { display: flex; flex-direction: column; gap: 8px; }
 .cov-lvl-text { display: flex; flex-direction: column; gap: 4px; }
@@ -156,11 +150,10 @@ html { scroll-padding-top: var(--cov-top, 0px); }
 }
 @media (max-width: 699px) {
   .cov-card { position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 58vh; border-radius: var(--r-4) var(--r-4) 0 0;
-    box-shadow: 0 -8px 30px rgb(0 0 0 / .22); padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+    box-shadow: var(--shadow-up); padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   .cov-card::before { content: ""; display: block; width: 40px; height: 4px; border-radius: var(--r-1); background: var(--line); margin: -4px auto 12px; }
   /* on the ground: no box (R8) */
   .cov-legend { position: static; margin-top: 12px; max-width: none; box-shadow: none; background: none; border-radius: 0; padding: 0; }
-  .cov-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
   .cov-mapbox { height: min(62vh, 520px); min-height: 340px; }
   /* the map high on the first screen (the user's pick): the lead after the map and its legend, no hint on the
      gestures; the order of the document stays (a screen reader reads the lead first) */
@@ -186,8 +179,7 @@ html { scroll-padding-top: var(--cov-top, 0px); }
 .cov-table th, .cov-table td { text-align: left; vertical-align: middle; padding: 8px 12px; border-bottom: 1px solid var(--rule); }
 .cov-table thead th { font: 400 var(--fs-1)/1.3 var(--font); color: var(--muted); }
 .cov-table tbody th { font-weight: 600; }
-.cov .cov-name-link { display: inline-flex; align-items: center; min-height: 24px; }
-@media (pointer: coarse) { .cov .cov-name-link { min-height: 44px; min-width: 44px; } }
+@media (pointer: coarse) { .cov .cov-name-link { min-width: 44px; } }
 .cov-level { display: inline-flex; align-items: center; gap: 8px; }
 .cov-row-on > *, .cov .cov-row.cov-row-on { background: var(--accent-soft); }
 /* on the fill --muted is under 4.5:1 (3.79 dark): the row's grey words */

@@ -561,3 +561,20 @@ def test_scale_segments_fit_their_words(site, lang):
     assert len({round(s["box"][2] - s["box"][0]) for s in segments}) > 1, segments  # not three equal parts
     assert page.errors == [], page.errors
     page.context.close()
+
+
+# The kit's legend (docs/DESIGN.md row 90; the user's Q6 b): every swatch 16 x 12 px, the title and the items 13 px
+LEGEND_JS = """(root) => { const $$ = (s) => [...document.querySelectorAll(root + ' ' + s)];
+  return {swatches: $$('.u-legend-sw').map((e) => { const r = e.getBoundingClientRect(); return [r.width, r.height]; }),
+          title: $$('.u-legend-title').map((e) => getComputedStyle(e).fontSize),
+          items: $$('.u-legend-item').map((e) => getComputedStyle(e).fontSize)}; }"""
+
+
+@pytest.mark.parametrize("device", ["desktop", "phone"])
+def test_legend_in_the_kits_look(site, device):
+    """The coverage page's legend in the kit's legend look, over the desktop's map and on a phone's ground: four
+    swatches of 16 x 12 px, the title and the four items at 13 px."""
+    page = _page(site, DESKTOP if device == "desktop" else SMALL_PHONE)
+    got = page.evaluate(LEGEND_JS, ".cov-legend")
+    assert got["swatches"] == [[16, 12]] * 4 and got["title"] == ["13px"] and got["items"] == ["13px"] * 4, got
+    page.context.close()

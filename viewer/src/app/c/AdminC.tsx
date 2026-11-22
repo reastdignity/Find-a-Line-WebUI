@@ -57,6 +57,9 @@ function Question({act, kind, cls, title, onAct, onKeep}: {act: string; kind: "d
   </span>;
 }
 
+/** A user's state as a badge's soft fill of its colour (the kit's .u-badge states); an administrator's neutral. */
+const STATE_TONE: Record<string, string> = {approved: " u-ok", pending: " u-warn", blocked: " u-bad"};
+
 function Users({users, onChange, onError}: {users: AdminUser[]; onChange(): void; onError(e: Error): void}) {
   // Block and Unblock ask first, as a report's "Delete…" does
   const q = useQuestion();
@@ -66,9 +69,9 @@ function Users({users, onChange, onError}: {users: AdminUser[]; onChange(): void
   return <ul class="c-admin-list">{users.map((u) => <li key={u.id} class="c-admin-row">
     <div class="c-admin-head">
       <b>{u.name}</b><span class="u-small u-mono">{u.provider}:{u.subject}</span>
-      <span class={`u-badge c-user-${u.admin ? "admin" : u.status}`}>
+      <span class={`u-badge c-user-${u.admin ? "admin" : u.status}${u.admin ? "" : STATE_TONE[u.status] ?? ""}`}>
         {u.admin ? t("ui.account.administrator") : word("ui.admin.user", u.status)}</span>
-      {u.unlimited && !u.admin && <span class="u-badge u-n">{t("ui.admin.without_limits")}</span>}
+      {u.unlimited && !u.admin && <span class="u-badge">{t("ui.admin.without_limits")}</span>}
     </div>
     {/* labelled values, each word and value a text node of its own as before (a browser places the glyphs by them) */}
     <div class="u-small">{`${t("ui.admin.since")} `}{day(u.created, "?")}{` · ${t("ui.admin.last_sign_in")} `}
@@ -90,7 +93,7 @@ function Users({users, onChange, onError}: {users: AdminUser[]; onChange(): void
             onClick={() => q.open(`${u.id} block`)}>{t("ui.admin.block")}</Button>}
           {u.sessions > 0 && <Button kind="ghost" title={t("ui.admin.end_title")}
             onClick={() => change(api.adminRevoke(u.id))}>{t("ui.admin.end")}</Button>}
-          <label class="c-check"><input type="checkbox" checked={u.unlimited}
+          <label class="c-check"><input type="checkbox" class="u-check" checked={u.unlimited}
             onChange={(e) => change(api.adminSetUser(u.id, {unlimited: e.currentTarget.checked}))} />
             {t("ui.admin.without_limits_box")}</label>
         </>}
@@ -109,8 +112,8 @@ function Runs({runs, names, onChange, onError}: {runs: AdminRun[]; names: Map<nu
     </div>
     <div class="u-small">{names.get(r.user_id ?? -1) || t("ui.admin.nobody")} · {(r.bytes / 1e6).toFixed(1)} MB · {at(r.created)}</div>
     <div class="c-admin-tools">
-      {r.has_map && <Button kind="ghost" icon="next" href={runHash(r.run_id)}>{t("ui.common.open")}</Button>}
-      <label class="c-check"><input type="checkbox" checked={r.visibility === "demo"}
+      {r.has_map && <Button kind="ghost" iconRight="next" href={runHash(r.run_id)}>{t("ui.common.open")}</Button>}
+      <label class="c-check"><input type="checkbox" class="u-check" checked={r.visibility === "demo"}
         onChange={(e) => api.setDemo(r.run_id, e.currentTarget.checked).then(onChange, onError)} />
         {t("ui.admin.demo_box")}</label>
     </div>
@@ -174,7 +177,7 @@ export function AdminC({jobs}: {jobs: Job[]}) {
   const names = new Map(users.map((u) => [u.id, u.name]));
   const pending = users.filter((u) => u.status === "pending").length;
   return <div class="c-page c-admin">
-    <h1 class="u-h">{t("ui.app.admin")}</h1>
+    <h1 class="u-h u-title">{t("ui.app.admin")}</h1>
     {error && <p class="c-error" role="alert">{error}</p>}
     <Panel title={t("ui.admin.server")} actions={<Button kind="ghost" icon="refresh" onClick={load}>{t("ui.admin.refresh")}</Button>}>
       {status && <>

@@ -27,25 +27,10 @@ def catalogue(rel: str = "locales/en.json") -> dict:
         return json.load(f)
 
 
-LIMITS = {"help": 40, "intro": 30, "hint": 25, "error": 30}
-# Texts whose key does not say their kind: (catalogue, key) -> the limit of their role
-BY_ROLE = {
-    ("locales/en.json", "ui.search.draw_hint"): 25,          # a hint under the drawing tools
-    ("locales/en.json", "ui.osm.intro"): 30,                  # the OSM page's intro paragraph
-    ("locales/en.json", "basic.size.factors"): 40,            # in the size word's "?"
-    ("locales/en.json", "ui.access.easy_means"): 40,          # rows of the access key's "?"
-    ("locales/en.json", "ui.access.cannot_tell_means"): 40,
-    ("locales/en.json", "ui.access.hard_means"): 40,
-    ("locales/en.json", "ui.layer.scale_fit_note"): 25,       # the layer's notes
-    ("locales/en.json", "ui.layer.scale_fixed_note"): 25,
-    ("locales/en.json", "ui.layer.hist.strip_note"): 25,
-    ("locales/en.json", "ui.layer.search_border"): 25,
-    ("locales/en.json", "ui.layer.search_border_any"): 25,
-    ("locales/en.json", "ui.layer.search_partner"): 25,
-    ("locales/en.json", "ui.layer.search_partner_any"): 25,
-    ("locales/coverage/en.json", "page.lead"): 30,            # the coverage page's lead
-    ("locales/coverage/pl.json", "page.lead"): 30,
-}
+# The limits by kind and the texts whose key does not say their kind ((catalogue, key) -> the limit of their role):
+# tools/ui_metrics.py, whose "static" counts the texts over them with the same words (step 3d G2)
+LIMITS = ui_metrics.R10_LIMITS
+BY_ROLE = ui_metrics.R10_BY_ROLE
 # Over a limit on purpose: {key: why}
 LEFT = {"intro.result.spots": "today's result page (the user, 2026-11-19: it goes with line volume's round 6)",
         "intro.result.filters": "today's result page (as above)",
@@ -53,10 +38,12 @@ LEFT = {"intro.result.spots": "today's result page (the user, 2026-11-19: it goe
 
 
 def test_catalogue_texts_within_their_limit():
-    over = [(k, ui_metrics.text_group(k), len(v.split())) for k, v in catalogue().items()
-            if ui_metrics.text_group(k) in LIMITS and k not in LEFT and len(v.split()) > LIMITS[ui_metrics.text_group(k)]]
+    over = [(x["key"], x["kind"], x["words"]) for x in ui_metrics.r10_over(REPO)
+            if x["kind"] != "role" and x["key"] not in LEFT]
     assert over == [], over
     assert all(ui_metrics.text_group(k) in LIMITS for k in LEFT)  # a key named here is one the rule reads
+    # the count of "static" is this test's: its texts over a limit are LEFT's, by kind, and none by role
+    assert sorted(x["key"] for x in ui_metrics.r10_over(REPO)) == sorted(LEFT)
 
 
 @pytest.mark.parametrize("rel,key", sorted(BY_ROLE))

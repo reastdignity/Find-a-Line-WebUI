@@ -54,7 +54,7 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
   box.tabIndex = -1;  // a press on the box's own text keeps the focus in the box
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-label", name);
-  const shut = el("button", "u-btn v3-infobox-close");
+  const shut = el("button", "u-ib u-x v3-infobox-close");
   shut.type = "button";
   shut.append(kitIcon("close"));
   shut.setAttribute("aria-label", t("ui.view3d.info_close"));

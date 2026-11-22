@@ -4,6 +4,7 @@ import { COVERAGE, areaOf, regionsOf } from "../data";
 import { areaName, ct, noteText, resText, surveyText, type Lang } from "../i18n";
 import type { Level } from "../types";
 import { Icon } from "../../ui/icons";
+import { CloseButton } from "../../ui/components";
 import { radioKeys, radioStop } from "../../ui/radios";
 import { parseKey } from "./geo";
 
@@ -82,8 +83,7 @@ export function Card({areaKey, lang, scale, onClose, onPick}:
   const {id, rest} = parseKey(areaKey);
   const area = rest || areaKey === "world" ? null : areaOf(id);
   const name = areaKey === "world" ? ct(lang, "world.name") : areaName(id, lang);
-  const close = <button type="button" class="cov-x" aria-label={ct(lang, "close")} onClick={onClose}>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg></button>;
+  const close = <CloseButton label={ct(lang, "close")} class="cov-x" onClick={onClose} />;
   if (!area) {
     const world = COVERAGE.world, regions = rest ? [] : regionsOf(id);
     return <div class="cov-card-body">
@@ -121,13 +121,13 @@ export function Card({areaKey, lang, scale, onClose, onPick}:
 export function Legend({lang, scale, onScale}: {lang: Lang; scale: Scale; onScale(scale: Scale): void}) {
   const levels: Level[] = [1, 2, 3], stop = radioStop(SCALES.length, SCALES.indexOf(scale));
   return <div class="cov-legend-body">
-    <div class="cov-legend-head"><span class="cov-label">{ct(lang, scale === "life" ? "life.head" : "legend.title")}</span></div>
-    <ul class="cov-items">
-      {levels.map(level => <li key={level} class="cov-it">
-        <span class={`cov-sw cov-sw${level}`} />
+    <div class="cov-legend-head"><span class="cov-label u-legend-title">{ct(lang, scale === "life" ? "life.head" : "legend.title")}</span></div>
+    <ul class="cov-items u-legend-items">
+      {levels.map(level => <li key={level} class="cov-it u-legend-item">
+        <span class={`cov-sw cov-sw${level} u-legend-sw`} />
         <span>{scale === "stars" && <><Stars level={level} small />{" "}</>}
           {levelName(level, scale, lang)} <span class="cov-tag">{tagOf(level, lang)}</span></span></li>)}
-      <li class="cov-it"><span class="cov-sw cov-swh" /><span>{ct(lang, "legend.partial")}</span></li>
+      <li class="cov-it u-legend-item"><span class="cov-sw cov-swh u-legend-sw" /><span>{ct(lang, "legend.partial")}</span></li>
     </ul>
     <div class="cov-scale u-seg" role="radiogroup" aria-label={ct(lang, "page.scale")} onKeyDown={radioKeys}>
       {SCALES.map((s, i) => <button type="button" key={s} role="radio" aria-checked={s === scale} class={s === scale ? "u-on" : ""}

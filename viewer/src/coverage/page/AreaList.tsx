@@ -63,7 +63,7 @@ export function AreaList({lang, scale, selected, onPick}:
       </tr></thead>
       <tbody>{rows(lang).map(row =>
         <tr key={row.key} class={row.key === selected ? "cov-row-on" : undefined}>
-          <th scope="row"><button type="button" class="cov-link cov-name-link" data-row={row.key}
+          <th scope="row"><button type="button" class="u-link cov-link cov-name-link" data-row={row.key}
                                   onClick={() => onPick(row.key, true)}>{fullName(row)}</button></th>
           <td><span class="cov-level">{swatch(row)}{stars && <Stars level={row.level} small />}
             <span>{levelName(row.level, scale, lang)}{row.partial && <span class="cov-muted">{partly}</span>}</span></span></td>
