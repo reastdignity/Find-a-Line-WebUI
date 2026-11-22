@@ -3,6 +3,39 @@
 Open defects that are not a task of their own yet, with what was measured. Remove an entry when it is fixed
 (and name the fix's commit in docs/roadmap.md if it mattered).
 
+## The phone's sheet moves in steps with a long list
+
+**The symptom**, on an iPhone (Chrome, so WebKit):
+- With a spot far down its sector selected, moving the result view's sheet between its stops is jerky, by a drag
+  (it follows the finger in steps) and by a tap (it jumps). An example is Gozo's spot 1.409: the tree opens every page
+  down to it, about 420 rows.
+- Scrolling the list is fluid.
+- A spot near the top of its sector (1.2, about 20 rows) and today's page on the same spot's group are fluid.
+
+**What the user's variant checks showed** (2026-11-22, a switch of test variants on the phone, spot 1.409):
+- Only fewer rows cured every move: the tree cut to 40 rows a sector, no list, an empty sheet.
+- The rows' hidden names (`u-sr`, about four a row, 1 700 in all) taken out cured the drag and a tap down, not a tap
+  up.
+- The rows positioned again, so their hidden names hang off their rows and not off the sheet's body, was "a bit
+  better". That is what shipped.
+- Not causes:
+  - the scroller's `will-change` layer;
+  - the script run at each frame of the move;
+  - the sticky column heads and `container-type`;
+  - the map under the sheet;
+  - the rows' position alone with the layer taken out (as before the scroll fix).
+- In headless WebKit with the iPhone profile, a frame that sets a new sheet height took a median of 76-77 ms on 1.409,
+  62 ms on 1.2, and 62-66 ms on 1.409 with the hidden names taken out or hanging off their rows. A forced layout alone
+  was 1-2 ms for 50 height changes. These are headless numbers (software drawing); the phone is the judge.
+
+**The proper fix, options:**
+- **A**, medium, the recommended one: the tree opens only around the selected row, about 60 rows a sector at most,
+  with a button to show the earlier spots. The button's words are the user's to choose.
+- **B**, high: a virtual list that draws only the rows in sight. Compare the libraries first.
+- **C**, medium, partial: one hidden name a row instead of four.
+
+Found at gate 2 of line volume round 6. The shipped mitigation: the rows positioned (the user's variant 41).
+
 ## The probe's tiles strategy still asks `Range: bytes=0-0`
 
 `probe._read` (the "tiles" strategy of `IndexedTiles` sources) sends `Range: bytes=0-0`, which the source rules forbid

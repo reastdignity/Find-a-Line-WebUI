@@ -110,9 +110,10 @@ catalogue), `browser-tests.md`.
   re-checked when the scale's or the credits' size changes (`keepScaleAboveAttribution` for a map with no sheet or
   card).
 - **Scrollers of many rows on iOS** (gate 2): positioned rows holding absolute children (`u-sr`) made iOS WebKit scroll
-  the view's sheet on the main thread (1-3 fps on 420 rows). The view's scrollers carry `will-change: transform` (view.css) and its rows stay unpositioned
-  (their `u-sr` take the scroller's layer as containing block): keep both for a new scroller of rows, and put nothing
-  `position: fixed` inside one (it would be placed against the layer).
+  the view's sheet on the main thread (1-3 fps on 420 rows); the view's scrollers carry `will-change: transform`
+  (view.css) for that. The rows stay positioned: absolute boxes hanging off the resizing sheet body cost every frame of
+  a sheet's move (headless WebKit 77 against 63 ms a frame on 420 rows). Nothing `position: fixed` inside such a
+  scroller (it would be placed against the layer). The move is still jerky on a long list: docs/known-bugs.md.
 
 ## Verifying changes
 
