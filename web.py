@@ -907,12 +907,17 @@ class LayerSlots:
 def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, start_scheduler: bool = True,
                public: Optional[PublicSettings] = None, limits: Optional[Limits] = None,
                accounts: Optional[AccountSettings] = None, oauth_transport=None, warm_up: bool = False,
-               view: Optional[ViewSettings] = None):
+               view: Optional[ViewSettings] = None, lan_origins: Tuple[str, ...] = ()):
     """The FastAPI application (tests create it without the scheduler); with `public`, the public
     mode, which never runs the worker in this process and needs `accounts` (the sign-in;
     `oauth_transport`: an httpx2 transport to the providers, for tests). `limits` of the request
     values: by default from FINDALINE_LIMIT_* (and the public site's defaults in the public mode);
-    `view`, the 3D view's settings: by default from FINDALINE_3D_* (settings.ViewSettings)."""
+    `view`, the 3D view's settings: by default from FINDALINE_3D_* (settings.ViewSettings).
+    `lan_origins` (the local app only; tools/lan_app.py, a phone's test on the LAN): origins such as
+    "https://192.0.2.5:8443" whose host names the local app admits too and whose changes it takes, beside its
+    own; nothing else changes (no sign-in: the app's token is in its page). The command line never sets them
+    (`--host` off the loopback still needs `--public`)."""
+    from urllib.parse import urlsplit
     from fastapi import Depends, FastAPI, HTTPException, Query, Request
     from fastapi.concurrency import run_in_threadpool
     from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -924,6 +929,16 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
 
     if public and accounts is None:
         raise ValueError("the public mode needs the account settings")
+    if public and lan_origins:
+        raise ValueError("lan_origins are for the local app only")
+    lan_hosts = []
+    for origin in lan_origins:  # scheme://host[:port] and nothing more, as a browser sends it
+        parts = urlsplit(origin)
+        if parts.scheme not in ("http", "https") or not parts.hostname or parts.path or parts.query \
+                or parts.fragment or parts.username or origin != f"{parts.scheme}://{parts.netloc}" \
+                or "*" in origin:  # a wildcard host would admit any Host (TrustedHostMiddleware)
+            raise ValueError(f"not an origin: {origin!r}")
+        lan_hosts.append(parts.hostname)
     token = token or secrets.token_urlsafe(24)
     limits = limits if limits is not None else Limits.load(public is not None)
     start_scheduler = start_scheduler and public is None
@@ -1000,6 +1015,8 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         hosts, origins = [public.host], {public.origin}
     else:
         hosts, origins = LOCAL_HOSTS, {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+        if lan_origins:  # a new list: LOCAL_HOSTS stays as it is
+            hosts, origins = list(dict.fromkeys(hosts + lan_hosts)), origins | set(lan_origins)
     cache_dir = os.path.join(data_dir, "cache")
     runs_dir = os.path.join(data_dir, "runs")
     os.makedirs(runs_dir, exist_ok=True)
