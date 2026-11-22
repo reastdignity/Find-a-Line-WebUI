@@ -160,7 +160,7 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 .v3-handle, .v3-at { position: absolute; left: 0; top: 0; }
 .v3-handle { width: 22px; height: 22px; margin: -11px 0 0 -11px; box-sizing: border-box; border-radius: 50%;
              background: color-mix(in srgb, var(--accent) 55%, transparent); border: 3px solid var(--mark-rim);
-             box-shadow: 0 0 0 1px rgb(0 0 0 / .6), 0 1px 4px rgb(0 0 0 / .45); pointer-events: auto; cursor: grab;
+             box-shadow: 0 0 0 1px rgb(0 0 0 / .6), var(--shadow-mark); pointer-events: auto; cursor: grab;
              touch-action: none; }
 /* A mark's target larger than the mark, invisible, centred on it (row 43; the mark's own size and margins, which
    place it on its point, stay): 24 px with a mouse, 44 px on a touch screen; the inset counts from inside the

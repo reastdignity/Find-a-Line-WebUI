@@ -229,6 +229,28 @@ def _px(value: str):
 
 
 COLOUR = re.compile(r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\b|\b(?:rgba?|hsla?)\([^()]*\)")
+# CSS's named colours (CSS Color 4: 148 names; not transparent, currentColor or the system colours): a colour in the
+# CSS also when written so (CSS_COLOUR); the code's colours (_code_colours) stay COLOUR's: English words match there
+CSS_NAMED_COLOURS = (
+    "aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet "
+    "brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue "
+    "darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange "
+    "darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise "
+    "darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen "
+    "fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred "
+    "indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan "
+    "lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen "
+    "lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta "
+    "maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue "
+    "mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin "
+    "navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen "
+    "paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red "
+    "rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue "
+    "slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white "
+    "whitesmoke yellow yellowgreen"
+).split()
+CSS_COLOUR = re.compile(COLOUR.pattern + r"|(?<![\w-])(?:" + "|".join(sorted(CSS_NAMED_COLOURS, key=len, reverse=True))
+                        + r")(?![\w-])", re.I)
 
 
 def _colour(value: str) -> str:
@@ -475,7 +497,7 @@ def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8, wit
             for prop, value in rule["decls"]:
                 if prop.startswith("--"):
                     if name != TOKENS:  # a custom property's value outside the tokens: its colours count
-                        for m in COLOUR.finditer(value):
+                        for m in CSS_COLOUR.finditer(value):
                             colours[name][_colour(m.group())] += 1
                     continue
                 size = font_size_of(prop, value)
@@ -497,7 +519,7 @@ def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8, wit
                                 spacing_off.append({"file": name, "line": rule["line"], "selector": rule["prelude"],
                                                     "property": prop, "value": token})
                 if name != TOKENS:
-                    for m in COLOUR.finditer(value):
+                    for m in CSS_COLOUR.finditer(value):
                         colours[name][_colour(m.group())] += 1
                 if prop == "content":
                     for c in _decode_css(value):

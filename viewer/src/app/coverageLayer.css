@@ -27,6 +27,12 @@
 .n-coverage-legend { padding: 4px 12px 8px; border-top: 1px solid var(--rule, #d3dcdc); font-size: var(--fs-2, 13px); line-height: 18px; }
 .n-coverage-legend[hidden] { display: none; }
 .ui .n-coverage-legend .u-legend-items { margin: 4px 0; }
+/* in the layers' box (a phone's arrangement with a map 420 px high or more): one item a line, as the box's rows, so
+   the opened box keeps its width (a line of three made it 404 to 490 px wide, over the map's controls) */
+.leaflet-control-layers .n-coverage-legend .u-legend-items { flex-direction: column; align-items: flex-start; }
+/* "Everywhere else" (transparent: coverageLayer.ts) drawn by its edge alone: the controls' --line, 1.85:1 on the box
+   (2.25 dark) where the kit's 12 % ink edge gives 1.26 (the user, 2026-11-22: "Restore 1.85:1") */
+.ui .n-coverage-legend .n-coverage-sw3 { box-shadow: inset 0 0 0 1px var(--line); }
 .n-coverage-legend.n-compact ul { display: none; }
 .n-coverage-status:empty { display: none; }
 .n-coverage-status { color: var(--muted, #56686c); padding-top: 4px; }

@@ -37,9 +37,11 @@
   /* the paper of the 3D view's "Edges" look (view3d/scene.ts reads it) */
   --paper: #eceae4;
   /* Elevation (docs/DESIGN.md "Elevation", row 88): what is raised (--shadow), a control set on a track (the selected
-     segment), the phone's sheet rising from the screen's foot; the last two the same in both themes */
+     segment), the phone's sheet rising from the screen's foot, a mark over the 3D view's picture (its drop shadow,
+     beside the mark's own dark rim); the last three the same in both themes */
   --shadow: 0 1px 2px rgb(16 32 34 / .10), 0 4px 16px rgb(16 32 34 / .12);
   --shadow-track: 0 1px 3px rgb(0 0 0 / .12); --shadow-up: 0 -8px 30px rgb(0 0 0 / .18);
+  --shadow-mark: 0 1px 4px rgb(0 0 0 / .45);
   /* Layers (z-index; docs/DESIGN.md "Elevation", row 87): a rule names its step, never a number. A page's own parts
      (each counted inside its own stacking box): over what is beside it (a focused control, a sticky head over its
      rows, a box over the 3D stage), over that, over that; the phones' bottom bar, the sheet over it, a column's

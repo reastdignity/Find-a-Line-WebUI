@@ -239,7 +239,7 @@ the numbers; the bounds are parameters). `static` reads the source only: viewer/
 nested rules), the .ts/.tsx code without comments and regular expressions, `locales/en.json`: distinct font sizes
 (`var()`/`calc()` "unresolved"), radii, z-index values, the px lengths of padding, margins and gaps with those off R7's
 steps and their places (`R7_STEPS`; a length inside `calc()` or `env()` not counted), normalised colour literals
-outside `ui/tokens.css`, the monospace font and its uppercase, "the same grey box" per selector, characters used as
+outside `ui/tokens.css` (in the CSS also its 148 named colours, `CSS_COLOUR`), the monospace font and its uppercase, "the same grey box" per selector, characters used as
 icons or joints (those in an `aria-label` or `title` apart, the demo pages left out unless `--with-demos`), dense
 strings per literal, the catalogue's words per group with the texts over R10's limits (`r10_over`: `R10_LIMITS` by the
 key's kind, `R10_BY_ROLE` by role, the coverage page's catalogues too; `tests/test_words.py` fails on the same lists),

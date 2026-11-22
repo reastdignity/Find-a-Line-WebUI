@@ -3612,10 +3612,8 @@ def test_admin_and_doc_pages_css():
 # (round 6 edits it), by its rules' selectors. The kit's demo pages (?ui=kit, ?ui=kit-search: developers' pages) keep
 # their own sizes and spacing; their layers and colours are checked.
 NOT_FREE_CSS = ("result/", "profile.css", "ui/sidepanel.css")
-NOT_FREE_RULES = (".u-shore", ".u-coarse")
+NOT_FREE_RULES = (".u-shore", ".u-coarse")  # a rule left out only when each of its selectors names one of these
 DEMO_RULES = (".u-gal-", ".u-stub", ".ui.s-kit")
-SPACING_PROPS = re.compile(r"(padding|margin|gap|row-gap|column-gap)(-(top|right|bottom|left|block|inline)(-(start|end))?)?")
-R7_STEPS = {0, 4, 8, 12, 16, 24, 32}  # px; a longer length (34, 40, 64 px) is a layout's, outside the scale (R7)
 RADIUS_KEPT = {"0", "0px", "50%", "999px", "inherit"}  # none, round and full, written out (R6)
 # What is off a scale or the tokens on purpose: (file under viewer/src, the rule's selector, kind, the value; the
 # shadows' and colours' without one) -> why. A row no longer needed fails the test as a value put back does.
@@ -3633,7 +3631,6 @@ OFF_THE_SCALES = {
     ("ui/ui.css", ".ui .u-split-tab", "radius", "11px"): "the kit's collapse tab: its look is step 3d G3's",
     # spacing (R7: 0, 4, 8, 12, 16, 24, 32 px)
     ("access.css", ".ui .ac-pair", "space", "3px"): "one mark of two dots, a drawing (as the coverage stars' 2 px)",
-    ("app/c/c.css", ".ui .c-app-error", "space", "20px"): "the app's error bar: 16 or 24 px is the planner's question",
     ("app/c/c.css", ".ui .c-layer-hist-bars", "space", "2px"): "between a chart's bars: a drawing's marks",
     ("app/c/c.css", ".ui .c-layer-bar", "space", "1px"): "a bar's fill 1 px in from its button: a drawing's marks",
     ("app/c/c.css", ".ui .c-searched-bars", "space", "2px"): "between a chart's bars: a drawing's marks",
@@ -3662,16 +3659,20 @@ OFF_THE_SCALES = {
     ("app/coverageLayer.css", ".n-coverage-btn.n-on::before", "shadow", ""): "the ticked box's gap inside its edge",
     ("search/search.css", ".ui .s-card.u-on", "shadow", ""): "the selected card's second px of edge",
     ("search/search.css", ".ui .s-card.u-on:focus-visible", "shadow", ""): "that edge beside the keyboard's ring",
-    ("ui/ui.css", ".ui .u-sheet.u-scrolled .u-sheet-head", "shadow", ""): "the sheet's head while its body scrolls under "
-                                                                           "it: a cue of the scroll",
+    ("ui/ui.css", ".ui .u-sheet.u-scrolled .u-sheet-head", "shadow", ""): "a drawing: a cue that the sheet's body "
+                                                                           "scrolls under its head, not a raised surface",
+    ("app/coverageLayer.css", ".ui .n-coverage-legend .n-coverage-sw3", "shadow", ""): "the place box's transparent "
+        "\"Everywhere else\" drawn by the controls' --line edge, 1.85:1 on the box (the user, 2026-11-22)",
     ("ui/ui.css", ".ui .u-split-tab", "shadow", ""): "the kit's collapse tab: its look is step 3d G3's",
-    ("view3d/others.css", ".v3-other", "shadow", ""): "a label over the 3D view's picture",
+    ("view3d/others.css", ".v3-other", "shadow", ""): "a label over the picture: a lighter drop shadow (35 %, not "
+                                                      "--shadow-mark's 45 %: the same pixels kept)",
     ("view3d/others.css", ".v3-other:focus-visible", "shadow", ""): "that label's shadow beside the keyboard's ring",
-    ("view3d/point.css", ".v3-point-marker::before", "shadow", ""): "a mark's dark edge over the picture",
+    ("view3d/point.css", ".v3-point-marker::before", "shadow", ""): "a mark's dark rim (its drop shadow --shadow-mark)",
     ("view3d/point.css", ".v3-opt-dot::before", "shadow", ""): "a dot's dark edge over the picture",
     ("view3d/point.css", ".v3-opt-row.v3-on td:first-child", "shadow", ""): "the selected row's 3 px edge",
-    ("view3d/view3d.css", ".v3-handle", "shadow", ""): "a handle's dark edge and shadow over the picture",
-    ("view3d/view3d.css", ".v3-pin", "shadow", ""): "the pin's (turned: its shadow's offset points down on screen)",
+    ("view3d/view3d.css", ".v3-handle", "shadow", ""): "a handle's dark rim (its drop shadow --shadow-mark)",
+    ("view3d/view3d.css", ".v3-pin", "shadow", ""): "the pin's rim and shadow (turned: the offset points down on "
+                                                    "screen, which --shadow-mark cannot)",
     ("view3d/view3d.css", ".v3-leader", "shadow", ""): "the pin's leader: a half-pixel edge",
     # colours outside the tokens: the providers' marks (their guidelines) and the copies a test binds
     ("ui/pages.css", ".ui .p-google", "colour", ""): "Google's button guidelines",
@@ -3697,7 +3698,7 @@ def _free_css() -> list:
                 continue
             with open(path, encoding="utf-8") as f:
                 for rule in ui_metrics.css_rules(f.read()):
-                    if not any(part in rule["prelude"] for part in NOT_FREE_RULES):
+                    if not all(any(part in sel for part in NOT_FREE_RULES) for sel in rule["selectors"]):
                         out.append((rel, rule))
     return out
 
@@ -3715,7 +3716,7 @@ def _off_the_scales() -> dict:
         demo = any(part in rule["prelude"] for part in DEMO_RULES)
         for prop, value in rule["decls"]:
             if prop.startswith("--"):
-                if ui_metrics.COLOUR.search(value):
+                if ui_metrics.CSS_COLOUR.search(value):
                     off(rel, rule, "colour")
                 continue
             if prop == "z-index" and not re.fullmatch(r"var\(--z-[\w-]+\)", value):
@@ -3724,7 +3725,7 @@ def _off_the_scales() -> dict:
                     re.fullmatch(r"var\(--[\w-]+\)", layer) for layer in ui_metrics._split_top(value, ",")):
                 off(rel, rule, "shadow")
             # a colour of a shadow belongs to the shadow (checked above); one in a var()'s fallback is a bound copy
-            if prop not in ("box-shadow", "text-shadow") and ui_metrics.COLOUR.search(
+            if prop not in ("box-shadow", "text-shadow") and ui_metrics.CSS_COLOUR.search(
                     re.sub(r"var\(--[\w-]+,[^()]*(\([^()]*\))?[^()]*\)", "", value)):
                 off(rel, rule, "colour")
             if demo:
@@ -3736,10 +3737,10 @@ def _off_the_scales() -> dict:
                 for part in value.replace("/", " ").split():
                     if not part.startswith("var(--r-") and part not in RADIUS_KEPT:
                         off(rel, rule, "radius", part)
-            if SPACING_PROPS.fullmatch(prop):
+            if ui_metrics.SPACING_PROPS.fullmatch(prop):
                 for part in value.split():
                     m = re.fullmatch(r"-?(\d*\.?\d+)px", part)
-                    if m and float(m.group(1)) <= 32 and float(m.group(1)) not in R7_STEPS:
+                    if m and float(m.group(1)) <= 32 and float(m.group(1)) not in ui_metrics.R7_STEPS:  # over 32: a layout's
                         off(rel, rule, "space", m.group(1) + "px")
     return found
 

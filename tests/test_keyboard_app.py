@@ -549,6 +549,54 @@ def test_touch_tablet_coverage_button_target(site, size):
     page.context.close()
 
 
+# The place map's coverage legend (step 3d G2: the kit's legend, docs/DESIGN.md row 90): its swatches, its items' size,
+# the land swatch's edge; in the layers' box the box's width and the items' places
+PLACE_LEGEND = r"""(root) => { const $$ = (s) => [...document.querySelectorAll(root + ' ' + s)];
+  const box = document.querySelector('.c-placemap .leaflet-control-layers').getBoundingClientRect();
+  return {swatches: $$('.u-legend-sw').map((e) => { const r = e.getBoundingClientRect(); return [r.width, r.height]; }),
+          items: $$('.u-legend-item').map((e) => { const r = e.getBoundingClientRect(); return [getComputedStyle(e).fontSize, Math.round(r.left), Math.round(r.top)]; }),
+          land: getComputedStyle(document.querySelector(root + ' .n-coverage-sw3')).boxShadow,
+          line: getComputedStyle(document.querySelector('.c-placemap')).getPropertyValue('--line').trim(),
+          layers: [box.width, box.height]}; }"""
+SHOWN = "(root) => [...document.querySelectorAll(root + ' .u-legend-sw')].some((e) => e.getBoundingClientRect().width > 0)"
+
+
+def test_place_map_coverage_legend(site):
+    """The coverage box on a desktop (1400 x 900, the layer on): the kit's legend, its three swatches 16 x 12 px and
+    its items 13 px; "Everywhere else" (transparent) drawn by an inset edge of --line (the user's "Restore 1.85:1",
+    2026-11-22; the kit's 12 % ink edge gave 1.26:1)."""
+    page = _open(site, "search", DESKTOP, coverage=True)
+    page.wait_for_function(SHOWN, arg=".c-placemap .n-coverage-legend", timeout=WAIT)
+    got = page.evaluate(PLACE_LEGEND, ".c-placemap .n-coverage-legend")
+    assert got["swatches"] == [[16, 12]] * 3 and [i[0] for i in got["items"]] == ["13px"] * 3, got
+    assert got["land"].startswith("rgb(179, 193, 194) 0px 0px 0px 1px inset") and got["line"] == "#b3c1c2", got
+    page.context.close()
+
+
+@pytest.mark.parametrize("context", [{"viewport": {"width": 700, "height": 1300}},
+                                     {"viewport": {"width": 412, "height": 1300}, **TOUCH}], ids=["700x1300", "412x1300-touch"])
+def test_layers_box_coverage_legend_keeps_its_width(site, context):
+    """The design review's F1: in the phone's arrangement with a map 420 px high or more (a narrow tall window, a tall
+    phone), the layers' box opened with the coverage on shows the legend under the coverage's row one item a line, and
+    the box keeps its width (main: 222 px; the kit's line of three made it 490 and 404 px, over the zoom)."""
+    page = _open(site, "search", context, coverage=True)
+    toggle = ".c-placemap .leaflet-control-layers-toggle"
+    page.wait_for_selector(toggle, timeout=WAIT)
+    if context.get("has_touch"):
+        page.tap(toggle)
+    else:  # a mouse opens Leaflet's box by hovering (it opens under the pointer: no wait for the toggle to stay put)
+        box = page.locator(toggle).bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.wait_for_selector(".c-placemap .leaflet-control-layers-expanded", timeout=WAIT)
+    root = ".c-placemap .leaflet-control-layers .n-coverage-legend"
+    page.wait_for_function(SHOWN, arg=root, timeout=WAIT)
+    got = page.evaluate(PLACE_LEGEND, root)
+    assert got["swatches"] == [[16, 12]] * 3, got
+    assert len({left for _, left, _ in got["items"]}) == 1 and len({top for _, _, top in got["items"]}) == 3, got
+    assert got["layers"][0] <= 260, got
+    page.context.close()
+
+
 @pytest.mark.parametrize("size", [(390, 664), (360, 640)], ids=["390x664", "360x640"])
 def test_return_dialog_actions_inside(site, size):
     """Going back to Basic with values Basic cannot show asks first (the return dialog); on a 390 px and a 360 px phone

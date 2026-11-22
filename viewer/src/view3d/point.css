@@ -5,7 +5,7 @@
 .v3-point-marker { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
 .v3-point-marker::before { content: ""; position: absolute; left: -7px; top: -7px; width: 14px; height: 14px;
                            box-sizing: border-box; border-radius: 50%; background: var(--accent);
-                           border: 3px solid var(--mark-rim); box-shadow: 0 0 0 1px rgb(0 0 0 / .65), 0 1px 4px rgb(0 0 0 / .45); }
+                           border: 3px solid var(--mark-rim); box-shadow: 0 0 0 1px rgb(0 0 0 / .65), var(--shadow-mark); }
 .v3-opt-dot { position: absolute; left: 0; top: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px; padding: 0;
               box-sizing: border-box; border: 0; background: transparent; border-radius: 50%; pointer-events: auto;
               cursor: pointer; touch-action: none; }
