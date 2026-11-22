@@ -548,7 +548,7 @@ def test_rows_complete_and_approved():
         assert mp.row_faults(row) == [], name
         assert set(row) == set(mp.ROW_FIELDS), name
         datetime.date.fromisoformat(row["basis_checked"])
-        assert "2026-11-1" in row["approved"]
+        assert "2026-11-" in row["approved"]  # the user's word and its date
     assert mp.PUBLISHABLE["madeira"]["licence"] == mp.PUBLISHABLE["madeira"]["licence_url"] == "none"
     assert mp.row_faults({**mp.PUBLISHABLE["aosta"], "approved": ""}) == ["not approved (no `approved`)"]
 
@@ -581,7 +581,7 @@ def test_cards_state_the_changes():
         return " ".join(card.split("Changes made:", 1)[1].split("\n\n", 1)[0].split())
 
     served = {name: card for name, card in mp.cards().items() if name in mp.PUBLISHABLE}
-    assert set(served) == {"slovakia", "madeira", "aosta", "porto-santo", "desertas", "selvagens"}
+    assert set(served) == {"slovakia", "madeira", "aosta", "porto-santo", "desertas", "selvagens", "wallonia"}
     for name, card in served.items():
         # the fixed cards of before say it as a sentence of its own, the generated ones after "Heights ...;"
         fixed = name in ("slovakia", "madeira", "aosta")
@@ -593,6 +593,8 @@ def test_cards_state_the_changes():
             "(PTRA08 / UTM zone 28N); nothing reprojected") in changes(served["desertas"])
     assert "the values, float64 in the file, stored as float32 (within those 5 mm)" in changes(served["porto-santo"])
     assert "label replaced" not in served["selvagens"] and "float64" not in served["selvagens"]
+    # Wallonia's mean of 2 x 2 (W11), as its row says it
+    assert "each 1 m pixel is the mean of the valid 0.5 m pixels of its 2 x 2 block" in changes(served["wallonia"])
     sk = changes(mp.cards()["slovakia"])
     assert "2 m and 5 m" in sk and "mean" in sk and "2 × 2" in sk and "5 × 5" in sk
     aosta = mp.cards()["aosta"]

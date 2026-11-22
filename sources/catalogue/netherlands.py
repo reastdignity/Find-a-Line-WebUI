@@ -173,7 +173,7 @@ SOURCES: List[Source] = [
         offline=NL_OFFLINE, sample=(50.8258, 5.6866),  # the ENCI quarry at Maastricht (R69)
         # North Rhine-Westphalia only: Lower Saxony declares six neighbours already, the most a country layer's
         # cube can name (countcube.PARTNERS); its border with the Netherlands is flat land (Groningen to Twente)
-        neighbours=("north_rhine_westphalia",),
+        neighbours=("north_rhine_westphalia", "wallonia"),
         note="Data: AHN4, PDOK, CC0. Surveyed 2020-2022. Water and the buildings removed from the terrain model are "
              "holes, filled from 30 m data.",
         coverage=Coverage(provider="PDOK", added="2026-11-15", survey="2020–2022")),

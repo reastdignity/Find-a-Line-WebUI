@@ -300,6 +300,31 @@ PUBLISHABLE: Dict[str, Dict] = {
               "Art. 4 are not found; whether the record's free ZIP is a priced product is not established. Art. 3.º "
               "4: end users are told of every change (the card). An objection is answered with unpublish.",
         approved="a (approve all three), the user's word of 2026-11-17 (U55)"),
+    # Wallonia: SPW's lidar 2021-2022 at 0.5 m, cut at 1 m only (the user's W11 and W12 of 2026-11-22, the wording
+    # approved as drafted; a floor chosen later changes the changes sentence and is shown to the user again)
+    "wallonia": dict(
+        dataset="wallonia",
+        source_id="wallonia",
+        title="Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW), averaged to 1 m, as 2 km tiles",
+        basis_kind="licence",
+        licence="CC BY 4.0",
+        licence_url="https://creativecommons.org/licenses/by/4.0/",
+        basis_url="https://geoportail.wallonie.be/catalogue/a004e570-99d6-4fe5-b83d-49b774409278.html",
+        basis_quote="Licence CC-BY 4.0 : L'utilisateur peut utiliser et modifier les données pour en dériver une "
+                    "œuvre. Il peut publier les données et l'œuvre dérivée à condition de citer les sources.",
+        basis_checked="2026-11-15",
+        changes={folder: "each 1 m pixel is the mean of the valid 0.5 m pixels of its 2 x 2 block; cut into 2 km x 2 km "
+                         "Cloud Optimized GeoTIFFs on the 1 m EPSG:3812 grid, LERC within 5 mm; the value -9999 made "
+                         "no data" for folder in ("dtm/1m", "dsm/1m")},
+        not_endorsed="Made for Find-a-Line (a highline finder); not endorsed by the Service public de Wallonie (SPW).",
+        notes="The credits as the records give them: \"Source : Service public de Wallonie (SPW) - Relief de la "
+              "Wallonie - Modèle Numérique de Terrain (MNT) 2021-2022 (2024-01-23) "
+              "https://geodata.wallonie.be/id/a004e570-99d6-4fe5-b83d-49b774409278\" and \"Source : Service public de "
+              "Wallonie (SPW) - Relief de la Wallonie - Modèle Numérique de Surface (MNS) 2021-2022 (2024-01-23) "
+              "https://geodata.wallonie.be/id/5a4c28fe-d30c-493e-861e-a80ebc703b64\". The terrain model's record: "
+              "\"Les réutilisations sont autorisées moyennant citation de la source et mention explicite des "
+              "modifications apportées à la donnée.\" (the card names every change).",
+        approved="Approve this wording, the user's word of 2026-11-22 (W12)"),
 }
 
 

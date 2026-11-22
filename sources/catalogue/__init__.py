@@ -22,6 +22,7 @@ from . import portugal
 from . import brazil
 from . import japan
 from . import hong_kong
+from . import belgium
 
 # Spain's Canary Islands before the rest of Spain, Alaska before the rest of the USA, the global ones last;
 # Czechia first: its offline boxes lie inside Poland's and Slovakia's; France before Switzerland, Spain, England,
@@ -34,8 +35,10 @@ from . import hong_kong
 # of German land; the Faroe Islands anywhere before the global ones; Mexico before the USA: the usa's offline box
 # holds Monterrey, Mexico's keep clear of US land; Cyprus and Estonia anywhere before the global ones; Portugal
 # (Madeira) before Spain: Spain's offline box holds Madeira; Brazil (Rio de Janeiro) anywhere before the global ones;
-# Japan (Tokyo, Shizuoka) anywhere before the global ones; Hong Kong anywhere before the global ones
-FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, portugal, spain, mexico, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, cyprus, estonia, brazil, japan, hong_kong, world)
+# Japan (Tokyo, Shizuoka) anywhere before the global ones; Hong Kong anywhere before the global ones; Belgium
+# (Wallonia) after France, the Netherlands, Germany and Luxembourg: Wallonia's offline box is the region's rectangle
+# and holds their land at its borders, which their own boxes keep
+FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, portugal, spain, mexico, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, cyprus, estonia, brazil, japan, hong_kong, belgium, world)
 SOURCES: Dict[str, Source] = {s.id: s for family in FAMILIES for s in family.SOURCES}
 
 # Each area of the coverage map (Source.map_areas: ISO 3166-1 alpha-2 or 3166-2, lower case) by its name for
@@ -72,4 +75,6 @@ AREA_NAMES: Dict[str, str] = {
     # Hong Kong: its own ISO 3166-1 code on the map (Natural Earth's admin-0 has it; Nominatim names the place "cn"
     # with ISO3166-2-lvl3 CN-HK, the source's region); "Hong Kong" finds the whole territory (relation 20044132),
     # "香港 Hong Kong" Hong Kong Island only (checked 2026-11-16)
-    "hk": "Hong Kong"}
+    "hk": "Hong Kong",
+    # Wallonia: Nominatim's relation 90348 (BE-WAL; checked 2026-11-23)
+    "be-wal": "Wallonie"}

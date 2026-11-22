@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1698,3 +1699,248 @@ def test_the_card_of_a_finished_product_rewritten(tmp_path, monkeypatch, capsys)
         stamp = readme.stat().st_mtime_ns
         cut_command()  # again: nothing changes
         assert readme.stat().st_mtime_ns == stamp and others() == before, case
+
+
+# Wallonia (2026-11-22): a product averaged from finer inputs (Product.average), SPW's province ZIPs at 0.5 m cut at
+# 1 m, each pixel the mean of the valid 0.5 m pixels of its 2 x 2 block
+
+# The fake region on the 0.5 m grid of EPSG:3812: its left edge on an odd half-metre (as Brabant wallon's 666380.5),
+# so blocks at the edge hold one column of it; 6400 x 800 px (3.2 x 0.4 km) over the tiles 0_0, 1_0 and 2_0
+WAL_LEFT, WAL_TOP, WAL_W, WAL_H = 1000.5, 1700.0, 6400, 800
+WAL_A, WAL_B = (0, 4000), (2800, 6400)  # the provinces' columns (their boxes overlap by 1200 px)
+WAL_SEAM = 4                            # either side of the border: valid in both provinces, equal
+# Blocks of the 1 m grid (row, column of the region's grid shifted one column right: whole metres) and their 0.5 m
+# pixels made no data inside province A: 1, 2, 3 or all 4 of them
+WAL_HOLES = {(50, 120): [(0, 0)], (50, 130): [(0, 0), (1, 1)], (50, 140): [(0, 0), (0, 1), (1, 0)],
+             (50, 150): [(0, 0), (0, 1), (1, 0), (1, 1)]}
+
+
+def _wal_border(rows):
+    return 3400 + np.round(150 * np.sin(rows / 60.0)).astype(int)  # the provinces' border (an irregular column)
+
+
+def _wallonia_region(seed):
+    """The truth on the region's grid (float32, millimetre values) and each province's valid pixels."""
+    rng = np.random.default_rng(seed)
+    rows, cols = np.mgrid[0:WAL_H, 0:WAL_W]
+    truth = (150 + 0.01 * cols + 0.02 * rows + rng.random((WAL_H, WAL_W)) * 3).round(3).astype(np.float32)
+    border = _wal_border(np.arange(WAL_H))[:, None]
+    in_a = (cols >= WAL_A[0]) & (cols < WAL_A[1]) & (cols < border + WAL_SEAM)
+    in_b = (cols >= WAL_B[0]) & (cols < WAL_B[1]) & (cols >= border - WAL_SEAM)
+    for (br, bc), pixels in WAL_HOLES.items():
+        for dr, dc in pixels:
+            in_a[2 * br + dr, 2 * bc + dc - 1] = False
+    return truth, in_a, in_b
+
+
+def _wallonia_fetch(inputs, tmp_path, seam_change=0.0, status=True):
+    """inputs/wallonia as tools/cdd_fetch.py fetch-list leaves it: per model (MNT, MNS) two province ZIPs (Deflate),
+    each with one raster of the same member name (float32, LZW, full-width strips of 5 rows, -9999 outside the
+    province, EPSG:3812, 0.5 m) beside a .tfw and an .aux.xml; done.jsonl, and status.json unless status is False.
+    seam_change: added to one seam pixel of the second province. Returns {group: (truth, valid in A, valid in B)}."""
+    area, rows, made = inputs / "wallonia", [], {}
+    area.mkdir(parents=True, exist_ok=True)
+    for g, group in enumerate(("MNT", "MNS")):
+        truth, in_a, in_b = _wallonia_region(30 + g)
+        made[group] = (truth, in_a, in_b)
+        member = f"RELIEF_WALLONIE_{group}_50CM_2021_2022.tif"
+        for name, (c0, c1), valid in (("BRABANT", WAL_A, in_a), ("HAINAUT", WAL_B, in_b)):
+            values = np.where(valid, truth, np.float32(-9999.0))[:, c0:c1].copy()
+            if name == "HAINAUT" and seam_change:
+                r = 400
+                values[r, _wal_border(np.array([r]))[0] - c0] += np.float32(seam_change)
+            raster = tmp_path / "src" / group / name / member
+            raster.parent.mkdir(parents=True, exist_ok=True)
+            with rio.open(raster, "w", driver="GTiff", width=c1 - c0, height=WAL_H, count=1, dtype="float32",
+                          crs="EPSG:3812", transform=from_origin(WAL_LEFT + 0.5 * c0, WAL_TOP, 0.5, 0.5),
+                          nodata=-9999.0, compress="lzw", blockysize=5) as dst:
+                dst.write(values, 1)
+            zip_name = f"RELIEF_WALLONIE_{group}_50CM_2021_2022_GEOTIFF_3812_PROV_{name}.zip"
+            with zipfile.ZipFile(area / zip_name, "w", zipfile.ZIP_DEFLATED) as z:
+                z.write(raster, member)
+                z.writestr(member.replace(".tif", ".tfw"), "0.5\n0\n0\n-0.5\n0\n0\n")
+                z.writestr(member + ".aux.xml", "<PAMDataset/>")
+            rows.append({"id": zip_name, "group": group, "path": zip_name, "size": (area / zip_name).stat().st_size,
+                         "sha256": hashlib.sha256((area / zip_name).read_bytes()).hexdigest()})
+    (area / "done.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    if status:
+        (area / "status.json").write_text(json.dumps({"groups": {"MNT": {"files": 2}, "MNS": {"files": 2}}}))
+    return made
+
+
+def _wallonia_expected(truth, valid):
+    """The 1 m tiles of the region, computed here: the valid 0.5 m pixels on a grid of whole metres (one column of
+    nothing before the region's first, one after its last), each 2 x 2 block's mean in float64. {key: tile}."""
+    aligned = np.full((WAL_H, WAL_W + 2), np.nan)
+    aligned[:, 1:-1] = np.where(valid, truth.astype(np.float64), np.nan)
+    blocks = aligned.reshape(WAL_H // 2, 2, (WAL_W + 2) // 2, 2)
+    with np.errstate(invalid="ignore"):
+        coarse = np.nansum(blocks, axis=(1, 3)) / np.isfinite(blocks).sum(axis=(1, 3))
+    left, top = int(WAL_LEFT - 0.5), int(WAL_TOP)  # 1000, 1700: the coarse grid's corner
+    out = {}
+    for i in range(0, 3):
+        tile = np.full((2000, 2000), np.nan, np.float32)
+        c0 = left - 2000 * i
+        cs = slice(max(c0, 0), min(c0 + coarse.shape[1], 2000))
+        tile[2000 - top:2000 - top + coarse.shape[0], cs] = coarse[:, cs.start - c0:cs.stop - c0]
+        out[f"{i}_0"] = tile
+    return out
+
+
+def test_wallonia_averaged_cut(tmp_path, monkeypatch):
+    """DATASETS["wallonia"] on a fake fetch of two provinces per model: the 1 m product's every pixel is the mean of
+    the valid 0.5 m pixels of its 2 x 2 block (within the 5 mm of LERC): of four, three, two (the region's edge on an
+    odd half-metre, a block with two holes) or one, no data where none; the seam (valid in both provinces, equal)
+    gives the same means; -9999 is no data; the index names the factor; verify passes; the card names the mean as the
+    publishing row's changes do. The ZIPs' other members are no inputs."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    made = _wallonia_fetch(inputs, tmp_path)
+    ds = mt.dataset("wallonia")
+    assert mt.cut("wallonia", str(work), str(out), inputs=str(inputs)) == {"dtm": "cut", "dsm": "cut"}
+    for product, group in zip(ds.products, ("MNT", "MNS")):
+        truth, in_a, in_b = made[group]
+        tiles, index = _tiles(out, ds, product)
+        want = _wallonia_expected(truth, in_a | in_b)
+        assert set(tiles) == set(want) == {"0_0", "1_0", "2_0"}
+        assert index["resolution"] == 1.0 and index["average"] == 2 and index["input_resolution"] == 0.5
+        assert index["inputs"] == 2 and index["overlap"] == "agree" and index["crs"] == "EPSG:3812"
+        for key in want:
+            assert tiles[key].shape == (2000, 2000)
+            _close(tiles[key], want[key])
+            assert np.nanmin(tiles[key]) > 100  # -9999 never enters a mean
+        tile = tiles["0_0"]
+        row0, col0 = 2000 - int(WAL_TOP), int(WAL_LEFT - 0.5)  # the region's first 1 m row and column in tile 0_0
+        assert np.isnan(tile[row0 - 1, col0:]).all() and np.isfinite(tile[row0, col0:]).all()  # the edge column too
+        edge = truth[2 * 3:2 * 3 + 2, 0].astype(np.float64).mean()  # two valid pixels: the region's first column
+        assert abs(tile[row0 + 3, col0] - edge) <= 0.0051
+        for (br, bc), holes in WAL_HOLES.items():
+            block = truth[2 * br:2 * br + 2, 2 * bc - 1:2 * bc + 1].astype(np.float64)
+            kept = [block[dr, dc] for dr in (0, 1) for dc in (0, 1) if (dr, dc) not in holes]
+            got = tile[row0 + br, col0 + bc]
+            assert (np.isnan(got) if not kept else abs(got - np.mean(kept)) <= 0.0051), (br, bc, len(kept))
+        seam = tiles["1_0"]  # the border near x = 2700 m: 1 m columns 700 +- 75 of tile 1_0
+        for r in (0, 100, 399):
+            b = _wal_border(np.array([2 * r]))[0]
+            c = (b + 1) // 2 + int(WAL_LEFT - 0.5) - 2000  # the block of the border's column
+            both = in_a[2 * r, b - 2:b + 2] & in_b[2 * r, b - 2:b + 2]
+            assert both.all() and np.isfinite(seam[row0 + r, c - 2:c + 3]).all()
+            _close(seam[row0 + r, c - 2:c + 3], want["1_0"][row0 + r, c - 2:c + 3])
+    for name in ("dtm", "dsm"):
+        result = mt.verify("wallonia", str(work), str(out), inputs=str(inputs))[name]
+        assert result["ok"] and result["points_compared"] == mt.POINTS * 3, result["problems"]
+    card = mt.card_text(ds, str(out))
+    sentence = "each 1 m pixel is the mean of the valid 0.5 m pixels of its 2 x 2 block"
+    assert card.count(sentence) == 2 and card.count("made no data (on the 0.5 m pixels, before the mean)") == 2
+    assert "## `dtm/1m`" in card and "## `dsm/1m`" in card and "values -9999" in card
+    assert "Source : Service public de Wallonie (SPW) - Relief de la Wallonie - Modèle Numérique de Terrain" in card
+    import mirror_publish as mp
+    assert all(text.startswith(sentence + ";") and "EPSG:3812" in text and "-9999" in text
+               for text in mp.PUBLISHABLE["wallonia"]["changes"].values())
+    assert sorted(mp.PUBLISHABLE["wallonia"]["changes"]) == ["dsm/1m", "dtm/1m"]
+
+
+def test_wallonia_seam_must_agree(tmp_path, monkeypatch):
+    """One seam pixel of the second province 1 cm off the first's: the cut stops with the overlap error naming the
+    tile ("agree" compares the 0.5 m pixels, before the mean), and nothing is final."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _wallonia_fetch(inputs, tmp_path, seam_change=0.01)
+    with pytest.raises(mt.Overlap, match=r"tile 1_0: wallonia/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV_"
+                                         r"HAINAUT\.zip!RELIEF_WALLONIE_MNT_50CM_2021_2022\.tif differs by 0\.010"):
+        mt.cut("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")
+    assert mt.final_state(str(out), mt.dataset("wallonia"), mt.dataset("wallonia").products[0]) is None
+
+
+@pytest.mark.parametrize("kind", ["pixel", "shift"])
+def test_averaged_verify_finds_a_change(tmp_path, monkeypatch, kind):
+    """verify of an averaged product: one output pixel 2 cm higher (its tile's sha256 updated) is found by the
+    re-assembly; a shift made in assemble (so equal in the cut and in verify's re-assembly) by the pixels read
+    straight from the inputs, each the mean of its block's 0.5 m pixels computed apart."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _wallonia_fetch(inputs, tmp_path)
+    if kind == "shift":
+        monkeypatch.setattr(mt, "assemble", _buggy("shift"))
+    mt.cut("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")
+    folder = out / "wallonia" / "dtm" / "1m"
+    if kind == "pixel":
+        assert mt.verify("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")["dtm"]["ok"]
+        index = json.loads((folder / "index.json").read_text())
+        path = folder / src.grid_tile_name(1, 0)
+        with rio.open(path) as t:
+            values, transform = t.read(1), t.transform
+        values[500, 700] += 0.02
+        sk_tiles._write(str(path), values, "EPSG:3812", transform)
+        index["tiles"]["1_0"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        (folder / "index.json").write_text(json.dumps(index))
+    result = mt.verify("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")["dtm"]
+    problems = "\n".join(result["problems"])
+    assert not result["ok"]
+    if kind == "pixel":  # 2 cm, give or take the 5 mm of the two LERC encodings
+        assert re.search(r"1_0: differs from the inputs by 0\.0[123]", problems), problems
+    else:
+        assert "read straight from the inputs" in problems and "differs from the inputs by" not in problems
+
+
+def test_averaged_assemble_is_exact(tmp_path):
+    """assemble of an averaged product: a block of four equal values gives that value exactly (float32 out, the mean
+    in float64); one, two or three valid pixels their mean; none no data; the footprint, the tiles and the memory
+    estimate on the inputs' pixels; a factor that is no whole number of 1 or more is refused."""
+    values = np.repeat(np.repeat(_heights((50, 60), 3).astype(np.float32), 2, axis=0), 2, axis=1)
+    values[0, 0] = -9999.0                            # block (0, 0): three valid
+    values[0, 2:4] = -9999.0                          # block (0, 1): two, of their own heights
+    values[1, 2:4] = (100.25, 100.75)
+    values[0:2, 4:6] = -9999.0
+    values[1, 5] = 7.0                                # block (0, 2): one
+    values[0:2, 6:8] = -9999.0                        # block (0, 3): none
+    path = _tif(tmp_path / "half.tif", values, 2000.0, 2100.0, res=0.5, crs="EPSG:3812", nodata=-9999.0)
+    product = _product([mt.Placed("half.tif")], res=1.0, crs="EPSG:3812", origin=(0.0, 0.0), average=2)
+    fp = mt.footprint(str(path), product)
+    assert (fp.left, fp.top, fp.width, fp.height) == (2000.0, 2100.0, 120, 100)
+    assert mt.tiles_of(fp, product) == (range(1, 0, -1), range(1, 2))
+    with rio.open(path) as h:
+        tile = mt.assemble((1, 1), product, [("half.tif", fp)], {str(path): h})
+    assert tile.dtype == np.float32 and tile.shape == (2000, 2000)
+    part = tile[1900:1950, 0:60]
+    want = values[::2, ::2].copy()
+    assert np.array_equal(part[1:], want[1:]) and np.array_equal(part[0, 4:], want[0, 4:])
+    row = values[0:2].astype(np.float64)
+    assert part[0, 0] == np.float32(row[:, 0:2][row[:, 0:2] != -9999].mean())
+    assert part[0, 1] == np.float32(100.5) and part[0, 2] == np.float32(7.0) and np.isnan(part[0, 3])
+    assert np.isnan(tile[:1900]).all() and np.isnan(tile[1950:]).all() and np.isnan(tile[:, 60:]).all()
+    assert mt.input_res(product) == 0.5 and mt.input_res(mt.replace(product, average=1)) == 1.0
+    for bad in (0, -2, 1.5, True):
+        with pytest.raises(ValueError, match="whole number of 1 or more"):
+            mt.input_res(mt.replace(product, average=bad))
+    with pytest.raises(ValueError, match="pixels"):
+        mt.footprint(str(_tif(tmp_path / "one.tif", values, 2000.0, 2100.0, res=1.0, crs="EPSG:3812")), product)
+    # Wallonia's at the planned bound: eight tiles of 1 m in flight beside one of 0.5 m being assembled
+    wallonia = mt.dataset("wallonia").products[0]
+    assert mt._workers(wallonia, 8, 24.0)[0] == 8
+    with pytest.raises(ValueError, match=r"too little for one tile of 1 m \(0\.86 GB"):
+        mt._workers(wallonia, 8, 0.6)
+
+
+def test_products_of_before_keep_their_rule():
+    """A product without a factor (average 1) keeps the journal rule of before (the list of 2026-11-16 hashed as it
+    was), so a product cut before is never seen as cut again; a factor changes the rule."""
+    product = mt.dataset("aosta").products[0]
+    rule = [product.res, product.crs, list(product.origin), list(product.nodata), product.sea, product.floor,
+            product.overlap, mt.TILE_M, mt.MAX_Z_ERROR, mt.CUT_VERSION]
+    assert mt.product_rule(product) == hashlib.sha1(json.dumps(rule).encode("utf-8")).hexdigest()[:16]
+    for name in ("madeira", "porto-santo", "desertas", "selvagens"):
+        assert mt.dataset(name).products[0].average == 1
+    assert mt.product_rule(mt.replace(product, average=2)) != mt.product_rule(product)
+
+
+def test_wallonia_waits_for_its_state_files(tmp_path):
+    """The real folder's first step: without status.json the products wait, saying so (the fetch's state file is
+    missing, run the fetch tool); with it they are ready to cut."""
+    inputs, work = tmp_path / "in", tmp_path / "work"
+    _wallonia_fetch(inputs, tmp_path, status=False)
+    lines = mt.status(["wallonia"], str(work), None, str(inputs))
+    assert lines[0] == "wallonia: Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW), averaged to 1 m"
+    assert "  dtm/1m: waiting (inputs missing); missing wallonia/status.json names no group MNT (run the fetch tool)" \
+        in lines
+    assert any(line.startswith("  dsm/1m: waiting") and "status.json names no group MNS" in line for line in lines)
+    (inputs / "wallonia" / "status.json").write_text(json.dumps({"groups": {"MNT": {"files": 2}, "MNS": {"files": 2}}}))
+    lines = mt.status(["wallonia"], str(work), None, str(inputs))
+    assert "  dtm/1m: ready to cut (wallonia/MNT: 2 of 2)" in lines
