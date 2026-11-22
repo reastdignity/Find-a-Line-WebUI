@@ -1357,7 +1357,9 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
  *  and "Top level only" stay when the window crosses the phone's width), drawn in columns or on a phone. */
 export function SpotColumns(props: SpotColumnsProps) {
   const view = useMemo(() => createSpotView(props.model), [props.model]);
-  useEffect(() => () => view.destroy(), [view]);
+  // the view left (another page, another run): its sideways notice's focus record goes with it, so a view opened later
+  // does not take the focus by itself (the code review's round 6)
+  useEffect(() => () => { view.destroy(); beforeNotice = null; }, [view]);
   // the measured line (Measure's, or a link's: viewlink.ts), kept here across the phone's width, of this view only;
   // the lines shown once (fitted, a phone's sheet raised: not again in a frame drawn anew after the crossing)
   const [measured, setMeasured] = useState<{view: SpotView; line: Line; link: boolean} | null>(null);

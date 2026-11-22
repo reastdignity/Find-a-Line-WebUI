@@ -1717,3 +1717,33 @@ def test_head_new_key_never_jumps(site):
             browser.close()
     print("the head's top frame by frame:", start, tops)
     assert all(t is not None and abs(t - start) <= 1 for t in tops), (start, tops)
+
+
+def test_notice_record_ends_with_the_view(site):
+    """The code review's round 6: the view left while the phone is sideways (the notice up: its focus record kept),
+    the phone turned upright on the page it went to, and a run opened again: the new view does not take the focus by
+    itself (it focused its map, the old record's fallback)."""
+    from playwright.sync_api import sync_playwright
+    side = {"viewport": {"width": 844, "height": 390}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", {**side, "viewport": {"width": 390, "height": 844}}, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.focus(".u-sheet-handle")
+            page.set_viewport_size({"width": 844, "height": 390})
+            page.wait_for_selector(".v-upright p", timeout=WAIT)
+            page.evaluate("() => { location.hash = ''; }")
+            page.wait_for_function("() => !document.querySelector('.v-result')", timeout=WAIT)
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.evaluate("() => T.frames()")
+            page.evaluate(f"() => {{ location.hash = '#run={BIG}'; }}")
+            page.wait_for_function("() => !!document.querySelector('.v-result') && !!window.FINDALINE_VIEW", timeout=WAIT)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames())")
+            focus = page.evaluate(FOCUS_NOW)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the focus in a view opened again:", focus)
+    assert "leaflet-container" not in focus, focus
