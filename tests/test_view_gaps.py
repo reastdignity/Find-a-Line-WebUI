@@ -25,8 +25,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_shell_c import BIG  # noqa: E402
 from test_shell_c_view_map import (BOXES, DESKTOP, SMALL_PHONE, WAIT, WORDS, _open, _state, _tap_on, boxes_site,  # noqa: E402,F401
                                    site, view_clip)
-from test_view_frame import (BAR, CENTRE, HELP, OPEN_LINK, PICK, PIXEL, SELECTED_ENDS, STILL, UNDER8, _one_clear,  # noqa: E402
-                             _opened)
+from test_view_frame import (BAR, CENTRE, HELP, OPEN_LINK, PICK, PIXEL, PROFILE_STUB, SELECTED_ENDS, STILL, UNDER8,  # noqa: E402
+                             _measure_two, _one_clear, _opened)
 from test_web import EDGE, _playwright  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
@@ -599,3 +599,44 @@ def test_star_picker_on_a_phone_stays_in_view(site, device):
             browser.close()
     print("the star's picker:", device.get("viewport"), got)
     assert got["frame"] == 0 and got["pop"][0] >= 0 and got["pop"][1] <= got["height"], got
+
+
+# What a press at the picker's middle and at its "New folder" button reaches: inside the picker or not (and what)
+ON_TOP = """() => { const p = document.querySelector('.r-pop'), b = document.querySelector('.r-picker > .u-btn.u-ghost');
+  const at = (e) => { const r = e.getBoundingClientRect(), hit = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    return {inside: !!(hit && p.contains(hit)), hit: hit && hit.className.toString().slice(0, 40), box: [Math.round(r.top), Math.round(r.bottom)]}; };
+  const dock = document.querySelector('.u-sheet-body > .r-dock');
+  return {middle: at(p), newFolder: b && at(b), dock: !!dock, dockBar: dock && dock.querySelector('.r-dock-bar b')?.textContent}; }"""
+
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_star_picker_over_a_measured_profile(site, device):
+    """The star's folder picker opened on a phone while a measured line's profile stands first in the sheet's body (a
+    spot selected, then Measure's two points): the picker is on top, a press at its middle and at its "New folder"
+    reaches it (it lay under the dock's bar: the measured dock's z-index 6 drew it over the sheet's head, the picker's
+    stacking context; L's iPhone walk, 2026-11-22)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", device, script=HELP + PROFILE_STUB)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
+            page.wait_for_selector(".vl-sheet-row .r-fav", timeout=WAIT)
+            _measure_two(page, phone=True)
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.measured && F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.view.selected && !!document.querySelector('.u-sheet-body > .r-dock')", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            b = page.evaluate("() => { const r = document.querySelector('.vl-sheet-row .r-fav').getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }")
+            page.touchscreen.tap(b[0], b[1])
+            page.wait_for_selector(".r-picker", timeout=WAIT)
+            page.wait_for_function("() => F.snap() === 'full' && F.rest()", timeout=WAIT)
+            page.wait_for_function("() => !!document.activeElement.closest('.r-pop')", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            got = page.evaluate(ON_TOP)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the star's picker over a measured profile:", device.get("viewport"), got)
+    assert got["dock"], got  # (the state tests something: the measured profile's dock in the sheet's body)
+    assert got["middle"]["inside"] and got["newFolder"] and got["newFolder"]["inside"], got

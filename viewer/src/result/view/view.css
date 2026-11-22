@@ -251,6 +251,10 @@
    under the bar, the words on reading it 4 px under the chart: the user's G-B b at the screenshot gate) */
 .ui .vl-details .vl-dock { margin: -4px -16px 0; padding: 4px 16px 8px; row-gap: 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
   box-shadow: none; max-height: none; overflow: visible; z-index: auto; }
+/* a measured line's dock first in a phone's sheet body takes no stacking level of its own either (today's `.r-dock`
+   z-index 6 is for a dock over the map): with it the dock was drawn over the sheet's head, whose stacking context holds
+   the star's folder picker, and the picker could not be pressed (L's iPhone walk, 2026-11-22) */
+.ui .v-result .u-sheet-body > .r-dock-sheet { z-index: auto; }
 .ui .vl-details .vl-dock .r-hint-under { margin-top: 4px; }
 /* the star's folders open under it towards the left, as wide as their list (today's 280 px, not the menus' 340: they
    stay inside the details' column and a phone's width); 44 px rows on a touch screen (R2) */
