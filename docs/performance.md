@@ -4191,3 +4191,45 @@ restarted without end. Since tag `history/download-groups` the metres are conver
 Vermont's blocks came in steps (12, 87, 97, 256, 334 of 334). The two rows are different states on different disks:
 they show the mechanism, not a speed-up factor. The country prefetch's groups of 10 km are a block or two on that
 grid, as before in effect (one block is 0.1 degree, about 11 km).
+
+## The result view on a phone: a step through a spot's lines, and scrolling (2026-11-22, line volume round 6, gate 2)
+
+The user's iPhone found stepping through and scrolling a big spot's lines laggy (Gozo's spot 1.409: "like 1-3 fps")
+where today's page was fluid. Measured on a copy of the Gozo coast's run (717 044 lines; spot 1.409 with 79 lines, 67
+passing), served by the local app on loopback; medians of 15 to 20 steps, timed in the page from the press of "Next
+line" to the frame drawn ("painted") and two frames more ("settled"), in ms. The lock mode was not recorded, so the
+numbers are indicative; headless WebKit on Windows draws in software and swings with the PC's load.
+
+### Step by step
+
+| Page | Browser | Painted | Settled | Map draws a step |
+| --- | --- | --- | --- | --- |
+| today's page, the same 79-line spot | Edge desktop | 181 | 209 | – |
+| today's page | Edge at the iPhone's size | 198 | 270 | – |
+| today's page | WebKit iPhone 13 | 181 | 246 | – |
+| the view, before (view-3c d45d8ace) | Edge desktop | 16.4 | 47.8 | 2.1 (1.3 ms) |
+| the view, before | Edge at the iPhone's size | 28.4 | 48.0 | 2.1 |
+| the view, before | WebKit iPhone 13 | 23.5 | 113 | 2.1 (2.6 ms) |
+| the view, after (`SpotMap.hoverAt` draws nothing for the point already shown) | Edge desktop | 16.4 | 47.5 | 1.0 (0.9 ms) |
+| the view, after | Edge at the iPhone's size | 22.9 | 47.9 | 1.0 |
+| the view, after | WebKit iPhone 13 | 28.0 | 104 | 1.0 (1.9 ms) |
+| the view, after | Edge at the iPhone's size, the CPU slowed 4 times | 163 | 262 | 1.0 (6.2 ms, 8.9 for two before) |
+
+A step's script is 2-3 ms; the rest is the browser's own work at the phone's size (a trace at 1x: 27 ms of the main
+thread a step, PrePaint 10 of it, walking 6 881 elements and 462 icons, mostly the list's rows; slowed 4 times,
+PrePaint 115 of 260 ms). The fix halves the draws, not the frames. What a phone feels over a slow link is most likely
+the profile's round trip a step (`/api/profile`; this run keeps profiles only for each spot's first line): the
+roadmap's "Profiles asked ahead" (`tests/test_view_gate2.py::test_a_step_draws_the_map_once` counts, never a clock).
+
+### Scrolling
+
+The finding was the scrolling, not the stepping (the user). With 1.409 selected the phone's sheet holds a body of
+22 606 px: the tree opens its pages down to the selected row, 420 rows (7 271 elements, 617 icons); today's page's
+sheet holds 30 726 elements. In Chromium both scroll at 60 fps with under 1 ms of main-thread work a frame, and
+nothing of ours runs a scroll event. The user's variants on the phone named the cause: rows positioned
+(`position: relative`) holding absolute hidden names (`u-sr`, about four a row) made iOS WebKit scroll the sheet on
+its main thread; a layer of the scroller's own (`will-change: transform`) puts it back on WebKit's scrolling thread
+(fluid on the phone; `.claude/rules/viewer.md`, "Scrollers of many rows on iOS"). The rows stayed positioned: their
+hidden names hanging off the resizing sheet body cost every frame of a sheet's move (headless WebKit with the
+iPhone's profile, a frame with a new sheet height: 76-77 ms against 62-66 ms with the names on their rows or
+hidden). The sheet's move with a long list stays jerky: docs/known-bugs.md.
