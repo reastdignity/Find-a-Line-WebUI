@@ -315,3 +315,40 @@
 /* gate 2's 6 b: on a phone the page does not zoom but on the map: the frame takes panning only (no pinch, no double
    tap zoom of the page); the map's own pinch and double tap are Leaflet's (its container: touch-action none) */
 .ui .c-result-phone.v-result { touch-action: pan-x pan-y; }
+
+/* gate 2's second check: the run's "Data credits" folded and unfolded as the 3D view's (view3d.css .v3-credits): a pill
+   in the accent's soft fill, its arrow before the words (pointing right: folded; down: open), on a phone 26 px high
+   with a 44 px target on a touch screen (R2) around it, the kit's focus ring (the text-sized button of before was hard
+   to find and to press again on a phone) */
+.ui .v-result .v-map .u-credits-toggle { position: relative; align-items: center; gap: 4px; vertical-align: middle;
+  padding: 4px 12px 4px 8px; border-radius: var(--r-full); background: var(--accent-soft); color: var(--accent-ink);
+  font-size: var(--fs-2); font-weight: 600; line-height: 18px; }
+.ui .v-result .v-map .u-credits-toggle .u-credits-mark { order: -1; margin-left: 0; vertical-align: 0; }
+.ui .v-result .v-map .u-credits-toggle:hover { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
+.ui .v-result .v-map .u-credits-toggle[aria-expanded="true"] { margin-right: 8px; }
+@media (pointer: coarse) {
+  .ui .v-result .v-map .u-credits-toggle::after { content: ""; position: absolute; inset: -9px -4px; }
+  /* (a credit's link on the line above or below keeps its own press: it lies over the target, not under it) */
+  .ui .v-result .v-map .leaflet-control-attribution a { position: relative; z-index: var(--z-up); }
+}
+/* the keyboard's ring inside the pill, as inside a credit's link (ui.css): folded it stands at the map's edge or the
+   sheet's, which cut a ring outside it */
+.ui .v-result .v-map .u-credits-toggle:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .ui .v-result .v-map .u-credits-toggle:focus-visible { outline-offset: -2px; } }
+/* (shown where the credits fold: a phone, the compact foot, a desktop's card open; else no button, as before) */
+@media (max-width: 767px) { .ui .v-result .v-map .u-credits-toggle { display: inline-flex; } }
+.ui .v-result .v-map.v-compact .u-credits-toggle, .ui .v-result .v-map.c-card-on .u-credits-toggle { display: inline-flex; }
+/* the columns' credits (the compact foot, a desktop's card open): the same pill in the credits' own size, as high as
+   their 14 px line (taller, it covered the line above or the map's edge cut it), so a line of the credits stays as
+   high as before and the card, the foot and the scale above them move only where the pill takes a line of its own
+   (a 26 px pill lifted them by 12 px more: the status line onto the zoom on a phone held sideways); in a sentence of
+   credits, so R2's floor does not bind it on a desktop, and on a touch screen its 44 px target stays */
+.ui .v-result .v-map.v-compact .u-credits-toggle, .ui .v-result .v-map.c-card-on .u-credits-toggle {
+  gap: 3px; padding: 0 6px 0 4px; font-size: inherit; line-height: inherit; }
+.ui .v-result .v-map.v-compact .u-credits-toggle[aria-expanded="true"],
+.ui .v-result .v-map.c-card-on .u-credits-toggle[aria-expanded="true"] { margin-right: 8px; }
+.ui .v-result .v-map.v-compact .u-credits-toggle .u-credits-mark, .ui .v-result .v-map.c-card-on .u-credits-toggle .u-credits-mark {
+  width: 10px; height: 10px; }
+@media (pointer: coarse) {
+  .ui .v-result .v-map.v-compact .u-credits-toggle::after, .ui .v-result .v-map.c-card-on .u-credits-toggle::after { inset: -15px -4px; }
+}
