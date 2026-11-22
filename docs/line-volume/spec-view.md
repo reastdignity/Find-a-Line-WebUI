@@ -460,8 +460,9 @@ the heads sort buttons that say their order ("Length, sorted smallest first", as
 `test_view_gaps.py::test_heads_sort_the_tree`), so the view now does what L6 asks; the list was not relabelled.
 The pages around a result (`tests/test_view_parity_pages.py`: the access mark's parts, Download, a run's map.html, a
 share link's page, the public site's people): 71 rows, 16 the same, 7 the same before the page is chosen, 46 ported,
-2 different by decision, 0 gaps. Each ported assertion names its row. The lists themselves stay with the task's
-private notes. Today's page is checked through `tools/today_page.py` since the view became the default.
+2 different by decision, 0 gaps. Each ported assertion names its row id of the planner's parity list, kept outside
+the repository (the planner's decision). Today's page is checked through `tools/today_page.py` since the view
+became the default.
 
 ### B.8 Acceptance (targets of gate 1, section 4; the mock-up's numbers are the mock-up's, not the app's)
 - T7 (at most 3 steps from a spot to a line of a chosen direction, phone): press a B number (1), press and hold an

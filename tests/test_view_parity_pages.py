@@ -1,12 +1,12 @@
 """The pages around a result in the result view (?view=b; step 3d of docs/line-volume/spec-view.md part B: the view
 loses nothing of today's result page): today's checks of the access mark's page parts, Download, a share link's page,
-a run's own map.html and the public site's people, ported to the view where the view's own tests lacked them
-(the parity list: local/line-volume-6/C2/parity.md, one row per check, each assertion here names its row). Today's
+a run's own map.html and the public site's people, ported to the view where the view's own tests lacked them (the
+planner's parity list, kept outside the repository: one row per check, each assertion here names its row id). Today's
 tests stay as they are (tests/test_access_page.py, test_shell_c_download.py, test_store_share.py, test_disk_notice.py,
 test_web.py::test_run_map*, test_public.py::test_signed_in_app_and_shared_map_in_edge); their helpers and answers are
-imported, not copied. Playwright's browsers (Edge; WebKit and Chromium as the two phones) over the app's server or
-the public site on a thread, offline, on the result view's clip run (clip_runs.view_clip). Every wait is an event with
-a deadline. Run from PowerShell (.claude/rules/browser-tests.md)."""
+imported, not copied. Playwright's browsers (Edge; WebKit and Chromium as the two phones) over the app's server or the
+public site on a thread, offline, on the result view's clip run (clip_runs.view_clip). Every wait is an event with a
+deadline. Run from PowerShell (.claude/rules/browser-tests.md)."""
 
 import json
 import os

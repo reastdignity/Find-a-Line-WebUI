@@ -342,7 +342,8 @@ the one-end pan, the narrow lists), `test_view_actions_public.py` (the actions o
 `test_view3d_profile_sizes.py` (the profile's 12 px and 44 px on the 3D card); step 3d: `tests/test_view_parity.py`
 (today's result page's checks made again of the view where no view test made them, in seven walks: the desktop's
 header and map, its kept layout, a narrow and low window, a line's details and profile, the filters, a phone's frame,
-the loading's failures with the flag; each assertion names its row of the parity list), `test_view_parity_pages.py`
+the loading's failures with the flag; each assertion names its row id of the planner's parity list, kept outside the
+repository), `test_view_parity_pages.py`
 (today's checks of the pages around a result: Download, the access list's kept widths, a run's own map.html, a share
 link's page, the public site's people; today's side opened by `?view=today`; each assertion names its row),
 `test_view_default.py` (both settings of `VIEW_DEFAULT`, built by esbuild with a plugin, served by Playwright routes),
