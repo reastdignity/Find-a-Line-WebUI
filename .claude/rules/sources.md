@@ -45,7 +45,7 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   its own name and credit; every writer of `used_data` goes through `prepare_layer`, and `fill_gaps` drops all of a
   filler's entries when it filled nothing (`_forget_entries`). A per-sheet index that is not an `IndexedTiles`
   (INEGI's JSON per sheet) is skipped by `update.py` and by record_answers' generic test (`tests/test_parts.py`
-  `ANSWER_CASES` leave out "sheets" cases): it brings its own update path and test.
+  `ANSWER_CASES` leave out "sheets" and "projects" cases): each brings its own update path and test.
 - The USA's 1 m DEM: TNM answers plus the bucket's files they lack (`tnmbucket.py`), merged on read
   (`tnm.UnlistedIndex`; one item maker); its shipped list only by `tools/usa_unlisted.py` (providers.md).
 - The cache's tile encoding: `sources.layer._write_tile`'s profile (LERC_ZSTD within `MAX_Z_ERROR`), `old_encoding`

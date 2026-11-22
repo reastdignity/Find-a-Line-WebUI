@@ -305,11 +305,16 @@ lock: ArcticDEM), `tnm.py` `TnmBlocks` (`TnmProducts`, `ComposedBlocks`, `Window
 tile whose URL the cached answer lacks, the answer itself never rewritten; `usgs_1m_item`, `tile_item`, `tile_extent`:
 a 1 m file as cached), `tnmbucket.py` (the 1 m files of USGS's bucket the TNM index does not list: `make_unlisted`
 lists the bucket's projects (`bucket_files`, `s3listing` with a host slot and a `PageBudget`), the index over the
-USA and its territories (`tnm_listed`, `REGIONS` split in four above `SPLIT_ABOVE`, a short page asked again), finds
-the zone of a name without one (its project's one zone within the project's box, else `header_zone`: the file's own
-header) and writes `<cache>/usa/sheet-index/bucket1m/unlisted.json` with a row; `unlisted_in_tile` reads it, or the
-shipped `sources/catalogue/usa_unlisted_1m.json`, once per process and data folder; imported only when an answer is
-read, never by the web process),
+USA and its territories (`tnm_listed`, `REGIONS` split in four above `SPLIT_ABOVE`, a short page asked again, an
+empty page before `total` a dropped page), each part `REQUESTS_AT_ONCE` at a time (`_all`: the first failure stops
+the others); refuses an index that answered too little before any header read (`MAX_UNLISTED_SHARE`,
+`MAX_LISTED_DROP` against `previous_listed`); finds the zone of a name without one (its project's one zone within the
+project's box, else `header_zone`: the file's own header, `HEADER_READS` at most, a definite answer leaves the file
+out) and the year of a project whose folders name none (`tnm.folder_year`, else its listed files' year, else the
+upload's) and writes `<cache>/usa/sheet-index/bucket1m/unlisted.json` with a row (`write_list`: IndexUnavailable on
+failure); `unlisted_in_tile` reads it, or the shipped `sources/catalogue/usa_unlisted_1m.json` (also in place of a
+cached list that cannot be used: `_load`), once per process and data folder; imported only when an answer is read,
+never by the web process),
 `files.py` (a local raster), `wmsr.py` `WmsrTiles` (`ResolutionTiling`: one `WcsTiling` per fetch resolution, the
 coarsest not coarser than the grid, + `WmsrReader`: France), `imageserver.py` `ImageServerTiles` (`WcsTiling` at
 `native_res` with an `origin` + `ImageServerReader`: Czechia; `zones`: a service that reprojects on request asked in

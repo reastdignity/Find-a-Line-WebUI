@@ -4,9 +4,10 @@ does not list (sources/catalogue/usa_unlisted_1m.json): made by the same functio
 site before its first `cache update usa`) still sees those files.
 
 One run lists the bucket's 1 m projects (about 990 requests), the TNM index over the USA and its territories (about
-415 requests, about 1 GB of answers) and reads the header of each unlisted file whose name carries no UTM zone and
-whose project does not tell it (about 300 small reads), each part 4 requests at a time (tnmbucket.REQUESTS_AT_ONCE;
-one at a time it took 1947 s on 2026-11-22). Every request has the app's User-Agent and a slot of its host (the
+420 requests, about 620 MB of answers) and reads the header of each unlisted file whose name carries no UTM zone
+and whose project does not tell it (about 300 small reads), each part 4 requests at a time (tnmbucket.REQUESTS_AT_ONCE:
+481 s on 2026-11-23, the bucket 196 s and 53 MB, the index 250 s and 620 MB, the headers 35 s; one at a time it took
+1947 s). Every request has the app's User-Agent and a slot of its host (the
 locks of the cache folder given). Nothing is written when a step fails. It refuses a list when the index lists
 clearly fewer files than the list before (tnmbucket.MAX_LISTED_DROP): check the index, then --allow-drop. It prints
 what it did, the projects whose files took their upload year (no year in their folders, no listed file) and the
