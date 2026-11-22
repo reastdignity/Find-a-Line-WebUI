@@ -13,10 +13,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from test_shell_c import BIG  # noqa: E402
+from test_shell_c import BIG, copy_clip  # noqa: E402
 from test_shell_c_view_map import DESKTOP, WAIT, _open, site, view_clip  # noqa: E402,F401
 from test_view_details import SCRIPT, _select, _view  # noqa: E402
-from test_web import EDGE, _playwright  # noqa: E402
+from test_web import EDGE, _playwright, _server  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
                                 reason="needs Microsoft Edge and Playwright (group ui)")
@@ -87,5 +87,87 @@ def test_3d_view_other_lines_pass_the_filters(site):
             assert off["unknown"] == off["hidden"] == off["undrawn"] == 0 and not off["self"], (off, window)
             assert off["passing"] == window["inside"], (off, window)  # the window's lines, the line of top 0 now too
             assert page.errors == []
+        finally:
+            browser.close()
+
+
+# Every violation of the page's CSP (directive, blocked address, sample) and every <select> made by a script
+# (document.createElement / createElementNS): WebKit reports one style-src-attr violation for each <select> made
+WATCH = r"""
+window.CSPV = []; window.SELECTS = 0;
+document.addEventListener('securitypolicyviolation', (e) => CSPV.push([e.effectiveDirective, e.blockedURI, e.sample || '']));
+const madeBy = (f) => function (...a) { const e = f.apply(this, a); if (e && e.localName === 'select') SELECTS++; return e; };
+Document.prototype.createElement = madeBy(Document.prototype.createElement);
+Document.prototype.createElementNS = madeBy(Document.prototype.createElementNS);
+"""
+BARE = """<!doctype html><html><head><meta charset="utf-8"><title>bare</title></head><body>
+<script>window.CSPV = []; document.addEventListener('securitypolicyviolation', (e) => CSPV.push(e.effectiveDirective));</script>
+<select><option>One</option></select></body></html>"""
+
+
+@pytest.fixture
+def clip_app(tmp_path, view_clip):
+    """The app over a data folder with the view's clip run (BIG); yields its address."""
+    folder = tmp_path / "data"
+    copy_clip(view_clip, folder, BIG, "Clip")
+    with _server(folder) as port:
+        yield f"http://127.0.0.1:{port}/"
+
+
+def test_no_style_refused_in_webkit(clip_app):
+    """No stylesheet, <style> or inline style of ours is refused by the app's CSP (style-src 'self') in WebKit on Home
+    (a phone and the desktop), a run in the view (both) and today's page (both): gate 2's finding 10, Safari's
+    "Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline' does not appear in the style-src
+    directive". That message is WebKit's own: WebKit bug 327212 ("Creating a select triggers a CSP style-src violation
+    from its UA shadow tree", a regression of WebKit's commit 321159: an inline style on the button slot of the
+    select's user-agent shadow tree). M's proof (2026-11-22, SESSION/M/explore4c.py): a bare page under style-src
+    'self' with one parsed <select>, or one made by a script and never attached, gets exactly one style-src-attr
+    violation in Playwright's WebKit, none without the CSP, and the select is drawn pixel for pixel the same; alone on
+    the app's Home only a <select> of every form control causes it. So the test allows exactly one style-src-attr
+    violation (blocked "inline") per <select> the page made (by a script, or in the served HTML), and only while a bare
+    <select> in the same browser is refused too (the engine's bug present); nothing else, and none at all once WebKit
+    is fixed."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        if not os.path.exists(p.webkit.executable_path):
+            pytest.skip("Playwright's webkit is not installed")
+        # the offline proxy of the tests' environment would also take WebKit's requests to the server
+        browser = p.webkit.launch(env={k: v for k, v in os.environ.items() if k not in ("HTTP_PROXY", "HTTPS_PROXY")})
+        try:
+            # the engine's bug: a bare <select> under the same style-src
+            probe = browser.new_page()
+            probe.route("http://bare.test/", lambda route, _request=None: route.fulfill(
+                status=200, body=BARE, headers={"content-type": "text/html",
+                                                "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'self'"}))
+            probe.goto("http://bare.test/")
+            probe.wait_for_function("() => document.readyState === 'complete'", timeout=WAIT)
+            probe.evaluate("() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(ok, 0))))")
+            bug = probe.evaluate("() => CSPV")
+            assert bug in ([], ["style-src-attr"]), bug
+            probe.close()
+            parsed = browser.new_page().request.get(clip_app).text().count("<select")
+            phone = {k: v for k, v in p.devices["iPhone 13"].items() if k != "default_browser_type"}
+            pages = (("Home", clip_app + "?ui=c", "() => !!document.querySelector('#app > *')"),
+                     ("the view", clip_app + f"?ui=c&view=b#run={BIG}", "() => !!window.FINDALINE_VIEW"),
+                     ("today's page", clip_app + f"?ui=c&view=today#run={BIG}", "() => !!window.FINDALINE_RESULT"))
+            seen = {}
+            for name, url, ready in pages:
+                for device, context in (("phone", phone), ("desktop", DESKTOP)):
+                    ctx = browser.new_context(**context)
+                    ctx.add_init_script(WATCH)
+                    page = ctx.new_page()
+                    page.goto(url)
+                    page.wait_for_function(ready, timeout=WAIT)
+                    # the violations of the selects made so far, then two frames and a task more for any other
+                    if bug:
+                        page.wait_for_function(f"() => CSPV.length >= SELECTS + {parsed}", timeout=WAIT)
+                    page.evaluate("() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(ok, 0))))")
+                    made = page.evaluate("() => SELECTS") + parsed
+                    found = page.evaluate("() => CSPV")
+                    seen[f"{name}, {device}"] = (made, found)
+                    allowed = made if bug else 0
+                    assert found == [["style-src-attr", "inline", ""]] * allowed, (name, device, made, found)
+                    ctx.close()
+            print("the engine's bug present:", bool(bug), "| selects made and violations:", seen)
         finally:
             browser.close()
