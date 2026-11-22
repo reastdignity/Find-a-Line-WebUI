@@ -168,6 +168,40 @@ export function favouriteRows(view: SpotView): Set<number> {
  *  picker closed, the plain star. */
 const pickerOf = new WeakMap<SpotView, {id: string; row: number}>();
 
+/** Where the focus goes when a row's open picker went: the row's plain star, else the row that took the row's place in
+ *  its list (`place`: as lostRowPlaces), else the list's rest. */
+function pickerFocus(id: string, place: ReturnType<typeof placeOf>) {
+  keepFocus(`#${id} > .vl-star`, ...(place ? [`${place.list} > li:nth-child(${place.index + 1}) > .vl-main`,
+                                             `${place.list} > li:last-child > .vl-main`, place.head] : []), ...FOCUS_REST);
+}
+
+/** The folder picker in a row's star's place while it is open (RowStar). Closed, the row draws its plain star again
+ *  and the focus goes to it (or where a row's focus goes when the row went: a removal under "Favourites only"). The
+ *  row leaving the list while it is open (the map moved under "Best in view", its sector closed or paged away) ends
+ *  it too, so it never opens again by itself when the row comes back (the code review's G1). */
+function RowPicker({view, picked}: {view: SpotView; picked: {id: string; row: number}}) {
+  const model = view.model, {id, row} = picked;
+  // the row's place while it is drawn (its list and index), for the focus once it went
+  const place = useRef<ReturnType<typeof placeOf>>(null);
+  useEffect(() => {
+    const main = document.getElementById(id)?.querySelector(":scope > .vl-main");
+    place.current = main ? placeOf(main) : null;
+  });
+  useEffect(() => () => {
+    if (pickerOf.get(view) !== picked) return;  // closed already (onOpen)
+    pickerOf.delete(view);
+    pickerFocus(id, place.current);
+  }, []);
+  return <FavouritePicker model={model} line={model.lineAt(row)} icon opened buttonClass="vl-star" buttonTabIndex={-1}
+                          onOpen={(open) => {
+                            if (open) return;
+                            const main = document.getElementById(id)?.querySelector(":scope > .vl-main");
+                            if (main) place.current = placeOf(main);
+                            changePanels(view, () => { if (pickerOf.get(view) === picked) pickerOf.delete(view); });
+                            pickerFocus(id, place.current);
+                          }} />;
+}
+
 /** A row's star (LinesTable's titles; its name names the row's spot as the row shows it, `label`: "Add B3 to
  *  favourites", the user's G-G a): a press opens the same folder list as the details' star (FavouritePicker, under
  *  the row's right end; the user's gate-2 answer 13 a): the row then draws the picker, mounted open (its Line made
@@ -176,19 +210,7 @@ const pickerOf = new WeakMap<SpotView, {id: string; row: number}>();
  *  the list's arrows reach it (rowKeys). */
 function RowStar({view, row, id, label, sheet}: {view: SpotView; row: number; id: string; label: string; sheet?: PanelProps["sheet"]}) {
   const on = favouriteRows(view).has(row), model = view.model, picked = pickerOf.get(view);
-  if (picked && picked.id === id && picked.row === row) {
-    return <FavouritePicker model={model} line={model.lineAt(row)} icon opened buttonClass="vl-star" buttonTabIndex={-1}
-                            onOpen={(open) => {
-                              if (open) return;
-                              // the row's place while it is there (a removal under "Favourites only" takes the row away)
-                              const main = document.getElementById(id)?.querySelector(":scope > .vl-main"), place = main ? placeOf(main) : null;
-                              changePanels(view, () => { if (pickerOf.get(view) === picked) pickerOf.delete(view); });
-                              // the focus (the picker's, or its button's after Esc) to the row's plain star, else to the row
-                              // that took the row's place (as a row's star pressed when the row goes: lostRowPlaces)
-                              keepFocus(`#${id} > .vl-star`, ...(place ? [`${place.list} > li:nth-child(${place.index + 1}) > .vl-main`,
-                                                                         `${place.list} > li:last-child > .vl-main`, place.head] : []), ...FOCUS_REST);
-                            }} />;
-  }
+  if (picked && picked.id === id && picked.row === row) return <RowPicker view={view} picked={picked} />;
   return <button type="button" class={cx("vl-star", on && "vl-on")} tabIndex={-1} data-row={row}
                  aria-label={t(on ? "ui.view.star_remove" : "ui.view.star_add", {label})} aria-pressed={on}
                  title={on ? "favourite" : "add to favourites"} onClick={() => {

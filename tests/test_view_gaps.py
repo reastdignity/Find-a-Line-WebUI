@@ -1219,3 +1219,37 @@ def test_heads_at_least_24_px_on_a_desktop(site):
     heights = [h["h"] for h in got]
     print("desktop heads' heights:", heights)
     assert min(heights) >= 24 and max(heights) - min(heights) <= 1, heights
+
+
+def test_row_picker_ends_with_its_row(site):
+    """The code review's G1: a row's folder picker open (the star of "Best in view"'s first row) when its row leaves the
+    list (the map moved away: the row is no longer among the best in view) ends with it: the focus does not fall to the
+    page's body, and when the map comes back the row draws its plain star, no picker open by itself."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
+            _state(page, "view.setLevel('spots');")
+            star = ".vl-topblock .vl-rows > li:first-child > .vl-star"
+            page.wait_for_selector(star, timeout=WAIT)
+            row_id = page.evaluate(f"() => document.querySelector('{star}').closest('li').id")
+            page.evaluate(f"() => document.querySelector('{star}').click()")
+            page.wait_for_selector(".vl-topblock .vl-row .r-picker", timeout=WAIT)
+            page.wait_for_function("() => !!document.activeElement.closest('.r-pop')", timeout=WAIT)
+            home = page.evaluate(CENTRE)
+            _state(page, "leaflet.panBy([4000, 3000], {animate: false});")
+            page.wait_for_function(f"() => !document.getElementById('{row_id}')", timeout=WAIT)
+            page.evaluate("() => T.frames().then(() => T.frames())")
+            away = page.evaluate("() => [document.activeElement ? document.activeElement.tagName : null, !!document.querySelector('.r-picker')]")
+            _state(page, f"leaflet.setView([{home[0]}, {home[1]}], {home[2]}, {{animate: false}});")
+            page.wait_for_function(f"() => !!document.getElementById('{row_id}')", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            back = page.evaluate(f"() => [!!document.querySelector('.r-picker'), !!document.querySelector('#{row_id} > .vl-star')]")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the row's picker:", {"away": away, "back": back})
+    assert away[0] != "BODY" and not away[1], away
+    assert back == [False, True], back
