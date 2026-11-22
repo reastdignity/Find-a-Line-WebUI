@@ -250,6 +250,22 @@ window.T = {
 """
 
 
+# A phone held sideways sees the notice "Turn your phone upright" over the whole page (the user's gate-2 answer 4 a):
+# shown, with its words, over the page's middle; and the style that hides it, for a test that goes on with the
+# layout under it (kept for a phone whose page is not locked, as one turned while the notice is up)
+UPRIGHT_SHOWN = """() => { const n = document.querySelector('.v-upright'), hit = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+  return !!n && getComputedStyle(n).display !== 'none' && n.textContent.trim() === %s && !!hit && n.contains(hit); }""" % json.dumps(WORDS["ui.view.upright"])
+# (a rule added through the CSSOM to the page's own sheet: the page's CSP refuses a <style> element)
+UPRIGHT_HIDDEN = "() => { const sheet = [...document.styleSheets].find((x) => { try { return !!x.cssRules; } catch (e) { return false; } }); sheet.insertRule('.ui .v-result .v-upright { display: none !important; }', sheet.cssRules.length); }"
+
+
+def _upright_then_hidden(page):
+    """The notice shown over the page (4 a), then hidden for the checks of the layout under it."""
+    assert page.evaluate(UPRIGHT_SHOWN), "a phone on its side: no notice to turn it upright"
+    page.evaluate(UPRIGHT_HIDDEN)
+    page.evaluate("() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)))")
+
+
 def _open(browser, url: str, context: dict, flag: bool | None = True, script: str = ""):
     """The run's page with the page's helpers; with `flag` the result view is asked for and awaited; False: today's
     page pinned (tools/today_page.py); None: neither (the browser's default)."""
@@ -1100,6 +1116,7 @@ def test_phone_on_its_side(site):
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             page = _open(browser, f"{site}#run={BIG}", SIDE_PHONE)
+            _upright_then_hidden(page)  # (4 a: the notice; the layout under it, kept)
             page.wait_for_function(low, timeout=WAIT)
             page.evaluate(CHIP)  # the shore's chip: this run has no uncertain shore
             first = _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
@@ -1435,6 +1452,7 @@ def test_landscape_phone_columns_fold_the_legend(site):
             for (w, h), level, long in [(size, level, long) for size in LANDSCAPES for level in ("auto", "area") for long in (False, True)]:
                     state = f"{w} x {h}, {level}{', long credits' if long else ''}"
                     page = _open(browser, f"{site}#run={BIG}", {**PHONE, "viewport": {"width": w, "height": h}})
+                    _upright_then_hidden(page)  # (4 a: the notice; the layout under it, kept)
                     if long:
                         page.evaluate(LONG_CREDITS)
                         page.set_viewport_size({"width": 1400, "height": 900})  # a phone turned: the credits drawn whole first
