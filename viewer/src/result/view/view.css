@@ -398,3 +398,5 @@
    so inside the window, at every list width (260 px kept: 340 px of picker ran past the window's left edge) */
 .ui .vl-body, .ui .v-result .u-sheet-body { container-type: inline-size; }
 .ui .v-result .vl-row .r-pop { width: min(340px, calc(100cqw - 16px)); }
+/* the anchors' name (no sort head) on the line of the sort heads' words: their buttons keep 2 px under their words */
+.ui .vl-sec > .vl-cols > .vl-cell-acc { padding-bottom: 2px; }

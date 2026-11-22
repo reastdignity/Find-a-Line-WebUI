@@ -1378,3 +1378,35 @@ def test_row_picker_inside_a_narrow_list(site, width):
     print("the picker in a narrow list:", width, got)
     assert got["pop"][0] >= 0 and got["pop"][1] <= got["window"], got
     assert got["pop"][0] >= got["list"][0] and got["pop"][1] <= got["list"][1], got
+
+
+# The bottom of each head's words in the first open sector (a text range's last line box): the buttons' and the
+# anchors' name
+WORD_BOTTOMS = """() => { const sec = document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec'), out = {};
+  for (const e of sec.querySelectorAll(':scope > .vl-cols > .vl-hcell .vl-head, :scope > .vl-cols > .vl-cell-acc')) {
+    const r = document.createRange(); r.selectNodeContents(e); const rects = [...r.getClientRects()].filter((x) => x.width > 0);
+    out[e.textContent.trim()] = Math.round(Math.max(...rects.map((x) => x.bottom)) * 10) / 10; }
+  return out; }"""
+
+
+@pytest.mark.parametrize("device", ["desktop", "390", "412"])
+def test_anchors_head_on_the_heads_line(site, device):
+    """The design review's G2-F5: in a sector's heads the anchors' name (no sort head) stands on the line of the sort
+    heads' words (it stood about 2 to 4 px lower on the phones): the bottoms of their words within 1 px."""
+    from playwright.sync_api import sync_playwright
+    context = {"desktop": DESKTOP, "390": SMALL_PHONE, "412": PIXEL}[device]
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            if device != "desktop":
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            got = page.evaluate(WORD_BOTTOMS)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the heads' word bottoms:", device, got)
+    anchors = got.pop(WORDS["ui.list.col.anchors"])
+    assert got and all(abs(anchors - b) <= 1 for b in got.values()), (anchors, got)
