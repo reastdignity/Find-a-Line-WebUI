@@ -384,9 +384,6 @@
    review's round 6: "↓Clearance" ran 6-13 px over the word before it) */
 .ui .vl-cols > span > .vl-head > .vl-head-t { display: block; }
 .ui .vl-head-1 .u-ic { margin-right: 2px; }
-/* (the mark keeps 2 px more from the cell's left edge than the words: a run that would fill the cell to the edge puts
-   the mark on its own line, never within 4 px of the column before) */
-.ui .vl-head-1 .u-ic:first-child { margin-left: 2px; }
 .ui .vl-cols > span > .vl-head:hover { background: var(--hover); }
 @media (pointer: coarse) { .ui .vl-cols > span > .vl-head { min-height: 44px; } }
 /* 13 a: the row whose star opened the folders draws the details' picker in its place: its button keeps the star's

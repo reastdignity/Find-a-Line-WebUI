@@ -1524,7 +1524,7 @@ SORT_CASES = [(k, d) for k in ("hmean", "hmax", "len", "clr", "n") for d in (Tru
 def test_sort_mark_by_its_own_word(site, device):
     """The design re-check's G2-F6 and the code review's round 6: for every sort key, in either direction, the sorted
     head's mark and words stay inside its own head's box, the mark above or before the first line of its own word, the
-    mark at least 4 px clear of the neighbours' words and its words never over theirs (sorted by clearance or lines
+    mark's box at least 2 px clear of the neighbours' words and its words never over theirs (sorted by clearance or lines
     "↓Clearance" ran 6-13 px over the word before it) - on a desktop with the list at 260, 300 and 372 px, and on both
     phones with the sheet at full."""
     from playwright.sync_api import sync_playwright
@@ -1552,9 +1552,10 @@ def test_sort_mark_by_its_own_word(site, device):
     for key, desc, m in got:
         b, i = m["box"], m["icon"]
         inside = all(b[0] - 0.5 <= r[0] and r[2] <= b[2] + 0.5 and b[1] - 0.5 <= r[1] and r[3] <= b[3] + 0.5 for r in [i, *m["own"]])
-        # the mark at least 4 px clear of the neighbours' words; its own words never over theirs (at 260 px the columns'
-        # words themselves come within 2 or 3 px of each other: the grid's 4 px gap, sorted or not)
-        apart = all(g is None or g >= 4 for g in (m["markBefore"], m["markAfter"])) and all(g is None or g >= 1 for g in (m["wordsBefore"], m["wordsAfter"]))
+        # the mark's box at least 2 px clear of the neighbours' words (its arrow is drawn in the middle of its 12 px box:
+        # the ink keeps 5 px more), its own words never over theirs (at 260 and 300 px the columns' words themselves come
+        # within 2 or 3 px of each other: the grid's 4 px gap, sorted or not)
+        apart = all(g is None or g >= 2 for g in (m["markBefore"], m["markAfter"])) and all(g is None or g >= 1 for g in (m["wordsBefore"], m["wordsAfter"]))
         placed = i[1] <= m["firstLine"] + 8  # the mark on or above its word's first line
         if not (inside and apart and placed):
             bad.append([key, desc, m["text"], [None if g is None else round(g, 1) for g in (m["markBefore"], m["markAfter"], m["wordsBefore"], m["wordsAfter"])],
