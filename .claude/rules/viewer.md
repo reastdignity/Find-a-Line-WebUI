@@ -13,6 +13,13 @@ catalogue), `browser-tests.md`.
 
 ## Must stay in sync
 
+- The words of the files `tests/test_texts_in_catalogue.py` names (`MOVED`) are texts of `locales/en.json` (`t`): its
+  guard catches any word put back in their JSX text or text attributes and a phrase in their code, and checks that a
+  call gives each `{{name}}` of its text. Line volume's result-view files (`result/view/*`), today's result page and
+  the kit's demo pages still hold English in code (docs/known-bugs.md, step 3d G4). A sentence with an icon or a link
+  inside is one key drawn by `i18n.parts`, and a value that stood as a text node of its own stays one (Chromium places
+  a line's glyphs by its text nodes: merged nodes change pixels).
+
 - `viewer/src/Profile.tsx` with `viewer/src/profile.css` serves two bundles: the 2D result and the 3D view's card
   (`view3d/profilecard.tsx`, which gives it `cursorAt`/`onCursor`; without them the chart behaves as in the result). A
   change of its props, classes or CSS is checked in both (`tests/test_view3d_profile.py`, the result's tests). The 3D
@@ -93,6 +100,12 @@ catalogue), `browser-tests.md`.
   placeholders use `--muted`, which holds 4.5:1 on every light and dark surface and on the selected fill `--accent-soft`
   (4.90 / 4.56:1; `test_secondary_text_contrast`): compute a text's pair on a fill before using it. What the
   canvas draws on the tiles in the accent takes `--accent-map` (the light value in every theme: the tiles stay light).
+- **Keyboard rings and radio groups** (docs/DESIGN.md rows 81, 82): a ring is a shadow (`--focus`), which forced
+  colours do not draw (`ui.css`'s outline rule stands in); a ring a box clips is drawn inside (`--focus-in`) with a
+  forced-colours `outline-offset: -2px` beside it; no `outline: none` in a control's focus rule (it hides the forced
+  outline); a page's own `scroll-margin` wins over the kit's `:where` rule. A radio group takes `ui/radios.ts`
+  (`radioKeys` on the group, its checked radio the one Tab stop; `radioFocusKeys` where a choice costs more than a look,
+  the goal cards), no keys of its own.
 - **The map's corners** (`result/view/corners.ts`): the scale goes above the credits wherever they run under it,
   re-checked when the scale's or the credits' size changes (`keepScaleAboveAttribution` for a map with no sheet or
   card).

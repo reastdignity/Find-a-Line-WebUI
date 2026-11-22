@@ -83,12 +83,16 @@ export function creditsBox(box: HTMLElement, store: Store | null = browserStore(
   try { stored = store?.getItem(CREDITS_KEY) ?? null; } catch { /* storage refused: the default */ }
   let open = creditsStartOpen(stored, wide());
   const label = t("ui.credits.toggle").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+  // the entries' own part of the box where the page made one (main.ts frame: after the phone's "About this view"
+  // button), else the box itself; the box is marked hidden while it has no entry
+  const body = box.querySelector<HTMLElement>(".v3-credits-list") ?? box;
   const render = () => {
     const list = [...entries.entries()].sort((a, b) => a[1].order - b[1].order);
-    box.innerHTML = list.map(([id, e]) => id !== DATA_CREDITS ? `<span class="v3-credit">${e.html}</span>`
+    body.innerHTML = list.map(([id, e]) => id !== DATA_CREDITS ? `<span class="v3-credit">${e.html}</span>`
       : `<span class="v3-credit"><button type="button" class="u-credits-toggle" aria-expanded="${open}">${label}` +
         `</button><span class="u-credits${open ? " u-open" : ""}">${e.html}</span></span>`).join(" ");  // trusted HTML only
     box.classList.toggle("v3-hidden", !list.length);
+    box.classList.toggle("v3-credits-open", open && entries.has(DATA_CREDITS));  // the phone's info button (view3d.css)
   };
   box.addEventListener("click", (e) => {
     if (!(e.target as HTMLElement).closest?.(".u-credits-toggle")) return;

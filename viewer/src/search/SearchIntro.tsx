@@ -1,4 +1,4 @@
-// "How a search works": the intro of the search panel (ui/Intro.tsx), once per browser. What the
+// "How a search works": the intro of the search panel (ui/Intro.tsx), opened by its link only. What the
 // search does, the user's limits (/api/usage: the quotas and the limits of one search), why narrow
 // settings are fast and wide ones give too much, and five examples. Texts in locales/en.json
 // (intro.search.*); the labels of the fields come from the catalogue, so the examples name them as the

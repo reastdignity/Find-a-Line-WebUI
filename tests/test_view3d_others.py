@@ -257,7 +257,7 @@ OTHERS_SCRIPT = _with_until("""
     out.ready = ready;
     out.settled = still;
     if (!ready) { done(); return; }
-    out.tools = [...document.querySelectorAll(".v3-tool")].map((b) => [b.dataset.tool, getComputedStyle(b).order,
+    out.tools = [...document.querySelectorAll(".v3-tool")].map((b) => [b.dataset.tool, b.dataset.order,
                  b.classList.contains("v3-hidden")]);
     // 1: the lines of the address are drawn from the start
     out.n0 = root.dataset.others;
@@ -449,7 +449,7 @@ def test_view3d_several_lines(clip_data, tmp_path, monkeypatch, level):
     assert r["n0"] == "2" and r["keys0"] == sorted(canon(k) for k in address), r
     assert r["stars0"] == [False, False] and r["alsoPressed"] == "false", r
     assert all(h >= 28 and w >= 28 for w, h in r["sizes"]) and r["visible0"] == 2, r
-    assert float(r["font"].rstrip("px")) >= 11, r["font"]
+    assert float(r["font"].rstrip("px")) >= 12, r["font"]  # R1's smallest text (11.5 px under 600 px before step 3c)
     assert re.fullmatch(r"\d+ m", r["text0"]) and r["titles0"].startswith("Show this line of "), r
     assert r["also0"] == [canon(k) for k in address]
     # the switch: the favourites join, with a star; the found line is not among them (it is the active one)

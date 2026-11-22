@@ -97,6 +97,8 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 # scroll that element (or the page) to its end, "js:<expression>" to evaluate it in the page, "low:<selector>" to click the last one scrolled to the
 # bottom of its panel (a "?" near the bottom: its bubble opens upwards), "wait:<expression>" to wait until it is true,
 # "need:<expression>" to wait until it is true and leave the page out when it is not (the run does not have it),
+# "sideways:<width>x<height>" to turn a phone (a touch screen; left out on a device without one) to that viewport and
+# load the page again (as a phone held sideways opens it; the steps after it wait for the page again),
 # or a list of such steps[, the user: "admin" (default), "walker", an approved user with the site's limits, one of
 # RIGGERS (with saved rigs), or "visitor", not signed in]); a step "full" takes the whole page, not only the viewport;
 # "{run}" is the clip's run, "{line}" its first line (keys.lineCoords); an interface starting with "/" is a path of
@@ -239,6 +241,9 @@ RIGGERS = {"one-rig": ("21", THREE_RIGS[:1]), "three-rigs": ("22", THREE_RIGS),
            "ten-rigs": ("23", THREE_RIGS + [(f"Rig {n}", STARTING_RIG if n % 2 else TARGET_RIG) for n in range(4, 11)])}
 # The highline layer's selected cell at the top of its panel, the notes under it ("c-layer-border")
 BORDER_CARD_SHOWN = "document.querySelector('.c-layer-cell')?.scrollIntoView({block: 'start'})"
+# The highline layer's open chart in view ("c-layer-chart"); the coverage page's list at the top ("page-coverage-list")
+CHART_SHOWN = "document.querySelector('.c-layer-hist-open')?.scrollIntoView({block: 'center'})"
+COVERAGE_LIST_SHOWN = "document.querySelector('.cov-list')?.scrollIntoView({block: 'start'})"
 # The highline layer's fold "More filters" in view ("c-layer-chips", "c-layer-fold")
 FOLD_SHOWN = "document.querySelector('.c-layer-more')?.scrollIntoView({block: 'start'})"
 # The 3D view drawn (its terrain and the found line's profile: view3d/main.ts) and its imagery loaded
@@ -284,6 +289,8 @@ GIVE_UP = {READY[5:]: ("['unavailable', 'refused'].includes(document.querySelect
 # cannot construct one)
 MOTION_TURN = ("js:for (const [alpha, beta] of [[0, 90], [-40, 100]]) "
                "dispatchEvent(Object.assign(new Event('deviceorientation'), {alpha, beta, gamma: 0}))")
+# A server-rendered page (sign-in, privacy, about) scrolled to its end: its body or the document scrolls (pages.css)
+PAGE_END = "for (const e of [document.scrollingElement, document.body]) e.scrollTop = e.scrollHeight"
 PAGES = {
     "c-home": ("c", "", None),
     "c-home-limited": ("c", "", None, "walker"),  # the usage meters of a user with the site's limits
@@ -300,6 +307,9 @@ PAGES = {
     "c-new-limited-hint": ("c", "#new", MORE + [".s-topics details[open] .u-hint"], "walker"),  # a "?" with the bounds
     "c-favourites": ("c", "#favourites", None),
     "c-admin": ("c", "#admin", None),
+    # its lower sections at the page's end: the problem report, the runs and the extracts (the page is too short for a
+    # state of the report at the view's top: on the desktop and the Pixel it was this same picture)
+    "c-admin-end": ("c", "#admin", "scroll:.c-main"),
     "c-layer-cell": ("c", "#layer", "js:" + CELL_AT_CENTRE),  # the highline layer's cell under the map's centre selected
     "c-osm": ("c", "#osm", None),
     "c-result": ("c", "#run={run}", None),
@@ -370,6 +380,9 @@ PAGES = {
     "c-layer-study": ("c", "#layer&country=sk-part", None),  # the study area, alone
     "c-layer-end": ("c", "#layer", "scroll:.c-mappage-3"),  # phones: the histograms at the end of the column
     "c-layer-collapsed": ("c", "#layer", None),   # the left panel collapsed to its rail (LAYER_LAYOUTS)
+    # a bar of the clearance chart pressed: its chart ringed (a desktop), enlarged in its strip with its counts (phones)
+    "c-layer-chart": ("c", "#layer", [".c-layer-hist[data-hist=clearance] button.c-layer-bar:nth-of-type(2)",
+                                      "wait:document.querySelector('.c-layer-hist-open')", "js:" + CHART_SHOWN]),
     # two filters of the fold "More filters" set: the closed fold names them as chips; opened
     "c-layer-chips": ("c", "#layer&drop=60&elevation_low=1000", "js:" + FOLD_SHOWN),
     "c-layer-fold": ("c", "#layer&drop=60&elevation_low=1000", [".c-layer-more > summary", "js:" + FOLD_SHOWN]),
@@ -415,6 +428,9 @@ PAGES = {
     "page-signin": ("/", "", None, "visitor"),
     "page-privacy": ("/privacy", "", None),
     "page-about": ("/about", "", None),
+    # their ends (the footer): the page scrolls as a document
+    "page-privacy-end": ("/privacy", "", "js:" + PAGE_END),
+    "page-about-end": ("/about", "", "js:" + PAGE_END),
     # the coverage map (viewer/src/coverage/page): a visitor, its three views, a card, the table, Polish
     "page-coverage": ("/coverage?lang=en", "", None, "visitor"),
     "page-coverage-full": ("/coverage?lang=en", "", "full", "visitor"),
@@ -429,6 +445,8 @@ PAGES = {
     "page-coverage-life": ("/coverage?lang=en", "", [".cov-scale button:nth-child(2)",
                                                      "js:" + COVERAGE_CLICK.format(key="us-ak")], "visitor"),
     "page-coverage-pl": ("/coverage?lang=pl", "", ["js:" + COVERAGE_CLICK.format(key="cz"), "full"], "visitor"),
+    # the list of the areas at the top of the screen (a phone: one row per area; a desktop: the table), the stars' scale
+    "page-coverage-list": ("/coverage?lang=en", "", [".cov-scale button:nth-child(3)", "js:" + COVERAGE_LIST_SHOWN], "visitor"),
     # the 3D view of the first line at the device's level (a coarse pointer: the phone's), then at the other one;
     # its imagery Esri's with ESRI_API_KEY set (the clip's run has no orthophoto), else the terrain shaded
     "view3d": ("/view3d", VIEW3D, VIEW3D_READY),
@@ -452,6 +470,8 @@ PAGES = {
     "view3d-point": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, CARD_FOLDED, TOOL("point"), "js:" + POINT_CLICK,
                                                     POINT_SHOWN]),
     "view3d-others": ("/view3d", VIEW3D + "&also={also}", [VIEW3D_READY, CARD_FOLDED, OTHERS_SHOWN]),
+    # a phone held sideways (844 x 390, touch: the bar's controls in one row, docs/DESIGN.md row 37; phones only)
+    "view3d-sideways": ("/view3d", VIEW3D, [VIEW3D_READY, CARD_FOLDED, "sideways:844x390", VIEW3D_READY]),
 }
 
 # The layout of C's result kept in localStorage ("findaline.layout", result/view/layout.ts) for a page; every other
@@ -674,7 +694,7 @@ LOWEST = """(sel) => {
 # The highline layer's side panels kept in localStorage ("findaline.layer.layout", result/view/layout.ts) for a page;
 # every other page starts from none (the defaults)
 LAYER_LAYOUTS = {
-    "c-layer-collapsed": {"v": 1, "left": {"w": 400, "open": False}, "right": {"w": 620, "open": True}},
+    "c-layer-collapsed": {"v": 2, "left": {"w": 340, "open": False}, "right": {"w": 485, "open": True}},
 }
 
 INTROS = ("search", "result")  # the intros of ui/Intro.tsx (localStorage "findaline.intro.<name>")
@@ -1373,6 +1393,14 @@ def run_step(page, step: str, label: str, state: Pass, row: dict, watch: Watch |
         if watch is not None:
             watch.after_wait(step)
         return None if came else "timeout"
+    if step.startswith("sideways:"):  # a phone held sideways: a touch screen's viewport turned, the page loaded again
+        if not page.evaluate("matchMedia('(pointer: coarse)').matches"):
+            row["reason"] = "the device has no touch screen"
+            return "missing"
+        width, height = (int(v) for v in step[9:].split("x"))
+        page.set_viewport_size({"width": width, "height": height})
+        page.reload()
+        return None
     if step.startswith("need:"):  # what the page shows, absent in this run: no page
         ready = wait_until(page, NEED_READY, state, label, row)  # the result drawn, then the expression once
         if not page.evaluate(f"!!({step[5:]})"):

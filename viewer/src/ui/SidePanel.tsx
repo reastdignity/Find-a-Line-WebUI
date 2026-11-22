@@ -7,6 +7,7 @@
 
 import type { ComponentChildren, RefObject } from "preact";
 import { useEffect, useLayoutEffect, useState } from "preact/hooks";
+import { t } from "../i18n";
 import { Splitter } from "./components";
 import { Icon, type IconName } from "./icons";
 import type { Column, PanelSide } from "../result/view/layout";
@@ -34,7 +35,9 @@ export function useWidthOf(ref: RefObject<HTMLElement | null>): number {
 export interface SidePanelProps {
   /** Which side of the map: the left panel's edge grows to the right, the right one's to the left. */
   side: PanelSide;
-  /** The panel's name in its controls' labels: "Width of the <name>", "Collapse the <name>", "Expand the <name>". */
+  /** The panel's name in its controls' labels: "Width of the <name>", "Collapse the <name>", and the rail's title
+   *  "Expand the <name>" (the rail's accessible name begins with its visible label: "<label>. Expand the <name>");
+   *  the words ui.panel.*. */
   name: string;
   /** The panel's accessible name. */
   label: string;
@@ -64,18 +67,19 @@ export function SidePanel({side, name, label, column, min, max, railWidth, onWid
                 style={style} aria-label={label}>
     {children}
     {column.open ? <>
-      <Splitter orientation="vertical" class="c-split" label={`Width of the ${name}`} grow={left ? 1 : -1}
+      <Splitter orientation="vertical" class="c-split" label={t("ui.panel.width", {name})} grow={left ? 1 : -1}
                 value={column.width} min={min} max={max} onChange={onWidth} onCommit={onCommit} onReset={onReset}
                 onToggle={() => onOpen(false)} />
-      <button type="button" class="u-split-tab c-col-tab" aria-label={`Collapse the ${name}`}
-              title={`Collapse the ${name}`} onClick={() => onOpen(false)}>
+      <button type="button" class="u-split-tab c-col-tab" aria-label={t("ui.panel.collapse", {name})}
+              title={t("ui.panel.collapse", {name})} onClick={() => onOpen(false)}>
         <Icon name={left ? "back" : "next"} /></button>
-    </> : <button type="button" class="c-rail" aria-label={`Expand the ${name}`} title={`Expand the ${name}`}
+    </> : <button type="button" class="c-rail" aria-label={`${rail.text}${column.forced ? `, ${t("ui.panel.auto")}` : ""}. ${t("ui.panel.expand", {name})}`}
+                  title={t("ui.panel.expand", {name})}
                   onClick={() => onOpen(true)}>
       <Icon name={rail.icon} />
       <span class="c-rail-text">{rail.text}</span>
       <span class="u-split-tab c-rail-tab" aria-hidden="true"><Icon name={left ? "next" : "back"} /></span>
-      {column.forced && <span class="c-rail-auto">auto</span>}
+      {column.forced && <span class="c-rail-auto">{t("ui.panel.auto")}</span>}
     </button>}
   </aside>;
 }

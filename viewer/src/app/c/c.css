@@ -3,13 +3,16 @@
    The header, Home, the cards, Favourites, the account and the search page's frame are in the pilot's look since
    step 3c (2026-11-19; docs/DESIGN.md "The pilot's look"): the header and the forms' columns on the ground (--bg),
    thin rules (--rule) between parts, sizes from the scales (--fs-*, --r-*; spacing on the 4 px grid), controls 24 px
-   or more on a desktop and 44 px on a touch screen (R2). The highline layer: not yet; the admin page took only the
+   or more on a desktop and 44 px on a touch screen (R2). The highline layer too (its block below); the admin page took only the
    kit's sections and sizes. */
 
 .ui.c-app { flex-direction: column; }
 .ui .c-main { flex: 1; min-height: 0; position: relative; overflow-y: auto; }
 .ui .c-main-new, .ui .c-main-run, .ui .c-main-osm, .ui .c-main-layer { display: flex; overflow: hidden; }
-.ui.c-has-nav .c-main { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+/* the phones' bottom bar lies over the scrolling page: its last row can be scrolled clear of it, and what is scrolled
+   into view (a focused control, a card's panel) stops above it */
+.ui.c-has-nav .c-main { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  scroll-padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
 .ui .c-error { color: var(--bad); font-weight: 500; margin: 0; }
 .ui .c-app-error { padding: 8px 20px; background: var(--bad-soft); }
 .ui .c-no-worker { background: var(--bad-soft); padding: 12px 16px; border-radius: var(--r-2); font-weight: 400; }
@@ -102,10 +105,9 @@
 .ui .c-card-name { font-weight: 600; font-size: var(--fs-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .c-card-meta { overflow-wrap: anywhere; }
 .ui .c-card-panel { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--r-2); background: var(--surface-2); }
-/* a card's panel (Share, Delete…, Remove…) under its body; scrolled into view with room to spare, and above the
-   phones' bottom bar, which lies over the scrolling page */
+/* a card's panel (Share, Delete…, Remove…) under its body; scrolled into view with room to spare (above the phones'
+   bottom bar: the page's scroll-padding-bottom) */
 .ui .c-card > .c-card-panel { margin: 0 16px 16px; scroll-margin: 12px; }
-.ui.c-has-nav .c-card > .c-card-panel { scroll-margin-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 12px); }
 .ui .c-confirm { background: var(--bad-soft); }
 
 /* Mini maps */
@@ -159,6 +161,7 @@
   background: none; color: var(--ink); text-align: left; cursor: pointer; border-radius: var(--r-2); }
 .ui .c-tree-name:hover { background: var(--hover); }
 .ui .c-tree-name:focus-visible { box-shadow: var(--focus-in); }  /* inside: the tree's scroll box clips a ring outside */
+@media (forced-colors: active) { .ui .c-tree-name:focus-visible { outline-offset: -2px; } }
 @media (pointer: coarse) { .ui .c-tree-fold { width: 44px; height: 44px; } .ui .c-tree-name { min-height: 44px; } }
 .ui .c-tree-name span.u-grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .c-crumbs { font-size: var(--fs-2); color: var(--muted); overflow-wrap: anywhere; }
@@ -185,6 +188,11 @@
 .ui .c-newsearch { flex: 1; min-width: 0; display: grid; grid-template: "top top" auto "form map" minmax(0, 1fr) "bar bar" auto / 460px minmax(0, 1fr); }
 .ui .c-newsearch .c-subtop { grid-area: top; }
 .ui .c-newsearch .c-form { grid-area: form; overflow-y: auto; padding: 24px; border-right: 1px solid var(--rule); }
+/* WebKit scrolls a focused text field in only to about 12 px above its foot (12-16 px of the field and its ring stayed
+   under the column's foot): 24 px of room there while a field that takes text has the focus, so no other scroll in the
+   column moves (docs/DESIGN.md row 81) */
+.ui .c-newsearch .c-form:has(:is(input:not([type=checkbox], [type=radio], [type=range]), textarea, select):focus) {
+  scroll-padding-bottom: 24px; }
 .ui .c-newsearch .c-newmap { grid-area: map; }
 .ui .c-newsearch .c-bar { grid-area: bar; position: relative; z-index: 10; }
 
@@ -198,9 +206,32 @@
 .ui .c-admin-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
 .ui .c-admin-head b { overflow-wrap: anywhere; }
 .ui .c-admin-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 4px; }
-.ui .c-admin-workers { margin: 10px 0 0; padding-left: 18px; }
+.ui .c-admin-workers { margin: 12px 0 0; padding-left: 16px; }
 .ui .c-admin-limits { margin: 8px 0 0; color: var(--ink-2); }
-.ui .c-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+/* a checkbox with its words ("Without limits", "Demo"): the whole row is its target (a press on the words ticks the
+   box), 24 px, 44 px on a touch screen (R2); a tools' row that no longer fits wraps. On a touch screen the checkbox,
+   last in its row, takes a line of its own under the buttons (the user's "Both", 2026-11-19), the line's whole width,
+   its target reaching up to the buttons over the row's 8 px gap (the words stay where they were): a finger's tap
+   beside it lands on it, never on "Approve", "Block…" or "Open", to which the browser's touch adjustment took a tap
+   in a gap (measured: 6 px above the words with the gap left open, every row on the iPhone) */
+.ui .c-check { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; font-size: var(--fs-2); color: var(--ink-2);
+  cursor: pointer; }
+@media (pointer: coarse) {
+  .ui .c-check { min-height: 44px; }
+  .ui .c-admin-tools > .c-check { flex-basis: 100%; min-height: 52px; margin-top: -8px; padding-top: 8px; }
+}
+/* a question in place of a row's tools (AdminC.tsx Question: "Block them" / "Unblock them" / "Delete it" and "Keep"):
+   the two buttons alone in the row, 12 px apart, over a pad that takes a press and does nothing, between them, 16 px
+   beside and under them and 8 px above: a finger's tap beside "Block them" lands on the pad, never on the button by the browsers' touch
+   adjustment (it takes the nearest thing that answers a press) */
+.ui .c-ask { position: relative; display: inline-flex; align-items: center; gap: 12px; }
+.ui .c-ask-pad { position: absolute; inset: -8px -16px -16px; }  /* 8 px above: not over the line before (a report's
+   run link, when no browser line stands between); taps 9 to 12 px above land on that line or on the pad, measured */
+.ui .c-ask > .u-btn { position: relative; }
+/* the page's badges (a user's state, "without limits", a report's kind, "demo") start with a capital, as the status
+   chips (.u-st-word): the words come in lower case from the server and the code; ::first-letter needs a block, which
+   a badge is as a flex item of .c-admin-head */
+.ui .c-admin .u-badge::first-letter { text-transform: uppercase; }
 .ui .c-user-pending { background: var(--warn); }
 .ui .c-user-blocked { background: var(--bad); }
 .ui .c-user-approved { background: var(--ok); }
@@ -213,43 +244,68 @@
    side panels of ui/SidePanel.tsx (sidepanel.css: their widths, edges and rails), each one's content in a scroll box;
    the right one's a container (layer-right) for the charts' grid (LayerHistograms) */
 .ui .c-mappage-3 { min-height: 0; }
-.ui .c-mappage-3 > .c-newmap { flex: 1; min-width: 0; min-height: 0; }
-.ui .c-col-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
-.ui .c-col-right > .c-col-scroll { padding: 16px; container: layer-right / inline-size; }
+/* position: relative here, in every layout: Leaflet writes it inline on a map it finds static (Map.js
+   _initLayout), and that inline value would then outrank the phone's sticky map after a turn or a resize */
+.ui .c-mappage-3 > .c-newmap { flex: 1; min-width: 0; min-height: 0; position: relative; }
+.ui .c-col-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+/* the scrollbar's room is kept on both panels, so a chart's width does not jump when the column starts to scroll */
+.ui .c-col-right > .c-col-scroll { container: layer-right / inline-size; scrollbar-gutter: stable; }
+/* The layer's side panels in the pilot's look (as the result view's own rules in view.css; ui/sidepanel.css serves
+   today's result page too and stays): on the ground, the rail's label in sentence case in the text's font, the
+   collapse tab 24 px wide with 8 px corners (docs/DESIGN.md, choice 67) */
+.ui .c-mappage-3 .c-col-side, .ui .c-mappage-3 .c-rail { background: var(--bg); }
+.ui .c-mappage-3 .c-rail:hover { background: var(--hover); }
+.ui .c-mappage-3 .c-rail-text, .ui .c-mappage-3 .c-rail-auto { font: 500 var(--fs-1) var(--font); letter-spacing: 0; text-transform: none; }
+.ui .c-mappage-3 .u-split-tab { width: 24px; border-radius: var(--r-2); border-color: var(--rule); background: var(--surface); box-shadow: var(--shadow); }
+/* the tab's own shadow and the keyboard's ring together (the kit's tab rule replaces the ring: ui.css) */
+.ui .c-mappage-3 .u-split-tab:focus-visible { box-shadow: var(--shadow), var(--focus); }
+/* a touch tablet keeps the desktop's columns: an invisible 44 px target on the 24 px wide tab (R2; docs/DESIGN.md row
+   83; the insets count from inside its 1 px edge) */
+@media (pointer: coarse) {
+  .ui .c-mappage-3 .c-col-tab::after { content: ""; position: absolute; inset: -1px; }
+  /* it grows towards the map only (over the splitter's strip), never over the panel's own controls */
+  .ui .c-mappage-3 .c-col-left > .c-col-tab::after { right: -21px; }
+  .ui .c-mappage-3 .c-col-right > .c-col-tab::after { left: -21px; }
+}
+.ui .c-mappage-3 .c-col-left > .c-col-tab { right: -12px; }
+.ui .c-mappage-3 .c-col-right > .c-col-tab { left: -12px; }
 
 /* The highline layer (LayerPage.tsx): the panel's filters (today's seven, the others in the fold "More filters"), the
    legend of the density classes (the tokens --layer-1 … --layer-5 of ui/tokens.css, as the cells on the map; the
-   hatched swatch of the partner cells), the view with the border switch, the selected cell and the notes */
-.ui .c-layer { display: flex; flex-direction: column; gap: 14px; }
-.ui .c-layer-head { display: flex; flex-direction: column; gap: 2px; }
-.ui .c-layer-name { font-size: 16px; }
-.ui .c-layer-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; align-items: end; }
+   hatched swatch of the partner cells), the view with the border switch, the selected cell and the notes.
+   The pilot's look (docs/DESIGN.md, choices 67 to 77): the panel's parts on the ground, parted by thin rules (no box
+   around the legend, the cell or one sentence), "More filters" a fold between two rules, names in sentence case,
+   no text under 12 px, sizes and radii from the scales' tokens, spacing on the 4 px grid */
+.ui .c-layer { display: flex; flex-direction: column; gap: 16px; }
+.ui .c-layer-head { display: flex; flex-direction: column; gap: 4px; }
+.ui .c-layer-name { font-size: var(--fs-4); }
+.ui .c-layer-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: end; }
 .ui .c-layer-filters > .u-field:first-child, .ui .c-layer-filters > .c-layer-note { grid-column: 1 / -1; }
 .ui .c-layer-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ui .c-layer-note { margin: 0; }
-.ui .c-layer-more { border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); }
-.ui .c-layer-more > summary { list-style: none; display: flex; align-items: center; gap: 8px; min-height: var(--touch); padding: 0 12px;
-  cursor: pointer; font-weight: 500; border-radius: 10px; }
+.ui .c-layer-more { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.ui .c-layer-more > summary { list-style: none; display: flex; align-items: center; gap: 8px; min-height: var(--touch); padding: 4px 0;
+  cursor: pointer; font-weight: 500; border-radius: var(--r-1); }
 .ui .c-layer-more > summary::-webkit-details-marker { display: none; }
 .ui .c-layer-more > summary .u-ic { margin-left: auto; transition: transform .15s; color: var(--ink-2); }
 .ui .c-layer-more[open] > summary .u-ic { transform: rotate(180deg); }
-.ui .c-layer-more-set { font-size: 12px; font-weight: 500; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 8px; }
-.ui .c-layer-more-body { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+.ui .c-layer-more-set { font-size: var(--fs-1); font-weight: 500; color: var(--accent-ink); background: var(--accent-soft); border-radius: var(--r-full); padding: 4px 8px; }
+.ui .c-layer-more-body { padding: 4px 0 16px; display: flex; flex-direction: column; gap: 12px; }
 .ui .c-layer-fold-topic { display: flex; flex-direction: column; gap: 8px; }
 .ui .c-layer-fold > .c-layer-wide { grid-column: 1 / -1; }
-.ui .c-layer-more-chips { margin-top: -6px; }
-.ui .c-layer-more-chips .u-chip { min-height: 28px; font-size: 12.5px; }
-/* a topic's name with a rule after it: the fold's and the charts' */
-.ui .c-layer-topic-name { font: 600 12.5px/1.2 var(--display); letter-spacing: .07em; text-transform: uppercase; color: var(--ink-2);
+.ui .c-layer-more-chips { margin-top: -4px; }
+/* a topic's name with a rule after it: the fold's and the charts' (a section head: the display font at 16 px) */
+.ui .c-layer-topic-name { font: 600 var(--fs-4)/1.2 var(--display); letter-spacing: .01em; color: var(--ink);
   margin: 4px 0 0; display: flex; align-items: center; gap: 8px; }
 .ui .c-layer-topic-name::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
-/* on --surface: the class colours were checked against it (the dataviz skill's validator) */
-.ui .c-layer-legend, .ui .c-layer-cell { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--rule);
-  border-radius: 10px; background: var(--surface); }
+/* the legend, the view, the selected cell and the notes: parts of the panel, each under a thin rule */
+.ui .c-layer-legend, .ui .c-layer-view, .ui .c-layer-cell, .ui .c-layer-notes { border-top: 1px solid var(--rule); padding-top: 16px; }
+.ui .c-layer-more + .c-layer-legend { border-top: 0; padding-top: 0; }
+.ui .c-layer-legend, .ui .c-layer-cell { display: flex; flex-direction: column; gap: 8px; }
 .ui .c-layer-legend p, .ui .c-layer-cell p { margin: 0; }
 .ui .c-layer-classes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
-.ui .c-layer-classes li { display: flex; flex-direction: column; gap: 3px; font-size: 11px; white-space: nowrap; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.ui .c-layer-swatch { display: block; height: 14px; border-radius: 3px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }
+.ui .c-layer-classes li { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-1); white-space: nowrap; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ui .c-layer-swatch { display: block; height: 14px; border-radius: var(--r-1); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }
 .ui .c-layer-k1 { background: var(--layer-1); }
 .ui .c-layer-k2 { background: var(--layer-2); }
 .ui .c-layer-k3 { background: var(--layer-3); }
@@ -258,63 +314,111 @@
 /* the partner cells' swatch: a class colour with the map's hatching (cellsLayer.ts hatchPattern) */
 .ui .c-layer-hatch { width: 30px; flex: none;
   background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ink) 55%, transparent) 0 1.3px, transparent 1.3px 5px), var(--layer-2); }
-.ui .c-layer-legend-extra { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-2); }
+.ui .c-layer-legend-extra { display: flex; align-items: center; gap: 8px; font-size: var(--fs-1); color: var(--ink-2); }
 .ui .c-layer-view { display: flex; flex-direction: column; gap: 8px; }
 .ui .c-layer-total { min-height: 20px; font-variant-numeric: tabular-nums; }
-.ui .c-layer-split { color: var(--ink-2); font-size: 12.5px; }
-.ui .c-layer-border-hint { margin: -2px 0 0; }
-.ui .c-layer-cell-border { font-size: 12.5px; color: var(--ink-2); }
-.ui .c-layer-search-hint { font-size: 12px; color: var(--ink-2); background: var(--surface-2); border-radius: 8px; padding: 7px 9px;
-  margin: 0; display: flex; gap: 7px; }
-.ui .c-layer-search-hint .u-ic { width: 15px; height: 15px; margin-top: 1px; color: var(--accent); flex: none; }
-.ui .c-layer-notes-sub { font-weight: 600; color: var(--ink-2); margin-top: 6px; list-style: none; margin-left: -18px; }
-.ui .c-layer-search { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
-.ui .c-layer-notes ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.ui .c-layer-split { color: var(--ink-2); font-size: var(--fs-2); }
+.ui .c-layer-border-hint { margin: -4px 0 0; }
+.ui .c-layer-cell-border { font-size: var(--fs-2); color: var(--ink-2); }
+/* the selected cell's hint: a plain line with the kit's icon (R8: no box around one sentence) */
+.ui .c-layer-search-hint { font-size: var(--fs-2); color: var(--ink-2); margin: 0; display: flex; gap: 8px; }
+.ui .c-layer-search-hint .u-ic { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.ui .c-layer-notes-sub { font-weight: 600; color: var(--ink-2); margin-top: 4px; list-style: none; margin-left: -16px; }
+.ui .c-layer-search { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.ui .c-layer-notes ul { margin: 8px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; }
 .ui .c-layer-warn { color: var(--warn); font-weight: 500; }
 .ui .c-layer-credits { margin: 0; overflow-wrap: anywhere; }
-.ui .c-layer-link { display: flex; align-items: center; gap: 10px; }
-.ui .c-layer-outline-label { background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--ink); border: 1px solid var(--rule);
-  border-radius: 6px; padding: 2px 6px; font-size: 12px; font-weight: 600; box-shadow: none; }
+.ui .c-layer-link { display: flex; align-items: center; gap: 12px; }
+/* a country's name over its outline: raised over the map (no edge) */
+.ui .c-layer-outline-label { background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--ink); border: 0;
+  border-radius: var(--r-1); padding: 0 4px; font-size: var(--fs-1); line-height: 20px; font-weight: 600; box-shadow: var(--shadow); }
 .ui .c-layer-outline-label::before { display: none; }
+/* a cell's tooltip on the layer's map: 12 px (Leaflet's own size came to 9.8 px) */
+.ui .c-mappage-3 .leaflet-tooltip { font-size: var(--fs-1); }
 /* The right panel (LayerHistograms.tsx): the totals in view, then the charts of every dimension by topic: on a desktop
-   two a row while the panel's content holds two of 220 px (a container query on its scroll box: the drag changes it
-   live), else one a row, the open filter's chart ringed; on phones a swiped strip per topic, that chart enlarged */
+   two a row while the panel's content holds two of 210 px (a container query on its scroll box: the drag changes it
+   live; the default panel of 485 px holds two with the scrollbar's room kept), the length chart across both, else one
+   a row, the open filter's chart ringed; on phones a swiped strip per topic, that chart enlarged.
+   A chart's numbers (the user's pick L3 b, 2026-11-19; choice 70): a chart is its own container, and with 32 px or more
+   of its width per bar (data-bars: the cube's bins) each bar shows its count and each tick its label at 12 px; a
+   narrower chart shows no counts (a bar's tooltip has it) and every other tick. One rule per count of bars. */
 .ui .c-layer-right { display: flex; flex-direction: column; gap: 16px; }
-.ui .c-layer-topic { display: flex; flex-direction: column; gap: 10px; }
+.ui .c-layer-topic { display: flex; flex-direction: column; gap: 12px; }
 .ui .c-layer-charts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 12px; align-items: start; }
-@container layer-right (min-width: 452px) { .ui .c-layer-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.ui .c-layer-hist-open { box-shadow: 0 0 0 2px var(--accent); padding: 6px; margin: -6px; border-radius: 8px; }
-.ui .c-layer-hist-name { display: block; max-width: 100%; border: 0; border-radius: 4px; padding: 0; background: none; font: inherit;
+@container layer-right (min-width: 432px) {
+  .ui .c-layer-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui .c-layer-hist[data-hist="length"] { grid-column: 1 / -1; }
+}
+.ui .c-layer-hist-open { box-shadow: 0 0 0 2px var(--accent); padding: 8px; margin: -8px; border-radius: var(--r-2); }
+.ui .c-layer-hist-name { display: block; max-width: 100%; border: 0; border-radius: var(--r-1); padding: 0; background: none; font: inherit;
   color: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; cursor: pointer; }
-.ui .c-layer-inview-more { font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; margin-top: 4px; }
+.ui .c-layer-inview-more { font-size: var(--fs-2); color: var(--ink-2); font-variant-numeric: tabular-nums; margin-top: 4px; }
 .ui .c-layer-inview-more b { color: var(--ink); }
-.ui .c-layer-hist-title { font: 600 13px/1.2 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 6px; }
+.ui .c-layer-hist-title { font: 600 var(--fs-2)/1.2 var(--font); color: var(--ink-2); margin: 0 0 8px; }
 .ui .c-layer-inview { display: flex; flex-direction: column; }
 .ui .c-layer-inview p { margin: 0; }
 .ui .c-layer-stat { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.ui .c-layer-stat-n { font: 600 30px/1 var(--display); font-variant-numeric: tabular-nums; }
-.ui .c-layer-stat-u { color: var(--muted); font-size: 12px; }
-.ui .c-layer-hist { display: flex; flex-direction: column; min-width: 0; }
-.ui .c-layer-hist p { margin: 6px 0 0; }
-.ui .c-layer-hist-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; align-items: end; height: 120px;
+.ui .c-layer-stat-n { font: 600 var(--fs-7)/1 var(--display); font-variant-numeric: tabular-nums; }
+.ui .c-layer-stat-u { color: var(--muted); font-size: var(--fs-1); }
+.ui .c-layer-hist { display: flex; flex-direction: column; min-width: 0; container: layer-hist / inline-size; }
+.ui .c-layer-hist p { margin: 8px 0 0; }
+.ui .c-layer-hist-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; align-items: end; height: 120px;  /* 2px: between a drawing's marks */
   border-bottom: 1px solid var(--rule); }
 .ui .c-layer-bar { display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; height: 100%; min-width: 0; min-height: 0;
   margin: 0; padding: 0 1px; border: 0; border-radius: 0; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
 .ui .c-layer-bar-off { cursor: default; }
-.ui .c-layer-bar-n { font-size: 9px; line-height: 1.2; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted);
+.ui .c-layer-bar-n { display: none; flex: none; font-size: var(--fs-1); line-height: 1.2; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted);
   overflow: hidden; white-space: nowrap; }
-.ui .c-layer-bar-fill { display: block; min-height: 1px; border-radius: 3px 3px 0 0; background: var(--layer-1);
+.ui .c-layer-bar-fill { display: block; min-height: 1px; border-radius: var(--r-1) var(--r-1) 0 0; background: var(--layer-1);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent); }
 .ui .c-layer-bar.u-on .c-layer-bar-fill { background: var(--layer-3); }
 .ui .c-layer-bar.u-on .c-layer-bar-n { color: var(--ink); }
 .ui .c-layer-bar:hover .c-layer-bar-fill { background: var(--layer-4); }
-.ui .c-layer-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
-.ui .c-layer-hist-axis { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); font-size: 10px; color: var(--muted);
-  text-align: center; font-variant-numeric: tabular-nums; margin-top: 3px; overflow: hidden; }
-.ui .c-layer-hist-axis span { overflow: hidden; white-space: nowrap; }
+/* the keyboard's ring: the kit's (--focus), above the bars beside it */
+.ui .c-layer-bar:focus-visible { position: relative; z-index: 1; border-radius: var(--r-1); }
+.ui .c-layer-bar { scroll-margin: 8px; }  /* the ring's 4 px stay inside the panel when the keyboard scrolls to a bar */
+/* a bar of a chart too narrow for its counts shows its own while it has the keyboard's focus: a raised label at the
+   chart's top, over the bars beside it (data-count; the bar keeps its height; the wide charts' rules take it away) */
+.ui .c-layer-bar:focus-visible::after { content: attr(data-count); position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  padding: 0 4px; border-radius: var(--r-1); background: var(--surface); color: var(--ink); box-shadow: var(--shadow);
+  font-size: var(--fs-1); line-height: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+.ui .c-layer-hist-axis { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); font-size: var(--fs-1); color: var(--muted);
+  text-align: center; font-variant-numeric: tabular-nums; margin-top: 4px; }
+.ui .c-layer-hist-axis span { display: flex; justify-content: center; white-space: nowrap; }
+.ui .c-layer-hist-axis span:nth-child(even) { visibility: hidden; }
 .ui .c-layer-hist-edges { display: flex; justify-content: space-between; }
 .ui .c-layer-hist-edges span { flex: 0 0 auto; }
+/* an at-most chart's last known tick, "over 2" (the user's answer of 2026-11-21): 33 px at 12 px, 0.03 em tighter
+   31 px, within the 32 px a bar has where every tick shows (measured on the desktop at 224 px, both phones) */
+.ui .c-layer-hist[data-kind="at_most"] .c-layer-hist-axis span:nth-last-child(2) { letter-spacing: -0.03em; }
+/* 32 px a bar: a chart of n bars shows its counts and every tick from 32 n px, and then no bar shows a count of
+   its own on focus (1 to 24 bars: a container query takes no variable, so one rule per count;
+   tests/test_layer_page_layout.py reads them; .claude/rules/country-layer.md) */
+@container layer-hist (min-width: 32px) { .ui .c-layer-hist[data-bars="1"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="1"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="1"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 64px) { .ui .c-layer-hist[data-bars="2"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="2"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="2"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 96px) { .ui .c-layer-hist[data-bars="3"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="3"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="3"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 128px) { .ui .c-layer-hist[data-bars="4"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="4"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="4"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 160px) { .ui .c-layer-hist[data-bars="5"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="5"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="5"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 192px) { .ui .c-layer-hist[data-bars="6"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="6"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="6"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 224px) { .ui .c-layer-hist[data-bars="7"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="7"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="7"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 256px) { .ui .c-layer-hist[data-bars="8"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="8"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="8"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 288px) { .ui .c-layer-hist[data-bars="9"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="9"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="9"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 320px) { .ui .c-layer-hist[data-bars="10"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="10"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="10"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 352px) { .ui .c-layer-hist[data-bars="11"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="11"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="11"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 384px) { .ui .c-layer-hist[data-bars="12"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="12"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="12"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 416px) { .ui .c-layer-hist[data-bars="13"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="13"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="13"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 448px) { .ui .c-layer-hist[data-bars="14"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="14"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="14"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 480px) { .ui .c-layer-hist[data-bars="15"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="15"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="15"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 512px) { .ui .c-layer-hist[data-bars="16"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="16"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="16"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 544px) { .ui .c-layer-hist[data-bars="17"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="17"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="17"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 576px) { .ui .c-layer-hist[data-bars="18"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="18"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="18"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 608px) { .ui .c-layer-hist[data-bars="19"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="19"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="19"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 640px) { .ui .c-layer-hist[data-bars="20"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="20"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="20"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 672px) { .ui .c-layer-hist[data-bars="21"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="21"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="21"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 704px) { .ui .c-layer-hist[data-bars="22"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="22"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="22"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 736px) { .ui .c-layer-hist[data-bars="23"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="23"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="23"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 768px) { .ui .c-layer-hist[data-bars="24"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="24"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="24"] .c-layer-bar::after { content: none; } }
 .ui .c-layer-waiting .c-layer-stat, .ui .c-layer-waiting .c-layer-hist-bars { opacity: .55; }
 
 /* Phones */
@@ -345,26 +449,34 @@
 /* phones: the map on top, then the panel, then the histograms, in one scrolling column (no edges, no rails) */
 .ui.c-narrow .c-mappage-3 { overflow-y: auto; }
 .ui.c-narrow .c-mappage-3 > .c-newmap { flex: none; }
+/* the map stays in view while the column scrolls under it, on a screen 600 px high or more (the user's pick L4 b,
+   2026-11-19; choice 72): held sideways it scrolls away, as the column would keep about 130 px. What is scrolled
+   into view stops under the map (scroll-padding: the map's 34vh and 8 px) */
+@media (min-height: 600px) {
+  .ui.c-narrow .c-mappage-3 { scroll-padding-top: calc(34vh + 8px); }
+  .ui.c-narrow .c-mappage-3 > .c-newmap { position: sticky; top: 0; z-index: 2; }
+}
 .ui.c-narrow .c-mappage-3 > .c-col-side { width: auto; flex: none; border: 0; }
-.ui.c-narrow .c-mappage-3 .c-col-scroll { flex: none; overflow: visible; padding: 16px; }
+.ui.c-narrow .c-mappage-3 .c-col-scroll { flex: none; overflow: visible; padding: 16px; scrollbar-gutter: auto; }
 .ui.c-narrow .c-mappage-3 > .c-col-right { border-top: 1px solid var(--rule); }
 .ui.c-narrow .c-mappage-3 .c-split, .ui.c-narrow .c-mappage-3 .c-col-tab { display: none; }
-/* the charts: a swiped strip of small multiples per topic, the open one enlarged in place and ringed */
-.ui.c-narrow .c-layer-charts { display: flex; align-items: flex-end; gap: 12px; overflow-x: auto; padding: 8px 16px 10px; margin: 0 -16px;
+/* the charts: a swiped strip of small multiples per topic, the open one enlarged in place and ringed (with its
+   counts: 32 px a bar or more at these widths); a chart's name a 44 px row */
+.ui.c-narrow .c-layer-charts { display: flex; align-items: flex-end; gap: 12px; overflow-x: auto; padding: 8px 16px 12px; margin: 0 -16px;
   scroll-snap-type: x proximity; scroll-padding-inline: 16px; }
 .ui.c-narrow .c-layer-hist { flex: none; width: 148px; scroll-snap-align: start; }
 .ui.c-narrow .c-layer-hist[data-hist="length"] { width: 236px; }
-.ui.c-narrow .c-layer-hist-open { width: 272px; box-shadow: none; padding: 0; margin: 0; outline: 2px solid var(--accent); outline-offset: 4px;
-  border-radius: 4px; }
-.ui.c-narrow .c-layer-hist-open[data-hist="length"] { width: 300px; }
+/* enlarged: 272 px (the length chart 300), or 32 px a bar where the cube has more bars (--bars, LayerHistograms.tsx),
+   up to the screen's width */
+.ui.c-narrow .c-layer-hist-open { width: min(calc(100vw - 32px), max(272px, calc(var(--bars) * 32px))); box-shadow: none; padding: 0; margin: 0; outline: 2px solid var(--accent); outline-offset: 4px;
+  border-radius: var(--r-1); }
+.ui.c-narrow .c-layer-hist-open[data-hist="length"] { width: min(calc(100vw - 32px), max(300px, calc(var(--bars) * 32px))); }
 .ui.c-narrow .c-layer-hist .c-layer-hist-bars { height: 64px; }
 .ui.c-narrow .c-layer-hist-open .c-layer-hist-bars { height: 108px; }
-.ui.c-narrow .c-layer-hist .c-layer-bar-n { font-size: 8px; }
-.ui.c-narrow .c-layer-hist-open .c-layer-bar-n { font-size: 9.5px; }
-.ui.c-narrow .c-layer-hist .c-layer-hist-axis { font-size: 9px; }
-.ui.c-narrow .c-layer-hist-open .c-layer-hist-axis { font-size: 10px; }
-.ui.c-narrow .c-layer-hist .c-layer-hist-title { font-size: 11.5px; margin-bottom: 4px; }
-.ui.c-narrow .c-layer-hist-open .c-layer-hist-title { font-size: 13px; color: var(--ink); }
+.ui.c-narrow .c-layer-hist .c-layer-hist-title { font-size: var(--fs-1); margin-bottom: 0; }
+.ui.c-narrow .c-layer-hist-open .c-layer-hist-title { font-size: var(--fs-2); color: var(--ink); }
+/* the title's word ("(at least)": the bare ticks' meaning) wraps to a second line inside the 44 px target, never cut */
+.ui.c-narrow .c-layer-hist-name { width: 100%; height: 44px; line-height: 1.2; white-space: normal; display: flex; align-items: center; }
 
 /* Problem reports on the admin page */
 .ui .c-report-text { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -379,7 +491,7 @@
 .ui .c-searched-readout { font-size: var(--fs-2); color: var(--ink-2); font-variant-numeric: tabular-nums; min-height: 1.4em; }
 .ui .c-searched-bars { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 88px; padding-top: 16px;
   border-bottom: 1px solid var(--rule); touch-action: pan-y; cursor: default; border-radius: 2px; }
-.ui .c-searched-bars:focus-visible { outline: none; box-shadow: var(--focus); }
+.ui .c-searched-bars:focus-visible { box-shadow: var(--focus); }
 /* A recessive line at the top of the scale (the largest day), its value above it */
 .ui .c-searched-bars::before { content: ""; position: absolute; left: 0; right: 0; top: 16px; border-top: 1px dashed var(--rule); }
 .ui .c-searched-top { position: absolute; top: 0; left: 0; font-size: var(--fs-1); line-height: 1; font-variant-numeric: tabular-nums; }

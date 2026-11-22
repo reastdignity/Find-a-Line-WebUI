@@ -4,12 +4,12 @@
 // and, in "Clearance model", the rigging saved as a rig. Where (Point · Area · Along cliffs · File) is one block
 // shown in either tab. The bar with the size word, the receipt and the start is a bar of its own (EstimateBar),
 // which the page places under the panel (NewSearch's bottom bar). UsageMeters shows the user's quotas;
-// SearchIntro, "How a search works", opens once. Styles in search.css (s-*), under the kit's .ui root.
+// SearchIntro, "How a search works", opens from its link. Styles in search.css (s-*), under the kit's .ui root.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Field as SchemaField, Usage, UsageItem } from "../app/api";
 import { parseValue, withValue } from "../app/request";
-import { errorText, label, t } from "../i18n";
+import { errorText, label, parts as textParts, t } from "../i18n";
 import { Button, Field, Hint, Progress, Range, RangePair, Segmented, TOUCH, useMedia, type Option } from "../ui/components";
 import { Icon } from "../ui/icons";
 import { IntroLink, useIntro } from "../ui/Intro";
@@ -23,11 +23,12 @@ import "./search.css";
 
 const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(" ");
 
-const MODES: Option<SearchMode>[] = [
-  {value: "point", label: "Point", icon: "pin"}, {value: "area", label: "Area", icon: "poly"},
-  {value: "cliffs", label: "Along cliffs", icon: "cliff"}, {value: "file", label: "File", icon: "file"},
+/** The modes of Where; on a phone "Along cliffs" is "Cliffs". */
+const modes = (phone?: boolean): Option<SearchMode>[] => [
+  {value: "point", label: t("ui.search.mode_point"), icon: "pin"}, {value: "area", label: t("ui.search.mode_area"), icon: "poly"},
+  {value: "cliffs", label: t(phone ? "ui.search.mode_cliffs_short" : "intro.search.mode_cliffs"), icon: "cliff"},
+  {value: "file", label: t("ui.search.mode_file"), icon: "file"},
 ];
-const PHONE_MODES: Option<SearchMode>[] = MODES.map((m) => m.value === "cliffs" ? {...m, label: "Cliffs"} : m);
 
 let ids = 0;
 const useId = (prefix: string) => useState(() => `${prefix}-${++ids}`)[0];
@@ -81,13 +82,13 @@ function Where({s, phone}: {s: SearchState; phone?: boolean}) {
     where.current?.querySelector<HTMLElement>(touch ? "[role=radio][aria-checked=true]" : "input, button")?.focus();
   };
   const areas = s.shapes > 0 && <p class="s-hint s-areas">
-    {s.areas === 1 ? "1 area" : `${s.areas} separate areas`}
-    {s.shapes !== s.areas && ` (${s.shapes} shapes; those that overlap or touch are one area)`}</p>;
+    {t("ui.search.areas", {count: s.areas})}
+    {s.shapes !== s.areas && ` ${t("ui.search.shapes", {count: s.shapes})}`}</p>;
   return <div class="s-where" ref={where}>
     {s.mode !== "file" && <PlaceBox place={s.place} />}
-    <Segmented label="Where" options={phone ? PHONE_MODES : MODES} value={s.mode} onChange={s.setMode} />
+    <Segmented label={t("basic.where")} options={modes(phone)} value={s.mode} onChange={s.setMode} />
     {s.mode === "point" && <>
-      <p class="s-hint s-point">{s.point ? <><Icon name="pin" />Centre {s.point[0].toFixed(5)}, {s.point[1].toFixed(5)}
+      <p class="s-hint s-point">{s.point ? <><Icon name="pin" />{textParts("ui.search.centre", {lat: s.point[0].toFixed(5), lon: s.point[1].toFixed(5)})}
         {"; "}{touch ? t("ui.search.point_move_touch") : t("ui.search.point_move")}</>
         : touch ? t("ui.search.point_hint_touch") : t("ui.search.point_hint")}</p>
       {radiusField && <Field label={label("radius")} value={`${s.radius} m`} htmlFor={id} hint={hintOf(radiusField)}>
@@ -96,34 +97,33 @@ function Where({s, phone}: {s: SearchState; phone?: boolean}) {
       </Field>}
     </>}
     {s.mode === "area" && <>
-      <Segmented label="Area" value={s.areaKind} onChange={s.setAreaKind}
-                 options={[{value: "draw", label: "Draw on the map"}, {value: "osm", label: "Named OSM area"}]} />
+      <Segmented label={t("ui.search.mode_area")} value={s.areaKind} onChange={s.setAreaKind}
+                 options={[{value: "draw", label: t("ui.search.area_draw")}, {value: "osm", label: t("ui.search.area_osm")}]} />
       {s.areaKind === "draw" ? <>
-        <p class="s-hint">Draw polygons or rectangles with the tools on the map; drag their corners to change them.
-          Both anchors of a line lie inside, the webbing may leave the area.</p>
+        <p class="s-hint">{t("ui.search.draw_hint")}</p>
         {areas}
         <BufferField s={s} />
       </> : <Field label={t("hint.area_name.label")} htmlFor={id} hint={t("hint.area_name.help")}>
-        <input id={id} class="u-input" type="text" value={s.osmName} placeholder="e.g. Gozo"
+        <input id={id} class="u-input" type="text" value={s.osmName} placeholder={t("ui.search.osm_placeholder")}
                onInput={(e) => s.setOsmName(e.currentTarget.value)} />
       </Field>}
     </>}
     {s.mode === "cliffs" && <>
-      <Segmented label="Along" value={s.coastKind} onChange={s.setCoastKind}
-                 options={[{value: "cliffs", label: "Cliffs and crags"}, {value: "coast", label: "Coast"}]} />
+      <Segmented label={t("ui.search.along")} value={s.coastKind} onChange={s.setCoastKind}
+                 options={[{value: "cliffs", label: t("ui.search.cliffs")}, {value: "coast", label: t("intro.search.coast")}]} />
       <Field label={label("within")} htmlFor={id}
              hint={s.byName.within ? hintOf(s.byName.within) : t("field.within.help")}>
         <div class="s-within">
-          <input id={id} class="u-input" type="text" value={s.within} placeholder="OSM name or S,W,N,E"
+          <input id={id} class="u-input" type="text" value={s.within} placeholder={t("ui.search.within_placeholder")}
                  onInput={(e) => s.setWithin(e.currentTarget.value)} />
-          <Button onClick={() => s.setWithin(s.place.viewBox())}>Use the map view</Button>
+          <Button onClick={() => s.setWithin(s.place.viewBox())}>{t("ui.search.map_view")}</Button>
         </div>
       </Field>
       <BufferField s={s} />
     </>}
     {s.mode === "file" && <>
       <Field label={t("hint.area_file.label")} htmlFor={id} hint={t("hint.area_file.help")}
-             help={s.file && `${s.file.name}: ${s.file.areas.features.length} shapes`}>
+             help={s.file && t("ui.search.file_shapes", {file: s.file.name, n: s.file.areas.features.length})}>
         <input id={id} key={s.fileKey} class="s-file" type="file" accept=".geojson,.json,.kml,.gpx"
                onChange={(e) => s.readFile(e.currentTarget)} />
       </Field>
@@ -131,7 +131,7 @@ function Where({s, phone}: {s: SearchState; phone?: boolean}) {
       <BufferField s={s} />
     </>}
     {placed && <div class="s-row-end">
-      <Button kind="ghost" icon="close" onClick={clear}>Clear the place</Button>
+      <Button kind="ghost" icon="close" onClick={clear}>{t("ui.search.clear")}</Button>
     </div>}
   </div>;
 }
@@ -173,7 +173,7 @@ function KeyFields({s}: {s: SearchState}) {
     {byName.max_anchor_diff_m && <div data-field="max_anchor_diff_m"><Field
       label={<Dotted on={s.differs("max_anchor_diff_m")}>{label("max_anchor_diff_m")}</Dotted>}
       hintLabel={label("max_anchor_diff_m")} hint={hintOf(byName.max_anchor_diff_m)}
-      value={<>{`≤ ${diff} m`} <ResetButton s={s} names={["max_anchor_diff_m"]} /></>}>
+      value={<>{t("basic.diff_value", {diff})} <ResetButton s={s} names={["max_anchor_diff_m"]} /></>}>
       <Range label={label("max_anchor_diff_m")} value={diff} min={0} max={diffMax} step={1}
              onInput={(v) => s.setValue("max_anchor_diff_m", v)} />
     </Field></div>}
@@ -205,7 +205,7 @@ function ParamInput({field, value, onChange, id, invalid}:
   if (field.type === "choice") {
     return <select id={id} class="u-input" value={shown === null || shown === undefined ? "" : String(shown)}
                    onChange={(e) => onChange(e.currentTarget.value === "" ? null : e.currentTarget.value)}>
-      {field.optional && <option value="">(default)</option>}
+      {field.optional && <option value="">{t("ui.search.default_option")}</option>}
       {field.choices!.map((c) => <option value={c}>{field.choice_labels?.[c] ?? c}</option>)}
     </select>;
   }
@@ -218,9 +218,10 @@ function ParamInput({field, value, onChange, id, invalid}:
   const input = field.type === "number" || field.type === "integer"
     ? <input id={id} key={`${field.name}:${text}`} class={cx("u-input", invalid && "s-invalid")} type="number"
              step={field.type === "integer" ? 1 : "any"} defaultValue={text} min={field.min ?? undefined}
-             max={field.max ?? undefined} placeholder={field.optional ? "default" : ""} onChange={changed}
+             max={field.max ?? undefined} placeholder={field.optional ? t("ui.search.default_placeholder") : ""} onChange={changed}
              aria-invalid={invalid || undefined} aria-describedby={unitId} />
-    : <input id={id} class="u-input" type="text" value={text} placeholder={field.optional ? "default" : ""} onInput={changed}
+    : <input id={id} class="u-input" type="text" value={text} placeholder={field.optional ? t("ui.search.default_placeholder") : ""}
+             onInput={changed}
              aria-describedby={unitId} />;
   if (!unit) return input;
   // The unit at the right end of the box (not in the label); the text stays clear of it (--s-unit: its width)
@@ -320,7 +321,7 @@ function MoreSettings({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
   useLayoutEffect(() => { if (asked()) setOpen(true); }, [s.focus?.n]);
   return <div class="s-more" data-field="more">
     <button type="button" class="s-more-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-      <Icon name="filter" /><span class="u-grow">More settings: height, anchors, data, rigging model, output</span>
+      <Icon name="filter" /><span class="u-grow">{t("ui.search.more")}</span>
       {changed > 0 && <span class="u-badge">{t("basic.changed", {count: changed})}</span>}
       <span class="u-badge u-n">{fields.length}</span><Icon name={open ? "down" : "next"} />
     </button>
@@ -369,10 +370,10 @@ function AdvancedBottom({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) 
   }, [s.focus?.n]);
   return <>
     {nameField && <Field label={label("name")} htmlFor={nameId} hint={hintOf(nameField)}>
-      <input id={nameId} class="u-input" type="text" value={s.name} placeholder="from OpenStreetMap"
+      <input id={nameId} class="u-input" type="text" value={s.name} placeholder={t("ui.search.name_placeholder")}
              onInput={(e) => s.setName(e.currentTarget.value)} />
     </Field>}
-    <h2 class="u-h s-gap">Lines</h2>
+    <h2 class="u-h s-gap">{t("topic.lines")}</h2>
     <Field label={t("hint.presets.label")} hint={t("hint.presets.help")}><GoalCards s={s} /></Field>
     <KeyFields s={s} />
     <MoreSettings s={s} onRig={onRig} />
@@ -413,8 +414,8 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
   const problem = status === "incomplete" || status === "refused" ? message : "";
   const estimating = status === "waiting" || status === "loading";
   const line = problem ? ""
-    : status === "paused" ? `Estimate paused: ${message}.${s.estimate.retrying ? " Trying again in a moment." : ""}`
-    : status === "unavailable" ? `No estimate: ${message}`
+    : status === "paused" ? t("ui.search.paused", {message}) + (s.estimate.retrying ? ` ${t("ui.search.retrying")}` : "")
+    : status === "unavailable" ? t("ui.search.no_estimate", {message})
     : limit ? limit.text : "";
   const warnings = estimate ? [...estimate.reasons,
     ...estimate.messages.filter(([kind]) => kind === "warning")
@@ -439,10 +440,12 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
       {problem || parts.filter((p) => !p.wide).map((p) => p.text).join(" · ")}</p>}
     {s.error && <p class="s-problem s-bar-error" role="alert">{s.error}</p>}
     <SizeWord s={s} phone={phone} />
-    {s.km2 !== null && <div class="s-stat s-stat-area"><b>{fmt(s.km2)} km²</b>{!phone && <span>area</span>}</div>}
-    {estimate && <div class="s-stat s-stat-source"><b>{estimate.source}</b><span>{estimate.resolution} m grid</span></div>}
-    {estimating && <div class="s-stat s-stat-source s-estimating"><span>Estimating…</span></div>}
-    {estimate && estimate.tiles > 1 && <div class="s-stat s-stat-source"><b>{estimate.tiles}</b><span>tiles</span></div>}
+    {s.km2 !== null && <div class="s-stat s-stat-area"><b>{fmt(s.km2)} km²</b>{!phone && <span>{t("ui.search.stat_area")}</span>}</div>}
+    {estimate && <div class="s-stat s-stat-source"><b>{estimate.source}</b>
+      <span>{textParts("ui.search.stat_grid", {res: estimate.resolution})}</span></div>}
+    {estimating && <div class="s-stat s-stat-source s-estimating"><span>{t("ui.search.estimating")}</span></div>}
+    {estimate && estimate.tiles > 1 && <div class="s-stat s-stat-source"><b>{estimate.tiles}</b>
+      <span>{t("ui.search.stat_tiles")}</span></div>}
     <p class="s-receipt" aria-live={phone ? undefined : "polite"}>
       {problem ? <span class="s-problem">{problem}</span> : parts.map((p, i) =>
         <span key={p.field + i} class={cx(p.wide && "s-wide-only")}>{i > 0 && " · "}
@@ -461,20 +464,20 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
       {t("basic.receipt.change")}<Icon name="next" /></button>}
     {(line || warnings.length > 0) &&
       <p class={cx("s-bar-line", state === "warn" && "s-warn", quiet && "s-quiet")}>
-        {line}{warnings.length > 0 && `${line ? "; " : ""}${warnings.length} warning(s)`}
+        {line}{warnings.length > 0 && `${line ? "; " : ""}${t("ui.search.warnings", {count: warnings.length})}`}
         {(status === "paused" && !s.estimate.retrying || status === "unavailable") &&
-          <>{" "}<button type="button" class="s-link" onClick={s.estimate.retry}>Try again</button></>}</p>}
+          <>{" "}<button type="button" class="s-link" onClick={s.estimate.retry}>{t("ui.search.retry")}</button></>}</p>}
     <Button kind="primary" large disabled={!s.canStart} onClick={s.start} iconRight="next" class="s-start">
-      {s.busy ? "Starting…" : "Start search"}</Button>
+      {t(s.busy ? "ui.search.starting" : "ui.search.start")}</Button>
   </div>;
 }
 
 // ---- usage -----------------------------------------------------------------------------------
 
-const METERS: Record<keyof Usage["usage"], [string, (v: number) => string, string]> = {
-  mpx: ["Area today at 1 m", fmt, " km²"], km2: ["Area today", fmt, " km²"], runs_gb: ["Storage", fmt, " GB"], jobs_day: ["Searches today", String, ""],
-  jobs_active: ["Waiting or running", String, ""], download_mb: ["Downloads today", fmt, " MB"],
-  nominatim: ["Place lookups today", String, ""],
+/** Each meter's number format and unit; its title is ui.usage.<key>. */
+const METERS: Record<keyof Usage["usage"], [(v: number) => string, string]> = {
+  mpx: [fmt, " km²"], km2: [fmt, " km²"], runs_gb: [fmt, " GB"], jobs_day: [String, ""],
+  jobs_active: [String, ""], download_mb: [fmt, " MB"], nominatim: [String, ""],
 };
 
 /** The user's quotas as meters ("Area today at 1 m: 3.1 of 250 km²"); without quotas, what is used
@@ -483,17 +486,17 @@ export function UsageMeters({usage, items = ["mpx", "km2", "runs_gb", "jobs_day"
                             {usage: Usage | null; items?: (keyof Usage["usage"])[]}) {
   if (!usage) return null;
   const meter = (key: keyof Usage["usage"], item: UsageItem) => {
-    const [title, show, unit] = METERS[key];
+    const [show, unit] = METERS[key], title = t(`ui.usage.${key}`);
     if (!item || item.used === null) return null;
-    const text = item.limit === null ? `${title}: ${show(item.used)}${unit}`
-      : `${title}: ${show(item.used)} of ${show(item.limit)}${unit}`;
+    const text = item.limit === null ? t("ui.usage.used", {title, used: show(item.used), unit})
+      : t("ui.usage.of", {title, used: show(item.used), limit: show(item.limit), unit});
     return <div class="s-meter" key={key} data-usage={key}>
       {item.limit === null ? <span>{text}</span> : <Progress value={item.limit ? item.used / item.limit : 1} label={text} />}
     </div>;
   };
   return <div class="s-meters">
     {items.map((key) => meter(key, usage.usage[key]))}
-    {!usage.limited && <span class="u-small s-nolimits">No daily limits</span>}
+    {!usage.limited && <span class="u-small s-nolimits">{t("ui.usage.none")}</span>}
   </div>;
 }
 
@@ -510,7 +513,7 @@ const TABS = ["basic", "advanced"] as const;
 
 /** The panel of the state `search`. */
 export function SearchPanel({search: s, usage, phone}: SearchPanelProps) {
-  const intro = useIntro("search");
+  const intro = useIntro("search", false);  // from its link only (the user's answer of 2026-11-21: Q-F1 b)
   const [ask, setAsk] = useState<ReturnAsk | null>(null);
   const [rig, setRig] = useState<RigAsk | null>(null);
   const tabs = useRef<HTMLDivElement>(null);

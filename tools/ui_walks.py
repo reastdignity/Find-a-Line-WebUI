@@ -261,10 +261,8 @@ WALKS = {
             wait(DIALOG), screen("the beta notice"),
             tap("role=button[name='Understood']", NO_DIALOG, "Home"),
             screen("Home"),
-            tap("role=link[name='New search']", DIALOG, "the search, and over it its intro"),
-            screen("How a search works"),
-            tap("role=button[name='Got it']", f"{NO_DIALOG} && {FORM}",
-                "the search: the map, the form under it"),
+            # the search's intro opens from its link "How a search works" only (the user's answer of 2026-11-21)
+            tap("role=link[name='New search']", f"{NO_DIALOG} && {FORM}", "the search: the map, the form under it"),
             screen("New search"),
             note("the place: a tap on the map where the clip lies (the map opens near it); finding one's own place "
                  "(panning, zooming or Go to a place) is not counted"),
@@ -315,7 +313,7 @@ WALKS = {
             type_("role=textbox[name=\"New folder's name\"]", "Tatras"),
             key("Enter", "!!document.querySelector('.r-details .r-fav.r-on')", "the line is a favourite, in Tatras"),
             tap(".r-head >> role=button[name='Length']",
-                "/^Length/.test(document.querySelector('.r-head button[aria-sort]')?.textContent || '')",
+                "/^Length/.test(document.querySelector('.r-head button.r-on')?.textContent || '')",
                 "the list sorted by length"),
             tap("role=button[name='Share']", POPOVER, "Share's popover"),
             screen("Share"),

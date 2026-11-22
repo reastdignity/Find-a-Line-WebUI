@@ -8,6 +8,8 @@ paths:
   - "tests/test_layout.py"
   - "tests/test_country_web.py"
   - "tests/test_coverage_page.py"
+  - "tests/test_coverage_page_layout.py"
+  - "tests/test_layer_page_layout.py"
   - "tests/test_test_lock_page.py"
   - "tests/test_thumb_store.py"
   - "tests/test_disk_notice.py"

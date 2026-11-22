@@ -322,7 +322,7 @@ console.log(JSON.stringify(out));""")
 
 def test_basic_receipt_size_word_and_rigs(tmp_path):
     """The receipt (spec-search 1.2, the accepted mock-up's parts) of each goal with the starting and a saved rig, a
-    rig changed for one search, "+ N more settings" (the square rule at 5 covered), the name; the phone's short
+    rig changed for one search, "N more settings" (the square rule at 5 covered), the name; the phone's short
     line; the size word of every state; the rig's words, names, checks; the rig in use kept per browser; where "Sea
     cliffs" moves Where and back."""
     from settings import Limits
@@ -395,7 +395,7 @@ console.log(JSON.stringify(out));""")
     marked = "access marked[, no line filtered out]→access"
     assert found["best"] == ["30–300 m→min_length", "anchors within 10 m of height→max_anchor_diff_m",
                              "trees marked*→nmpt", "Rig: sag, no-fall zone 5 m, no A-frames→end_zone", marked]
-    assert found["unmarked"] == found["best"][:-1]  # the mark off (Advanced): no part, and no "+ 1 more setting"
+    assert found["unmarked"] == found["best"][:-1]  # the mark off (Advanced): no part, and no "1 more setting"
     # too wide for the access grid: "access not marked", on a desktop ": area too wide"; with the mark off no part
     assert found["skipped"] == ["access not marked[: area too wide]→access", len(found["best"]) - 1, True, False, False,
                                 False, "access_skipped"]
@@ -408,7 +408,7 @@ console.log(JSON.stringify(out));""")
                                 "My rig: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked,
                                 "named “Il-Bahrija”→name"]
     assert found["forOne"][-2:] == ["Rig for this search: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked]
-    assert found["more"][2] == "trees not checked→nmpt" and found["more"][-2:] == [marked, "+ 2 more settings→more"]
+    assert found["more"][2] == "trees not checked→nmpt" and found["more"][-2:] == [marked, "2 more settings→more"]  # G5: no "+ "
     assert found["formula"][-2] == "Rig: simple formula, no-fall zone 5 m, no A-frames→model"
     assert found["short"] == ["Long and exposed · 100–600 m · My rig", "Custom · 30–300 m · Rig for this search"]
     # (3: the word, the level and the causes; the "Lighter" hint is gone, the user's 2026-11-15 "2. ok c")
@@ -1953,9 +1953,11 @@ def test_shore_chip_in_edge(tmp_path):
     assert {k: moved[k] for k in opened} == opened and "0 m: the foot" in moved["text"]
     assert moved["chipText"] == "Uncertain shore1.8 km" and moved["swatches"] == ["sea"]
     hint = phone["help"]  # the "?" text inside the box, the box above the scale, within the map
-    assert hint["open"] is True and hint["overflow"] == "auto" and hint["scrolls"] is True
+    # the scale's corner raised 180 px (shore_page.ts): the box too short for the help, which scrolls inside, up under
+    # the title (shoreLayer.ts `fit` and the help's onclick)
+    assert hint["open"] is True and hint["overflow"] == "auto"
     assert hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
-    assert hint["textUp"] is True and hint["titleTop"] <= 1
+    assert hint["scrolls"] is True and hint["textUp"] is True and hint["titleTop"] <= 1, hint
     # a bottom corner raised without a map event (corners.ts above the sheet): the opened box ends above it
     assert phone["raised"]["bottom"] <= phone["raised"]["cornerTop"] < hint["scaleTop"]
     folded = phone["folded"]
@@ -1971,6 +1973,8 @@ def test_shore_chip_in_edge(tmp_path):
         assert {k: desktop[step][k] for k in always} == always, step
     hint = desktop["help"]  # within the map too (a desktop's map in a low window is short)
     assert hint["overflow"] == "auto" and hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
+    # it scrolls too; whether the help comes up under the title there is not checked (the phone's case is, above)
+    assert hint["scrolls"] is True and hint["titleTop"] <= 1, hint
     assert desktop["raised"]["bottom"] <= desktop["raised"]["cornerTop"] < hint["scaleTop"]  # a card raised it
     assert desktop["away"]["holder"] is False
 
@@ -2641,7 +2645,7 @@ console.log(JSON.stringify(out));""")
 
 def test_view3d_imagery_counts_in_the_pill(tmp_path):
     """view3d/imagery.ts (round 2, point 2): the tiles loaded are counted in the stage's activity pill (entry
-    "imagery": "Imagery 3 / 12" and the fraction), no more often than COUNT_MS and ending at all of them; the entry
+    "imagery": "Imagery 3 of 12" and the fraction), no more often than COUNT_MS and ending at all of them; the entry
     is cleared when the loading ends, when Shaded or Edges replaces it, and on dispose; a kind started over another
     keeps one entry."""
     from test_view3d_tiles import AFFINE, CX, CY, FAKE_DOM, GEOPORTAL
@@ -2676,9 +2680,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     loaded = found["loaded"]
     sets = [e for e in loaded if e[0] == "set"]
     assert sets and loaded[-1] == ["clear", "imagery"] and all(e[1] == "imagery" for e in loaded)
-    total = int(re.search(r"/ (\d+)$", sets[0][2]).group(1))
-    assert total > 3 and sets[0][2] == f"Imagery 0 / {total}" and sets[0][3] == 0
-    assert sets[-1][2] == f"Imagery {total} / {total}" and sets[-1][3] == 1  # all of them, whatever the throttle
+    total = int(re.search(r" of (\d+)$", sets[0][2]).group(1))
+    assert total > 3 and sets[0][2] == f"Imagery 0 of {total}" and sets[0][3] == 0
+    assert sets[-1][2] == f"Imagery {total} of {total}" and sets[-1][3] == 1  # all of them, whatever the throttle
     fractions = [e[3] for e in sets]
     assert fractions == sorted(fractions) and len(sets) < total  # at most every COUNT_MS: fewer than the tiles
     assert [e[0] for e in found["second"]][-1] == "clear" and found["second"][0][0] == "set"
@@ -2721,7 +2725,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const state = () => {{
   const log = activity.splice(0), mine = log.filter((e) => e[1] === "imagery-failed").at(-1) || null;
   return {{notice: mine && mine[0] === "notice" ? mine.slice(2) : mine && "cleared", loads: loads.splice(0).length,
-          total: Number((log.find((e) => e[0] === "set") || [0, 0, "/ 0"])[2].split("/ ")[1]),
+          total: Number((log.find((e) => e[0] === "set") || [0, 0, " of 0"])[2].split(" of ")[1]),
           last: [0, 1].map((k) => (textures.filter((x) => x[0] === k).at(-1) || [k, "none"])[1])}};
 }};
 (async () => {{
@@ -3321,7 +3325,9 @@ def test_access_marks_from_rows_and_store(tmp_path):
     assert texts["basic.access.note"] == "The result marks anchors you can walk to. No line is filtered out."
     assert texts["basic.receipt.access"] + texts["basic.receipt.access_wide"] == "access marked, no line filtered out"
     assert texts["ui.access.hard_means"].startswith("no walk reaches the anchor, even over steep ground.")
-    assert "paths, fences, private land or trees" in texts["ui.access.help"] and "amber mark" in texts["ui.access.help"]
+    # the help within R10 (the user's answer of 2026-11-21, step 3d G5): its amber sentence went into the amber row
+    assert "paths, fences, private land or trees" in texts["ui.access.help"]
+    assert texts["ui.access.cannot_tell_means"].endswith("the data end nearby: often on alpine walls.")
     assert texts["anchor"] == "Anchor 2" and texts["anchor_state"] == "Anchor 1: cannot tell"
     assert not any(word in text.lower() for text in texts.values() for word in ("walker", "slackliner"))
     assert all(text and not text.startswith(("ui.", "basic.")) for text in texts.values())  # every key is in the catalogue
@@ -3406,7 +3412,9 @@ def test_secondary_text_contrast():
         assert contrast(tokens["--ink-2"], tokens["--accent-soft"]) >= 4.5, theme
     for path, rule in ((("app", "c", "c.css"), ".ui .c-tree-row.u-on .u-small, .ui .c-drop-over .u-small { color: var(--ink-2); }"),
                        (("result", "view", "result.css"), ".ui .r-row.r-sel .r-muted { color: var(--ink-2); }"),
-                       (("coverage", "page", "page.css"), ".cov .cov-row-on .cov-muted, .cov .cov-row-on td::before { color: var(--ink-2); }"),
+                       # the table's selected row; no `td::before` since step 3c, group C (a phone's list is rows of
+                       # buttons, AreaList.tsx, whose grey words are --ink-2 always: .cov-rdet, .cov-rparent)
+                       (("coverage", "page", "page.css"), ".cov .cov-row-on .cov-muted { color: var(--ink-2); }"),
                        (("search", "search.css"), ".ui .s-placebox-list li.u-on .u-small, .ui .s-placebox-list li:hover .u-small { color: var(--ink-2); }")):
         with open(os.path.join(VIEWER, "src", *path), encoding="utf-8") as f:
             assert rule in f.read(), (path, rule)
@@ -3453,6 +3461,18 @@ def test_view_tokens():
         for ground in SURFACES:
             assert contrast(tokens["--accent"], tokens[ground]) >= 4.5, (theme, ground)
         assert contrast(tokens["--accent-ink"], tokens["--accent-soft"]) >= 4.5 and contrast(tokens["--on-accent"], tokens["--accent"]) >= 4.5, theme
+
+
+def test_view3d_icons_are_the_kits():
+    """view3d/icon.ts keeps copies of the kit's icons it draws (ui/icons.tsx imports the logo's SVG files, which the
+    Node tests' bundles of the 3D view's modules cannot load): each copy is the kit's path, character for character."""
+    import re
+    kit = open(os.path.join(VIEWER, "src", "ui", "icons.tsx"), encoding="utf-8").read()
+    copy = open(os.path.join(VIEWER, "src", "view3d", "icon.ts"), encoding="utf-8").read()
+    copies = dict(re.findall(r"^  (\w+): '([^']*)',$", copy.split("KIT_ICONS = {")[1].split("}")[0], re.M))
+    assert set(copies) == {"close", "info", "sort", "star"}, copies
+    for name, path in copies.items():
+        assert f"  {name}: '{path}'," in kit, name
 
 
 def test_3d_view_doc_accent_in_step():
@@ -3551,6 +3571,56 @@ def test_search_form_css_on_the_scales():
         assert 'cx("u-panel", !raised && "u-ground"' in f.read()  # `raised`: the one over the kit demo's map
 
 
+def test_admin_and_doc_pages_css():
+    """Group D of step 3c (2026-11-19): the admin page's checkbox and its words are one target, 24 px and 44 px on a
+    touch screen (R2), its badges start with a capital (as the status chips); the privacy and about pages' text rules
+    are scoped to .p-doc (the accepted sign-in page shares pages.css and none of them), their sizes from R5's tokens,
+    also inside an @media block. The row is the checkbox's target only while the input sits inside its label
+    (AdminC.tsx): every .c-check label holds its checkbox. On a touch screen the checkbox takes a line of its own
+    (the user's "Both", 2026-11-19; tests/test_shell_c.py::test_admin_block_asks_and_checkbox_apart taps it)."""
+    src = os.path.join(VIEWER, "src")
+    with open(os.path.join(src, "app", "c", "c.css"), encoding="utf-8") as f:
+        c = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    check = re.search(r"\.ui \.c-check \{([^}]*)\}", c)
+    assert check and "min-height: 24px" in check.group(1) and "var(--fs-2)" in check.group(1)
+    coarse = {s: b for s, b, m in _css_rules(c) if "pointer: coarse" in m}
+    assert "min-height: 44px" in coarse.get(".ui .c-check", ""), coarse
+    assert "flex-basis: 100%" in coarse.get(".ui .c-admin-tools > .c-check", ""), coarse
+    assert ".ui .c-admin .u-badge::first-letter { text-transform: uppercase; }" in c
+    with open(os.path.join(src, "app", "c", "AdminC.tsx"), encoding="utf-8") as f:
+        labels = re.findall(r'<label class="c-check">(.*?)</label>', f.read(), flags=re.S)
+    assert len(labels) == 2 and all('<input type="checkbox"' in label for label in labels), labels
+    with open(os.path.join(src, "ui", "pages.css"), encoding="utf-8") as f:
+        pages = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    prose = [(s, b) for s, b, _ in _css_rules(pages) if re.search(r"p-prose|p-facts", s)]
+    assert len(prose) >= 5
+    for selector, body in prose:
+        assert all(part.strip().startswith(".ui .p-doc ") for part in selector.split(",")), selector
+        for font in re.findall(r"font(?:-size)?:\s*([^;}]+)", body):
+            assert "var(--fs-" in font, (selector, font)
+    prose_rule = next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-prose")
+    assert "overflow-wrap: anywhere" in prose_rule
+    # about 75 characters a line (the user, 2026-11-20; DESIGN.md row 57): the whole doc column, centred
+    assert "max-width: calc(63ch + 32px)" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-page.p-doc")
+    assert "justify-content: flex-start" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-footer")
+
+
+def _css_rules(text: str) -> list:
+    """The style rules of a stylesheet without comments, also those inside @media (or any @-block): (selector, body,
+    the enclosing @-rules' preludes joined)."""
+    rules, stack, start = [], [], 0
+    for i, ch in enumerate(text):
+        if ch == "{":
+            stack.append(text[start:i].strip())
+            start = i + 1
+        elif ch == "}":
+            prelude = stack.pop() if stack else ""
+            if not prelude.startswith("@"):
+                rules.append((prelude, text[start:i], " ".join(stack)))
+            start = i + 1
+    return rules
+
+
 def test_placeholder_contrast():
     """Every text input's placeholder takes its colour from a token (ui/ui.css `.ui ::placeholder`, at full opacity:
     Firefox dims it otherwise) that reads at 4.5:1 or more on the fields' background (--surface, .u-input) in both
@@ -3606,6 +3676,21 @@ def test_view3d_trees_text_contrast():
     for theme, colour in shown.items():
         assert contrast(colour, themes[theme]["--surface"]) >= 4.5, (theme, colour)
     assert themes["light"]["--trees"] == "#ef8300" and themes["dark"]["--trees"] == "#ff9f30"
+
+
+def test_viewer_media_queries_older_webkit():
+    """The viewer's CSS asks its media in the old syntax (min-width, max-width), never the range syntax ("width >
+    600px"): WebKit before Safari 16.4 (an iPhone kept on iOS 15) knows no range syntax and drops the whole query
+    (the code review's N1: it dropped the 3D view's one row held sideways, which keys on a class since: chrome.ts
+    oneRow, whose matchMedia asks for the negation of "(max-width: 600px)")."""
+    found = []
+    for folder, _, names in os.walk(os.path.join(VIEWER, "src")):
+        for name in (n for n in names if n.endswith(".css")):
+            text = re.sub(r"/\*.*?\*/", "", open(os.path.join(folder, name), encoding="utf-8").read(), flags=re.S)
+            found += [(name, query.strip()) for query in re.findall(r"@media([^{]*)\{", text) if re.search("[<>]", query)]
+    assert found == [], found
+    chrome = open(os.path.join(VIEWER, "src", "view3d", "chrome.ts"), encoding="utf-8").read()
+    assert 'narrow: "(max-width: 600px)"' in chrome and "!narrow.matches" in chrome
 
 
 def test_result_intro_names_the_default_line_of_a_spot():

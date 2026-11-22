@@ -583,7 +583,7 @@ def check_point(r):
     assert r["byLengthAsc"]["lengths"] == sorted(r["byLengthAsc"]["lengths"]) and r["byLengthAsc"]["aria"] == "ascending"
     assert r["byTrees"] == sorted(r["byTrees"])
     clear = [float(re.sub(r"[^0-9.]", "", c)) for c in r["byClear"]]
-    assert all(c.startswith("≤ ") and c.endswith(" m") for c in r["byClear"]) and clear == sorted(clear, reverse=True)
+    assert all(c.startswith("up to ") and c.endswith(" m") for c in r["byClear"]) and clear == sorted(clear, reverse=True)
     # a second click replaces the list
     s = r["second"]
     assert s["requests"] == 1 and int(s["point"]) == s["rows"] == s["dots"] and r["secondOrder"] == list(range(s["rows"]))

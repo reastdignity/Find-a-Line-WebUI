@@ -919,27 +919,50 @@ run({
     // lattice), in a cell of two rows: the country's part and its partner lines
     const a = lastCells("slovakia").answer;
     const whole = (r) => (r[7] - r[3]) * 111.2 * (r[6] - r[4]) * 111.32 * Math.cos((r[3] + r[7]) / 2 * Math.PI / 180);
+    // The cell's lattice of 13 x 13 points [lat, lon, u, v] (u, v = 0 or 12: its edge)
     const lattice = (row) => {
       const out = [];
-      for (let u = 1; u < 12; u++) for (let v = 1; v < 12; v++) {
+      for (let u = 0; u <= 12; u++) for (let v = 0; v <= 12; v++) {
         const west = (1 - u / 12) * (1 - v / 12), east = (u / 12) * (1 - v / 12), far = (u / 12) * (v / 12), near = (1 - u / 12) * (v / 12);
-        out.push([west * row[3] + east * row[5] + far * row[7] + near * row[9], west * row[4] + east * row[6] + far * row[8] + near * row[10]]);
+        out.push([west * row[3] + east * row[5] + far * row[7] + near * row[9], west * row[4] + east * row[6] + far * row[8] + near * row[10], u, v]);
       }
       return out;
     };
-    let row = null, partner = null, inner = null, outer = null;
+    // The lattice's point of a part that lies deepest in it: the farthest, in the map's pixels, from every point
+    // of the lattice outside the part and from the cell's edge; [the point, that distance]. A click near the border
+    // may pick the other part. Measured 2026-11-19 with the panels' new default widths (a map of 425 x 649 px in
+    // headless Edge's window): the first cut cell's first points inside and beyond lay 3 px apart ([97, 396] and
+    // [97, 399]) and the click on the first opened the partner row's card; with points one lattice step further in
+    // ([98, 395], [98, 398]) the click inside worked and the one beyond did not. Presumed, not measured: the canvas
+    // draws a part's ring rounded to whole pixels and takes the part drawn last within its edge's stroke. So the
+    // cell is the one whose two parts are deepest, not the first: 2 px each, the points 5 px apart
+    const deepest = (points, ok) => {
+      const at = points.map((p) => map().latLngToContainerPoint([p[0], p[1]]));
+      const out = points.map((p) => p[2] === 0 || p[2] === 12 || p[3] === 0 || p[3] === 12 || !ok(p));
+      let best = null, depth = 0;
+      points.forEach((p, k) => {
+        if (out[k]) return;
+        let d = Infinity;
+        at.forEach((q, m) => { if (out[m]) d = Math.min(d, Math.hypot(q.x - at[k].x, q.y - at[k].y)); });
+        if (d > depth) { best = p; depth = d; }
+      });
+      return [best, depth];
+    };
+    let row = null, partner = null, inner = null, outer = null, depth = 0;
     for (const r of a.cells) {
       const cut = a.cut[r[0] + "," + r[1]];
       if (r[11] || !cut || cut.km2 < 0.2 * whole(r) || cut.km2 > 0.8 * whole(r)) continue;
       const other = a.cells.find((q) => q[0] === r[0] && q[1] === r[1] && q[11] > 0);
       if (!other) continue;
       const points = lattice(r);
-      inner = points.find((p) => insideCut(cut, p[0], p[1]));
-      outer = points.find((p) => !insideCut(cut, p[0], p[1]) && insideCut(a.cut[r[0] + "," + r[1] + ",out"], p[0], p[1]));
-      if (inner && outer) { row = r; partner = other; break; }
+      const [pin, din] = deepest(points, (p) => insideCut(cut, p[0], p[1]));
+      const [pout, dout] = deepest(points, (p) => !insideCut(cut, p[0], p[1]) && insideCut(a.cut[r[0] + "," + r[1] + ",out"], p[0], p[1]));
+      if (pin && pout && Math.min(din, dout) > depth) { row = r; partner = other; inner = pin; outer = pout; depth = Math.min(din, dout); }
     }
     const cut = a.cut[row[0] + "," + row[1]];
-    result.cut = {wanted: row.slice(0, 3), partner: [partner[2], partner[11]], km2: cut.km2, cells: Object.keys(a.cut).length};
+    const spot = (p) => { const q = map().latLngToContainerPoint([p[0], p[1]]); return [Math.round(q.x), Math.round(q.y)]; };
+    result.cut = {wanted: row.slice(0, 3), partner: [partner[2], partner[11]], km2: cut.km2, cells: Object.keys(a.cut).length,
+                  at: [spot(inner), spot(outer), [map().getSize().x, map().getSize().y]], depth};
     clickAt(inner[0], inner[1]);
     wait(() => /km² inside Slovakia/.test(text(".c-layer-cell")) && text(".c-layer-cell").includes(row[2].toLocaleString("en")), () => {
       result.cut.selected = text(".c-layer-cell");
@@ -1001,8 +1024,12 @@ run({
 
 def _card_density(card: str) -> float:
     """The density per km² of a selected cell's card as it reads: the thousands separator of the counts, no
-    abbreviation ("9,135", "0.37"); its value."""
-    found = re.search(r"· ([\d.,]+) lines per km²", card)
+    abbreviation ("9,135", "0.37"); its value. The card's values are parted by semicolons (step 3c, group C's fix
+    round: a comma already parts a count's thousands), so the density is what stands between the last "; " and the
+    words, and no ", " follows a count's noun."""
+    assert "·" not in card, card
+    assert not re.search(r"(lines|spots), \d", card), card
+    found = re.search(r"; ([\d.,]+) lines per km²", card)
     assert found and re.fullmatch(r"\d{1,3}(,\d{3})*(\.\d+)?", found.group(1)), card
     return float(found.group(1).replace(",", ""))
 
@@ -1040,12 +1067,16 @@ def test_layer_page_in_edge(sample, tmp_path):
     # a cell the outline cuts: picked by a click on its part inside the country, its density over that part, the
     # hint of the search at the border; a click on its part beyond picks its partner row
     cut = r["cut"]
+    # the two clicked points lie at least 2 px inside their parts (measured 2026-11-19: 2 px, the points 5 px apart
+    # at [99, 240] and [99, 235] of a map of 425 x 649 px; 1 px inside was too near, see the script's `deepest`)
+    assert cut["depth"] >= 2, (cut["depth"], cut["at"])
     assert cut["cells"] > 0 and cut["selected"].startswith("Selected cell"), cut
     assert "km² inside Slovakia" in cut["selected"], cut
     assert ("on the border with Poland" if cut["partner"][1] == 1 else "on its border") in cut["selected"], cut
     assert cut["hint"].startswith("On the border with Poland") or cut["hint"].startswith("On the border:"), cut
     assert "Poland" in cut["hint"] if cut["partner"][1] == 1 else True, cut
-    assert "around the cell (300 m, 1000 m or 5000 m)" in cut["hint"], cut  # the sample's layer bands S, M, L
+    # the sample's layer bands S, M, L (the hint's words of step 3d G5, the user's answer of 2026-11-21)
+    assert "within one longest line (300 m, 1000 m or 5000 m) of the cell" in cut["hint"], cut
     assert "beyond Slovakia's border" in cut["beyond"] and "Only lines across the border" in cut["beyond"], cut
     assert cut["beyondHint"].startswith("Counted from Slovakia's data"), cut
     _card_density(cut["selected"]), _card_density(cut["beyond"])  # the same look on both parts' cards

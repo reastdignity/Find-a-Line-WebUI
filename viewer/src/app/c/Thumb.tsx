@@ -13,6 +13,7 @@ import { COLORS } from "../../style";
 import { loadRunLines, loadRunList } from "../../result/load";
 import type { RunData } from "../../types";
 import { api } from "../api";
+import { parts, t } from "../../i18n";
 
 export const MAX_LINES = 3000;  // more: the outline and "N lines", without loading its lines
 const AT_ONCE = 3;              // thumbnails loaded at the same time
@@ -73,7 +74,7 @@ function circle(lat: number, lon: number, radius: number): Position[] {
 }
 
 const box = (b: number[]): Position[] => [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]], [b[0], b[1]]];
-const count = (n: number) => n.toLocaleString("en-GB") + (n === 1 ? " line" : " lines");
+const count = (n: number) => t("ui.result.lines", {count: n, n: n.toLocaleString("en-GB")});
 
 /** The drawn lines of a run, in their order, from its store's columns, each anchor as [lon, lat]; copied out, so
  *  the shape keeps none of the store's buffers. */
@@ -94,7 +95,7 @@ async function runShape(id: string, lines: number): Promise<Shape> {
   }
   const loaded = await loadRunLines(id, listed, "/runs/");
   const drawn = thumbLines(loaded);
-  return {rings: ringsOf(loaded.area), lines: drawn, mode: "lines", label: drawn.length ? "" : "no lines"};
+  return {rings: ringsOf(loaded.area), lines: drawn, mode: "lines", label: drawn.length ? "" : t("ui.thumb.no_lines")};
 }
 
 async function jobShape(id: string): Promise<Shape> {
@@ -126,11 +127,11 @@ const TILE = 256, MAX_ZOOM = 17;  // OpenTopoMap's tiles, the run maps' first ba
  *  are reported). */
 export function ThumbCredit() {
   const link = (href: string, text: string) => <a href={href} target="_blank" rel="noopener">{text}</a>;
-  return <p class="u-small c-thumb-credit">
-    Mini maps: © {link("https://www.openstreetmap.org/copyright", "OpenStreetMap")} contributors
-    ({link("https://www.openstreetmap.org/fixthemap", "report a map issue")}), SRTM | map style
-    © {link("https://opentopomap.org", "OpenTopoMap")} ({link("https://creativecommons.org/licenses/by-sa/3.0/", "CC-BY-SA")})
-  </p>;
+  return <p class="u-small c-thumb-credit">{parts("ui.thumb.credit", {
+    osm: link("https://www.openstreetmap.org/copyright", "OpenStreetMap"),
+    fix: link("https://www.openstreetmap.org/fixthemap", t("ui.map.report_issue")),
+    otm: link("https://opentopomap.org", "OpenTopoMap"),
+    cc: link("https://creativecommons.org/licenses/by-sa/3.0/", "CC-BY-SA")})}</p>;
 }
 
 /** Web Mercator pixels of a point at zoom 0 (one 256 px tile for the world). */

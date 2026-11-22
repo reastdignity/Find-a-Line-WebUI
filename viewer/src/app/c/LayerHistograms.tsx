@@ -2,11 +2,16 @@
 // (cube.json's edges and kinds: the length and fifteen more), from /api/countries/<id>/histogram summed over the
 // cubes in view, in three topics (layerState.ts TOPICS: The line, Anchors and terrain, Rigging; the length chart
 // leads). Each histogram is a row of buttons: a bar's height is log10(1 + count) over log10(1 + the largest), the
-// count above it, the bins inside the current limit pressed. The length histogram sets the range (a click one bin,
+// count above it (where the chart has room: c.css; else on the bar's keyboard focus), the bins inside the current
+// limit pressed; a bar's accessible name is its short count, its range and its exact count. A dimension whose
+// filter is off for the cubes in view (`off`: no surface model, no A-frames counted) has bars that cannot be picked.
+// The length histogram sets the range (a click one bin,
 // shift-click extends the range to it); the others set a limit by their kind (a floor: the bin's lower edge; a
 // "below": the bin's upper edge, the last bin "any"; an at_most: the bin's upper edge, the last bin "any"); the
 // unknown bin ("?") cannot be picked. The chart of the dimension changed last (`open`) is ringed on a desktop, where
-// the charts stand two a row while the panel holds two of 220 px (a container query, c.css), and scrolled into view;
+// the charts stand two a row while the panel holds two of 210 px (a container query, c.css; the length chart across
+// both), and scrolled into view; a chart with 32 px or more of its width per bar shows each bar's count and every
+// tick, a narrower one no counts and every other tick (c.css, by `data-bars`: the user's pick L3 b, 2026-11-19);
 // on phones each topic is a swiped strip of small charts and that chart is enlarged in place (its strip scrolls to
 // it, the column does not move; a tap on a chart's title enlarges it).
 
@@ -88,34 +93,67 @@ export function dimensionTitle(dimension: string, ctx: DimensionContext): string
   return text(`ui.layer.dim.${dimension}.title`, dimension, {high: ctx.high});
 }
 
-/** A limit as text: "≥ 5 m", "< 45°", "None needed", "≤ 1 m", "Any". */
+/** A limit of a dimension's kind in words around its value (a number with its unit): "at least 5 m", "under 45°",
+ *  "up to 1 m" (R9 written out in the filters too: the user's answer of 2026-11-21). */
+export function limitWords(kind: DimensionKind, value: string): string {
+  return t(kind === "floor" ? "ui.layer.limit.at_least" : kind === "below" ? "ui.layer.limit.under" : "ui.layer.limit.up_to",
+           {value});
+}
+
+/** A chart's title with the word its bare ticks need: "Clearance, m (at least)", "Wall angle (under)", "A-frame,
+ *  with zone, m (up to)" (the user's answer of 2026-11-21: the ticks written out as numbers, the word in the title). */
+export function chartTitle(kind: DimensionKind, title: string): string {
+  return kind === "floor" ? t("ui.layer.hist.title_floor", {title})
+    : kind === "below" ? t("ui.layer.hist.title_below", {title}) : t("ui.layer.hist.title_at_most", {title});
+}
+
+/** A limit as text: "at least 5 m", "under 45°", "None needed", "up to 1 m", "Any". */
 export function limitText(kind: DimensionKind, dimension: string, value: number | null, on: boolean): string {
   if (!on || value === null) return t("ui.layer.any");
-  if (kind === "floor") return `≥ ${withUnit(value, dimension)}`;
-  if (kind === "below") return `< ${withUnit(value, dimension)}`;
-  return value === 0 ? t("ui.layer.none_needed") : `≤ ${withUnit(value, dimension)}`;
+  if (kind === "at_most" && value === 0) return t("ui.layer.none_needed");
+  return limitWords(kind, withUnit(value, dimension));
 }
 
 interface Bar { value: number; pressed: boolean; pickable: boolean; title: string }
 
+/** A chart's name focused by the keyboard in a phone's swiped strip (c.css .c-layer-charts): the browser leaves a name
+ *  partly outside the strip (its focus scroll, then the strip's snapping: up to 98 px of it out of the window), so its
+ *  chart is brought to the strip's start, a snap position. Not for a press (no :focus-visible): the strip must not
+ *  move under a finger between its press and its click. */
+function revealInStrip(e: FocusEvent) {
+  const name = e.currentTarget as HTMLElement, chart = name.closest<HTMLElement>(".c-layer-hist"), strip = name.closest(".c-layer-charts");
+  if (!chart || !strip || getComputedStyle(strip).overflowX === "visible" || !name.matches(":focus-visible")) return;
+  const s = strip.getBoundingClientRect(), r = name.getBoundingClientRect();
+  if (r.left < s.left - 0.5 || r.right > s.right + 0.5) chart.scrollIntoView({block: "nearest", inline: "start"});
+}
+
 /** One histogram: `title` (on phones a button enlarging it), the bars (a button each when pickable), `axis` the
- *  labels under the bars (one per bar, or one more for the bins' edges), `onPick(k, shift)`. */
-export function Histogram({name, title, bars, axis, open, wide, onPick, onTitle, children}:
+ *  labels under the bars (one per bar, or one more for the bins' edges), `onPick(k, shift)`, `kind` the dimension's
+ *  (data-kind: an at-most chart's "over 2" tick is drawn tighter, c.css). */
+export function Histogram({name, title, bars, axis, open, wide, kind, onPick, onTitle, children}:
                           {name: string; title: string; bars: Bar[]; axis: string[]; open: boolean; wide: boolean;
-                           onPick(k: number, shift: boolean): void; onTitle(): void; children?: ComponentChildren}) {
+                           kind?: DimensionKind; onPick(k: number, shift: boolean): void; onTitle(): void;
+                           children?: ComponentChildren}) {
   const max = Math.max(1, ...bars.map((b) => b.value));
   const height = (v: number) => `${Math.round(100 * Math.log10(1 + v) / Math.log10(1 + max))}%`;
   const edges = axis.length === bars.length + 1;
-  return <section class={`c-layer-hist${open ? " c-layer-hist-open" : ""}`} data-hist={name} aria-label={title}>
+  return <section class={`c-layer-hist${open ? " c-layer-hist-open" : ""}`} data-hist={name} data-bars={bars.length}
+                  data-kind={kind} style={{"--bars": bars.length} as Record<string, number>} aria-label={title}>
     <h3 class="c-layer-hist-title">{wide ? title
-      : <button type="button" class="c-layer-hist-name" aria-expanded={open} title={title} onClick={onTitle}>{title}</button>}</h3>
+      : <button type="button" class="c-layer-hist-name" aria-expanded={open} title={title} onClick={onTitle}
+                onFocus={revealInStrip}>{title}</button>}</h3>
     <div class="c-layer-hist-bars" role="group" aria-label={title}>
       {bars.map((b, k) => {
         const fill = <span class="c-layer-bar-fill" style={{height: height(b.value)}} aria-hidden="true" />;
-        const count = <span class="c-layer-bar-n">{b.value > 0 ? short(b.value).replace(" ", "") : ""}</span>;
+        const written = b.value > 0 ? short(b.value).replace(" ", "") : "";
+        const count = <span class="c-layer-bar-n">{written}</span>;
+        // the accessible name begins with the count the bar may show (a label in its name: WCAG 2.5.3, axe's
+        // label-content-name-mismatch), then the range and the exact count
         return b.pickable
           ? <button key={k} type="button" class={`c-layer-bar${b.pressed ? " u-on" : ""}`} data-value={b.value}
-                    aria-pressed={b.pressed} title={b.title} onClick={(e) => onPick(k, e.shiftKey)}>{count}{fill}</button>
+                    data-count={short(b.value).replace(" ", "")} aria-label={written ? `${written}, ${b.title}` : b.title}
+                    aria-pressed={b.pressed} title={b.title}
+                    onClick={(e) => onPick(k, e.shiftKey)}>{count}{fill}</button>
           : <span key={k} class="c-layer-bar c-layer-bar-off" data-value={b.value} title={b.title}>{count}{fill}</span>;
       })}
     </div>
@@ -135,10 +173,10 @@ const axisEdge = (v: number) => v >= 1000 ? `${+(v / 1000).toFixed(1)}k` : Strin
 const isOpen = (open: string | null, dimension: string) =>
   !!open && (open === dimension || (open === "elevation" && dimension.startsWith("elevation_")));
 
-export function LayerHistograms({cube, state, hist, status, error, countries, ctx, open, wide, border, onLength, onLimit, onOpen}:
+export function LayerHistograms({cube, state, hist, status, error, countries, ctx, open, wide, border, off, onLength, onLimit, onOpen}:
                                 {cube: CountryCube; state: LayerState; hist: SummedHistogram | null;
                                  status: "waiting" | "ready" | "error"; error: string; countries: number; ctx: DimensionContext;
-                                 open: string | null; wide: boolean; border: boolean;
+                                 open: string | null; wide: boolean; border: boolean; off(dimension: string): boolean;
                                  onLength(lo: number, hi: number, extend: boolean): void;
                                  onLimit(dimension: string, value: number | null): void; onOpen(dimension: string | null): void}) {
   const edges = cube.edges;
@@ -162,26 +200,28 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
       let pressed: boolean, title: string;
       if (kind === "floor") {
         pressed = !unknown && k >= e.indexOf(value ?? e[0]);
-        title = k === e.length - 1 ? `≥ ${u(e[k])}` : `${e[k]}–${u(e[k + 1])}`;
+        title = k === e.length - 1 ? t("ui.layer.limit.or_more", {value: u(e[k])}) : `${e[k]}–${u(e[k + 1])}`;
       } else if (kind === "below") {
         const limit = value === null || (d !== "wall" && value === e[0]) ? e.length : e.indexOf(value);
         pressed = !unknown && k < limit;
-        title = k === e.length - 1 ? `≥ ${u(e[k])}` : `${e[k]}–${u(e[k + 1])}`;
+        title = k === e.length - 1 ? t("ui.layer.limit.or_more", {value: u(e[k])}) : `${e[k]}–${u(e[k + 1])}`;
       } else {
         pressed = !unknown && (value === null || k <= e.indexOf(value));
-        title = k === 0 ? (e[0] === 0 ? t("ui.layer.none_needed") : `≤ ${u(e[0])}`) : k === e.length ? `> ${u(e[k - 1])}`
-          : `${e[k - 1]}–${u(e[k])}`;
+        title = k === 0 ? (e[0] === 0 ? t("ui.layer.none_needed") : t("ui.layer.limit.up_to", {value: u(e[0])}))
+          : k === e.length ? t("ui.layer.limit.over", {value: u(e[k - 1])}) : `${e[k - 1]}–${u(e[k])}`;
       }
       if (unknown) title = t("ui.layer.hist.unknown");
-      return {value: count, pressed, pickable: !unknown, title: `${title}: ${n(count)}`};
+      return {value: count, pressed, pickable: !unknown && !off(d), title: `${title}: ${n(count)}`};
     });
   };
+  // the ticks: the values a pick sets, bare (the chart's title says "at least", "under" or "up to": chartTitle);
+  // an at-most chart's last known bin "over 2", as its bar's title says it (the user's answer of 2026-11-21)
   const axisOf = (d: string): string[] => {
     const e = edges[d], kind = cube.kinds[d];
-    if (kind === "floor") return [...e.map((v) => `≥${axisEdge(v)}`), "?"];
-    if (kind === "below") return [...e.slice(1).map((v) => `<${axisEdge(v)}`), t("ui.layer.any"), "?"];
-    return [e[0] === 0 ? t("ui.layer.hist.none") : `≤${axisEdge(e[0])}`, ...e.slice(1).map((v) => `≤${axisEdge(v)}`),
-            `>${axisEdge(e[e.length - 1])}`, "?"];
+    if (kind === "floor") return [...e.map(axisEdge), "?"];
+    if (kind === "below") return [...e.slice(1).map(axisEdge), t("ui.layer.any"), "?"];
+    return [e[0] === 0 ? t("ui.layer.hist.none") : axisEdge(e[0]), ...e.slice(1).map(axisEdge),
+            t("ui.layer.limit.over", {value: axisEdge(e[e.length - 1])}), "?"];
   };
   const pick = (d: string) => (k: number) => {
     const e = edges[d], kind = cube.kinds[d];
@@ -212,7 +252,7 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
   useEffect(() => { shownOpen.current = open; }, []);
 
   const chart = (d: string) => {
-    const title = d === "length" ? t("ui.layer.hist.by_length") : dimensionTitle(d, ctx);
+    const title = d === "length" ? t("ui.layer.hist.by_length") : chartTitle(cube.kinds[d], dimensionTitle(d, ctx));
     const props = {name: d, title, open: isOpen(open, d), wide, onTitle: () => onOpen(isOpen(open, d) ? null : openKey(d))};
     if (d === "length") {
       return <Histogram key={d} {...props} bars={lengthBars} axis={edges.length.map(edgeText)}
@@ -220,7 +260,7 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
         {wide && <p class="u-small c-layer-note">{touch ? t("ui.layer.hist.length_note_touch") : t("ui.layer.hist.length_note")}{mode === "spots" ? ` ${t("ui.layer.hist.spots_note")}` : ""}</p>}
       </Histogram>;
     }
-    return <Histogram key={d} {...props} bars={bars(d)} axis={axisOf(d)} onPick={pick(d)} />;
+    return <Histogram key={d} {...props} bars={bars(d)} axis={axisOf(d)} kind={cube.kinds[d]} onPick={pick(d)} />;
   };
 
   const other = mode === "lines" ? h.totals?.spots : h.totals?.lines;
@@ -232,11 +272,11 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
       {status !== "error" && hist
         ? <>
             <div class="c-layer-stat"><span class="c-layer-stat-n" title={hist.total.toLocaleString("en")}>{short(hist.total)}</span>
-              <span class="c-layer-stat-u">{noun}{mode === "spots" ? ` · ${t("ui.layer.upper_bound")}` : ""}
-                {countries > 1 ? ` · ${t("ui.layer.countries", {count: countries})}` : ""}</span></div>
+              <span class="c-layer-stat-u">{noun}{mode === "spots" ? `, ${t("ui.layer.upper_bound")}` : ""}
+                {countries > 1 ? `, ${t("ui.layer.countries", {count: countries})}` : ""}</span></div>
             {other !== undefined && <div class="c-layer-inview-more">
               <b>{short(other)}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}
-              {border && cross !== null && cross > 0 && <> · <b>{short(cross)}</b> {t("ui.layer.lines_across")}</>}</div>}
+              {border && cross !== null && cross > 0 && <>, <b>{short(cross)}</b> {t("ui.layer.lines_across")}</>}</div>}
           </>
         : status === "error" ? <p class="c-error u-small" role="alert">{t("ui.layer.hist.failed")} {error}</p>
         : <p class="u-small">{t("ui.layer.counting")}</p>}

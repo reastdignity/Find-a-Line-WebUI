@@ -27,7 +27,7 @@ import { createValid, type PointReach, type Valid } from "./overlay";
 import { currentPage, type PageRequest } from "./page";
 import type { ReachGet } from "./reach";
 import type { SceneCore } from "./scene";
-import { draggable, overlayOf, place, pointerRay, toScreen } from "./screen";
+import { draggable, HANDLE_SHIFT_MAX_PX, overlayOf, place, pointerRay, targetInside, toScreen } from "./screen";
 
 export interface Edit {
   /** The found line's profile (or its error) once /api/profile answered: shown unless the anchors were moved. */
@@ -74,11 +74,14 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
   let valid: Valid | null = null;
   const queue = profileQueue((key: string) => valid ? valid.guard(() => fetchProfile(key)) : fetchProfile(key), (outcome) => {
     valid?.hold(false);
-    if (!edited) return;
-    if ("value" in outcome) { line.setProfile(outcome.value); state("checked"); }
-    else { line.setProfile(null, (outcome.error as Error)?.message || String(outcome.error)); state("error"); }
+    if (edited) {
+      if ("value" in outcome) { line.setProfile(outcome.value); state("checked"); }
+      else { line.setProfile(null, (outcome.error as Error)?.message || String(outcome.error)); state("error"); }
+    }
+    settled();  // the readout as it will stay: the bar may take its own height again
   });
-  const cancelProfile = () => { queue.cancel(); valid?.hold(false); };
+  // a profile no longer asked for ends the bar's wait for it (a drag under way still holds the bar)
+  const cancelProfile = () => { queue.cancel(); valid?.hold(false); settled(); };
   const askProfile = () => {
     const [a, b] = line.anchors;
     valid?.hold(true);
@@ -86,6 +89,31 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
     state("waiting");
   };
   scene.onDispose(cancelProfile);
+
+  // The bar while handles are dragged (docs/DESIGN.md row 84): it gets neither higher nor lower, so the stage under the
+  // finger keeps its size (the first move added the bar's row, "Back to the found line" and the readout's "Moved, not
+  // saved", which made the stage 44 px lower and put the handle 24 px off the finger: that row shows at the release,
+  // the marker hidden meanwhile by the class v3-moving-new, view3d.css); after the release it gets no lower until the
+  // new profile is in (the readout's clearance is empty meanwhile: a release that leaves the readout as it was changes
+  // no size). A count of the handles held (two fingers: the first release keeps the bar). Through the CSSOM (the CSP)
+  const bar = scene.toolbar.closest<HTMLElement>(".v3-bar");
+  let drags = 0, waiting = false;
+  const holdBar = () => {
+    if (!bar || drags++) return;
+    bar.style.minHeight = `${bar.getBoundingClientRect().height}px`;
+    if (reset?.classList.contains("v3-hidden")) bar.classList.add("v3-moving-new");
+  };
+  const letGo = () => { if (bar && !drags && !waiting) bar.style.minHeight = ""; };
+  const releaseBar = (asked: boolean) => {
+    drags = Math.max(0, drags - 1);
+    if (drags) return;
+    bar?.classList.remove("v3-moving-new");
+    if (edited) reset?.classList.remove("v3-hidden");
+    waiting = asked;
+    letGo();
+  };
+  function settled() { waiting = false; letGo(); }
+  scene.onDispose(() => { drags = 0; settled(); });
 
   let reset: HTMLButtonElement | null = null;
   const ensureReset = () => {
@@ -103,6 +131,7 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
       if (found) line.setProfile(found.profile, found.error);
       valid?.reset();
       state("");
+      settled();
     });
     return button;
   };
@@ -179,7 +208,7 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
     overlayOf(scene).append(handle);
     let moved = false;
     draggable(scene, handle, {
-      start() { pickable(); cancelProfile(); onEdit(); state("moving"); moved = false; valid!.grab(k); },
+      start() { holdBar(); pickable(); cancelProfile(); onEdit(); state("moving"); moved = false; valid!.grab(k); },
       move(x, y) {
         const {raycaster} = pointerRay(scene, x, y);
         const hit = raycaster.intersectObjects(scene.pickTargets, false)[0];
@@ -195,22 +224,27 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
         const next: Anchors = copy(line.anchors);
         next[k] = {x: at.x, y: at.y, h};
         if (!line.setAnchors(next, true)) return;
-        edited = moved = true;
-        reset!.classList.remove("v3-hidden");
+        edited = moved = true;  // the reset row shows at the release (releaseBar)
       },
       end() {
         // a grab without a move still asks again: the grab cancelled the request of the last release
-        if (!edited) { state(""); return; }
+        if (!edited) { state(""); releaseBar(false); return; }
         askProfile();
+        releaseBar(true);
         if (moved) valid!.moved(k);  // its reach is stale; asked once the profile is in
       },
-    });
+    }, true);  // the handle's centre is the anchor: a press on its target's rim keeps its offset
     return handle;
   });
 
   const at = new Vector3();
   scene.view.onDrawn(() => {
-    line.anchors.forEach((a, k) => place(handles[k], toScreen(scene, at.copy(scene.toScene(a.x, a.y, a.h)))));
+    line.anchors.forEach((a, k) => {
+      const on = toScreen(scene, at.copy(scene.toScene(a.x, a.y, a.h)));
+      place(handles[k], on);
+      // a handle at the stage's edge keeps its whole target on a touch screen (view3d.css), as the fan's dots
+      targetInside(scene, handles[k], on, undefined, HANDLE_SHIFT_MAX_PX);
+    });
   });
 
   return edit;

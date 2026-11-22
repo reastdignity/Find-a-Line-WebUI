@@ -11,33 +11,57 @@
 .v3-opt-dot::before { content: ""; position: absolute; left: 4px; top: 4px; width: 10px; height: 10px;
                       box-sizing: border-box; border-radius: 50%; background: var(--clear); border: 2px solid #ffffff;
                       box-shadow: 0 0 0 1px rgb(0 0 0 / .55); }
+/* its target (row 43): 24 px with a mouse, 44 px on a touch screen, invisible and centred on the dot; a press on a
+   dot's drawn box is that dot's, and where only targets overlap the dot whose centre is nearer to the press takes it
+   (fan.ts, screen.ts pressedMark) */
+.v3-opt-dot::after { content: ""; position: absolute; inset: -3px; }
+/* on a touch screen the target of a dot near the stage's edge is moved inside by --v3-tx/--v3-ty (fan.ts, screen.ts
+   targetInside), so the whole 44 px can be pressed: a dot 19 px from a phone's right edge had 41.4 px of it */
+@media (pointer: coarse) {
+  .v3-opt-dot::after { left: calc(-13px + var(--v3-tx, 0px)); right: calc(-13px - var(--v3-tx, 0px));
+                       top: calc(-13px + var(--v3-ty, 0px)); bottom: calc(-13px - var(--v3-ty, 0px)); }
+}
 .v3-opt-dot.v3-over::before { background: var(--trees); }
 .v3-opt-dot.v3-on::before { left: 1px; top: 1px; width: 16px; height: 16px; border-width: 3px; }
 #view3d:not([data-view="orbit"]) .v3-opt-dot, #view3d:not([data-view="orbit"]) .v3-point-marker { display: none; }
 
-/* The list: a panel at the stage's right under the activity pill; its height is set by optionlist.ts (clear of the
-   credits and the card), it scrolls inside itself and is never wider than the stage less the tool strip */
+/* The list: a raised panel (row 41: no edge, the shadow, 8 px corners) at the stage's right under the activity pill;
+   its height is set by optionlist.ts (clear of the credits and the card), it scrolls inside itself and is never
+   wider than the stage less the tool strip */
 .v3-optlist { position: absolute; top: 52px; right: 8px; z-index: 1; box-sizing: border-box; display: flex;
               flex-direction: column; width: min(340px, calc(100% - 76px)); min-height: 0; overflow: hidden;
-              background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow);
-              font-size: 13px; line-height: 1.4; }
-.v3-optlist-title { margin: 0; padding: 8px 12px 6px; font: 600 14px/1.3 var(--font); flex: none; }
+              background: var(--surface); border-radius: var(--r-2); box-shadow: var(--shadow);
+              font-size: var(--fs-2); line-height: 1.4; }
+.v3-optlist-title { margin: 0; padding: 8px 12px 4px; font: 600 var(--fs-3)/1.3 var(--font); flex: none; }
 .v3-optlist-note { margin: 0; padding: 8px 12px; color: var(--muted); flex: none; }
 .v3-optlist-note.v3-failed { color: var(--bad); }
 .v3-optlist-scroll { overflow: auto; min-height: 0; overscroll-behavior: contain; }
 .v3-optlist-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .v3-optlist-table th { position: sticky; top: 0; z-index: 1; padding: 0; text-align: left; font-weight: 500;
                        background: var(--surface); border-bottom: 1px solid var(--rule); }
-.v3-opt-sort { all: unset; box-sizing: border-box; display: block; width: 100%; padding: 4px 8px; cursor: pointer;
-               color: var(--ink-2); font-size: 12px; line-height: 1.25; }
+/* A column's head: a button the list sorts by; the sorted one in the ink with the kit's "sort" icon before its
+   words (as the result view's heads), turned up while the order is ascending; the keyboard's ring inside the head
+   (the list's scroll box clips a ring outside it) */
+.v3-opt-sort { all: unset; box-sizing: border-box; display: flex; align-items: center; width: 100%; min-height: 24px;
+               padding: 4px 8px; cursor: pointer; color: var(--ink-2); font-size: var(--fs-1); line-height: 1.25; }
 .v3-opt-sort:hover, .v3-opt-sort:focus-visible { color: var(--ink); background: var(--accent-soft); }
-.v3-optlist-table th[aria-sort] .v3-opt-sort { color: var(--accent); font-weight: 600; }
-.v3-optlist-table th[aria-sort="ascending"] .v3-opt-sort::after { content: " ▲"; font-size: 9px; }
-.v3-optlist-table th[aria-sort="descending"] .v3-opt-sort::after { content: " ▼"; font-size: 9px; }
-.v3-optlist-table td { padding: 5px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.v3-opt-sort:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .ui .v3-opt-sort:focus-visible { outline-offset: -2px; } }
+.v3-optlist-table th[aria-sort] .v3-opt-sort { color: var(--ink); font-weight: 600; }
+.v3-opt-sort-icon { display: none; flex: none; width: 12px; height: 12px; margin-right: 4px; stroke-width: 2.4; }
+.v3-optlist-table th[aria-sort] .v3-opt-sort-icon { display: block; }
+.v3-optlist-table th[aria-sort="ascending"] .v3-opt-sort-icon { transform: rotate(180deg); }
+.v3-optlist-table td { padding: 4px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
 .v3-opt-row { cursor: pointer; }
-.v3-opt-row:hover, .v3-opt-row:focus-visible, .v3-opt-row.v3-on { background: var(--accent-soft); outline: none; }
-.v3-opt-row.v3-on td:first-child, .v3-opt-row:focus-visible td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.v3-opt-row:hover, .v3-opt-row:focus-visible, .v3-opt-row.v3-on { background: var(--accent-soft); }
+.v3-opt-row.v3-on td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+/* the keyboard's ring of a row: inside it (the scroll box clips), apart from the selected row's edge */
+.v3-opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: none; }
 .v3-opt-trees { text-align: center; }
 .v3-opt-over { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--trees); }
 .v3-phone .v3-optlist { width: min(300px, calc(100% - 64px)); }
+/* Touch screens (R2): the heads and the rows 44 px high; the list scrolls inside its height (optionlist.ts) */
+@media (pointer: coarse) {
+  .v3-opt-sort { min-height: 44px; }
+  .v3-optlist-table td { height: 44px; }
+}

@@ -163,6 +163,11 @@ def test_coverage_page_in_edge(tmp_path):
     assert "timeout" not in seen, seen
     assert seen["shapes"] > 200 and seen["leaflet"] > 200 and seen["globe"], seen
     assert "Poland" in seen["card"] and "GUGiK" in seen["card"], seen
-    assert seen["rows"] == len(json.load(open(os.path.join(REPO, "viewer", "src", "coverage", "coverage.json"),
-                                              encoding="utf-8"))["areas"]) + 1  # and the rest of the world
+    with open(os.path.join(REPO, "viewer", "src", "coverage", "coverage.json"), encoding="utf-8") as f:
+        coverage = json.load(f)
+    # a row per area, one per country covered only in some regions ("partly": its own row "rest of the country",
+    # AreaList.tsx) and the rest of the world
+    rest = [country for country in coverage["partly"] if country not in coverage["areas"]]
+    assert rest, coverage["partly"]
+    assert seen["rows"] == len(coverage["areas"]) + len(rest) + 1, (seen["rows"], len(coverage["areas"]), rest)
     assert seen["lang"] == "pl" and seen["title"] == "Gdzie Find-a-Line widzi dokładnie" and seen["stars"], seen

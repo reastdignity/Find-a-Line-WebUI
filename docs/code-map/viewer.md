@@ -58,7 +58,9 @@ WAI-ARIA's window splitter, our own (react-resizable-panels would need preact/co
 and rail, `useWidthOf`; `sidepanel.css`: the result's and the highline layer's); no Rail, Toast or Tabs since B went;
 `Hint.tsx` the "?" of a field and its bubble, the site's bounds added by `search/SearchPanel.tsx` from
 `hint.bounds.*`; `Intro.tsx` an intro dialog shown once per browser (localStorage `findaline.intro.<name>`,
-`IntroLink` opens it again); `choice.ts` the switch, `Gallery.tsx` `?ui=kit`; `pages.css` the server-rendered sign-in,
+`IntroLink` opens it again), or only from its link (`useIntro(name, false)`: the search's, step 3d G5);
+`radios.ts` the keys of a radio group (WAI-ARIA's: one Tab stop, the arrows move and choose; no Preact, so the
+3D view's switches use it too); `choice.ts` the switch, `Gallery.tsx` `?ui=kit`; `pages.css` the server-rendered sign-in,
 privacy and about pages of `web.py`; `logo/` the logo: `logo.svg` and `mark.svg` coloured by classes of `ui.css`
 (`Logo`/`LogoMark` in `icons.tsx` bundle them as text), `logo.svg` and `favicon.svg` copied to `dist/` by `build.mjs`
 (`web.LOGO_SVG` reads `dist/logo.svg`; the standalone files in `docs/logo/`)), `result/` a run in the app (`load.ts`
@@ -139,8 +141,8 @@ the search (it waits for the saved rigs: a request to edit opens Basic or Advanc
 `search/SearchPanel.tsx` has one layout since its variant of B went (the demo `?ui=kit-search` shows it); `AdminC.tsx`, `OsmC.tsx` the admin and OSM pages; `LayerPage.tsx` the highline layer (`#layer`; the local
 app and administrators, from the account menu; `MapPage` with an `aside`: two side panels as the result's
 (`ui/SidePanel.tsx`; `layout.ts` `fitPanels` with `LAYER_LIMITS`: left 320-560 px, right 300-640, the map at least
-360; kept under `findaline.layer.layout`), each one's content in a scroll box, the rails' labels from the page
-(`MapPageExtras`), a panel's change restarting the automatic level; phones one scrolling column, no edges; on the left
+360, the defaults 340 and 485; kept under `findaline.layer.layout`, version 2, a version 1 value's old default widths read as the defaults), each one's content in a scroll box, the rails' labels from the page
+(`MapPageExtras`), a panel's change restarting the automatic level; phones one scrolling column, no edges, the map sticky at its top on a screen 600 px high or more; on the left
 the filters (today's seven open, the cube's other dimensions of `kinds` in the fold "More filters" by topic, a closed
 fold naming its set filters as chips; the A-frame pair disabled for a cube counted without the no-fall zone and the
 A-frames, the clearance over trees without a surface model, each with its note), the legend (the partner cells'
@@ -152,7 +154,7 @@ row's side) and the notes ("Across the borders" from cube.json's `neighbours`: a
 country's data until it has one), the map in the middle, on the right the sixteen histograms of the counts in view
 (`LayerHistograms.tsx`: by topic, `layerState.ts` `TOPICS`, The line, Anchors and terrain, Rigging, the fold's order
 too; a bar per bin, a click sets the length range or the limit by the dimension's kind; two a row while the panel's
-content holds two of 220 px, a container query on its scroll box; the chart of the filter changed last ringed and
+content holds two of 210 px, a container query on its scroll box, the length chart across both; a chart with 32 px or more of its width per bar shows the bars' counts and every tick, a narrower one no counts and every other tick (`data-bars`, a container rule per count of bars in `c.css`); the ticks the bare values a pick sets, the chart's title with the word they need (`chartTitle`: "(at least)", "(under)", "(up to)"), the filters' and chips' limits in words (`limitWords`, `ui.layer.limit.*`: step 3d G5); the chart of the filter changed last ringed and
 scrolled to, on phones a swiped strip per topic with that chart enlarged); every country's cube whose box reaches the
 view at once, a study area (`CountryCube.study`) or a country of another layer profile (`profile`, R7) only alone
 (`layerState.ts` `activeCubes`, `summedWith`, `countriesFirst`; `LayerSource`: `countries`, `cells`, `histogram`,
@@ -176,10 +178,15 @@ run of more than `MAX_LINES` lines its box and count only, a failure the card's 
 `result/view/FavouritePicker.tsx` the favourite button's folders; `coverage/` the coverage map: `types.ts`
 (coverage.json, the outlines, contrast.json), `data.ts`, `i18n.ts` (`ct` of its own catalogue `locales/coverage/`,
 `metres` with the language's decimal sign, `areaName`, `noteText`), `palette.ts` (the colours of the page, the layer
-and the canvas), `page/` the page /coverage (flat d3 map, Leaflet, globe; card, legend with three scales, list of the
-areas), `draw/` and `media/` the canvas of the animations and images (`media/main.ts`: `window.FAL_MEDIA`; built only
+and the canvas), `page/` the page /coverage (flat d3 map, Leaflet, globe; card, legend with three scales and drawn stars, list of the
+areas: a table, on a phone one row per area with the card as a sheet over the list, which keeps its place, and a
+header that scrolls away; a row too for a country covered only in some regions), `draw/` and `media/` the canvas of the animations and images (`media/main.ts`: `window.FAL_MEDIA`; built only
 by `node build.mjs --media`, never in dist); `app/coverageLayer.ts` the place map's *Data coverage* (a box of its own with a button on a desktop, a row of the layers' box on a phone: `place`; on while its group is on the map, remembered but for the map's own removal); `app/PlaceMap.ts` the app's place map (the search page, the OSM page, the highline layer's page) with two arrangements of its controls by the media query `PHONE` (a desktop or tablet: zoom, layers and the coverage's box at one corner; a phone: zoom across at the top left, the layers' button at the top right, its box closed, the drawing tools in a row beside the zoom), their look from `result/view/mapbar.css` (`.c-placemap`); tests `tests/test_shell_c_search_page.py`; `translator.ts`
-the `translator` of both catalogues (so coverage.js holds only its own); `ui/fonts.css` Barlow Condensed (woff2 of
+the `translator` of both catalogues (coverage.js carries the app's too: `ui/components.tsx` imports `ui/Hint.tsx`,
+which reads `i18n.ts`); `i18n.ts` the app's `t`, `label` and `parts` (a text with an icon, a link or a value as a part
+of its own; the words of the files `tests/test_texts_in_catalogue.py` names come from `locales/en.json`, while line
+volume's result-view files, today's result page and the kit's demo pages still hold English in code: known-bugs.md);
+`ui/fonts.css` Barlow Condensed (woff2 of
 weights 500-700, latin and latin-ext, flat hashed files in dist: `install_viewer` copies dist file by file)
 
 **The result view of mock-up 2** (docs/line-volume/spec-view.md part B, step 3b: built beside today's result page and
@@ -250,7 +257,8 @@ it, `views.ts`/`look.ts` the views Orbit, Athlete's eyes and Behind the athlete 
 athlete's, the gaze dragged or turned by the phone: `DeviceOrientationEvent`, iOS's `requestPermission` inside the
 tap; the zoom: Eyes' horizontal angle, 60° by default, from about 110° to ×8, Behind's distance 1.5-30 m),
 `edit.ts`/`interact.ts`/`screen.ts` the anchors' editing at level full (a DOM overlay over the canvas, three-mesh-bvh
-raycasts, `/api/profile` after a release), `ring.ts`/`ringmath.ts` the coarse ring of terrain (3d-tiles-renderer's
+raycasts, `/api/profile` after a release; the bar held by `holdBar`/`releaseBar` while handles are dragged and until
+the profile answers), `ring.ts`/`ringmath.ts` the coarse ring of terrain (3d-tiles-renderer's
 `TerrariumMeshPlugin`, behind `FINDALINE_3D_RING`; it clamps the plugin's private `_maxSourceLevel` of 0.5.3: check it
 on an upgrade). Round 2 (2026-11-05; docs/3d-view-contract.md, "Round 2"): `chrome.ts` the activity pill and the tool
 strip over the stage (`Scene3D.activity`, `Scene3D.tools`; the tools' ids and order in the contract), the card's slot
@@ -264,5 +272,15 @@ the staying anchor from `/api/reach` as `Scene3D.setOverlay`'s picture, a dragge
 (`/api/patch?part=canopy`, a tool only when the patch's meta has `surface`); `others.ts`/`otherlines.ts` the address's
 `&also=` lines and the user's other saved lines of the run (a click makes one the active line:
 `Edit.setAnchors(anchors, key)`); `options.ts`/`fan.ts`/`optionlist.ts`/`point.ts` the lines from a clicked point (the
-point's reach, its representatives the result's spots through `grouping.ts` with the meta's `group_distance`). The
+point's reach, its representatives the result's spots through `grouping.ts` with the meta's `group_distance`). Step
+3c, group B (2026-11-19; docs/DESIGN.md rows 40 to 49): `icon.ts` the kit's icons for the plain DOM (`kitIcon`: the
+notice's dismiss, the sorted head, a favourite's star); `screen.ts` `pressedMark`/`nearestMark`, the mark a press goes to
+(the mark whose drawn box holds it; else the nearest centre of the marks whose invisible targets, 44 px on a touch
+screen, hold it: the fan's dots, the labels), `targetInside` (a mark's target kept inside the stage: the fan's dots, the anchors' handles, the other lines' labels, by their half-sizes and how far a target may move) and `draggable`'s
+`fromCentre` (a handle's drag keeps the press's offset). The
+phone's layout (rows 37 to 39): `chrome.ts` `stepAside`, the profile card's slot right of the tool strip where the
+card would reach it; `info.ts` the phone's "About this view" button and its box of the bar's notes (the credits'
+box hidden where the open box would overlap it); the one-row bar of a phone held sideways and a touch tablet is
+`chrome.ts` `oneRow` (the class `v3-row`, the one place of its condition) and its rules in `view3d.css`
+(`tests/test_view3d_layout.py`). The
 contract of its waves and every decision: docs/3d-view-contract.md; the research: docs/3d-view.md

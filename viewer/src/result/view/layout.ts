@@ -139,22 +139,30 @@ export function maxColumnWidth(side: "list" | "details", width: number,
 // The highline layer's panels (app/c/LayerPage: the filters on the left, the histograms on the right of the map):
 // their own limits and kept value, under their own key; the same fitting
 
-/** What the layer keeps (localStorage "findaline.layer.layout"): each panel's width and whether it is open. */
-export interface LayerLayout { v: 1; left: PanelState; right: PanelState }
-/** left: 320-560 px (the filters' two columns fit from 320); right: 300-640 (620 holds two charts of 288 px a row). */
+/** What the layer keeps (localStorage "findaline.layer.layout"): each panel's width and whether it is open. Version 2
+ *  since the defaults became 340 and 485 px (2026-11-19); a kept value of version 1 is read too (sanitizeLayer). */
+export interface LayerLayout { v: 2; left: PanelState; right: PanelState }
+/** left: 320-560 px (the filters' two columns fit from 320; at 340 the legend's five labels fit at 12 px); right:
+ *  300-640 (485 holds two charts a row with the scrollbar's room: c.css, the container query). */
 export const LAYER_LIMITS: PanelLimits = {left: [320, 560], right: [300, 640], rail: 36, map: 360};
-export const DEFAULT_LAYER_LAYOUT: LayerLayout = {v: 1, left: {w: 400, open: true}, right: {w: 620, open: true}};
+/** The user's pick L5 a (2026-11-19; docs/DESIGN.md, choice 71): a map of 575 px in a window of 1400. */
+export const DEFAULT_LAYER_LAYOUT: LayerLayout = {v: 2, left: {w: 340, open: true}, right: {w: 485, open: true}};
+/** The defaults until 2026-11-19, as version 1 kept them. */
+const OLD_LAYER_WIDTHS = {left: 400, right: 620};
 export const LAYER_LAYOUT_KEY = "findaline.layer.layout";
 
-/** A kept value of the layer's panels made safe (as sanitize). */
+/** A kept value of the layer's panels made safe (as sanitize). A value of version 1 keeps a width the user dragged;
+ *  a width equal to that version's default (kept by a collapse or by a drag of the other panel, never chosen) becomes
+ *  today's default. Whether a panel is open is kept from both versions. */
 export function sanitizeLayer(value: unknown): LayerLayout {
-  const d: LayerLayout = {v: 1, left: {...DEFAULT_LAYER_LAYOUT.left}, right: {...DEFAULT_LAYER_LAYOUT.right}};
+  const d: LayerLayout = {v: 2, left: {...DEFAULT_LAYER_LAYOUT.left}, right: {...DEFAULT_LAYER_LAYOUT.right}};
   const v = value as any;
-  if (!v || typeof v !== "object" || v.v !== 1) return d;
+  if (!v || typeof v !== "object" || (v.v !== 1 && v.v !== 2)) return d;
   for (const side of ["left", "right"] as const) {
     const part = v[side] && typeof v[side] === "object" ? v[side] : {};
     const [lo, hi] = LAYER_LIMITS[side];
-    if (typeof part.w === "number" && isFinite(part.w)) d[side].w = clamp(Math.round(part.w), lo, hi);
+    const old = v.v === 1 && part.w === OLD_LAYER_WIDTHS[side];
+    if (typeof part.w === "number" && isFinite(part.w) && !old) d[side].w = clamp(Math.round(part.w), lo, hi);
     d[side].open = part.open !== false;
   }
   return d;

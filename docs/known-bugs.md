@@ -255,8 +255,8 @@ Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the 
   `--access`, would fail its `access_ends` on a PC too short of memory for its grid (not seen).
 - **Without a test:** the disk estimate of a search whose mark was left out; Compare of a run without the mark
   (left out) with a marked run (read as correct).
-- **The search form shows an estimate's notes only as a count** ("1 warning(s)"); the note that the anchors' access
-  will not be marked reads in the receipt.
+- **The search form shows an estimate's notes only as a count** ("1 warning", by the count since step 3d G5); the
+  note that the anchors' access will not be marked reads in the receipt.
 
 ## Line volume, round 4: known and left (2026-11-17)
 
@@ -381,8 +381,9 @@ Found in the reviews of the Cancelled state (migration 19, `jobs.removed_at`); n
 Group A brought the sign-in page, Home, the search forms, the account, Favourites and the OSM page to DESIGN.md's
 rules. On a phone one control stays under R2's 44 px (the place map's zoom and "Data coverage", the receipt's
 parts in the phone's unfolded bar and the drawing tools were more until the user's picks of 2026-11-19: DESIGN.md
-"The pilot's look", choices 34 to 36); on a touch tablet, which keeps the desktop's arrangement, also the
-coverage's own button (32 px) and the drawing tools (30 px):
+"The pilot's look", choices 34 to 36); on a touch tablet, which keeps the desktop's arrangement, also the drawing
+tools (30 px; the coverage's own button, 32 px as drawn, has an invisible 44 px target since step 3d: DESIGN.md
+row 83):
 
 - **The place's pin** (Leaflet's marker, 25 x 41 px): a mark of the map; it is moved by a tap on the map, the pin
   itself needs no press.
@@ -403,7 +404,8 @@ tool's actions, which open under the first row, lie over the last of them by 36 
 actions reach 10 px past the map's right edge). The tools are links without a name for a screen reader
 (Leaflet-Geoman's own markup: axe `link-name`, 5 nodes, in the new `ui_shots` state `c-new-area`; the same
 markup on main). On a tablet in the columns with a finger the coverage's own box keeps its
-32 px button and the tools Geoman's 30 px column (the desktop's arrangement: the user picked on phone frames); a tap
+32 px button (with a 44 px target since step 3d) and the tools Geoman's 30 px column (the desktop's arrangement: the
+user picked on phone frames; the tools wait for line volume's round 6); a tap
 on the coverage button while the layers' box is open closes the box and misses the button, which moves 56 px down
 as the box (rows of 44 px now) closes: the second tap takes. An earlier note here, that the layers' box does not
 open while the tools are shown, was the test harness's doing (the emulated mouse left over the Advanced tab makes
@@ -412,28 +414,140 @@ Leaflet close the box on a late mouseout; with taps only it opens, on main too: 
 The layers' box and the keyboard, Leaflet's own and the same on main (measured on both codes, 2026-11-19; for
 step 3d): Escape does not close the open box; Enter on the layers' button opens it and the focus falls to the
 page (the next Tab reaches the first row); on a touch screen a second tap where the button was lands on the row
-under it and can switch the base map (main: at every size; the branch: on a tablet); with the coverage on, its 83
-outlines are Tab stops before the pin and every control; on a desktop the Tab order in the map is coverage,
-layers, zoom (their order in the corner).
+under it and can switch the base map (main: at every size; the branch: on a tablet); on a desktop the Tab order in
+the map is coverage, layers, zoom (their order in the corner). These wait for line volume's round 6
+(`layersControl.ts`). The coverage's 83 outlines, Tab stops before the pin and every control until step 3d, are out
+of the Tab order since (DESIGN.md row 81).
 
-The about page's long link ("ARSO's terms of use of its lidar data: http://...") is wider than its box on a phone:
-90 px over at 390 px (13 px text), 74 px on main (12.5 px); the page itself does not scroll sideways.
+The about page's long address ("ARSO's terms of use of its lidar data: http://...", plain text in a credit's notice)
+ran wider than its box on a phone: fixed by group D (DESIGN.md choice 53).
 
 Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
 `local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the
-bottom bar before the page is scrolled (the account's "Sign out", Home's cards); "Stay in Advanced" in the dialog
-of going back to Basic is cut on the left on a 390 px phone (5.6 px; 19.6 px on main); the keyboard's ring is cut
-where a control stands at the edge of a scrolling column (an input at the form's bottom edge after the focus's
-scroll, the map's credits' links by 2 px, the map itself on its right edge): step 3d's item on `scroll-margin`.
+bottom bar before the page is scrolled (the account's "Sign out", Home's cards). Step 3d measured it again: at the
+end of the page's scroll no row rests under the bar (the iPhone, the Pixel and 360 px; the page's bottom padding is
+the bar's height), before it a row lies there as on any page longer than the screen, which padding cannot change;
+a focused control or a card's panel scrolled into view stops above the bar (DESIGN.md row 81). "Stay in Advanced"
+(cut at 390 px) and the rings cut at a scrolling column's edge or the map's credits were mended by step 3d
+(DESIGN.md rows 81 and 83); the map's own ring, on its right edge, waits for line volume's round 6 (`PlaceMap.ts`).
+In Playwright's WebKit (Safari's engine) a text or number field that Tab focuses at a scroll box's foot is scrolled in
+only to about 12 px above its own foot (the kit's scroll-margin aside; why is not traced: perhaps the caret's line),
+so the search form's fields at the column's foot kept 11.8 to 15.7 px and their ring below it, at every size (the
+iPhone, an iPad's 1024 px, the desktop's 1400 px); 24 px of `scroll-padding-bottom` on the column while a field that
+takes text has the focus mends it, and no other scroll there moves (step 3d's fix round, DESIGN.md row 81: `test_webkit_fields_whole_at_the_column_foot`). Another scroll box with fields at its foot
+would need the same. In Advanced the goal cards' arrows move the focus only and Space or Enter chooses (the planner,
+2026-11-21, DESIGN.md row 82): before, an arrow from "Custom" applied a goal's values over the user's own; a click on a
+card still does, with no way back to the own values but to type them again (`useSearch.ts` `applyPreset`).
 The search page's bottom bar is higher in a short mouse window, so the map is that much lower: its receipt's lines
 are 24 px there (R2 on a desktop). Measured at 1024 x 480 with the longest receipt: 137 px where main has 115 (89
 and 77.5 px with the usual one); on touch screens the bar is within 2 px of main's.
 
-Characters that the rules count and that stay (R9), for the planner: "+ Add a rig" and "+ 2 more settings"
-(`basic.add_rig`, `basic.receipt.more`), the multipliers in the rig's window and the size word's help ("x1.6 to
-x36 lines", `rig.fx.*`, `basic.size.factors`), the browser's own triangle of the rig window's "More", the stroke
-between a path's folders in Favourites, "Open map ›" on the sign-in page's example cards (`web.py`: outside the
-viewer).
+Characters that the rules count and that stay (R9): the browser's own triangle of the rig window's "More", the
+stroke between a path's folders in Favourites ("Open map ›" on the sign-in page's example cards was one until group
+D: DESIGN.md choice 55). "+ Add a rig", "+ 2 more settings" and the multipliers of the rig's window and the size
+word's help are written out since step 3d G5 (DESIGN.md choice 92).
+
+## Step 3c, group D (admin, privacy, about): known and left (2026-11-19)
+
+- **axe's `skip-link` on the admin page** (3 nodes on `c-admin` in every device and theme, axe's example
+  `.c-report-context > a`; measured 0 on `c-admin-end`, the same page scrolled to its end): a false
+  finding. With the `ui_shots` data the page has three hash links, all routes of the app, not anchors: a run's
+  "Open" and a problem report's run link (`#run=<id>`, `AdminC.tsx` `runHash`) and "OpenStreetMap extracts"
+  (`#osm`); axe's best-practice rule reads such a link as a same-page link to an element that does not exist. The
+  same on the base before group D.
+- **"All searches" with content is not in `tools/ui_shots.py`**: the tool's site has no job (a job would show on
+  the administrator's Home too and change that page's pictures). Group D pictured it with a probe in a folder of its
+  own (`local/ux-design-2026-11-16/3c-d/probes/`, three finished searches; its rows hold only a status chip and
+  kit buttons). The probe also gave the pending user a session: three buttons in one row on a phone, the checkbox on
+  its own line under them (DESIGN.md choice 50).
+- **The admin page's texts** moved into `locales/en.json` in step 3d (group G4, `ui.admin.*`; its plurals by the
+  catalogue's forms). A problem report's context line reads "page: …; interface: …; window: …" since step 3d G5
+  (labelled values, parts joined by "; " as the run's link holds a comma); it still wraps to 2 lines on a 390 px phone
+  and 3 at 360 px.
+- **Left on the admin page, inherited** (the design review's F5 and F6): the kit's solid-accent badges
+  ("Administrator", "Water level", "Demo") beside the solid-accent primary button ("Done", "Approve"; in the dark
+  theme "Demo" and "Done" are the same pill), for the kit's round; "Open" in Runs with its arrow before the word where "Open map" has it after; the page's title the size of
+  its section titles; a wrapped ghost "End sessions" set in by its padding.
+- **The about page shows "<year of the run>" literally**: not a credit's own text. A credit names the year of the run
+  as `sources.YEAR` ("{year}"); where no run exists, the about page fills it with `sources.credit.YEAR_TEXT` (web.py
+  `about_page`, `src.dated(..., src.YEAR_TEXT)`): deliberate, left.
+- **The admin page's checkbox** is the browser's own (13 px box, not the search form's 20 px `.s-check` in the
+  accent); its row is the 44 px target (choice 50), the box itself is not restyled.
+
+## Step 3c, group B (the 3D view): left, inherited, and what the probes found (2026-11-19)
+
+Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept (rows 40 to 49). Left as it is:
+
+- **Inherited from the profile chart** (`Profile.tsx`, `profile.css`: shared with today's result page and line
+  volume's round 6, not changed here): its text at 11 px (116 characters a state with the card open: R1; the only
+  text under 12 px left in the 3D view's states), the card's facts joined by " · ", "→" and "Δh" (R9), and on a
+  touch screen the controls of "Rigging and layers" under 44 px (five number fields, three or four checkboxes by
+  their labels, the "1:1 scale" button: R2; measured in the probe with that box open on both phones, sideways too).
+- **The phone's three layout questions** were answered on a mock-up and built (DESIGN.md rows 37 to 39: the bar in
+  one row held sideways, the card stepping aside, the notes behind "About this view" with the safety sentence kept
+  in the bar). What they leave, measured after the fix round of 2026-11-20 (`local/ux-design-2026-11-16/3c-b/fixes/`: `tip/`,
+  `probe-misc/`, `probe-pointcard/`):
+  - Held sideways the open card covers most of the stage and scrolls inside (165 of 244 px shown at 844 x 390, 150
+    of 244 px at 667 x 375; the mock-up's extra option A2 was not picked).
+  - Held sideways at 844 x 390 the data credits start open, as everywhere from 768 px (the user, 2026-11-20: "Open
+    as before", and after the design review's second look "Keep open, as you chose"): 560 x 139 px of the stage's
+    844 x 233 px (60 % of its height) until they are folded, over the found line and its pin
+    (`local/ux-design-2026-11-16/3c-b/fixes2/corner-1/S844-loaded.png`).
+  - The list of "Lines from a point" (the full level on a phone: by its address only) keeps its least height of
+    80 px. With the card open it lies over the credits' box by 34 px at 390 x 664 and is left with its head and
+    21 px of its first row (`probe-pointcard/point-upright-list-card.png`); held sideways it lies over the card by
+    72 px (`point-sideways-list-card.png`), where it lay before too.
+  - On a touch screen 601 to under 620 px wide with the one row (held sideways, or a tablet's window at the phone
+    level) the row wraps in the athlete's views (measured at 610 x 360: the bar 159.6 px there, 115.6 px in the
+    orbit; at 601 and 610 x 900: 140.1 and 96.1 px; one row, 96.1 px, at 620 and 640 px).
+  - A strip with its labels still lies over a card that reaches it (the card steps aside of a strip of icons only,
+    row 38): a touch tablet at `?level=full` (1024 x 600: four tools over the card,
+    `probe-misc/T1024full-card.png`) and a short desktop window (1280 x 500: four tools,
+    `probe-misc/D1280short-card.png`; 844 x 390: the strip in two columns, three tools over the card,
+    `probe-misc/D844short-card.png`).
+  - The phone level's bar with words, since 2026-11-20 only the desktop's `?level=phone` (a mouse: a touch tablet
+    has the one row of row 37, the user's "C: the one-row bar of a phone held sideways"), is longer than the window
+    in the athlete's views in a narrower window, as on main. Measured 2026-11-20 (the tests' clip,
+    `local/ux-design-2026-11-16/3c-b/fixes2/row-1/`): at 844 x 390 "Edges" stands outside with two kinds of
+    imagery, three kinds with four and the speed under "Satellite (Esri)"; at 1024 x 600 "Edges" outside with four
+    kinds.
+  - At 360 px of width the title is cut to 97 of its 115 px ("3D view of a…") between the two buttons (its 20 px
+    of row 46).
+  - On the narrower card beside the strip (the chart 298 px against 350 px) the chart's own labels "min.
+    clearance" and "highest … above terrain" stand on touching lines (`Profile.tsx`: inherited;
+    `local/ux-design-2026-11-16/3c-b-review/design/mock/sheets/390x664-s2A-five-tools-card-light__chromium-390x664-full-card-light.png`).
+  - While "About this view" is open, the credits' box, its button with it, is hidden where the box would overlap it
+    (the design review's P9) until the box is closed ("Close", Escape, a press beside it, Tab or, since step 3d,
+    Shift+Tab out of it); where the credits stand clear above it (above an open card) they stay, with the pressed
+    button.
+  - A fan dot near the stage's edge keeps its whole 44 px target (`screen.ts` `targetInside`: on the Pixel of
+    `ui_shots` the 312 m line's dot stood 19 px off the right edge, which cut its target to 41.4 px); the labels of
+    other lines and the anchors' handles too since step 3d (DESIGN.md row 84). A mark whose own drawn box the edge
+    cuts keeps a cut target (no target can cover it and stay inside).
+- **An anchor's handle jumped at the first move of a drag on a phone**, mended by step 3d (DESIGN.md row 84): the
+  first edit makes the bar 44 px higher ("Back to the found line" appears and the readout gains "Moved, not saved"),
+  which made the stage 44 px lower under the finger and put the handle 24 px off it ((11.4, -21.1) px at anchor 1 on
+  the Pixel, `local/ux-design-2026-11-16/3c-b/fixes/probe-drag-before/drag.json`; the cause measured by
+  `3c-b-review/code-review-r2.md`). While handles are dragged (a count: two fingers hold it till the last release)
+  the bar gets neither higher nor lower and its new row waits for the release; after it the bar gets no lower until
+  the new profile is in (`edit.ts` `holdBar`, `releaseBar`, `settled`): the handle stays under the finger (0.1 px on
+  the Pixel, 0.2 px in WebKit's iPhone at the first 1 px), nothing of the bar leaves the window, and a later release
+  that leaves the readout as it was changes no size (`test_view3d_handle_stays_under_the_finger`,
+  `test_view3d_two_fingers_hold_the_bar`). Left, as the planner chose: at the first release the bar's row appears, the
+  stage gets 44 px lower (on the iPhone once more when the profile's line comes in) and the handles move with the
+  scene. A turn of the window during a drag keeps the bar's old height until the new profile is in; Escape does not end a drag
+  (as on main). A press on the rim of the handle's 44 px target adds no offset
+  (`test_view3d_handle_drag_keeps_its_offset`).
+- **The marks' targets** (row 43) take presses from the stage: in "Lines from a point" on a phone the targets cover
+  3.3 to 5.1 % of the stage (6.5 % sideways), where a press reaches a dot or a handle instead of the terrain (orbit,
+  pinch, a new point). Where a fan's dot stands on an anchor's handle (the found line's other end among the
+  representatives) the dot, drawn later, takes the press, as before. Two labels closer than 44 px share part of
+  their targets (31.9 px apart in `ui_shots`' "view3d-others" on an iPhone): a press on a label's own drawn box is
+  that label's, and where only the targets overlap the nearer centre wins. The two
+  handles' targets overlap only when the anchors stand under 44 px apart on the screen (the camera far out): there
+  anchor 2's, drawn later, takes the press. Dots under the list or the open credits stay under them (as before).
+- **Measured from states the tools do not have**: the imagery notice is made by a script in the probes (the clip's
+  run has no orthophoto and the probes run without an Esri key), its words the catalogue's.
 
 ## A phone on its side at half: an uncertain shore's chip on the status line
 
@@ -445,3 +559,173 @@ status line, with the scale at its right end. With a level held, the status line
 by you. Back to Auto") reaches under the chip. Measured with the test's stand-in on the test site's run: the
 status line at 159-387 x 137-165 px, the chip at 347-542 x 112-156. `test_phone_on_its_side` excepts this pair
 by name. Under Auto, and at the low stop, nothing covers another. Found 2026-11-18 (the UX pilot's Q2 probes).
+
+## Step 3c, group C (the coverage page, the highline layer): what is left, and what the probes found (2026-11-20)
+
+Group C brought the coverage page and the layer explorer to DESIGN.md's rules with the user's seven picks and, after
+its reviews, five answers more ("The pilot's look", choices 60 to 77). Measured after (`tools/ui_metrics.py pages`):
+no text under 12 px outside a map's credits and scale; no control under the bound on the desktop; on the phones the
+layer's chart bars only (excepted by name in R2). Known and left:
+
+- **The stars in the images and videos**: `coverage/draw/layout.ts` writes "★★★ Best" as text for the canvas, so the
+  images and videos of `tools/coverage_*.py` keep the character while the page draws its stars (the user's pick,
+  2026-11-19: the page first).
+- **A star not reached and a filled one are close in lightness** (1.37:1 light, 1.33:1 dark): the price of the
+  grey that holds 3:1 on every ground (the user's pick, 2026-11-20; DESIGN.md, choice 63). The hue and the mark's
+  name ("2/3") tell them apart.
+- **The legend's "≤ 1 m", the charts' ticks, "0.6 × 0.9 km"** and the texts over R10's limits (the coverage page's
+  `page.lead`, the layer's notes): written out and shortened in step 3d G5 (DESIGN.md choices 92 and 93). The images
+  and videos keep "≤ 1 m" with their stars (`coverage/draw/layout.ts`, left for now).
+- **axe's `skip-link` on the layer's selected cell** (3 nodes): its "Search here" links are hash links
+  (`#new&cell=…`), which the rule takes for skip links to a missing target. A false finding.
+- **The chart rule's range**: `c.css` holds a rule per count of bars from 1 to 24 (32 px a bar); a chart of more
+  bars would show no counts at any width. On a phone an enlarged chart is at most the screen's width less 32 px, so
+  it shows its counts up to 10 bars at 360 px of width (328 px of chart) and up to 11 at 390 px (358 px); today's
+  cubes have 6, 7 and 9 bars. The charts' text was built and checked on the test cube only, not on a real cube's
+  numbers (docs/roadmap.md, "The page's readability on a real cube").
+- **The coverage page's zoom buttons at 360 px of width** wrap onto two rows (96 px over the map), in English and
+  Polish; at 390 px they hold one row.
+- **A touch tablet and a phone held sideways at 768 px or more keep the desktop's arrangement** of the layer: a
+  collapsed panel's rail is 36 px wide there (under 44 px in one direction), as in the result view; the panels'
+  collapse tab, 24 x 44 px as drawn, has an invisible 44 px target since step 3d (DESIGN.md row 83; the result
+  view's tab waits for line volume's round 6). On the layer page's map the coverage box's right edge stands under
+  the right panel's splitter (24 px wide on a touch screen): a tap on the box's last 2 px reaches the splitter
+  (measured at 1024 x 768 and 1180 x 820, before and after step 3d). On the coverage page at 844 x 390 a card opened
+  from the map is taller than what is left of the screen and scrolls inside.
+- **A collapsed panel's rail**: the tab at its middle lies over a long label ("Charts: 62 M lines in view" at
+  390 px of height), as before.
+- **On a phone's strip the small charts stand bottom-aligned beside the enlarged one**, which leaves a blank band
+  above their names (the build's `align-items: flex-end`, as before).
+- **Inherited and left** (the design review's F10): on the coverage map a selected country stays drawn above its
+  regions after its card closes (`flat.ts`); the map's shapes take no keyboard focus (every card is reached from
+  the list). The switches take the arrows since step 3d (DESIGN.md row 82).
+- **The layer's map and the keyboard's ring** (the design review's F10, inherited): the kit's ring lies outside the
+  map's box, on a desktop under the side panels and the header (not seen); on a phone its lower edge shows as a line
+  under the sticky map, after a tap too (seen in the tap probe's pictures at the fix round's tip; the same rules as
+  before the round, so presumably as before, not measured on the old build). Drawn inside the box (the fix round's
+  first build) it showed after a press of a finger or a mouse too, so it was taken out: Leaflet focuses its
+  container on a press (`Map.Keyboard` `_onMouseDown`) and the browsers then mark that focus `:focus-visible`.
+  Measured 2026-11-20, a first press on a freshly loaded page: WebKit (iPhone 13) and Chromium (Pixel 7) after a
+  tap, Chromium (1400 x 900) after a click; the search page's map the same, with the kit's ring outside its box. A
+  press after a press on another control was not measured. A ring for the keyboard only needs the press told apart
+  from a key, for the place map of all three pages (`app/PlaceMap.ts`), not for the layer alone.
+- **`test_layer_page_in_edge`'s cut step** picks the cut cell whose two parts are deepest: with the panels' new widths
+  the map in headless Edge's window is 425 x 649 px (360 before) and the first lattice points of the first cut cell
+  lay 3 px apart at the shared edge. Its points lie 2 px inside their parts, so another change of the map's size may
+  need new points.
+- **The scrolls of a row's press on a wide screen** (to the map, and back on closing) are eased unless the system
+  asks for reduced motion; the tests run with reduced motion, so the eased scroll itself is untested.
+
+## Step 3d, group G1 (keyboard, focus and touch): known and left (2026-11-21)
+
+Found by the reviews of G1 and left (DESIGN.md rows 81 to 84 hold what was mended):
+
+- **Forced colours on round 6's inside rings**: the place map's zoom buttons (`result/view/mapbar.css` l.128), the
+  phone's drawing tools (l.181) and the view's rows (`result/view/view.css` l.85) draw their ring inside
+  (`--focus-in`) with no forced-colours `outline-offset: -2px` beside it, so the kit's forced-colours outline falls 2 px
+  outside them, where their bar clips it (the zoom: cut 4 px on three sides, only an edge shows; measured on the
+  desktop and the phone, 10 stops on 5 states). Line volume's round 6's files: for G6.
+- **WebKit draws no focus on a native checkbox** (the admin page's "Without limits" and "Demo", the search's "Mark
+  anchors you can walk to"): `:focus-visible` matches, the computed shadow is `none` (as at db84edbc). G3's one checkbox
+  may mend it. The 3D view's slider had the same and was mended (its ring around its field, row 84).
+- **The layer page on a phone**: with the column scrolled to 500 px a press on the sticky map scrolls it to 222 px
+  (Leaflet focuses its container on a press, and the column's `scroll-padding-top` of the map's height brings the
+  focused map's top under itself); as on main.
+- **The 3D view on a desktop**: a Tab focus on another line's label that lies off the stage scrolls the marks' layer
+  (`.v3-overlay`, `overflow: hidden`) by 787 to 904 px, which moves every mark off its point until the next frame; as
+  on main.
+- **Today's result page takes the kit's new rules** (the focus's `scroll-margin`, the credits' inside ring and its
+  room, the forced-colours outline): keyboard only; none of its pictures changed (the whole `ui_shots` set compared).
+- **A press on a coverage outline** now leaves the focus on the map in every engine (its default prevented: WebKit as
+  on main). In Chromium it focused the outline on main (its tooltip then stayed after a tap, the arrows did not pan
+  after a click); keeping that in Chromium alone would need the engine told apart. In WebKit's iPhone profile at its
+  own 390 x 664 a tap on an outline now moves the search point and keeps the outline's tooltip open, where on main it
+  did neither (at 1024 x 900 both builds behave alike): taken as an improvement, left.
+- **The layer's strip on a phone**: a chart's name focused by Tab comes into view whole; on the Pixel 7 one of the 16
+  names still has 4 px of its ring past the window's edge (none on the iPhone).
+- **The arrows choose in every radio group but the goal cards** (WAI-ARIA's pattern, the planner's decision): each
+  arrow on the 3D view's imagery starts that imagery's tiles (Esri's with the key), each on the layer's "Cells",
+  "Count" or "Lines across the border" a recount (30 to 46 requests in 9 to 12 presses on the sample cubes), and one on
+  the coverage page's "EN" switches the page to Polish.
+- **The coverage page's brand link on a phone**: its ring's top 4 px lie above the window (the header at the top of
+  the page); as before.
+- **The map credits' ring and the credits' brackets**: the ring is clear of its link's own letters (no pixel under it
+  at device scale 1 and 2, light and dark), and a "p"'s descender ends on the pixel row above its bottom side (the map's
+  edge leaves no more room). Where a bracket adjoins the link with no space, "(report a map issue)" and "(CC-BY-SA)",
+  the ring's side lies on that "(" or ")": a 2 px side between them needs room the line does not have without moving
+  (judged acceptable by the design review; a 1 px side ring would be the cheapest remedy).
+- Firefox was not run (by the code: a coverage outline was never focusable there, and a press keeps the map's focus).
+
+## Step 3d, group G5 (the words): what stays (2026-11-21)
+
+G5 built the words the user approved on the wording review (DESIGN.md choices 92 to 95; `local/ux-design-2026-11-16/
+3d/g5/`). Left, by the user's answers or as named:
+
+- **Today's result page** keeps its intro (`intro.result.spots` 80 words, `filters` 48, `check` 38: over R10) and its
+  "→" (`intro.result.easy_within`, `spots`), and its filter bar's ≥ and ≤ in code (`result/view/FilterBar.tsx`): the
+  page goes with line volume's round 6 (the user, 2026-11-19). `tests/test_words.py` names them.
+- **Round 6's files**: the profile's " · " between values, "→", "Δh" and "vertical ×1.6" (`Profile.tsx`), the coarser
+  box's shares of sources joined by " · " (`coarser.ts`, shown in round 6's box): step 3d's G6.
+- **The images and videos of the coverage map** keep "≤ 1 m" and the stars' character (`coverage/draw/layout.ts`):
+  rendered by hand and rarely (the user, 2026-11-19).
+- **The layer's small charts on a phone** show their title on two lines where the word the bare ticks need
+  ("(at least)", "(under)", "(up to)") does not fit one (inside the title's 44 px target: `.ui.c-narrow
+  .c-layer-hist-name`); the desktop's two-a-row charts keep one line.
+- **A browser that put the search's intro away before** keeps its `findaline.intro.search` in localStorage, unused
+  since the intro opens from its link only (no migration: nothing reads it).
+- **The coverage legend at 360 px** shows "Very detailed" and its tag "up to 1 m" on two lines (one line on 390 px and
+  wider; "≤ 1 m" fit beside the name): the legend one line taller, nothing cut.
+- **`ui_metrics.py pages` counts three more covered controls** on the iPhone's "c-layer-chart" (67 -> 70 in the
+  family), traced by the design review (`local/ux-design-2026-11-16/3d/g5-review/design-review.md`): the same three
+  chart names lie under the bottom bar at both commits; at the tip a 0.17 px sliver of them shows above the column's
+  edge (the shorter notes above move them 0.84 px up), so the tool counts them. Not a rise.
+
+## Step 3d, group G4 (the texts into the catalogue): what stays in code, and why (2026-11-20)
+
+G4 moved the English of the app's pages, the kit, the side panels and web.py's sign-in, examples, area total, about
+page and footer into `locales/en.json`, word for word (DESIGN.md choice 85; `tests/test_texts_in_catalogue.py`).
+What still shows English from the code:
+
+- **Python texts outside web.py's moved pages**, not counted by step 3d's scope and not moved (each needs its own way
+  into the catalogue, a code as the coded errors have): the job's progress line on Home's cards ("Tile 3/15 · Step
+  3/5: evaluating anchor pairs", the search's progress through the worker's events, `useJobs.ts` `step`), a job's
+  messages and an error without a code (its str()), the examples' settings line on the sign-in page
+  (`runs.params_summary`), web.py's HTTP errors without a code ("no such sign-in", "too many sign-in attempts:
+  try again later"), and the coverage page's shell (`web.COVERAGE_HTML`: its title "Data coverage · Find-a-Line", its
+  description and its noscript line; the page's own words are `locales/coverage/`).
+- **The privacy page** (`web.privacy_page`): its words are the user's to approve (the plan); its code is untouched and
+  its HTML byte for byte as before (the footer it shares now comes from the catalogue with the same bytes).
+- **The kit's demo pages** (`ui/Gallery.tsx`, `search/KitSearch.tsx`, `result/view/KitResult.tsx`): developer pages
+  (the plan, Q13 a). **Line volume round 6's files and today's result page's** (`result/view/*`, `Profile.tsx`,
+  `result/model.ts`, `list.ts`, …): after round 6, or out. The side panels' labels ("Collapse the …") take the panel's
+  name from the caller: the layer page's from the catalogue (`ui.panel.filters`, `ui.panel.histograms`), round 6's
+  `ResultColumns.tsx` and `SpotColumns.tsx` pass their side's identifier ("list", "details") as the word.
+  `coarser.ts` ("under 0.001", the shares) is shown in round 6's coarser box.
+- **Formats and values**: `time.ts`' month names and the numbers' `toLocaleString("en")` (a language would format them
+  with `Intl`, not the catalogue); unit symbols.
+- **Names and required wording**: Find-a-Line, OpenStreetMap, OpenTopoMap, SRTM, GeoJSON, CSV; Esri's attribution and
+  "Powered by Esri" (its terms); the processed-data note (`layers.ts` `PROCESSED_NOTE`, word for word with
+  `sources.credit.PROCESSED_NOTE`: `tests/test_catalogue.py`).
+- **Developer diagnostics**: the store's reading errors (`result/load.ts`, `types.ts`: written to the console; the
+  page shows `ui.result.store_failed`) and the vendored `view3d/martini.ts`.
+- **The same words under several keys** ("Cancel" `rig.cancel` and `ui.common.cancel`, "Close" five times, "Remove",
+  "Try again", "Auto", "All", "Done"; `local/ux-design-2026-11-16/3d/g4/same-words.md`): a key for each sense, the
+  older ones named for their component (the planner's ruling, 2026-11-20). The one-form plurals, the two about
+  wordings and "Report a problem…" in the two menus were G5's (closed: DESIGN.md choice 95, step 3d G5).
+- **The coverage page's bundle carries the app's catalogue** (before G4 too: `ui/components.tsx` imports `ui/Hint.tsx`,
+  which imports `i18n.ts`), so it grows with it: `coverage.js` 435 to 452 KB with G4's 337 keys (main's
+  `ui.card.cancelled` went: the kit's key says the same).
+- **Text nodes and pixels**: Chromium places a line's glyphs by its text nodes, so the same words in other nodes can
+  differ by a shade (seen on the search's "Centre …" line, the mini maps' credit, Admin's user line, and in the
+  reviews on Favourites' "Export this folder" and its 0-line delete question). `i18n.parts` keeps a text's values as
+  nodes of their own where they were; the pictures of `tools/ui_shots.py`'s states and of the states it has no page for
+  (Favourites with rows, menus, "Move to", the delete question with 0, 1 and 2 lines; Admin's "All searches" rows; the
+  estimate paused and unavailable; the area file's six errors; the report dialog's kinds; the beta notice; a card's
+  Share and Delete panels) are pixel-identical to main's on the desktop, the iPhone and the Pixel but for live map
+  tiles and shades of 1/255 on a control's corners that main against main shows too
+  (`local/ux-design-2026-11-16/3d/g4/fix/`). Two lines keep the same words with a space in another node than main's
+  (the delete question's " and" " ", the trip list's empty line): the same pixels.
+- **The map credits' catalogue words go into HTML unescaped** (`baselayers.ts` `osmCredit` and the OpenTopoMap
+  credit, `layers.ts` `creditsHtml`: `ui.map.*`, `ui.credits.data`, `ui.credits.notices`), as Leaflet's attribution
+  takes HTML; `web.page_text` escapes its texts' &, < and >. No word holds either today; a later word (G5, a language)
+  with "&" or "<" needs escaping there.

@@ -9,6 +9,7 @@
 // real clearance lies up to one quantum (0.5 m) below the number.
 
 import { t } from "../i18n";
+import { kitIcon } from "./icon";
 import { signedMetres, sortOptions, type Option, type SortKey } from "./options";
 import type { SceneCore } from "./scene";
 import { metres } from "./webbing";
@@ -62,7 +63,9 @@ export function createOptionList(scene: SceneCore, handlers: ListHandlers): Opti
   const headRow = el("tr", "");
   const buttons = new Map<SortKey, HTMLButtonElement>();
   for (const c of COLUMNS) {
-    const th = el("th", `v3-opt-${c.key}`), b = el("button", "v3-opt-sort", t(c.head));
+    // the kit's "sort" icon before the words, shown on the sorted column (point.css)
+    const th = el("th", `v3-opt-${c.key}`), b = el("button", "v3-opt-sort");
+    b.append(kitIcon("sort", "v3-opt-sort-icon"), t(c.head));
     b.type = "button";
     b.dataset.sort = c.key;
     th.scope = "col";

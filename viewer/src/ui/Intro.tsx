@@ -1,10 +1,14 @@
 // An introduction that opens once: a native <dialog> (showModal: Esc, the focus kept in it, the page
 // behind inert) with a title, its text, "Do not show again" (checked at first) and "Got it". The
 // browser remembers it in localStorage ("findaline.intro.<name>"); where the storage is blocked it
-// opens once per page load. A link (IntroLink) opens it again. Styles in app/notices.css (n-intro*),
-// the dialogs' look of the kit.
+// opens once per page load. A link (IntroLink) opens it again. An intro that does not open by itself
+// (`useIntro(name, false)`: the search's, the user's answer of 2026-11-21, so a first search reads fewer
+// words) opens from its link only, without "Do not show again". Closed (Got it, Esc, Enter, a tap) it
+// gives the focus back to what had it when it opened, or, where that is gone or was the page itself (a
+// phone's tap focuses no button; an intro that opened by itself), to its own link (IntroLink). Styles in
+// app/notices.css (n-intro*), the dialogs' look of the kit.
 
-import type { ComponentChildren } from "preact";
+import type { ComponentChildren, RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n";
 import { Button } from "./components";
@@ -33,19 +37,33 @@ function remember(name: string, again: boolean) {
 
 export interface IntroState {
   open: boolean;
+  auto: boolean;  // opens by itself once (else from its link only)
   show(): void;
   close(dontShow: boolean): void;
+  opener: RefObject<Element | null>;  // what had the focus when it opened
+  link: RefObject<HTMLButtonElement | null>;  // its IntroLink: where the focus goes when the opener is gone
 }
 
-/** The state of the intro `name`: open at first when it was not seen. */
-export function useIntro(name: string): IntroState {
+/** The state of the intro `name`: open at first when it was not seen (`auto`), else closed until its link. */
+export function useIntro(name: string, auto = true): IntroState {
   const [open, setOpen] = useState(false);
+  const opener = useRef<Element>(null), link = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (introSeen(name)) return;
+    if (!auto || introSeen(name)) return;
     shown.add(name);
+    opener.current = document.activeElement;
     setOpen(true);
   }, []);
-  return {open, show: () => setOpen(true), close: (dontShow) => { remember(name, !dontShow); setOpen(false); }};
+  return {open, auto, opener, link, show: () => { opener.current = document.activeElement; setOpen(true); },
+          close: (dontShow) => { if (auto) remember(name, !dontShow); setOpen(false); }};
+}
+
+/** The focus back where it was when the intro opened, else on the intro's link (a page or an opener gone). */
+function focusBack(state: IntroState) {
+  const usable = (e: Element | null): e is HTMLElement =>
+    e instanceof HTMLElement && e.isConnected && e !== document.body && !e.closest("dialog");
+  const back = [state.opener.current, state.link.current].find(usable);
+  back?.focus({preventScroll: true});
 }
 
 let ids = 0;
@@ -69,13 +87,19 @@ export function Intro({state, title, children, class: cls}:
     } else if (!state.open && dialog.open) dialog.close();
   }, [state.open]);
   if (!state.open) return null;
-  const done = () => state.close(check.current?.checked ?? true);
+  // closed first (the page behind no longer inert), then the state and the focus back
+  const done = () => {
+    const dontShow = check.current?.checked ?? true;
+    if (ref.current?.open) ref.current.close();
+    state.close(dontShow);
+    focusBack(state);
+  };
   return <dialog ref={ref} class={"ui u-dialog n-intro" + (cls ? " " + cls : "")} aria-labelledby={id}
                  onCancel={(e) => { e.preventDefault(); done(); }}>
     <h2 class="u-h" id={id}>{title}</h2>
     <div class="n-intro-body">{children}</div>
     <div class="n-actions n-intro-foot">
-      <label class="n-again"><input type="checkbox" ref={check} defaultChecked />{t("intro.dont_show")}</label>
+      {state.auto && <label class="n-again"><input type="checkbox" ref={check} defaultChecked />{t("intro.dont_show")}</label>}
       <Button kind="primary" onClick={done}>{t("intro.got_it")}</Button>
     </div>
   </dialog>;
@@ -96,5 +120,6 @@ export function Rich({text}: {text: string}) {
 /** A link that opens the intro again. */
 export function IntroLink({state, children, class: cls}:
                           {state: IntroState; children: ComponentChildren; class?: string}) {
-  return <button type="button" class={"n-intro-link" + (cls ? " " + cls : "")} onClick={state.show}>{children}</button>;
+  return <button type="button" ref={state.link} class={"n-intro-link" + (cls ? " " + cls : "")}
+                 onClick={state.show}>{children}</button>;
 }

@@ -1,6 +1,9 @@
 /* The coverage map's page (/coverage): the kit's tokens and components (ui.css, under .ui) and the map's
    colours from coverage/palette.ts (--cov-*, set on the root by applyPalette). Mobile first: 16 px gutters,
-   the card a bottom sheet below 700 px, the legend under the map there. No style attributes (the CSP). */
+   the card a bottom sheet below 700 px, the legend under the map there. No style attributes (the CSP).
+   The pilot's look (docs/DESIGN.md, choices 60 to 66): sizes and radii from the scales' tokens, spacing on the 4 px
+   grid, labels in sentence case in the text's font, the list and the phone's legend on the ground between thin
+   rules, what lies over the map raised without an edge, every control 44 px on a touch screen (24 px with a mouse). */
 
 html, body { margin: 0; }
 body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
@@ -10,40 +13,45 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 .cov-inner { width: 100%; max-width: 1280px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .cov .cov-muted { color: var(--muted); }
-.cov .cov-small { font-size: 12.5px; }
-.cov .cov-label { font: 500 11.5px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.cov .cov-small { font-size: var(--fs-2); }
+.cov .cov-label { font: 600 var(--fs-2)/1.3 var(--font); color: var(--ink-2); }
 .cov .cov-h, .cov .cov-h1 { font-family: var(--display); font-weight: 600; letter-spacing: .01em; margin: 0; text-wrap: balance; }
-.cov .cov-h { font-size: 22px; line-height: 1.15; }
-.cov .cov-h1 { font-size: 30px; line-height: 1.1; }
+.cov .cov-h { font-size: var(--fs-5); line-height: 1.2; }
+.cov .cov-h1 { font-size: var(--fs-7); line-height: 1.1; }
 .cov p { margin: 0; }
 .cov .cov-link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; text-align: left;
   text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: 2px; }
 .cov .cov-link:hover { text-decoration-color: currentColor; }
 
-/* header */
-.cov-top { position: sticky; top: 0; z-index: 1300; background: var(--surface); border-bottom: 1px solid var(--rule);
+/* header: sticky on a wide screen; on a phone it scrolls away with the page (the user's pick L6 b: the phone block).
+   What is scrolled into view stops under it (CoveragePage.tsx sets --cov-top, its height): a focused row of the list
+   by Shift+Tab was wholly under it (docs/DESIGN.md row 81) */
+html { scroll-padding-top: var(--cov-top, 0px); }
+.cov-top { position: sticky; top: 0; z-index: 1300; background: var(--bg); border-bottom: 1px solid var(--rule);
   padding-top: env(safe-area-inset-top, 0px); }
-.cov-top-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; min-height: 56px; padding-block: 8px; }
-.cov .cov-brand { display: inline-flex; text-decoration: none; }
-.cov .cov-brand .u-logo { font-size: 20px; }
-.cov-name { font: 600 19px/1.1 var(--display); color: var(--ink-2); white-space: nowrap; }
+.cov-top-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-height: 56px; padding-block: 8px; }
+.cov .cov-brand { display: inline-flex; align-items: center; min-height: 24px; text-decoration: none; }
+.cov .cov-brand .u-logo { font-size: var(--fs-5); }
+.cov-name { font: 600 var(--fs-5)/1.1 var(--display); color: var(--ink-2); white-space: nowrap; }
 .cov-spacer { flex: 1; }
 .cov-toggles { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 520px) {
-  .cov-top-row { gap: 6px 10px; }
+  .cov-top-row { gap: 8px 12px; }
   .cov-toggles { width: 100%; justify-content: space-between; }
 }
 
 /* intro and the view's switch */
-.cov-main { flex: 1; display: flex; flex-direction: column; gap: 14px; padding-top: 20px; padding-bottom: 32px; }
+.cov-main { flex: 1; display: flex; flex-direction: column; gap: 16px; padding-top: 24px; padding-bottom: 32px; }
 .cov-intro { display: flex; flex-direction: column; gap: 8px; max-width: 72ch; }
-.cov .cov-lead { color: var(--ink-2); font-size: 15px; }
+.cov .cov-lead { color: var(--ink-2); font-size: var(--fs-4); }
 .cov .cov-count { font-weight: 600; }
-.cov-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.cov-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 
 /* the map */
-.cov-stage { position: relative; scroll-margin-top: 72px; }
-.cov-mapbox { position: relative; isolation: isolate; height: min(68vh, 640px); min-height: 380px; border-radius: 14px;
+/* under the sticky header (the window's scroll-padding-top, below) with 15 px of room: 72 px from the top with the
+   header's one row, as before */
+.cov-stage { position: relative; scroll-margin-top: 15px; }
+.cov-mapbox { position: relative; isolation: isolate; height: min(68vh, 640px); min-height: 380px; border-radius: var(--r-3);
   overflow: hidden; border: 1px solid var(--rule); background: var(--cov-sea); }
 .cov-view { position: absolute; inset: 0; }
 .cov-svg, .cov-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
@@ -58,57 +66,72 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 .cov-dot { stroke: var(--cov-surface); stroke-width: 1.5; }
 .cov-f1 { fill: var(--cov-l1); } .cov-f2 { fill: var(--cov-l2); } .cov-f3 { fill: var(--cov-land); }
 .cov-hf1 { fill: url(#cov-hatch1); } .cov-hf2 { fill: url(#cov-hatch2); }
-.cov-tip { position: absolute; z-index: 1150; pointer-events: none; background: var(--ink); color: var(--bg); border-radius: 8px;
-  padding: 4px 8px; font-size: 12.5px; white-space: nowrap; transform: translate(-50%, -140%); }
+.cov-tip { position: absolute; z-index: 1150; pointer-events: none; background: var(--ink); color: var(--bg); border-radius: var(--r-2);
+  padding: 4px 8px; font-size: var(--fs-2); white-space: nowrap; transform: translate(-50%, -140%); }
 .cov-tip[hidden] { display: none; }
 .cov-status { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); z-index: 1100; }
 
-.cov-zoombar { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1100; display: flex; flex-wrap: wrap; gap: 6px;
+/* the zoom presets: raised controls over the map (no edge, 8 px corners, as the place map's: choices 35 and 64) */
+.cov-zoombar { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 1100; display: flex; flex-wrap: wrap; gap: 8px;
   pointer-events: none; }
-.cov-zoombar button { pointer-events: auto; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
-  border-radius: 999px; padding: 4px 12px; min-height: 32px; cursor: pointer; box-shadow: var(--shadow); font-size: 13px; }
-.cov-zoombar button:hover { border-color: var(--accent); }
+.cov .cov-zoombar button { pointer-events: auto; border: 0; background: var(--surface); color: var(--ink);
+  border-radius: var(--r-2); padding: 4px 12px; min-height: 32px; cursor: pointer; box-shadow: var(--shadow); font-size: var(--fs-2); }
+.cov .cov-zoombar button:hover { background: var(--hover); }
+.cov .cov-zoombar button:focus-visible { box-shadow: var(--shadow), var(--focus); }
 .cov-in-leaflet .cov-zoombar { right: 60px; }
 .cov-in-leaflet .leaflet-top.leaflet-left { top: 44px; }
 .cov .leaflet-container { font: inherit; background: var(--cov-sea); }
-@media (pointer: coarse) { .cov-in-leaflet .leaflet-control-zoom { display: none; } }  /* pinch instead */
-.cov .leaflet-control-attribution { font-size: 11px; }
+@media (pointer: coarse) {
+  .cov-in-leaflet .leaflet-control-zoom { display: none; }  /* pinch instead */
+  .cov .cov-zoombar button { min-height: 44px; min-width: 44px; }
+}
+.cov .leaflet-control-attribution { font-size: 11px; }  /* the map's credits: R1's named exception (10 px at least) */
 
-/* the legend: over the map's corner on wide screens, under it on phones */
-.cov-legend { position: absolute; left: 10px; bottom: 10px; z-index: 1100; background: var(--surface); border: 1px solid var(--rule);
-  border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow); max-width: min(320px, calc(100% - 20px)); }
+/* the legend: raised over the map's corner on wide screens, on the ground under the map on phones */
+.cov-legend { position: absolute; left: 8px; bottom: 8px; z-index: 1100; background: var(--surface);
+  border-radius: var(--r-2); padding: 12px; box-shadow: var(--shadow); max-width: min(320px, calc(100% - 16px)); }
 .cov-legend-body { display: flex; flex-direction: column; gap: 8px; }
-.cov-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
-.cov-it { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; }
-.cov-tag { color: var(--muted); font: 500 11.5px var(--mono); white-space: nowrap; }
-.cov-stars-s { color: var(--cov-l1); letter-spacing: 1px; }
-.cov .cov-sw { display: inline-block; width: 22px; height: 14px; border-radius: 4px; border: 1px solid var(--line); vertical-align: -2px; flex: none; }
+.cov-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.cov-it { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: center; font-size: var(--fs-2); }
+.cov-tag { color: var(--muted); font-size: var(--fs-1); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cov .cov-sw { display: inline-block; width: 22px; height: 14px; border-radius: var(--r-1); border: 1px solid var(--line); vertical-align: -2px; flex: none; }
 .cov .cov-sw1 { background: var(--cov-l1); } .cov .cov-sw2 { background: var(--cov-l2); } .cov .cov-sw3 { background: var(--cov-land); }
 .cov .cov-swh { background: repeating-linear-gradient(135deg, var(--cov-l1) 0 3px, var(--cov-land) 3px 6px); }
 .cov .cov-sw2.cov-swh { background: repeating-linear-gradient(135deg, var(--cov-l2) 0 3px, var(--cov-land) 3px 6px); }
-.cov-scale { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 10px; background: var(--surface-2); align-self: flex-start; }
-.cov-scale button { border: 0; background: transparent; color: var(--ink-2); border-radius: 8px; padding: 3px 9px; min-height: 28px;
-  cursor: pointer; font-size: 12.5px; font-weight: 500; }
-.cov-scale button.cov-on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+/* the scale's switch: the kit's segments (ui.css .u-seg: 32 px, 44 px on a touch screen), as wide as its words */
+.cov .cov-scale { align-self: flex-start; flex-wrap: wrap; }
+/* each segment as wide as its words (the kit's `flex: 1` made three equal ones, too narrow for "Everyday sizes") */
+.ui.cov .cov-scale button { flex: none; }
 .cov-world button { font-size: inherit; }
+/* the stars (card.tsx Stars): the kit's star drawn filled; the ones not reached in a grey that holds 3:1 on every
+   ground they stand on (the legend, the card, a row, a selected row: choice 63, with the computed pairs); 2 px
+   between the stars: one mark of three parts, not three items */
+.cov { --cov-star-off: color-mix(in srgb, var(--muted) 65%, var(--line)); }
+.cov .cov-stars { display: inline-flex; gap: 2px; color: var(--cov-l1); vertical-align: -2px; flex: none; }
+.cov .cov-star { width: 18px; height: 18px; fill: currentColor; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
+.cov .cov-stars-s .cov-star { width: 14px; height: 14px; }
+.cov .cov-star.cov-off { color: var(--cov-star-off); }
 
-/* the card: beside the map on wide screens, a bottom sheet on phones */
-.cov-card { position: absolute; top: 10px; right: 10px; max-height: calc(100% - 20px); width: min(350px, calc(100% - 20px)); z-index: 1200;
-  background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; box-shadow: var(--shadow); padding: 14px 16px;
+/* the card: raised beside the map on wide screens (no edge), a bottom sheet on phones */
+.cov-card { position: absolute; top: 8px; right: 8px; max-height: calc(100% - 16px); width: min(352px, calc(100% - 16px)); z-index: 1200;
+  background: var(--surface); border-radius: var(--r-2); box-shadow: var(--shadow); padding: 16px;
   overflow: auto; overscroll-behavior: contain; }
 .cov-card:focus-visible { box-shadow: var(--focus), var(--shadow); }
 .cov-card-body { display: flex; flex-direction: column; gap: 12px; }
-.cov-head { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; }
+.cov-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
 .cov-title { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
-.cov .cov-x { border: 0; background: var(--surface-2); border-radius: 8px; width: 36px; height: 36px; cursor: pointer; flex: none;
-  display: grid; place-items: center; color: var(--ink); }
+.cov .cov-x { border: 0; background: var(--surface-2); border-radius: var(--r-2); width: 32px; height: 32px; cursor: pointer; flex: none;
+  display: grid; place-items: center; color: var(--ink); padding: 0; }
+.cov .cov-x:hover { background: var(--hover); }
+@media (pointer: coarse) { .cov .cov-x { width: 44px; height: 44px; } }
 .cov-x svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-.cov-lvl { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.cov-lvl-words { display: flex; flex-direction: column; gap: 6px; }
-.cov-lvl-text { display: flex; flex-direction: column; gap: 2px; }
-.cov-big { font: 700 32px/1 var(--display); font-variant-numeric: tabular-nums; }
-.cov-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 9px; font: 500 11.5px/1.6 var(--mono);
-  text-transform: uppercase; letter-spacing: .03em; background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
+.cov-lvl { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.cov-lvl-words { display: flex; flex-direction: column; gap: 8px; }
+.cov-lvl-text { display: flex; flex-direction: column; gap: 4px; }
+.cov-big { font: 700 var(--fs-7)/1 var(--display); font-variant-numeric: tabular-nums; }
+/* a level's word: a pill in sentence case in the text's font (as the status chips: choice 23) */
+.cov-pill { display: inline-flex; align-items: center; border-radius: var(--r-full); padding: 4px 12px; font: 500 var(--fs-1)/1.3 var(--font);
+  background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
 .cov-p1 { background: color-mix(in srgb, var(--cov-l1) 18%, var(--surface)); color: var(--ink); }
 .cov-p2 { background: color-mix(in srgb, var(--cov-l2) 30%, var(--surface)); color: var(--ink); }
 .cov-hatched { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--cov-l1) 22%, var(--surface)) 0 4px, var(--surface-2) 4px 8px); color: var(--ink); }
@@ -117,20 +140,27 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 .cov-stroke { stroke: var(--ink-2); stroke-width: 1.2; fill: none; }
 .cov-life .cov-f3.cov-stroke { fill: var(--cov-land); }
 .cov-car { fill: var(--surface); opacity: .85; }
-.cov-stars { color: var(--cov-l1); letter-spacing: 2px; font-size: 18px; }
-.cov-off { color: var(--line); }
-.cov-facts { display: flex; flex-direction: column; gap: 9px; }
-.cov-fact { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 8px; align-items: start; }
+.cov-facts { display: flex; flex-direction: column; gap: 8px; }
+.cov-fact { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; }
 .cov-ficon { width: 22px; height: 22px; fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linejoin: round; }
 .cov-warn .cov-ficon { stroke: var(--warn); }
 .cov-k { font-weight: 600; }
-.cov-regions { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+/* the regions of a country covered in parts: the kit's chips, wrapping (44 px on a touch screen: the user's pick L2 a) */
+.cov-regions { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+/* L6 b: the header is not sticky on a phone, held upright or sideways (the narrow page, or a touch screen at most
+   480 px high, as the app's PlaceMap.ts PHONE; back to sticky: the first declaration out) */
+@media (max-width: 699px), (pointer: coarse) and (max-height: 480px) {
+  .cov-top { position: static; }
+  html { scroll-padding-top: 0; }
+  .cov-stage { scroll-margin-top: 8px; }
+}
 @media (max-width: 699px) {
-  .cov-card { position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 58vh; border-radius: 20px 20px 0 0;
+  .cov-card { position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 58vh; border-radius: var(--r-4) var(--r-4) 0 0;
     box-shadow: 0 -8px 30px rgb(0 0 0 / .22); padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
-  .cov-card::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: -4px auto 10px; }
-  .cov-legend { position: static; margin-top: 10px; max-width: none; box-shadow: none; }
-  .cov-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; }
+  .cov-card::before { content: ""; display: block; width: 40px; height: 4px; border-radius: var(--r-1); background: var(--line); margin: -4px auto 12px; }
+  /* on the ground: no box (R8) */
+  .cov-legend { position: static; margin-top: 12px; max-width: none; box-shadow: none; background: none; border-radius: 0; padding: 0; }
+  .cov-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
   .cov-mapbox { height: min(62vh, 520px); min-height: 340px; }
   /* the map high on the first screen (the user's pick): the lead after the map and its legend, no hint on the
      gestures; the order of the document stays (a screen reader reads the lead first) */
@@ -139,36 +169,44 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
   .cov-stage ~ * { order: 2; }
   .cov-bar > .cov-small { display: none; }
   /* the four buttons in one row: the layers' control goes below them */
-  .cov-in-leaflet .cov-zoombar { right: 10px; }
+  .cov-in-leaflet .cov-zoombar { right: 8px; }
   .cov-in-leaflet .leaflet-top.leaflet-right { top: 44px; }
-  .cov .cov-h1 { font-size: 26px; }
+  .cov .cov-h1 { font-size: var(--fs-6); }
+}
+@media (max-width: 699px) and (pointer: coarse) { .cov-in-leaflet .leaflet-top.leaflet-right { top: 52px; } }
+@media (pointer: coarse) {
+  .cov .cov-brand { min-height: 44px; margin-block: -8px; }
+  .cov .u-seg button { min-width: 44px; }
 }
 
-/* the table of the areas: rows of blocks on phones (no sideways scrolling) */
-.cov-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-.cov-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
-  overflow: hidden; font-size: 13.5px; }
-.cov-table th, .cov-table td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--rule); }
-.cov-table thead th { font: 500 11.5px var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); background: var(--surface-2); }
+/* the list of the areas, on the ground between thin rules (R8). A wide screen: a table, the name a link of its own
+   row height; a phone: one 48 px row per area, the whole row the button (AreaList.tsx; the user's pick L1 b) */
+.cov-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.cov-table { width: 100%; border-collapse: collapse; font-size: var(--fs-3); border-top: 1px solid var(--rule); }
+.cov-table th, .cov-table td { text-align: left; vertical-align: middle; padding: 8px 12px; border-bottom: 1px solid var(--rule); }
+.cov-table thead th { font: 400 var(--fs-1)/1.3 var(--font); color: var(--muted); }
 .cov-table tbody th { font-weight: 600; }
-.cov-table tbody tr:last-child > * { border-bottom: 0; }
-.cov-table td .cov-sw { margin-right: 8px; }
-.cov-row-on > * { background: var(--accent-soft); }
-/* on the fill --muted is under 4.5:1 (3.79 dark): the row's grey words, and its labels on a phone (td::before) */
-.cov .cov-row-on .cov-muted, .cov .cov-row-on td::before { color: var(--ink-2); }
-@media (max-width: 699px) {
-  .cov-table, .cov-table tbody, .cov-table tr, .cov-table th, .cov-table td { display: block; }
-  .cov-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .cov-table tr { padding: 10px 12px; border-bottom: 1px solid var(--rule); }
-  .cov-table tbody tr:last-child { border-bottom: 0; }
-  .cov-table th, .cov-table td { padding: 2px 0; border: 0; }
-  .cov-table td { display: grid; grid-template-columns: minmax(0, 9em) minmax(0, 1fr); gap: 8px; }
-  .cov-table td::before { content: attr(data-label); color: var(--muted); font-size: 12.5px; }
-  .cov-table td .cov-sw { display: none; }
-  .cov-table tbody th { padding-bottom: 4px; font-size: 15px; }
-}
+.cov .cov-name-link { display: inline-flex; align-items: center; min-height: 24px; }
+@media (pointer: coarse) { .cov .cov-name-link { min-height: 44px; min-width: 44px; } }
+.cov-level { display: inline-flex; align-items: center; gap: 8px; }
+.cov-row-on > *, .cov .cov-row.cov-row-on { background: var(--accent-soft); }
+/* on the fill --muted is under 4.5:1 (3.79 dark): the row's grey words */
+.cov .cov-row-on .cov-muted { color: var(--ink-2); }
+.cov-rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.cov-rows li { border-bottom: 1px solid var(--rule); }
+/* a row is not positioned: a positioned row would be painted over the card's sheet, which lives in the map's own
+   stacking box (.cov-mapbox); its hidden words (.u-sr) keep their place in the row without it */
+.cov .cov-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 4px 8px; border: 0; background: none;
+  color: var(--ink); text-align: left; font-size: var(--fs-3); cursor: pointer; }
+.cov .cov-row:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .cov .cov-row:focus-visible { outline-offset: -2px; } }
+.cov-rname { flex: 1; min-width: 0; font-weight: 600; }
+.cov-rparent { font-weight: 400; color: var(--ink-2); }
+.cov-rdet { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: var(--fs-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cov .cov-row > .u-ic { width: 16px; height: 16px; color: var(--muted); flex: none; }
 
 .cov-cta { display: flex; justify-content: center; padding-top: 8px; }
-.cov-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; padding-top: 12px; padding-bottom: 24px;
-  border-top: 1px solid var(--rule); color: var(--muted); font-size: 12.5px; }
-.cov-footer a { color: var(--ink-2); }
+.cov-footer { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0 16px; padding-top: 12px; padding-bottom: 24px;
+  border-top: 1px solid var(--rule); color: var(--muted); font-size: var(--fs-2); }
+.cov-footer a { display: inline-flex; align-items: center; justify-content: center; min-height: 24px; color: var(--ink-2); }
+@media (pointer: coarse) { .cov-footer a { min-height: 44px; min-width: 44px; } }
