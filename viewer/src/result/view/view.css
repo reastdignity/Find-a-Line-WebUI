@@ -375,3 +375,9 @@
 .ui .vl-topblock .vl-main, .ui .vl-sec .vl-main { scroll-margin-top: 64px; }
 /* (a phone's sheet body has 12 px at its top, mapbar.css: the heads stand at its edge, no row seen above them) */
 .ui .v-result .u-sheet-body .vl-topblock > .vl-cols, .ui .v-result .u-sheet-body .vl-sec > .vl-cols { top: -12px; }
+/* 12 a: the tree's heads are buttons that sort it (SortHead): drawn as the heads' words, the sorted one's in ink with
+   its mark; a hover fill; the kit's ring; 44 px high on a touch screen (R2) */
+.ui .vl-cols > span > .vl-head { display: block; width: 100%; font: inherit; color: inherit; background: none; border: 0; padding: 2px 0;
+  margin: 0; text-align: inherit; white-space: normal; cursor: pointer; border-radius: var(--r-1); }
+.ui .vl-cols > span > .vl-head:hover { background: var(--hover); }
+@media (pointer: coarse) { .ui .vl-cols > span > .vl-head { min-height: 44px; } }

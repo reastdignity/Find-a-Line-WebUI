@@ -946,3 +946,82 @@ def test_heads_stay_at_the_top(site, device):
     assert got["rowsAbove"] >= 150, got  # (the state tests something: rows scrolled under the scroller's top)
     assert abs(got["heads"] - got["scroller"]) <= 1, got
     assert all(got["cells"]) and got["right"], got
+
+
+# The first open sector's heads: each one's name, pressed state, class and height; the view's sort and direction, the
+# Sort box's value and the direction button's name
+HEADS = r"""() => { const v = window.FINDALINE_VIEW.view, heads = [...document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec').querySelectorAll(':scope > .vl-cols .vl-head')];
+  return {sort: v.sort, desc: v.desc, box: document.querySelector('.vl-tree select.r-sort').value, dir: document.querySelector('.vl-tree .vl-dir').getAttribute('aria-label'),
+    heads: heads.map((b) => ({name: b.getAttribute('aria-label'), pressed: b.getAttribute('aria-pressed'), asc: b.parentElement.classList.contains('vl-asc'),
+                              h: Math.round(b.getBoundingClientRect().height), hidden: !!b.closest('[aria-hidden="true"]')})),
+    best: Array.from(v.inView.best), order: Array.from(v.order)}; }"""
+HEAD = "() => document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec').querySelectorAll(':scope > .vl-cols .vl-head')"
+
+
+@pytest.mark.parametrize("device", ["desktop", "phone"])
+def test_heads_sort_the_tree(site, device):
+    """12 a: the tree's heads are buttons. A press on a column's name sorts the tree by it, largest first (each key's
+    first direction); a second press reverses it; the Sort box and the direction button follow, and a change of the Sort
+    box moves the heads' mark. The sorted head's name carries the order in today's words; the heads are not hidden from
+    a screen reader; Enter on a focused head sorts too; 44 px high on a touch phone. "Best in view" keeps its order
+    (best first) when the direction is reversed."""
+    from playwright.sync_api import sync_playwright
+    context = DESKTOP if device == "desktop" else SMALL_PHONE
+    names = [WORDS["ui.list.col.length"], WORDS["ui.list.col.mean"], WORDS["ui.view.col.clear"], WORDS["ui.list.col.lines"]]
+    keys = ["len", "hmean", "clr", "n"]
+    steps = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            if device == "phone":
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            start = page.evaluate(HEADS)
+
+            def press(k):
+                if device == "phone":
+                    # (the sector's heads brought into the sheet's view first: a finger presses what it sees)
+                    box = page.evaluate(f"() => {{ const e = ({HEAD})()[{k}]; e.scrollIntoView({{block: 'center'}}); const r = e.getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }}")
+                    page.wait_for_function("() => performance.now() - (window.TOUCHED || -1000) > 700", timeout=WAIT)
+                    page.touchscreen.tap(box[0], box[1])
+                    page.evaluate("() => { window.TOUCHED = performance.now(); }")
+                else:
+                    page.evaluate(f"() => ({HEAD})()[{k}].click()")
+                page.evaluate("() => T.frames()")
+                return page.evaluate(HEADS)
+            # each head: largest first; again: smallest first (the heads' order: length, height, clearance, lines;
+            # the anchors' name is no head)
+            for k, key in enumerate(keys):
+                first = press(k)
+                again = press(k)
+                steps.append((key, first, again))
+            # by the keyboard: Enter on the length's head
+            page.evaluate(f"() => ({HEAD})()[0].focus()")
+            page.keyboard.press("Enter")
+            page.evaluate("() => T.frames()")
+            keyed = page.evaluate(HEADS)
+            # the Sort box moves the heads' mark
+            page.select_option(".vl-tree select.r-sort", "clr")
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.sort === 'clr'", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            boxed = page.evaluate(HEADS)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("heads sort:", device, [(k, f["sort"], f["desc"], a["desc"], a["heads"][keys.index(k)]["name"]) for k, f, a in steps])
+    assert [h["name"] for h in start["heads"]] == [names[0], names[1] + WORDS["ui.list.sorted_desc"], names[2], names[3]], start["heads"]
+    assert not any(h["hidden"] for h in start["heads"]), start
+    for (key, first, again), name in zip(steps, names):
+        k = keys.index(key)
+        assert first["sort"] == key and first["box"] == key and first["desc"] and first["dir"] == WORDS["ui.view.dir_desc"], (key, first)
+        assert first["heads"][k]["pressed"] == "true" and first["heads"][k]["name"] == name + WORDS["ui.list.sorted_desc"], (key, first["heads"])
+        assert sum(h["pressed"] == "true" for h in first["heads"]) == 1, first["heads"]
+        assert again["sort"] == key and not again["desc"] and again["dir"] == WORDS["ui.view.dir_asc"], (key, again)
+        assert again["heads"][k]["asc"] and again["heads"][k]["name"] == name + WORDS["ui.list.sorted_asc"], (key, again["heads"])
+        assert again["order"] == first["order"] and again["best"] == first["best"], key  # Best in view: best first
+    assert keyed["sort"] == "len" and keyed["desc"], keyed
+    assert boxed["sort"] == "clr" and boxed["heads"][2]["pressed"] == "true" and boxed["desc"], boxed
+    if device == "phone":
+        assert all(h["h"] >= 44 for h in start["heads"]), start["heads"]

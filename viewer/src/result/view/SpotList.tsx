@@ -343,15 +343,35 @@ function columnHelp(view: SpotView): [string, string][] {
 
 const COL_HELP = "vl-help-cols";  // the id of the columns' help text
 
+/** The sort key a head of the tree sorts by: its column's (the height's column: the highest point while the list is
+ *  sorted by it, else the mean height). */
+function headKey(view: SpotView, key: string): ViewSort {
+  return key === "h" ? (view.sort === "hmax" ? "hmax" : "hmean") : key as ViewSort;
+}
+
+/** A head of the tree (the user's gate-2 answer 12 a): a button that sorts the tree by its column, in the column's
+ *  own first direction; on the sorted column it reverses the order. Its name is the column's, the sorted one's with
+ *  the order (today's words); the mark as Head's (on the grid's cell, which holds the button). The Sort box and the
+ *  direction button follow (the same view). */
+function SortHead({view, column, text}: {view: SpotView; column: string; text: string}) {
+  const key = headKey(view, column), by = view.sort === key;
+  const name = by ? text + t(view.desc ? "ui.list.sorted_desc" : "ui.list.sorted_asc") : text;
+  return <span class={by ? cx("vl-by", !view.desc && "vl-asc") : undefined}>
+    <button type="button" class="vl-head" aria-label={name} aria-pressed={by} onClick={() => by ? reverse(view) : sortBy(view, key)}>
+      {by && <Icon name="sort" />}{text}</button></span>;
+}
+
 /** The headings of the rows (each hidden from a screen reader: a row's values carry their names); sorted by the
  *  highest point, that value stands in the mean height's column; `ranked`: the column the list is sorted by is marked
- *  with the sort icon (not for the picks, which are not ranked); `tree`: the tree's heads, whose mark follows the
- *  direction (the top block's stays best first); `help`: the columns' info button in the first cell, above the marks
- *  (the top block's heads only; a screen reader reaches it); `stars`: the rows end with a star. */
+ *  with the sort icon (not for the picks, which are not ranked); `tree`: the tree's heads, buttons that sort the tree
+ *  (SortHead: their mark follows the direction; the top block's stay marks, best first); `help`: the columns' info
+ *  button in the first cell, above the marks (the top block's heads only; a screen reader reaches it); `stars`: the
+ *  rows end with a star. */
 function Heads({view, ranked, tree, help, stars}: {view: SpotView; ranked: boolean; tree?: boolean; help?: {open: boolean; toggle(): void};
                                                    stars: boolean}) {
   const by = !ranked ? "" : view.sort === "len" ? "len" : view.sort === "clr" ? "clr" : view.sort === "n" ? "n" : "h";
-  const head = (key: string, text: string) => <Head by={by === key} text={text} asc={tree && !view.desc} />;
+  const head = (key: string, text: string) => tree ? <SortHead view={view} column={key} text={text} />
+    : <Head by={by === key} text={text} />;
   return <div class={cx("vl-cols", withAccess(view) && "vl-with-acc", stars && "vl-starred")}>
     {help ? <IconButton icon="info" label={t("ui.view.col.about")} plain expanded={help.open} aria-controls={COL_HELP}
                         class="vl-info vl-cols-info" onClick={help.toggle} />
