@@ -426,21 +426,34 @@ function SortHead({view, column, text, sector}: {view: SpotView; column: string;
  *  (`selector`) is put back at `top` (the viewport's px it stood at) by its list's scroll, and, with `focus`, given the
  *  focus wherever it fell to the page's body (its node was moved); a focus the person moved elsewhere meanwhile is
  *  left alone. */
+let headKept: {selector: string; top: number; end(): void} | null = null;  // the head being put back now
 function keepHead(selector: string, top: number, focus: boolean) {
-  let frames = 6, scroller: HTMLElement | null = null, left = -1;  // the list's scroller and its scroll as last left
+  // a press on the same head before the last was put back (Enter pressed twice): its place is the first press's
+  if (headKept) {
+    if (headKept.selector === selector) top = headKept.top;
+    headKept.end();
+  }
+  let frames = 6, theirs = false;
+  // the person's own scroll meanwhile (a wheel, a finger, a key; not a press on a head, which puts its head back
+  // itself) stands: nothing more is put back (a scroll the browser makes to keep its anchor in place is not one)
+  const stop = (e: Event) => { if (!(e.target instanceof Element && e.target.closest(".vl-head"))) theirs = true; };
+  const kept = {selector, top, end: () => { theirs = true; }};
+  headKept = kept;
+  const kinds = ["wheel", "touchstart", "pointerdown", "keydown"];
+  kinds.forEach((k) => document.addEventListener(k, stop, {capture: true, passive: true}));
   const go = () => {
-    const head = document.querySelector<HTMLElement>(selector);
+    const head = theirs ? null : document.querySelector<HTMLElement>(selector);
     if (head) {
-      const box = head.closest<HTMLElement>(".vl-body, .u-sheet-body");
-      // the person (or anything else) scrolled the list meanwhile: their scroll stands, nothing more is put back
-      if (box && box === scroller && Math.abs(box.scrollTop - left) >= 1) return;
-      const moved = head.getBoundingClientRect().top - top;
+      const box = head.closest<HTMLElement>(".vl-body, .u-sheet-body"), moved = head.getBoundingClientRect().top - top;
       if (box && Math.abs(moved) >= 1) box.scrollTop += moved;
-      if (box) { scroller = box; left = box.scrollTop; }
       const at = document.activeElement;
       if (focus && (!at || at === document.body || !at.isConnected)) head.focus({preventScroll: true});
     }
-    if (--frames > 0) requestAnimationFrame(go);
+    if (--frames > 0 && !theirs) requestAnimationFrame(go);
+    else {
+      kinds.forEach((k) => document.removeEventListener(k, stop, {capture: true}));
+      if (headKept === kept) headKept = null;
+    }
   };
   requestAnimationFrame(go);
 }

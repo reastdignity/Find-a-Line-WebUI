@@ -983,7 +983,9 @@ def test_heads_sort_the_tree(site, device):
 
             def press(k):
                 if device == "phone":
-                    # (the sector's heads brought into the sheet's view first: a finger presses what it sees)
+                    # (the sector's heads brought into the sheet's view first: a finger presses what it sees; once the
+                    # last press's head was put back: its frames)
+                    page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames()).then(() => T.frames())")
                     box = page.evaluate(f"() => {{ const e = ({HEAD})()[{k}]; e.scrollIntoView({{block: 'center'}}); const r = e.getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }}")
                     page.wait_for_function("() => performance.now() - (window.TOUCHED || -1000) > 700", timeout=WAIT)
                     page.touchscreen.tap(box[0], box[1])
@@ -1321,18 +1323,21 @@ def test_layers_hover_leaves_the_sheet(boxes_site):
     assert hovered == "half" and keyed == "peek", (hovered, keyed)
 
 
-def test_head_press_keeps_its_place(site):
-    """The code review's G4 (the final design check's F4 for the heads): with a spot selected (the tree's second-last),
-    a press on a head for a new key, then on it again (the reverse), leaves the heads where they were under the pointer
-    (they ran to y 2 before: the list scrolled to the selected row), and the selected row is still drawn."""
+@pytest.mark.parametrize("selected", [True, False], ids=["selected", "none"])
+def test_head_press_keeps_its_place(site, selected):
+    """The code review's G4 (the final design check's F4 for the heads): with a spot selected (the tree's second-last;
+    and with none, in the tree's first sector), a press on a head for a new key, then on it again (the reverse), leaves
+    the heads where they were under the pointer (they ran to y 2 before: the list scrolled to the selected row; with
+    none, the new order put other sectors above it), and a selected row is still drawn."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
             tree = page.evaluate("() => window.FINDALINE_VIEW.view.sectors.flatMap((s) => s.spots)")
-            spot = tree[-2]
-            _state(page, f"view.select({spot});")
+            spot = tree[-2] if selected else tree[0]
+            if selected:
+                _state(page, f"view.select({spot});")
             page.wait_for_selector(f"#vl-row-{spot} > .vl-main", timeout=WAIT)
             sector = page.evaluate(f"() => window.FINDALINE_VIEW.view.sectorOf({spot})")
             head = f".vl-sec[data-sector='{sector}'] > .vl-cols .vl-head[data-col='len']"
@@ -1340,18 +1345,24 @@ def test_head_press_keeps_its_place(site):
             page.evaluate("() => T.frames()")
             top = lambda: page.evaluate(f"() => Math.round(document.querySelector(\"{head}\").getBoundingClientRect().top)")
             places = [top()]
+            # (with a spot selected a mouse's press; with none the keyboard's: Enter on the focused head, twice)
+            if not selected:
+                page.evaluate(f"() => document.querySelector(\"{head}\").focus({{preventScroll: true}})")
             for desc in (True, False):
-                page.click(head)
+                if selected:
+                    page.click(head)
+                else:
+                    page.keyboard.press("Enter")
                 page.wait_for_function(f"() => window.FINDALINE_VIEW.view.sort === 'len' && window.FINDALINE_VIEW.view.desc === {str(desc).lower()}", timeout=WAIT)
-                page.evaluate("() => T.frames()")
+                page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames())")
                 places.append(top())
             drawn = page.evaluate(f"() => !!document.querySelector('#vl-row-{spot} > .vl-main[aria-pressed=\"true\"]')")
             assert page.errors == []
         finally:
             browser.close()
-    print("the head's place:", places, "row drawn", drawn)
+    print("the head's place:", selected, places, "row drawn", drawn)
     assert max(places) - min(places) <= 1, places
-    assert drawn
+    assert drawn or not selected
 
 
 @pytest.mark.parametrize("width", [260, 300])
@@ -1450,3 +1461,28 @@ def test_sideways_notice_hides_the_page(site, device):
     assert len(side["lines"]) == 1 or side["lines"][-1] >= 2, side
     assert all(t in ("body", "notice") for t in tabbed), tabbed
     assert upright["text"] is None and not upright["inert"], upright
+
+
+def test_head_quick_presses_keep_its_place(site):
+    """A head's two quick presses by the keyboard (Enter, Enter: a new key, then the reverse, before the first was put
+    back): the head stays where it stood before the first, with the focus (the second press took the first's place to
+    keep; before, it kept the place the first press's new order had pushed it to)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            page.evaluate(f"() => {{ const h = ({HEAD})()[0]; h.scrollIntoView({{block: 'center'}}); h.focus(); }}")
+            read = f"() => {{ const h = ({HEAD})()[0]; return [Math.round(h.getBoundingClientRect().top), document.activeElement === h]; }}"
+            before = page.evaluate(read)
+            page.keyboard.press("Enter")
+            page.keyboard.press("Enter")
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.sort === 'len' && !window.FINDALINE_VIEW.view.desc", timeout=WAIT)
+            page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames()).then(() => T.frames())")
+            after = page.evaluate(read)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("two quick presses:", before, after)
+    assert abs(after[0] - before[0]) <= 1 and after[1], (before, after)
