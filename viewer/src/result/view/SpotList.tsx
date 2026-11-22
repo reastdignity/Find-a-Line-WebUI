@@ -175,6 +175,28 @@ function pickerFocus(id: string, place: ReturnType<typeof placeOf>) {
                                              `${place.list} > li:last-child > .vl-main`, place.head] : []), ...FOCUS_REST);
 }
 
+/** A row's opened folder picker made whole in its list's scroller (the design re-check's G2-F7: from the lowest row in
+ *  view it ran past a phone's foot): once the scroller stands still (a phone's sheet rises to full for it), the list
+ *  scrolls it into view; where the list cannot scroll that far (its end), the picker opens upward over the row.
+ *  Returns what cancels the wait. */
+function wholeInView(id: string): () => void {
+  let frame = 0, last = NaN, tries = 90;
+  const go = () => {
+    const pop = document.getElementById(id)?.querySelector<HTMLElement>(".r-pop"), box = pop?.closest<HTMLElement>(".vl-body, .u-sheet-body");
+    if (!pop || !box) return;
+    const b = box.getBoundingClientRect();
+    if (b.height !== last && --tries > 0) { last = b.height; frame = requestAnimationFrame(go); return; }  // still moving
+    const over = pop.getBoundingClientRect().bottom - (b.bottom - 8);
+    if (over > 0) box.scrollTop += over;
+    if (pop.getBoundingClientRect().bottom > b.bottom - 8 + 0.5) {  // the list's end: upward, over the row
+      pop.style.top = "auto";
+      pop.style.bottom = "calc(100% + 6px)";
+    }
+  };
+  frame = requestAnimationFrame(go);
+  return () => cancelAnimationFrame(frame);
+}
+
 /** The folder picker in a row's star's place while it is open (RowStar). Closed, the row draws its plain star again
  *  and the focus goes to it (or where a row's focus goes when the row went: a removal under "Favourites only"). The
  *  row leaving the list while it is open (the map moved under "Best in view", its sector closed or paged away) ends
@@ -192,6 +214,7 @@ function RowPicker({view, picked}: {view: SpotView; picked: {id: string; row: nu
     pickerOf.delete(view);
     pickerFocus(id, place.current);
   }, []);
+  useEffect(() => wholeInView(id), []);
   return <FavouritePicker model={model} line={model.lineAt(row)} icon opened buttonClass="vl-star" buttonTabIndex={-1}
                           onOpen={(open) => {
                             if (open) return;
@@ -404,6 +427,8 @@ function headKey(view: SpotView, key: string): ViewSort {
 function SortHead({view, column, text, sector}: {view: SpotView; column: string; text: string; sector: number}) {
   const key = headKey(view, column), by = view.sort === key;
   const name = by ? text + t(view.desc ? "ui.list.sorted_desc" : "ui.list.sorted_asc") : text;
+  // the word's first word goes with the mark, never apart from it
+  const cut = text.indexOf(" "), first = cut < 0 ? text : text.slice(0, cut), rest = cut < 0 ? "" : text.slice(cut);
   const press = (e: Event) => {
     const button = e.currentTarget as HTMLElement;
     const had = document.activeElement === button;  // pressed by the keyboard, or focused by the press
@@ -419,7 +444,9 @@ function SortHead({view, column, text, sector}: {view: SpotView; column: string;
   };
   return <span class={cx("vl-hcell", by && "vl-by", by && !view.desc && "vl-asc")}>
     <button type="button" class="vl-head" data-col={column} aria-label={name} aria-pressed={by} onClick={press}>
-      {by && <Icon name="sort" />}{text}</button></span>;
+      {/* the mark inline before its own word, on the word's first line ("↓ Mean / height"), never beside a
+          neighbour's: the design review's G2-F6 */}
+      <span class="vl-head-t">{by ? <><span class="vl-head-1"><Icon name="sort" />{first}</span>{rest}</> : text}</span></button></span>;
 }
 
 /** While the page draws the new order (a few frames: the drawing may come after the first), a pressed head

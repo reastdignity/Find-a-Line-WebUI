@@ -1486,3 +1486,265 @@ def test_head_quick_presses_keep_its_place(site):
             browser.close()
     print("two quick presses:", before, after)
     assert abs(after[0] - before[0]) <= 1 and after[1], (before, after)
+
+
+# --- gate 2's last small round (the design re-check's G2-F6, G2-F7; the notice's focus) ---
+
+# The sorted head's mark: its box, its own head's box, the first line of its own word, and the text box of the head
+# before it (the neighbour's words)
+MARK = """() => { const sec = document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec');
+  const heads = [...sec.querySelectorAll(':scope > .vl-cols > .vl-hcell > .vl-head')], at = heads.findIndex((h) => h.querySelector('.u-ic'));
+  const head = heads[at], icon = head.querySelector('.u-ic').getBoundingClientRect(), box = head.getBoundingClientRect();
+  const words = (e) => { const r = document.createRange(); r.selectNodeContents(e.querySelector('.vl-head-t') || e); return [...r.getClientRects()].filter((x) => x.width > 2); };
+  const own = words(head).filter((x) => x.width > icon.width + 2), lines = [...new Set(own.map((x) => Math.round(x.top)))].sort((a, b) => a - b);
+  const before = at > 0 ? words(heads[at - 1]) : [];
+  return {col: head.dataset.col, icon: [icon.left, icon.top, icon.right, icon.bottom], box: [box.left, box.top, box.right, box.bottom],
+          firstLine: lines[0], lines: lines.length, gap: before.length ? icon.left - Math.max(...before.map((x) => x.right)) : null}; }"""
+
+
+# The sorted head of the first open sector: its mark's box, its own words' boxes, its own box, and the words of the
+# heads before and after it
+MARKS = """() => { const sec = document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec');
+  const heads = [...sec.querySelectorAll(':scope > .vl-cols > .vl-hcell > .vl-head, :scope > .vl-cols > .vl-cell-acc')];
+  const at = heads.findIndex((h) => h.querySelector('.u-ic')), head = heads[at];
+  const rect = (r) => [r.left, r.top, r.right, r.bottom];
+  const words = (e) => { const r = document.createRange(); r.selectNodeContents(e.querySelector('.vl-head-t') || e);
+    return [...r.getClientRects()].filter((x) => x.width > 2 && x.height > 2); };
+  const icon = head.querySelector('.u-ic').getBoundingClientRect(), own = words(head).filter((x) => Math.abs(x.width - icon.width) > 0.5);
+  const lines = [...new Set(own.map((x) => Math.round(x.top)))].sort((a, b) => a - b);
+  const prev = at > 0 ? words(heads[at - 1]) : [], next = at < heads.length - 1 ? words(heads[at + 1]) : [];
+  const before = (xs) => prev.length ? Math.min(...xs.map((x) => x.left)) - Math.max(...prev.map((x) => x.right)) : null;
+  const after = (xs) => next.length ? Math.min(...next.map((x) => x.left)) - Math.max(...xs.map((x) => x.right)) : null;
+  return {col: head.dataset.col, text: head.textContent.trim(), box: rect(head.getBoundingClientRect()), icon: rect(icon), own: own.map(rect),
+          firstLine: lines[0], markBefore: before([icon]), markAfter: after([icon]), wordsBefore: before(own), wordsAfter: after(own)}; }"""
+SORT_CASES = [(k, d) for k in ("hmean", "hmax", "len", "clr", "n") for d in (True, False)]
+
+
+@pytest.mark.parametrize("device", ["260", "300", "372", "390", "412"])
+def test_sort_mark_by_its_own_word(site, device):
+    """The design re-check's G2-F6 and the code review's round 6: for every sort key, in either direction, the sorted
+    head's mark and words stay inside its own head's box, the mark above or before the first line of its own word, the
+    mark's box at least 2 px clear of the neighbours' words and its words never over theirs (sorted by clearance or lines
+    "↓Clearance" ran 6-13 px over the word before it) - on a desktop with the list at 260, 300 and 372 px, and on both
+    phones with the sheet at full."""
+    from playwright.sync_api import sync_playwright
+    phone = device in ("390", "412")
+    context = {"390": SMALL_PHONE, "412": PIXEL}[device] if phone else DESKTOP
+    layout = "" if phone else ("try { localStorage.setItem('findaline.layout', JSON.stringify({v: 1, list: {w: %s, open: true}, details: {w: 380, open: true}, "
+                               "profile: {h: 300, folded: false, l: 12, r: 12}})); } catch (e) {}" % device)
+    got = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP + layout)
+            if phone:
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, "full")
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head .u-ic", timeout=WAIT)
+            for key, desc in SORT_CASES:
+                page.evaluate(f"() => {{ const v = window.FINDALINE_VIEW.view; v.setSort('{key}'); v.setDesc({str(desc).lower()}); }}")
+                page.evaluate("() => T.frames()")
+                got.append([key, desc, page.evaluate(MARKS)])
+            assert page.errors == []
+        finally:
+            browser.close()
+    bad = []
+    for key, desc, m in got:
+        b, i = m["box"], m["icon"]
+        inside = all(b[0] - 0.5 <= r[0] and r[2] <= b[2] + 0.5 and b[1] - 0.5 <= r[1] and r[3] <= b[3] + 0.5 for r in [i, *m["own"]])
+        # the mark's box at least 2 px clear of the neighbours' words (its arrow is drawn in the middle of its 12 px box:
+        # the ink keeps 5 px more), its own words never over theirs (at 260 and 300 px the columns' words themselves come
+        # within 2 or 3 px of each other: the grid's 4 px gap, sorted or not)
+        apart = all(g is None or g >= 2 for g in (m["markBefore"], m["markAfter"])) and all(g is None or g >= 1 for g in (m["wordsBefore"], m["wordsAfter"]))
+        placed = i[1] <= m["firstLine"] + 8  # the mark on or above its word's first line
+        if not (inside and apart and placed):
+            bad.append([key, desc, m["text"], [None if g is None else round(g, 1) for g in (m["markBefore"], m["markAfter"], m["wordsBefore"], m["wordsAfter"])],
+                        inside, placed])
+    print("the sort marks:", device, len(got), "cases; bad:", bad)
+    assert not bad, bad
+
+
+# The star of the lowest row in view of the phone's sheet body (its li's id)
+LOWEST_STAR = """() => { const box = document.querySelector('.u-sheet-body').getBoundingClientRect();
+  const stars = [...document.querySelectorAll('.vl-rows > li > .vl-star')].filter((s) => { const r = s.getBoundingClientRect(); return r.height && r.top >= box.top && r.bottom <= box.bottom; });
+  const low = stars.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom)[0]; return low ? low.closest('li').id : null; }"""
+# Each item of the open row picker: inside the window and the sheet body's view, and a press at its middle reaching it
+PICKER_ITEMS = """() => { const pop = document.querySelector('.vl-row .r-pop'), box = document.querySelector('.u-sheet-body').getBoundingClientRect();
+  return [...pop.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(), hit = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    return {name: b.textContent.trim().slice(0, 20), y: [Math.round(r.top), Math.round(r.bottom)], inside: r.top >= box.top - 0.5 && r.bottom <= Math.min(box.bottom, innerHeight) + 0.5,
+            on: !!hit && b.contains(hit)}; }); }"""
+
+
+@pytest.mark.parametrize("stop", ["half", "full"])
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_row_picker_whole_from_the_lowest_row(site, device, stop):
+    """The design re-check's G2-F7: on a phone (the sheet at half or at full) the star of the lowest row in view opens
+    its folder list (the sheet rises to full for it) whole in the sheet's view: every item inside the window and
+    pressable, no swipe needed (it ran past the screen's foot: "New folder" below it); also from the list's very last
+    row, where the list cannot scroll further (the list opens upward)."""
+    from playwright.sync_api import sync_playwright
+    got = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for case in ("lowest", "last"):
+                page = _open(browser, site + f"#run={BIG}", device, script=HELP)
+                page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                _stop(page, stop)
+                if case == "last":
+                    # the tree's last sector opened, the list at its end: its last row is the list's last
+                    page.evaluate("() => { const t = [...document.querySelectorAll('.vl-tree .vl-sec')].pop().querySelector('.vl-toggle'); if (t.getAttribute('aria-expanded') !== 'true') t.click(); }")
+                    page.evaluate("() => T.frames()")
+                    page.evaluate("() => { const b = document.querySelector('.u-sheet-body'); b.scrollTop = b.scrollHeight; }")
+                    page.evaluate("() => T.frames()")
+                else:
+                    # the first sector's rows brought to the sheet's foot: its tenth row the lowest in view
+                    page.evaluate("""() => { const b = document.querySelector('.u-sheet-body'), r = document.querySelector('.vl-tree .vl-sec .vl-rows > li:nth-child(10)');
+                      b.scrollTop += r.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom + 2; }""")
+                    page.evaluate("() => T.frames()")
+                row = page.evaluate(LOWEST_STAR)
+                assert row, "no row's star in the sheet's view"
+                page.evaluate(f"() => document.querySelector('#{row} > .vl-star').click()")
+                page.wait_for_selector(".vl-row .r-picker", timeout=WAIT)
+                page.wait_for_function("() => F.snap() === 'full' && F.rest()", timeout=WAIT)
+                page.wait_for_function(f"""() => {{ const p = document.querySelector('.vl-row .r-pop'), b = document.querySelector('.u-sheet-body').getBoundingClientRect();
+                  return p && p.getBoundingClientRect().bottom <= Math.min(b.bottom, innerHeight) + 0.5; }}""", timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                got[case] = page.evaluate(PICKER_ITEMS)
+                assert page.errors == []
+                page.context.close()
+        finally:
+            browser.close()
+    print("the lowest row's picker:", device.get("viewport"), stop, got)
+    for case, items in got.items():
+        assert len(items) >= 2 and all(i["inside"] and i["on"] for i in items), (case, items)
+
+
+FOCUS_NOW = "() => { const a = document.activeElement; return !a || a === document.body ? 'body' : a.className.toString().slice(0, 40); }"
+
+
+@pytest.mark.parametrize("turn", ["same-frame", "other-frame"])
+def test_focus_back_after_the_sideways_notice(site, turn):
+    """The sideways notice's focus (the design re-check): a phone upright with the focus on the sheet's handle, turned
+    sideways (the notice over an inert page: the focus leaves the handle), and upright again: the focus is back on the
+    handle (375 x 667 <-> 667 x 375: the same phone frame), or, where turning drew the other frame and the handle went
+    with it (390 x 844 <-> 844 x 390), on the new frame's first stop, never on the page's body."""
+    from playwright.sync_api import sync_playwright
+    up, side = ((375, 667), (667, 375)) if turn == "same-frame" else ((390, 844), (844, 390))
+    context = {"viewport": {"width": up[0], "height": up[1]}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.focus(".u-sheet-handle")
+            before = page.evaluate(FOCUS_NOW)
+            page.set_viewport_size({"width": side[0], "height": side[1]})
+            page.wait_for_selector(".v-upright p", timeout=WAIT)
+            during = page.evaluate(FOCUS_NOW)
+            page.set_viewport_size({"width": up[0], "height": up[1]})
+            page.wait_for_function("() => !document.querySelector('.v-upright p')", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement && document.activeElement !== document.body", timeout=WAIT)
+            after = page.evaluate(FOCUS_NOW)
+            first = page.evaluate("() => { const f = document.querySelector('.v-result'); const e = f.querySelector(\"button:not([disabled]), [href], input:not([disabled]), select, [tabindex]:not([tabindex='-1'])\"); return e ? e.className.toString().slice(0, 40) : null; }")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the focus around the notice:", turn, before, during, after, "first stop", first)
+    assert "u-sheet-handle" in before and "u-sheet-handle" not in during, (before, during)
+    assert after == (before if turn == "same-frame" else first), (after, before, first)
+
+
+def test_layers_press_inside_then_hover_leaves_the_sheet(boxes_site):
+    """The code review's round 5: in a narrow window with a mouse (760 x 900) the sheet at half: the layers menu opened
+    by hover, a press inside it (a layer's row), the mouse out (Leaflet closes it) and back at once (a hover reopens it
+    within 800 ms of that press): the sheet stays at half (the press counted for the reopening before)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, boxes_site + f"#run={BOXES}", {"viewport": {"width": 760, "height": 900}}, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "half")
+            box = page.evaluate("() => { const r = document.querySelector('.v-map .leaflet-control-layers').getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }")
+            page.mouse.move(*box)
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", timeout=WAIT)
+            row = page.evaluate("() => { const r = document.querySelectorAll('.v-map .leaflet-control-layers-expanded label')[1].getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }")
+            page.mouse.move(*row)
+            page.mouse.down()
+            page.mouse.up()
+            page.mouse.move(5, 450)
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", state="detached", timeout=WAIT)
+            page.mouse.move(*box)
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", timeout=WAIT)
+            page.evaluate("() => T.frames().then(() => T.frames())")
+            snap = page.evaluate("() => F.snap()")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("press inside, then hover:", snap)
+    assert snap == "half", snap
+
+
+# The pressed head's top at every animation frame after its press, for ten frames (window.TOPS)
+FRAME_TOPS = """(sel) => new Promise((ok) => { const out = [], h = () => document.querySelector(sel); let n = 10;
+  const step = () => { const e = h(); out.push(e ? Math.round(e.getBoundingClientRect().top) : null); if (--n > 0) requestAnimationFrame(step); else ok(out); };
+  h().click(); requestAnimationFrame(step); })"""
+
+
+def test_head_new_key_never_jumps(site):
+    """A head's new key with a spot selected (the tree's second-last; the code review's round 5 on sortBy's `still`):
+    the head is drawn where it stood in every frame after the press. (Measured: this holds also without `still`, the
+    put-back alone holds the head in the first frame, so the test guards the put-back, not `still`.)"""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            tree = page.evaluate("() => window.FINDALINE_VIEW.view.sectors.flatMap((s) => s.spots)")
+            spot = tree[-2]
+            _state(page, f"view.select({spot});")
+            page.wait_for_selector(f"#vl-row-{spot} > .vl-main", timeout=WAIT)
+            sector = page.evaluate(f"() => window.FINDALINE_VIEW.view.sectorOf({spot})")
+            head = f".vl-sec[data-sector='{sector}'] > .vl-cols .vl-head[data-col='clr']"
+            page.evaluate(f"() => {{ const h = document.querySelector(\"{head}\"), box = h.closest('.vl-body'); box.scrollTop += h.getBoundingClientRect().top - box.getBoundingClientRect().top - 200; }}")
+            page.evaluate("() => T.frames()")
+            start = page.evaluate(f"() => Math.round(document.querySelector(\"{head}\").getBoundingClientRect().top)")
+            tops = page.evaluate(FRAME_TOPS, head)
+            assert page.evaluate("() => window.FINDALINE_VIEW.view.sort") == "clr"
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the head's top frame by frame:", start, tops)
+    assert all(t is not None and abs(t - start) <= 1 for t in tops), (start, tops)
+
+
+def test_notice_record_ends_with_the_view(site):
+    """The code review's round 6: the view left while the phone is sideways (the notice up: its focus record kept),
+    the phone turned upright on the page it went to, and a run opened again: the new view does not take the focus by
+    itself (it focused its map, the old record's fallback)."""
+    from playwright.sync_api import sync_playwright
+    side = {"viewport": {"width": 844, "height": 390}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", {**side, "viewport": {"width": 390, "height": 844}}, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.focus(".u-sheet-handle")
+            page.set_viewport_size({"width": 844, "height": 390})
+            page.wait_for_selector(".v-upright p", timeout=WAIT)
+            page.evaluate("() => { location.hash = ''; }")
+            page.wait_for_function("() => !document.querySelector('.v-result')", timeout=WAIT)
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.evaluate("() => T.frames()")
+            page.evaluate(f"() => {{ location.hash = '#run={BIG}'; }}")
+            page.wait_for_function("() => !!document.querySelector('.v-result') && !!window.FINDALINE_VIEW", timeout=WAIT)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames())")
+            focus = page.evaluate(FOCUS_NOW)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the focus in a view opened again:", focus)
+    assert "leaflet-container" not in focus, focus
