@@ -320,7 +320,9 @@ texts), and one was not a defect. With step 3c, beside today's features and the 
 - docs/DESIGN.md R5 to R7 (the type, radius and spacing scales) against the accepted mock-up: the user settles which
   holds. *Done by the UX task's pilot and G2 (rows 87 to 89).*
 - The 44 px rule on touch (R2) and the smallest text (R1): the view's controls and text listed in docs/known-bugs.md
-  (the user: "2. a"). *Done but for the kit's chip and the measured profile's two fields (known-bugs.md).*
+  (the user: "2. a"). *Done in the states `tools/ui_shots.py` measures, but for the kit's chip and the measured profile's
+  two fields; the filter editor and More filters (today's components, no ui_shots state) are left: known-bugs.md,
+  "Line volume, round 6".*
 
 ### An access grid that needs less memory (the user, 2026-11-16)
 The access mark's grid covers the search's whole grid. In blocks it needs about 12 B per pixel of the whole grid and

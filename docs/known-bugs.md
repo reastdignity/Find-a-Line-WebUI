@@ -294,7 +294,7 @@ Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the 
 ## Line volume, round 4: known and left (2026-11-17)
 
 Found in the reviews and test runs of round 4 (the view's columns, the exports with the Download buttons, the store
-read by share links, the result view behind `?view=b`), none fixed:
+read by share links, the result view then behind `?view=b`), none fixed:
 - **R48 differs on `main`** since before round 4: 1 252 lines and 39 spots against the baseline's 1 541 and 44
   (sha256 985a5cb3…), with every tile from the cache and no fallback. Its source keeps the newest survey per 1 km
   tile (survey years 2022-2025), so a newer survey of some tiles since the baseline is the likely cause (a guess, not
@@ -326,9 +326,10 @@ read by share links, the result view behind `?view=b`), none fixed:
   docs/DESIGN.md R1 and R2 (the level buttons 42 px high, Best's select 29, "Legend" 30, "Back to Auto" 18.8, the
   chips 36, the column heads' 10.5 px, the shapes' text 8.7 px), left to step 3c by the user ("2. a"); the design
   review's other findings are step 3c's list in docs/roadmap.md. Not run: a real phone, presses in WebKit or
-  Firefox; the focus rules are tested in Chromium only. **Brought to R1 and R2 in round 6** (2026-11-22): no text
-  under 12 px outside the credits in any of the view's states, no control under the bound in the first view or with
-  a line; what is left is in "Line volume, round 6" below.
+  Firefox; the focus rules are tested in Chromium only. **Brought to R1 and R2 in round 6** (2026-11-22) in the
+  states `tools/ui_shots.py` measures: no text under 12 px outside the credits, no control under the bound in the
+  first view or with a line. The filter editor and More filters, which no state measures, are not; what is left is in
+  "Line volume, round 6" below.
 
 ## Line volume, round 5 (store wave 4): known and left (2026-11-18)
 
@@ -398,6 +399,13 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
 **What the design checks left** (the final design check and gate 2's, 2026-11-22; none breaks a user answer)
 - **R2's leftovers**: the measured profile's two number fields 56 × 23 px on the desktop, and a set filter chip's
   label button (19-20 px high) and its × (16 × 16 px) on every device: the kit's chip.
+- **R1 and R2 in the filter editor and More filters** (measured by wave A's A4, 2026-11-20, in states
+  `tools/ui_shots.py` does not have, so the final design check did not cover them): on a phone a filter's editor has
+  its × at 40 × 40 px and two number fields at 76 × 40; More filters has its × at 40 × 40, every number field at
+  76 × 40 and every checkbox row 40 px high, and on every device its section heads and the A-frame field's label at
+  11 px. These are today's page's components, borrowed by the view and shared with today's page (`result.css`:
+  `.r-note-x` and `.r-check` 40 px under `(pointer: coarse)`, `.r-num` 40 px, `.r-more-sec > h3, .r-field-lab` 11 px).
+  The table of spots has nothing under a bound. ui_shots states for the editor and More filters would measure them.
 - **Two inside rings without a forced-colours twin**: `mapbar.css` `.v-part:focus-visible` (the map's help parts;
   its forced outline is cut at its top and right by the help's box) and `view.css` `.vl-star:focus-visible` (DESIGN.md
   row 81; with the other three of round 6 for the UX task's G6).
