@@ -22,11 +22,11 @@
   .n-coverage .n-coverage-btn { position: relative; border-radius: inherit; }
   .n-coverage-btn::after { content: ""; position: absolute; left: 0; right: 0; top: -6px; bottom: -6px; }
 }
-.n-coverage-legend { padding: 4px 12px 8px; border-top: 1px solid var(--rule, #d3dcdc); font-size: var(--fs-1, 12px); line-height: 1.35; }
+/* the legend: its items and swatches the kit's (ui.css .u-legend-*; docs/DESIGN.md row 90), the status line in the
+   items' type */
+.n-coverage-legend { padding: 4px 12px 8px; border-top: 1px solid var(--rule, #d3dcdc); font-size: var(--fs-2, 13px); line-height: 18px; }
 .n-coverage-legend[hidden] { display: none; }
-.n-coverage-legend ul { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.n-coverage-legend li { display: flex; align-items: center; gap: 8px; }
-.n-coverage-sw { width: 16px; height: 10px; border-radius: var(--r-1); border: 1px solid var(--line, #b3c1c2); flex: none; }
+.ui .n-coverage-legend .u-legend-items { margin: 4px 0; }
 .n-coverage-legend.n-compact ul { display: none; }
 .n-coverage-status:empty { display: none; }
 .n-coverage-status { color: var(--muted, #56686c); padding-top: 4px; }

@@ -14,7 +14,6 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
   padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .cov .cov-muted { color: var(--muted); }
 .cov .cov-small { font-size: var(--fs-2); }
-.cov .cov-label { font: 600 var(--fs-2)/1.3 var(--font); color: var(--ink-2); }
 .cov .cov-h, .cov .cov-h1 { font-family: var(--display); font-weight: 600; letter-spacing: .01em; margin: 0; text-wrap: balance; }
 .cov .cov-h { font-size: var(--fs-5); line-height: 1.2; }
 .cov .cov-h1 { font-size: var(--fs-7); line-height: 1.1; }
@@ -91,10 +90,11 @@ html { scroll-padding-top: var(--cov-top, 0px); }
 .cov-legend { position: absolute; left: 8px; bottom: 8px; z-index: var(--z-map-top); background: var(--surface);
   border-radius: var(--r-2); padding: 12px; box-shadow: var(--shadow); max-width: min(320px, calc(100% - 16px)); }
 .cov-legend-body { display: flex; flex-direction: column; gap: 8px; }
-.cov-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.cov-it { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: center; font-size: var(--fs-2); }
-.cov-tag { color: var(--muted); font-size: var(--fs-1); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.cov .cov-sw { display: inline-block; width: 22px; height: 14px; border-radius: var(--r-1); border: 1px solid var(--line); vertical-align: -2px; flex: none; }
+/* its title, items and swatches: the kit's legend (ui.css .u-legend-*; docs/DESIGN.md row 90); a level's tag in the
+   item's size, in --muted */
+.cov-tag { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* the list's swatch (AreaList.tsx: a row's level), the legend's colours too */
+.cov .cov-list .cov-sw { display: inline-block; width: 22px; height: 14px; border-radius: var(--r-1); border: 1px solid var(--line); vertical-align: -2px; flex: none; }
 .cov .cov-sw1 { background: var(--cov-l1); } .cov .cov-sw2 { background: var(--cov-l2); } .cov .cov-sw3 { background: var(--cov-land); }
 .cov .cov-swh { background: repeating-linear-gradient(135deg, var(--cov-l1) 0 3px, var(--cov-land) 3px 6px); }
 .cov .cov-sw2.cov-swh { background: repeating-linear-gradient(135deg, var(--cov-l2) 0 3px, var(--cov-land) 3px 6px); }
@@ -160,7 +160,6 @@ html { scroll-padding-top: var(--cov-top, 0px); }
   .cov-card::before { content: ""; display: block; width: 40px; height: 4px; border-radius: var(--r-1); background: var(--line); margin: -4px auto 12px; }
   /* on the ground: no box (R8) */
   .cov-legend { position: static; margin-top: 12px; max-width: none; box-shadow: none; background: none; border-radius: 0; padding: 0; }
-  .cov-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
   .cov-mapbox { height: min(62vh, 520px); min-height: 340px; }
   /* the map high on the first screen (the user's pick): the lead after the map and its legend, no hint on the
      gestures; the order of the document stays (a screen reader reads the lead first) */

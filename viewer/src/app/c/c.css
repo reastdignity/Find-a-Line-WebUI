@@ -303,18 +303,15 @@
 .ui .c-layer-more + .c-layer-legend { border-top: 0; padding-top: 0; }
 .ui .c-layer-legend, .ui .c-layer-cell { display: flex; flex-direction: column; gap: 8px; }
 .ui .c-layer-legend p, .ui .c-layer-cell p { margin: 0; }
-.ui .c-layer-classes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
-.ui .c-layer-classes li { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-1); white-space: nowrap; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.ui .c-layer-swatch { display: block; height: 14px; border-radius: var(--r-1); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }  /* its edge drawn */
+/* the legend's title, classes and swatches: the kit's legend (ui.css .u-legend-*; docs/DESIGN.md row 90) */
 .ui .c-layer-k1 { background: var(--layer-1); }
 .ui .c-layer-k2 { background: var(--layer-2); }
 .ui .c-layer-k3 { background: var(--layer-3); }
 .ui .c-layer-k4 { background: var(--layer-4); }
 .ui .c-layer-k5 { background: var(--layer-5); }
 /* the partner cells' swatch: a class colour with the map's hatching (cellsLayer.ts hatchPattern) */
-.ui .c-layer-hatch { width: 30px; flex: none;
+.ui .c-layer-hatch {
   background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ink) 55%, transparent) 0 1.3px, transparent 1.3px 5px), var(--layer-2); }
-.ui .c-layer-legend-extra { display: flex; align-items: center; gap: 8px; font-size: var(--fs-1); color: var(--ink-2); }
 .ui .c-layer-view { display: flex; flex-direction: column; gap: 8px; }
 .ui .c-layer-total { min-height: 20px; font-variant-numeric: tabular-nums; }
 .ui .c-layer-split { color: var(--ink-2); font-size: var(--fs-2); }

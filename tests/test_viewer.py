@@ -3521,7 +3521,7 @@ def test_neutrals_copies_in_step():
                         if token in light and light[token].startswith("#") and len(colour) == 7:
                             assert colour == light[token], (name, token, colour)
                             fallbacks += 1
-    assert fallbacks >= 6, fallbacks  # app/coverageLayer.css
+    assert fallbacks >= 5, fallbacks  # app/coverageLayer.css (6 before step 3d G2: its swatch's --line edge went)
     # the dark halo is the dark ground; the profile chart's frame colour (Profile.tsx PROFILE, the value outside .ui,
     # where profile.css gives --r-frame: var(--ink-2)) is the light second ink
     assert all(d["--halo"] == d["--bg"] for d in darks)
@@ -3657,7 +3657,7 @@ OFF_THE_SCALES = {
     # shadows that are drawings, not a level (R8; the three elevation tokens are --shadow, --shadow-track, --shadow-up)
     ("app/c/c.css", ".ui .c-card-new", "shadow", ""): "a ring of the accent around a new run's card",
     ("app/c/c.css", ".ui .c-layer-hist-open", "shadow", ""): "a ring of the accent around the open chart",
-    ("app/c/c.css", ".ui .c-layer-swatch", "shadow", ""): "a swatch's inset edge of the ink (row 68)",
+    ("ui/ui.css", ".ui .u-legend-sw", "shadow", ""): "a legend's swatch: its inset edge of the ink (rows 68, 90)",
     ("app/c/c.css", ".ui .c-layer-bar-fill", "shadow", ""): "a bar's inset edge of the ink (row 68)",
     ("app/coverageLayer.css", ".n-coverage-btn.n-on::before", "shadow", ""): "the ticked box's gap inside its edge",
     ("search/search.css", ".ui .s-card.u-on", "shadow", ""): "the selected card's second px of edge",

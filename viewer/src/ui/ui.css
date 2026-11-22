@@ -189,6 +189,18 @@
 .ui .u-stat b small { font-size: var(--fs-3); font-weight: 500; margin-left: 4px; color: var(--ink-2); }
 .ui .u-stat span { font-size: var(--fs-1); line-height: 16px; color: var(--ink-2); }
 
+/* A legend (docs/DESIGN.md row 90; the user's pick of 2026-11-22: the result view's accepted legend, row 9, the model
+   of every legend): its title at 13 px in the ink; its items in a line that wraps, each a 16 x 12 px swatch with its
+   label at 13 px in the second ink; a ramp's classes closer together (.u-legend-classes). A legend keeps its place,
+   its content and its swatches' colours (a class of its own, or set by its code) */
+.ui .u-legend-title { margin: 0; font: 600 var(--fs-2)/18px var(--font); color: var(--ink); }
+.ui .u-legend-items { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0; padding: 0; list-style: none; }
+.ui .u-legend-item { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); }
+.ui .u-legend-classes { gap: 4px 12px; }
+.ui .u-legend-classes > .u-legend-item { gap: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ui .u-legend-sw { flex: none; width: 16px; height: 12px; border-radius: var(--r-1);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }  /* its edge drawn: a pale colour on white */
+
 /* Bottom navigation (phones) */
 .ui .u-bnav { position: absolute; left: 0; right: 0; bottom: 0; min-height: 64px; padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--surface); border-top: 1px solid var(--rule); display: flex; justify-content: space-around; align-items: stretch; z-index: var(--z-nav); }
