@@ -1618,3 +1618,34 @@ def test_focus_back_after_the_sideways_notice(site, turn):
     print("the focus around the notice:", turn, before, during, after, "first stop", first)
     assert "u-sheet-handle" in before and "u-sheet-handle" not in during, (before, during)
     assert after == (before if turn == "same-frame" else first), (after, before, first)
+
+
+def test_layers_press_inside_then_hover_leaves_the_sheet(boxes_site):
+    """The code review's round 5: in a narrow window with a mouse (760 x 900) the sheet at half: the layers menu opened
+    by hover, a press inside it (a layer's row), the mouse out (Leaflet closes it) and back at once (a hover reopens it
+    within 800 ms of that press): the sheet stays at half (the press counted for the reopening before)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, boxes_site + f"#run={BOXES}", {"viewport": {"width": 760, "height": 900}}, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "half")
+            box = page.evaluate("() => { const r = document.querySelector('.v-map .leaflet-control-layers').getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }")
+            page.mouse.move(*box)
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", timeout=WAIT)
+            row = page.evaluate("() => { const r = document.querySelectorAll('.v-map .leaflet-control-layers-expanded label')[1].getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }")
+            page.mouse.move(*row)
+            page.mouse.down()
+            page.mouse.up()
+            page.mouse.move(5, 450)
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", state="detached", timeout=WAIT)
+            page.mouse.move(*box)
+            page.wait_for_selector(".v-map .leaflet-control-layers-expanded", timeout=WAIT)
+            page.evaluate("() => T.frames().then(() => T.frames())")
+            snap = page.evaluate("() => F.snap()")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("press inside, then hover:", snap)
+    assert snap == "half", snap

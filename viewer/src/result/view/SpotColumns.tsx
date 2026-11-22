@@ -1100,7 +1100,9 @@ function useLayersLowerTheSheet(col: {current: HTMLElement | null}, map: L.Map |
     const control = col.current?.querySelector<HTMLElement>(".leaflet-control-layers");
     if (!map || !control) return;
     let open = control.classList.contains("leaflet-control-layers-expanded"), pressed = -Infinity;
-    const press = () => { pressed = performance.now(); };
+    // a press counts while the menu is closed (on its button): a press inside the open menu (a layer's row) followed by
+    // a hover's reopening must not drop the sheet (the code review's round 5)
+    const press = () => { if (!control.classList.contains("leaflet-control-layers-expanded")) pressed = performance.now(); };
     const key = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") press(); };
     control.addEventListener("pointerdown", press, true);
     control.addEventListener("keydown", key, true);
