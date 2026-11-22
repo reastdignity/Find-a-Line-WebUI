@@ -248,7 +248,8 @@ how a result is organised), built the low-effort part and specified the rest.
   view's own closes, links and legend with the control family.
 
 ### Line volume round 6: open (2026-11-22)
-Each from the user's answers at the gates of round 6 (`local/line-volume-6/user-inputs.md`); none started.
+From the gates and reviews of round 6, each with its source (the user's answers are in
+`local/line-volume-6/user-inputs.md`); none started.
 - **Fewer steps on a phone** (T7 "not met", the user's T a and G-E a): from a spot to a line of a chosen direction
   takes 5 steps on the clip's run and 6-8 on a run of 15 338 lines (4 without scrolls), against the target of 3; the
   sheet's raise and the scroll to the row are the steps beyond the three. The first result takes 5 pointer actions
@@ -277,10 +278,15 @@ Each from the user's answers at the gates of round 6 (`local/line-volume-6/user-
 - **A cut store download resumed**: since gate 2 a run's store cut while the page was hidden starts again whole once
   the page is visible (`result/load.ts`); asking only for the bytes not yet in (a range) would save a slow phone's
   minutes; the gzip on the wire (nginx, the LAN tool) needs a plan for it.
-- **Profiles asked ahead** (gate 2's finding 2): a step through a spot's lines now draws the map once, but the felt
-  lag on a phone is most likely `/api/profile`'s round trip per step (an area's run keeps profiles only for each
-  spot's first line); asking the next and the previous lines' profiles ahead, and fewer elements in the page (about
-  460 icons on a long list), are the options.
+- **Profiles asked ahead** (after gate 2's finding 2, which was the scrolling: fixed by the scrollers' layer): a step
+  through a spot's lines draws the map once now; on a slow link a step's `/api/profile` round trip (an area's run
+  keeps profiles only for each spot's first line) could still be saved by asking the next and the previous lines'
+  profiles ahead; fewer elements in the page (about 460 icons on a long list) would cut the browser's own work.
+- **"How to read the result" rewritten for the view** (the user's "5. a", 2026-11-16: hidden in the view until its
+  text is rewritten): on what is now the default page a first-timer gets no result intro (the final design check,
+  heuristic 10).
+- **ui_shots states for the filter editor and More filters** (wave A's A4 proposed them): their R1 and R2 leftovers
+  are measured by no state today (docs/known-bugs.md, "Line volume, round 6").
 - **The long list in the phone's sheet, its proper fix** (docs/known-bugs.md, "The phone's sheet moves in steps with a
   long list"; the user: "create a bug report for fixing it properly"): A the tree opened only around the selected row
   with about 60 rows a sector (recommended; the button's words the user's), B a virtual list (compare the libraries

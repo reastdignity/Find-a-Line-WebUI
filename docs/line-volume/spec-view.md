@@ -306,7 +306,7 @@ and its phone frames). Every count below is of the lines that pass the filters.
   there, else the tree's row; a selection made by pressing a row keeps that row in view.
 
 **As built in round 6** (steps 3c and 3d, 2026-11-20 to 2026-11-22; branch `view-3c`; the looks are
-docs/DESIGN.md rows 100 to 130, each with the user's words):
+docs/DESIGN.md rows 100 to 130, each with its source: the user's words, or the planner's or a review's):
 - **Today's features joined** (the plan's answers 3 to 6, 11, 12; gate 1's 4 a, 4 d, 7 b, 10 a and question 11): the
   run's actions (Share, Download, Measure, Compare, Copy link, Report; on a phone in the pill without Compare); the
   profile as a card on the credits' line on a desktop, as a compact dock under the four values on a phone; the

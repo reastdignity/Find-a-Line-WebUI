@@ -52,7 +52,8 @@ catalogue), `browser-tests.md`.
   `SpotPanels.tsx` (it imports their slots, and the Node units bundle them without Leaflet), make no Line for a row
   (`view.values`, the columns' `at`), keep a row as a list item with one button and its other controls as siblings,
   and keep in the browser only the sort, its direction and the hint (`viewstate.ts`; "Top level only" is on at every
-  start); a new slot of the frame is optional in `SpotPanels`.
+  start), and today's `findaline.lastFolder` through the folder picker; a new slot of the frame is optional in
+  `SpotPanels`.
   `SpotMap.ts` draws from the columns (no Leaflet layer per line) and the legend lists `legend()`'s shapes;
   a number is placed clear of every `[data-map-control]`, `.leaflet-control` and the frame's obstacles: a new box
   over the map carries `data-map-control`, and one that takes no press (a desktop's toast, the bar's rows) has
