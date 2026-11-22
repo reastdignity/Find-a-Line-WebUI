@@ -1502,30 +1502,65 @@ MARK = """() => { const sec = document.querySelector('.vl-tree .vl-sec .vl-rows'
           firstLine: lines[0], lines: lines.length, gap: before.length ? icon.left - Math.max(...before.map((x) => x.right)) : null}; }"""
 
 
-@pytest.mark.parametrize("device", ["desktop", "390", "412"])
+# The sorted head of the first open sector: its mark's box, its own words' boxes, its own box, and the words of the
+# heads before and after it
+MARKS = """() => { const sec = document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec');
+  const heads = [...sec.querySelectorAll(':scope > .vl-cols > .vl-hcell > .vl-head, :scope > .vl-cols > .vl-cell-acc')];
+  const at = heads.findIndex((h) => h.querySelector('.u-ic')), head = heads[at];
+  const rect = (r) => [r.left, r.top, r.right, r.bottom];
+  const words = (e) => { const r = document.createRange(); r.selectNodeContents(e.querySelector('.vl-head-t') || e);
+    return [...r.getClientRects()].filter((x) => x.width > 2 && x.height > 2); };
+  const icon = head.querySelector('.u-ic').getBoundingClientRect(), own = words(head).filter((x) => Math.abs(x.width - icon.width) > 0.5);
+  const lines = [...new Set(own.map((x) => Math.round(x.top)))].sort((a, b) => a - b);
+  const prev = at > 0 ? words(heads[at - 1]) : [], next = at < heads.length - 1 ? words(heads[at + 1]) : [];
+  const before = (xs) => prev.length ? Math.min(...xs.map((x) => x.left)) - Math.max(...prev.map((x) => x.right)) : null;
+  const after = (xs) => next.length ? Math.min(...next.map((x) => x.left)) - Math.max(...xs.map((x) => x.right)) : null;
+  return {col: head.dataset.col, text: head.textContent.trim(), box: rect(head.getBoundingClientRect()), icon: rect(icon), own: own.map(rect),
+          firstLine: lines[0], markBefore: before([icon]), markAfter: after([icon]), wordsBefore: before(own), wordsAfter: after(own)}; }"""
+SORT_CASES = [(k, d) for k in ("hmean", "hmax", "len", "clr", "n") for d in (True, False)]
+
+
+@pytest.mark.parametrize("device", ["260", "300", "372", "390", "412"])
 def test_sort_mark_by_its_own_word(site, device):
-    """The design re-check's G2-F6: in the first view (sorted by mean height, a head of two lines) the sort mark lies
-    inside its own head's box, on the first line of its own word ("↓ Mean / height"), and at least 4 px clear of the
-    neighbour's words (it stood flush after "Length", reading "Length↓")."""
+    """The design re-check's G2-F6 and the code review's round 6: for every sort key, in either direction, the sorted
+    head's mark and words stay inside its own head's box, the mark above or before the first line of its own word, the
+    mark at least 4 px clear of the neighbours' words and its words never over theirs (sorted by clearance or lines
+    "↓Clearance" ran 6-13 px over the word before it) - on a desktop with the list at 260, 300 and 372 px, and on both
+    phones with the sheet at full."""
     from playwright.sync_api import sync_playwright
-    context = {"desktop": DESKTOP, "390": SMALL_PHONE, "412": PIXEL}[device]
+    phone = device in ("390", "412")
+    context = {"390": SMALL_PHONE, "412": PIXEL}[device] if phone else DESKTOP
+    layout = "" if phone else ("try { localStorage.setItem('findaline.layout', JSON.stringify({v: 1, list: {w: %s, open: true}, details: {w: 380, open: true}, "
+                               "profile: {h: 300, folded: false, l: 12, r: 12}})); } catch (e) {}" % device)
+    got = []
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
-            if device != "desktop":
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP + layout)
+            if phone:
                 page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
                 _stop(page, "full")
             page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head .u-ic", timeout=WAIT)
-            got = page.evaluate(MARK)
+            for key, desc in SORT_CASES:
+                page.evaluate(f"() => {{ const v = window.FINDALINE_VIEW.view; v.setSort('{key}'); v.setDesc({str(desc).lower()}); }}")
+                page.evaluate("() => T.frames()")
+                got.append([key, desc, page.evaluate(MARKS)])
             assert page.errors == []
         finally:
             browser.close()
-    print("the sort mark:", device, got)
-    i, b = got["icon"], got["box"]
-    assert got["col"] == "h" and b[0] - 0.5 <= i[0] and i[2] <= b[2] + 0.5 and b[1] - 0.5 <= i[1] and i[3] <= b[3] + 0.5, got
-    assert got["lines"] == 1 or abs(i[1] - got["firstLine"]) <= 8, got  # on its word's first line
-    assert got["gap"] is not None and got["gap"] >= 4, got
+    bad = []
+    for key, desc, m in got:
+        b, i = m["box"], m["icon"]
+        inside = all(b[0] - 0.5 <= r[0] and r[2] <= b[2] + 0.5 and b[1] - 0.5 <= r[1] and r[3] <= b[3] + 0.5 for r in [i, *m["own"]])
+        # the mark at least 4 px clear of the neighbours' words; its own words never over theirs (at 260 px the columns'
+        # words themselves come within 2 or 3 px of each other: the grid's 4 px gap, sorted or not)
+        apart = all(g is None or g >= 4 for g in (m["markBefore"], m["markAfter"])) and all(g is None or g >= 1 for g in (m["wordsBefore"], m["wordsAfter"]))
+        placed = i[1] <= m["firstLine"] + 8  # the mark on or above its word's first line
+        if not (inside and apart and placed):
+            bad.append([key, desc, m["text"], [None if g is None else round(g, 1) for g in (m["markBefore"], m["markAfter"], m["wordsBefore"], m["wordsAfter"])],
+                        inside, placed])
+    print("the sort marks:", device, len(got), "cases; bad:", bad)
+    assert not bad, bad
 
 
 # The star of the lowest row in view of the phone's sheet body (its li's id)
