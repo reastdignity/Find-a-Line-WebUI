@@ -1030,10 +1030,15 @@ LOADED = """() => ({seen: window.SEEN, error: (document.querySelector('.c-result
   alert: document.querySelector('.c-result-wait .c-error')?.getAttribute('role') ?? null,
   view: !!window.FINDALINE_VIEW, today: !!window.FINDALINE_RESULT, count: window.FINDALINE_VIEW ? window.FINDALINE_VIEW.view.count : null,
   files: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname.split('/').pop()).filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f)).sort(),
-  lists: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).filter((p) => p.endsWith('/runs.js')),
   measures: performance.getEntriesByType('measure').filter((m) => m.name.startsWith('fal:run:')).map((m) => [m.name, m.detail]),
   listed: (window.FINDALINE_RUNS || []).map((r) => r.id),
   csp: (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])})"""
+
+
+def _lists(requests: list) -> list:
+    """The requests for a list of runs (a path ending in /runs.js) among a page's requests (_open's `requests`), each
+    one sent: the page's resource timing lists a second load of the same address in one document once (Chromium)."""
+    return [p for p in (urllib.parse.urlsplit(url).path for url in requests) if p.endswith("/runs.js")]
 
 
 def test_map_page_loading_and_its_failures(tmp_path, view_clip):
@@ -1041,7 +1046,7 @@ def test_map_page_loading_and_its_failures(tmp_path, view_clip):
     test_store_share::test_unlisted_runs_read_the_store_in_edge, test_shell_c::test_shell_c_too_large,
     ::test_shell_c_map_says_why_a_store_failed): a run's map.html loads its store itself (its two files with their
     bytes, the loading's texts) and the view opens with every line; a run runs.js does not name is read from its store
-    with runs.js asked once; a run without a store says ui.result.store_failed after the two 404s; a store the browser
+    with runs.js asked once (each request sent counted: _lists); a run without a store says ui.result.store_failed after the two 404s; a store the browser
     cannot hold, one of a newer format, one that cannot be read: each its own words, and neither page opens. These
     failures come before the page is chosen (map/main.tsx LoadedMap): the flag changes nothing there."""
     from playwright.sync_api import sync_playwright
@@ -1073,21 +1078,24 @@ def test_map_page_loading_and_its_failures(tmp_path, view_clip):
             for name, run_id, stubs in (("store", BIG, CSP_STUB), ("unlisted", UNLISTED, CSP_STUB), ("missing", MISSING, CSP_STUB),
                                         ("newer", NEWER, CSP_STUB), ("broken", BROKEN, CSP_STUB), ("large", BIG, too_large)):
                 ok = name in ("store", "unlisted")
+                sent = []
                 page = _open(browser, _map_url(f"http://127.0.0.1:{port}", run_id), DESKTOP, flag=False,
-                             script=FLAG + stubs + LOADING)
+                             script=FLAG + stubs + LOADING, requests=sent)
                 page.wait_for_function("() => !!window.FINDALINE_VIEW || !!document.querySelector('.c-result-wait .c-error')"
                                        " || !!window.FINDALINE_RESULT", timeout=WAIT)
                 if ok:
                     _state(page)
-                r[name] = page.evaluate(LOADED)
+                r[name] = {**page.evaluate(LOADED), "lists": _lists(sent)}
                 r[name]["errors"] = _errors(page)
                 if name == "large":
                     r[name]["scripts"] = page.evaluate("() => window.DATA_SCRIPTS")
                 page.context.close()
             # M16's app half: the unlisted run opened in the app (#run=), in the view
-            page = _open(browser, f"http://127.0.0.1:{port}/{page_path}?ui=c#run={UNLISTED}", DESKTOP, script=LOADING)
+            sent = []
+            page = _open(browser, f"http://127.0.0.1:{port}/{page_path}?ui=c#run={UNLISTED}", DESKTOP, script=LOADING,
+                         requests=sent)
             _state(page)
-            r["app"] = page.evaluate(LOADED)
+            r["app"] = {**page.evaluate(LOADED), "lists": _lists(sent)}
             r["app"]["errors"] = _errors(page)
             page.context.close()
         finally:
@@ -1265,10 +1273,13 @@ def _today(path: str) -> str:
     return address + ("&" if "?" in address else "?") + "view=today" + ("#" + hash_ if hash_ else "")
 
 
-def _public_page(browser, site: str, path: str, context: dict, flag: bool, who: str | None = None, script: str = ""):
+def _public_page(browser, site: str, path: str, context: dict, flag: bool, who: str | None = None, script: str = "",
+                 requests: list | None = None):
     """A page of the public site (`flag`: the view asked for, else today's page by its address; signed in as `who`),
-    once it shows a run or a load's error."""
+    once it shows a run or a load's error. `requests`: as _open's (every request's address, from the first)."""
     ctx = browser.new_context(**context)
+    if requests is not None:
+        ctx.on("request", lambda request: requests.append(request.url))
     ctx.add_init_script(HELPERS + CSP_STUB + CLIPBOARD + (FLAG if flag else "") + script)
     if not flag:
         path = _today(path)
@@ -1308,7 +1319,6 @@ def test_share_page_in_the_view(public, device):
     site = public["site"]
     asked = """(folder) => { const all = performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname);
       return {files: all.filter((p) => p.startsWith(folder)).map((p) => p.split('/').pop()).filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f)).sort(),
-              lists: all.filter((p) => p.endsWith('/runs.js')),
               others: all.filter((p) => p.startsWith('/runs/') || (p.startsWith('/s/') && !p.startsWith(folder) && p !== '/s/runs.js' && !p.startsWith('/s/_viewer/'))),
               seen: window.NOTICE_SEEN, served: document.documentElement.classList.contains('fal-served')}; }"""
     r = {}
@@ -1317,10 +1327,11 @@ def test_share_page_in_the_view(public, device):
         try:
             for name, token, flag in (("view", SHARE_A, True), ("today", SHARE_A, False), ("old", SHARE_B, True)):
                 folder = f"/s/{token}/"
-                page = _public_page(browser, site, folder + "map.html", device, flag, script=NOTICE_SEEN)
+                sent = []
+                page = _public_page(browser, site, folder + "map.html", device, flag, script=NOTICE_SEEN, requests=sent)
                 if name != "old":
                     page.wait_for_function("() => !document.getElementById('disk-notice')", timeout=WAIT)
-                r[name] = {**page.evaluate(WHO), **page.evaluate(asked, folder)}
+                r[name] = {**page.evaluate(WHO), **page.evaluate(asked, folder), "lists": _lists(sent)}
                 if name == "view":  # "Copy link" of a selected line: this page's address with the line (linkOf)
                     _state(page, "view.select(view.order[0]);")
                     page.wait_for_selector(".r-copy", state="attached", timeout=WAIT)
