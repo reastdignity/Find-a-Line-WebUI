@@ -57,7 +57,16 @@ RECIPES = {
     # Tuscany: the cartoteca's WFS of the lidar sheets (GML, footprints in EPSG:3003) at the Umbrian border by
     # Cortona: surveys of both owners, 1 m and 2 m, sheets of more than one survey
     "wfs-tuscany": ("wfs", "tuscany-lidar", "tuscany", "nmt", 43.0, 12.0),
+    # USGS's 1 m DEM files the TNM index does not list (sources/layers/tnmbucket.py): the bucket's listing of two
+    # projects and the index over their boxes (BUCKET1M); no 0.25° tile (the corner is the first box's), its own test
+    # (tests/test_usa_unlisted.py)
+    "bucket1m-usgs": ("bucket1m", "usgs-1m", "usa", "nmt", 39.9, -111.2),
 }
+# The projects of the bucket and the boxes of the index (west, south, east, north) the recipe bucket1m-usgs asks: a
+# project the index does not list at all (its names carry the zone) and one whose single unlisted file has a name
+# without a zone that its listed files give (no header read: GDAL's requests are not recorded)
+BUCKET1M = {"projects": ["ME_Umbagog_2016", "UT_StrawberryRiver_2019"],
+            "regions": [[-111.2, 39.9, -110.85, 40.15], [-68.5, 45.65, -67.95, 46.25]]}
 # The year layers a WFS recipe asks instead of those of the capabilities (none: GetFeature only)
 YEARS = {"wfs-geoportal-error": ["gugik:SkorowidzNMT1900"]}
 
@@ -104,7 +113,16 @@ def record(recipe: str, lat: float, lon: float, out: str = OUT) -> str:
     if hasattr(listing, "threads"):  # a WFS listing's year layers one after another: answers.json in their order
         listing.threads = 1
     requests.Session.send = recording
-    if isinstance(layer, src.InegiSheets):
+    if interface == "bucket1m":
+        try:
+            case.update(BUCKET1M)
+            expected = _bucket1m(cache_dir)
+        finally:
+            requests.Session.send = original
+        with open(os.path.join(folder, "expected.json"), "wb") as f:
+            f.write(expected)
+        raises = "-"  # done: no 0.25° tile below
+    elif isinstance(layer, src.InegiSheets):
         try:
             case["sheets"], expected = _inegi_sheets(layer, cache_dir, lat, lon)
         finally:
@@ -140,7 +158,7 @@ def record(recipe: str, lat: float, lon: float, out: str = OUT) -> str:
         result = f"raised {raises}"
     else:  # expected exists only when nothing was raised
         listed = json.loads(expected)
-        result = f"{len(listed['sheets'] if 'sheets' in listed else listed)} listed"
+        result = f"{len(listed['sheets'] if 'sheets' in listed else listed.get('items', listed))} listed"
     return f"{recipe}: {len(answers)} answers, {result}, {size / 1e3:.0f} kB"
 
 
@@ -157,6 +175,17 @@ def _inegi_sheets(layer, cache_dir: str, lat: float, lon: float):
         with open(layer.index.answer_path(cache_dir, name), encoding="utf-8") as f:
             found[name] = json.load(f)
     return names, json.dumps(found, sort_keys=True).encode()
+
+
+def _bucket1m(cache_dir: str) -> bytes:
+    """The list of the unlisted 1 m files of BUCKET1M's projects and boxes, made as a renewal makes it
+    (tnmbucket.make_unlisted); its items as JSON, one a line, as the test reads them back."""
+    from sources.layers import tnmbucket
+    out = os.path.join(cache_dir, "unlisted.json")
+    tnmbucket.make_unlisted(cache_dir, out=out, regions=[tuple(box) for box in BUCKET1M["regions"]],
+                            projects=BUCKET1M["projects"], log=lambda text: None)
+    items = tnmbucket.read_list(out)
+    return ('{"items": [\n' + ",\n".join(json.dumps(item) for item in items) + "\n]}\n").encode()
 
 
 def with_years(layer, years):

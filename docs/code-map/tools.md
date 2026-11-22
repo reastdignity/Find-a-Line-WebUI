@@ -59,6 +59,16 @@ folder's address of that code, or it stops. One request at a time, at least `PAU
 tiles a run asks without asking any. The surveys are frozen: run it again only when Tokyo publishes more sheets,
 check the tests' places and commit the table (`tests/test_japan.py`).
 
+## `tools/usa_unlisted.py`
+
+The copy shipped with the code of the list of the USA's 1 m DEM files that USGS's bucket holds and the TNM index does
+not list (`sources/catalogue/usa_unlisted_1m.json`, read where no list is cached: a fresh install, the public site
+before its first renewal), made by the function a renewal uses (`sources.layers.tnmbucket.make_unlisted`): the
+bucket's 1 m projects (about 990 requests), the index over the USA and its territories (about 450 requests, about 1 GB
+of answers) and a header read for each unlisted name without a zone that its project does not tell (about 300);
+about 15 minutes, nothing written when a step fails. Run it again before a release and commit the file
+(`tests/test_usa_unlisted.py::test_shipped_copy`).
+
 ## `tools/hong_kong_sheets.py`
 
 The static table of CEDD's 2020 lidar sheets of Hong Kong (`sources/catalogue/hong_kong_sheets.npz`, read by the
@@ -773,7 +783,8 @@ a junction to the real cache: Windows PowerShell 5.1's `Remove-Item -Recurse` wo
 
 ## `tools/record_answers.py`, `tools/cache_diff.py`
 
-Run by hand: record small real answers of the index services (WFS, STAC, TNM) into
+Run by hand: record small real answers of the index services (WFS, STAC, TNM; `bucket1m-usgs`: USGS's bucket and the
+TNM index as `tnmbucket.make_unlisted` asks them, read back by `tests/test_usa_unlisted.py`) into
 `tests/data/recorded/<interface>/<case>/` with the index JSON the code writes for them (`expected.json`; served again
 by `tests/http_server.py`, the fixture `http_server` of `tests/conftest.py`: Range requests, recorded answers, a
 request log); compare two cache folders (files, bytes, `index.sqlite` rows but for the times): a search on an empty

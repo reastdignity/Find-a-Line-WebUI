@@ -65,7 +65,14 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   `/vsicurl/` reads windows (`_gdal_http` sets our User-Agent); never download a whole file. Old 1 m names have no
   zone (`USGS_one_meter_x..y..`, `USGS_1m_x..`): `_utm_zone_of`. Alaska's IfSAR files name only the GRS80 ellipsoid of
   Alaska Albers (`_same_crs` takes it as EPSG:3338); there is no 1 m DEM in Alaska (2026-10), so `alaska` switches to
-  `alaska_ifsar` (`Source.instead_without_data`). Texts printed to the console stay in cp1250 (a Windows console):
+  `alaska_ifsar` (`Source.instead_without_data`). The bucket holds 1 m files the TNM index does not list (1,410 on
+  2026-11-22): `sources/layers/tnmbucket.py` lists them (`<cache>/usa/sheet-index/bucket1m/unlisted.json`, the names
+  without a zone placed by their project's one zone or the file's header) and `tnm.UnlistedIndex` adds them when an
+  answer is read (the cached answer never rewritten; a file in both once, by its URL; both through `tnm.tile_item`,
+  so a block's key does not depend on which listing named a file). Where none is cached the shipped
+  `sources/catalogue/usa_unlisted_1m.json` is read: remade by `tools/usa_unlisted.py` before a release, never by hand;
+  the tests keep it off (`FINDALINE_USA_UNLISTED_SHIPPED=off`, conftest). Texts printed to the console stay in cp1250
+  (a Windows console):
   "1/3 arc-second", not ″, in names, descriptions and notes.
 - **Saarland and British Columbia** (batch 4): LVGL's DGM1 and DOM1 hold patches at 0 m whose rims fall from the
   ground to them (327_5485: one pixel; 343_5457: a ramp of five pixels, 101-166 m from ground at 184 m): `SL_RING` 6.

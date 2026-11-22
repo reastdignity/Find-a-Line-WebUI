@@ -34,6 +34,25 @@ def _survey_year(url: str, published: str) -> int:
     return int(published[:4]) if published[:4].isdigit() else 0
 
 
+class UnlistedIndex(CachedIndex):
+    """The cached answers of the TNM index for the 1 m DEM with the files of USGS's bucket the index does not list
+    (sources/layers/tnmbucket.py) merged in when an answer is read: a tile's files are its cached answer plus the
+    unlisted files whose 10 km square reaches the tile and whose URL the answer does not hold. The cached answer
+    stays what the index said (never rewritten), so an answer cached before the list gains its files at once and a
+    block over one gets another key (it is read again, the older file pruned). Every reader of the files goes
+    through answers(): ComposedBlocks.query, update_tile and has_data_near. The list is read once per process and
+    data folder (the cached one, else the copy shipped with the code)."""
+
+    def answers(self, cache_dir: str, lat: float, lon: float, update: Optional[str] = None) -> List[Dict]:
+        items = super().answers(cache_dir, lat, lon, update)
+        from .tnmbucket import unlisted_in_tile  # imported here: the web process never reads the list
+        extra = unlisted_in_tile(cache_dir, self.top, lat, lon)
+        if not extra:
+            return items
+        listed = {item["url"] for item in items}
+        return items + [item for item in extra if item["url"] not in listed]
+
+
 class TnmBlocks(IndexedTiles):
     """Blocks of the files of a dataset of The National Map (USGS 3DEP), found through the
     TNM Access API and read by HTTP range requests: a CachedIndex of TnmProducts with
@@ -50,13 +69,14 @@ class TnmBlocks(IndexedTiles):
     again (update.py, or a search after the answer was renewed) and the older file deleted.
     """
     index_crs = "EPSG:4326"
+    index_class = CachedIndex  # the 1 m DEM's: UnlistedIndex
 
     def __init__(self, description: str, dataset: str, prefix: str, folder: str, native_res: float,
                  block_m: float, bytes_per_tile: float, api: str = TNM_API):
         super().__init__(description, api, prefix, folder, native_res, bytes_per_tile)
         self.dataset, self.block_m = dataset, block_m
-        self.index = CachedIndex(description, TnmProducts(api, dataset, self._item),
-                                 ComposedBlocks(folder, block_m, native_res), prefix, folder.split("/")[0])
+        self.index = self.index_class(description, TnmProducts(api, dataset, self._item),
+                                      ComposedBlocks(folder, block_m, native_res), prefix, folder.split("/")[0])
         self.reader = Windows(description)
 
     def _item(self, product: Dict) -> Optional[Dict]:
@@ -96,26 +116,54 @@ def _utm_zone_of(box: Dict, extent: List[float]) -> Optional[int]:
     return None
 
 
+# The x and y of a 1 m tile in its file name (in 10 km: the left edge, the top edge), and the zone of the names
+# that give one (USGS_1M_<zone>_x..y..; USGS_one_meter_x..y.. and USGS_1m_x..y.. give none)
+TILE_XY = re.compile(r"_x(\d+)y(\d+)_", re.I)
+TILE_ZONE = re.compile(r"USGS_1M_(\d+)_", re.I)
+
+
+def tile_extent(name: str) -> Optional[List[int]]:
+    """The extent (in its UTM zone, metres) of a 1 m tile from its file name; None for a name without x..y.."""
+    xy = TILE_XY.search(name)
+    if not xy:
+        return None
+    x, y = int(xy.group(1)), int(xy.group(2))
+    return [x * 10000, (y - 1) * 10000, (x + 1) * 10000, y * 10000]
+
+
+def tile_item(url: str, zone: int, published: str) -> Dict:
+    """A file of the 1 m DEM as cached ({name, url, crs, extent, year, published}), its zone known: the item of a TNM
+    answer (Usgs1mBlocks._item) and of a file of the bucket the index does not list (tnmbucket)."""
+    name = url.rsplit("/", 1)[-1]
+    return {"name": name[:-4], "url": url, "crs": f"EPSG:{26900 + zone}", "extent": tile_extent(name),
+            "year": _survey_year(url, published), "published": published}
+
+
+def usgs_1m_item(product: Dict) -> Optional[Dict]:
+    """A product of the TNM index's 1 m DEM as cached, or None if it is not used (not a .tif, no x..y.. in its name,
+    no zone found)."""
+    url = product.get("downloadURL") or ""
+    name = url.rsplit("/", 1)[-1]
+    extent = tile_extent(name)
+    if not name.lower().endswith(".tif") or extent is None:
+        return None
+    zone = TILE_ZONE.match(name)
+    zone = int(zone.group(1)) if zone else _utm_zone_of(product.get("boundingBox") or {}, extent)
+    if zone is None:
+        return None
+    return tile_item(url, zone, product.get("publicationDate") or "")
+
+
 class Usgs1mBlocks(TnmBlocks):
     """3DEP's standard 1 m DEM: 10 km tiles, USGS_1M_<zone>_x<E / 10 km>y<N of the top / 10 km>_
     <project>.tif, in NAD83 / UTM of their zone (a tile crossing two zones is delivered in
-    both), with 6 pixels of overlap around; older names give no zone (USGS_one_meter_x..y..)."""
+    both), with 6 pixels of overlap around; older names give no zone (USGS_one_meter_x..y..).
+    The files of USGS's bucket that the TNM index does not list are merged into its answers
+    (UnlistedIndex, sources/layers/tnmbucket.py)."""
+    index_class = UnlistedIndex
 
     def _item(self, product: Dict) -> Optional[Dict]:
-        url = product.get("downloadURL") or ""
-        name = url.rsplit("/", 1)[-1]
-        xy = re.search(r"_x(\d+)y(\d+)_", name, re.I)
-        if not name.lower().endswith(".tif") or not xy:
-            return None
-        x, y = int(xy.group(1)), int(xy.group(2))
-        extent = [x * 10000, (y - 1) * 10000, (x + 1) * 10000, y * 10000]
-        zone = re.match(r"USGS_1M_(\d+)_", name, re.I)
-        zone = int(zone.group(1)) if zone else _utm_zone_of(product.get("boundingBox") or {}, extent)
-        if zone is None:
-            return None
-        published = product.get("publicationDate") or ""
-        return {"name": name[:-4], "url": url, "crs": f"EPSG:{26900 + zone}", "extent": extent,
-                "year": _survey_year(url, published), "published": published}
+        return usgs_1m_item(product)
 
 
 class IfsarBlocks(TnmBlocks):

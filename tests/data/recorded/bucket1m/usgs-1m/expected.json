@@ -1,0 +1,6 @@
+{"items": [
+{"name": "USGS_one_meter_x54y507_ME_Umbagog_2016", "url": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1m/Projects/ME_Umbagog_2016/TIFF/USGS_one_meter_x54y507_ME_Umbagog_2016.tif", "crs": "EPSG:26919", "extent": [540000, 5060000, 550000, 5070000], "year": 2016, "published": "2026-02-13T14:23:15.000Z"},
+{"name": "USGS_1M_12_x49y444_UT_StrawberryRiver_2019", "url": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1m/Projects/UT_StrawberryRiver_2019/TIFF/USGS_1M_12_x49y444_UT_StrawberryRiver_2019.tif", "crs": "EPSG:26912", "extent": [490000, 4430000, 500000, 4440000], "year": 2019, "published": "2026-04-21T18:09:04.000Z"},
+{"name": "USGS_1M_12_x50y443_UT_StrawberryRiver_2019", "url": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1m/Projects/UT_StrawberryRiver_2019/TIFF/USGS_1M_12_x50y443_UT_StrawberryRiver_2019.tif", "crs": "EPSG:26912", "extent": [500000, 4420000, 510000, 4430000], "year": 2019, "published": "2026-04-21T18:09:04.000Z"},
+{"name": "USGS_1M_12_x50y444_UT_StrawberryRiver_2019", "url": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1m/Projects/UT_StrawberryRiver_2019/TIFF/USGS_1M_12_x50y444_UT_StrawberryRiver_2019.tif", "crs": "EPSG:26912", "extent": [500000, 4430000, 510000, 4440000], "year": 2019, "published": "2026-04-21T18:09:04.000Z"}
+]}

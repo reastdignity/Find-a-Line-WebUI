@@ -227,7 +227,8 @@ merged in the tiles' order) and `ComposedBlocks` (`Block`, newest first, the key
 file known by its SHA-256: `<E//10>_<N//10>/<E>_<N>[_<year>]_<sha8>.tif`, the newest year per place, a changed file
 read again and the older deleted); `s3listing.py` `list_objects` (S3 ListObjectsV2 by `requests`: `continuation-token`
 pages; an `<Error>` (also with 200), a non-listing, a truncated page without a new token or more than `MAX_PAGES`
-pages is `IndexUnavailable`; 5xx asked again) and `S3Objects` (the keys under the prefixes of a 0.25° tile);
+pages is `IndexUnavailable`; 5xx asked again; optional `cache_dir`: each page under a host slot, `budget`: a
+`PageBudget` shared by many listings) and `S3Objects` (the keys under the prefixes of a 0.25° tile);
 `osgrid.py` (OS National Grid names → extent, `os_prefixes`); `geojsonfiles.py` `GeoJsonFiles` (a whole Land's GeoJSON
 index of file links, a `MetalinkFiles` read once per TTL, streamed with a byte cap, kept as
 `<top>/geojson/<key>.json.gz`; `forget`: LVermGeo SH); `zipdir.py` `ZipDirectories` (the central directories of remote
@@ -299,7 +300,16 @@ averaged tiles bilinearly on top; `resolution(grid_res, grid_crs)`)), `blocks.py
 `Windows`: USGS 3DEP's 1/3″ DEM), `fileblocks.py` `FileBlocks` (`FileBlockTiling` + `Windows`: Austria's 50 km COGs;
 Wales and Luxembourg next; `serial` passed to `Windows`; `geoid`: files of heights above the ellipsoid cached as
 heights above that geoid, h - N in `_read_block`, the folder named `-<tag>`, the grid made ready before the tile's
-lock: ArcticDEM), `tnm.py` `TnmBlocks` (`TnmProducts`, `ComposedBlocks`, `Windows`: its 1 m DEM and Alaska's IfSAR),
+lock: ArcticDEM), `tnm.py` `TnmBlocks` (`TnmProducts`, `ComposedBlocks`, `Windows`: its 1 m DEM and Alaska's IfSAR;
+`index_class`: the 1 m DEM's `UnlistedIndex`, whose `answers` add the files of `tnmbucket.py`'s list reaching the
+tile whose URL the cached answer lacks, the answer itself never rewritten; `usgs_1m_item`, `tile_item`, `tile_extent`:
+a 1 m file as cached), `tnmbucket.py` (the 1 m files of USGS's bucket the TNM index does not list: `make_unlisted`
+lists the bucket's projects (`bucket_files`, `s3listing` with a host slot and a `PageBudget`), the index over the
+USA and its territories (`tnm_listed`, `REGIONS` split in four above `SPLIT_ABOVE`, a short page asked again), finds
+the zone of a name without one (its project's one zone within the project's box, else `header_zone`: the file's own
+header) and writes `<cache>/usa/sheet-index/bucket1m/unlisted.json` with a row; `unlisted_in_tile` reads it, or the
+shipped `sources/catalogue/usa_unlisted_1m.json`, once per process and data folder; imported only when an answer is
+read, never by the web process),
 `files.py` (a local raster), `wmsr.py` `WmsrTiles` (`ResolutionTiling`: one `WcsTiling` per fetch resolution, the
 coarsest not coarser than the grid, + `WmsrReader`: France), `imageserver.py` `ImageServerTiles` (`WcsTiling` at
 `native_res` with an `origin` + `ImageServerReader`: Czechia; `zones`: a service that reprojects on request asked in
