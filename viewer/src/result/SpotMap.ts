@@ -1382,9 +1382,12 @@ export class SpotMap {
     this.paint(false);
   }
 
-  /** The point of the profile under the mouse; null: none. */
+  /** The point of the profile under the mouse; null: none. The same point again draws nothing (the profile's dock
+   *  clears its point at every new line: a step through a spot's lines drew the whole map twice, gate 2's item 2). */
   hoverAt(at: L.LatLngExpression | null) {
-    this.marker = at ? L.latLng(at as any) : null;
+    const next = at ? L.latLng(at as any) : null, was = this.marker;
+    if (next === null ? was === null : was !== null && was.equals(next, 0)) return;
+    this.marker = next;
     this.paint(false);
   }
 

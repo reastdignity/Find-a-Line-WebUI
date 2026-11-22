@@ -205,6 +205,19 @@ export function createViews(scene: SceneCore, line: LineView, root: HTMLElement,
     scene.invalidate();
   };
 
+  // Every press on the stage gives the view its touch and keyboard back (gate 2's item 3: on an iPhone a long press
+  // selected text, and the view took no more gestures): a selection left anywhere ends, and a control outside the
+  // stage that kept the focus (the press's own default is prevented while looking around) lets it go. The stage
+  // itself selects no text and shows no callout (view3d.css .v3-stage).
+  const release = () => {
+    const selection = getSelection();
+    if (selection && !selection.isCollapsed) selection.removeAllRanges();
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && focused !== document.body && !scene.stage.contains(focused)) focused.blur();
+  };
+  scene.stage.addEventListener("pointerdown", release, true);
+  scene.onDispose(() => scene.stage.removeEventListener("pointerdown", release, true));
+
   // Looking around by dragging on the canvas, zooming by two fingers (a pinch turns nothing: once two fingers were
   // down, the gaze stays until every finger is lifted) and by the wheel
   const canvas = scene.renderer.domElement;

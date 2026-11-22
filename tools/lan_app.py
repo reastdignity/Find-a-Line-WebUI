@@ -29,7 +29,9 @@ data folder only), the saved rigs. The page is a scratch build of the
 viewer with VIEW_DEFAULT true (build_viewer: viewer/build.mjs into `<data>/lan-build`, then app.js and viewer.js
 again with the one line set, as tests/test_view_default.py builds them), served as the app's /app/ and as the runs'
 _viewer/ (copied into `<data>/runs/_viewer`); the repository's viewer/dist is never written. `?view=today` still
-opens today's page. ESRI_API_KEY is left out of the app (no satellite map; the key would go to every phone on the
+opens today's page. A run's store (lines.arrow, profiles.arrow) goes out gzipped with its size before compression,
+as the public site sends it (`compressing`: the local app sends it as it is, which over a slow link cost minutes for
+Gozo). ESRI_API_KEY is left out of the app (no satellite map; the key would go to every phone on the
 network) unless `--esri`. Ctrl+C (or Ctrl+Break) stops the server and its worker.
 """
 
@@ -309,9 +311,45 @@ def refusing(app):
     return guarded
 
 
+# A run's store (web.SIZED_FILES) under /runs/: gzipped for a phone over the network, as the public site's nginx does
+# (deploy/nginx/findaline.conf: level 5; Gozo's 97 MB are 32 MB so), with web.SIZE_HEADER, the size before
+# compression the page's progress bar reads (viewer/src/download.ts bodySize), as the public site's RunFiles sends it
+STORE_PATH = re.compile(r"/runs/([A-Za-z0-9_-][A-Za-z0-9_.-]{0,199})/(lines\.arrow|profiles\.arrow)")
+GZIP_LEVEL = 5
+
+
+def compressing(app, data: str):
+    """The ASGI app that sends a run's store (STORE_PATH, asked for whole: no Range) gzipped when the browser accepts
+    it, with SIZE_HEADER; everything else as `app` sends it."""
+    from starlette.middleware.gzip import GZipMiddleware
+
+    import web
+    assert web.SIZED_FILES == ("lines.arrow", "profiles.arrow")  # STORE_PATH names them
+    zipped = GZipMiddleware(app, minimum_size=1024, compresslevel=GZIP_LEVEL)
+    runs = os.path.join(data, "runs")
+
+    async def guarded(scope, receive, send):
+        found = STORE_PATH.fullmatch(scope["path"]) if scope["type"] == "http" else None
+        if not found or any(name == b"range" for name, _ in scope.get("headers", ())):
+            return await app(scope, receive, send)
+        try:
+            size = os.stat(os.path.join(runs, found.group(1), found.group(2))).st_size
+        except OSError:
+            size = None
+
+        async def sized(message):
+            if message["type"] == "http.response.start" and size is not None and message.get("status") == 200:
+                message = {**message, "headers": [*message.get("headers", []),
+                                                  (web.SIZE_HEADER.lower().encode(), str(size).encode())]}
+            await send(message)
+        return await zipped(scope, receive, sized)
+    return guarded
+
+
 def make_app(data: str, port: int, addresses: Sequence[str], build: str, start_scheduler: bool = True,
              esri: bool = False):
-    """The local app over the data folder for the LAN (docs above): (the ASGI app, the FastAPI app inside)."""
+    """The local app over the data folder for the LAN (docs above): (the ASGI app, the FastAPI app inside). A run's
+    store goes out gzipped with its size (compressing)."""
     import web
     from jobs import warm_up_wanted
     if port == web.PORT:
@@ -325,7 +363,7 @@ def make_app(data: str, port: int, addresses: Sequence[str], build: str, start_s
     with keys, mock.patch.object(web, "APP_DIST", build):
         app = web.create_app(data, port=port, start_scheduler=start_scheduler, warm_up=warm_up_wanted(),
                              lan_origins=origins(port, addresses))
-    return refusing(app), app
+    return refusing(compressing(app, data)), app
 
 
 def _break_as_interrupt(*_):
