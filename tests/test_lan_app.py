@@ -217,6 +217,38 @@ def test_prepare_copies_the_listed_runs_only(tmp_path):
             lan_app.main(argv)
 
 
+def test_prepare_writes_only_into_its_own_folder(tmp_path):
+    """`prepare` writes into a new or empty folder or one it made before (its MARKER) only: a folder holding anything
+    else (a real data folder: runs, the job database) is refused before anything is written, as is a file; a run the
+    source lacks is refused before the first write too (no mark, no folder left)."""
+    source = tmp_path / "source"
+    _fake_source(source)
+    quiet = {"clip": False, "say": lambda *a: None, "parts": ("LAYOUT",)}
+    real = tmp_path / "real"
+    (real / "runs" / "2026-11-01_000000_Mine_0000000000000001").mkdir(parents=True)
+    (real / "jobs.sqlite").write_bytes(b"db")
+    lone = tmp_path / "lone"
+    lone.mkdir()
+    (lone / "notes.txt").write_text("mine", encoding="utf-8")
+    afile = tmp_path / "a-file"
+    afile.write_text("x", encoding="utf-8")
+    for folder in (real, lone, afile):
+        before = _listing(folder) if folder.is_dir() else afile.read_text(encoding="utf-8")
+        with pytest.raises(SystemExit, match=f"not made by `tools/lan_app.py prepare` \\(no {lan_app.MARKER}\\)"):
+            lan_app.prepare(str(folder), str(source), runs=["test-run-a"], **quiet)
+        assert (_listing(folder) if folder.is_dir() else afile.read_text(encoding="utf-8")) == before, folder
+    new = tmp_path / "new"
+    with pytest.raises(SystemExit, match="no run test-run-x"):
+        lan_app.prepare(str(new), str(source), runs=["test-run-a", "test-run-x"], **quiet)
+    assert not new.exists()
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert lan_app.prepare(str(empty), str(source), runs=["test-run-a"], **quiet) == ["test-run-a"]
+    again = lan_app.prepare(str(empty), str(source), runs=["test-run-b"], **quiet)  # its own folder: taken again
+    assert sorted(again) == ["test-run-a", "test-run-b"]
+    assert lan_app.read_marker(str(empty)) == {"prepared": True}
+
+
 def test_the_marker_keeps_both_runs(tmp_path, monkeypatch):
     """make_coast adds the coast's id to the marker and keeps the clip's (its search stood in for: one new run folder),
     with network blocked and no Esri key in the search's environment; a second call makes no search."""
