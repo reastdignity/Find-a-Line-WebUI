@@ -14,7 +14,7 @@
 .ui.c-has-nav .c-main { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   scroll-padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
 .ui .c-error { color: var(--bad); font-weight: 500; margin: 0; }
-.ui .c-app-error { padding: 8px 20px; background: var(--bad-soft); }
+.ui .c-app-error { padding: 8px 16px; background: var(--bad-soft); }
 .ui .c-no-worker { background: var(--bad-soft); padding: 12px 16px; border-radius: var(--r-2); font-weight: 400; }
 .ui .c-link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font-weight: 500; align-self: flex-start; }
 .ui .c-page { max-width: 760px; margin: 0 auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 16px; }
@@ -27,11 +27,11 @@
 
 /* The header */
 .ui .c-top { flex: none; display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 0 24px;
-  border-bottom: 1px solid var(--rule); position: relative; z-index: 10; }
+  border-bottom: 1px solid var(--rule); position: relative; z-index: var(--z-bar); }
 .ui .c-top-phone { min-height: 52px; padding: 0 16px; }
 .ui .c-logo { text-decoration: none; display: inline-flex; align-items: center; min-height: 24px; }
 @media (pointer: coarse) { .ui .c-logo { min-height: 44px; } }
-.ui .c-top:not(.c-top-phone) .c-logo .u-logo { font-size: 24px; }  /* the desktop header: the logo 10% larger */
+.ui .c-top:not(.c-top-phone) .c-logo .u-logo { font-size: var(--fs-6); }  /* the desktop header: the logo 10% larger */
 .ui .c-nav { display: flex; gap: 4px; }
 .ui .c-nav-item { display: inline-flex; align-items: center; gap: 8px; min-height: var(--touch); padding: 0 12px; border-radius: var(--r-2);
   color: var(--ink-2); text-decoration: none; font-weight: 500; }
@@ -67,7 +67,7 @@
 .ui .c-new { flex: 1.4; display: flex; align-items: center; gap: 16px; padding: 16px 24px; border-radius: var(--r-3); background: var(--accent);
   color: var(--on-accent); text-decoration: none; }
 .ui .c-new:hover { filter: brightness(1.06); }
-.ui .c-new-icon { width: 48px; height: 48px; border-radius: var(--r-2); background: rgb(255 255 255 / .18); display: flex; align-items: center;
+.ui .c-new-icon { width: 48px; height: 48px; border-radius: var(--r-2); background: var(--accent-tile); display: flex; align-items: center;
   justify-content: center; flex: none; }
 .ui .c-new-icon .u-ic { width: 24px; height: 24px; }
 .ui .c-new-title { font-size: var(--fs-6); display: block; color: inherit; }
@@ -92,7 +92,7 @@
 .ui .c-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
 .ui .c-card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-3);
   min-width: 0; }
-.ui .c-card-new { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.ui .c-card-new { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }  /* a ring drawn: no elevation */
 .ui .c-card-thumb { display: block; aspect-ratio: 16 / 9; border-bottom: 1px solid var(--rule); border-radius: var(--r-3) var(--r-3) 0 0;
   overflow: hidden; background: var(--map-bg); }
 .ui .c-card-body { padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -116,7 +116,7 @@
 .ui .c-thumb-area { fill: color-mix(in srgb, var(--accent) 8%, transparent); stroke: var(--accent); stroke-width: 1.4; stroke-linejoin: round; }
 .ui .c-thumb-line { fill: none; stroke-width: 1.6; stroke-linecap: round; }
 .ui .c-thumb-tiles { opacity: .9; }
-.ui .c-thumb-credit { margin: 8px 0 0; font-size: 11px; }
+.ui .c-thumb-credit { margin: 8px 0 0; font-size: 11px; }  /* a map's credits: R1's named exception, 10 px or more (off R5) */
 .ui .c-thumb-empty { color: var(--muted); opacity: .7; }
 .ui .c-thumb-empty .u-ic { width: 28px; height: 28px; }
 .ui .c-thumb-label { position: absolute; right: 8px; bottom: 8px; font: 500 var(--fs-1)/20px var(--font); font-variant-numeric: tabular-nums;
@@ -181,7 +181,7 @@
 
 /* Focused pages: their own top bar */
 .ui .c-subtop { flex: none; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px;
-  border-bottom: 1px solid var(--rule); position: relative; z-index: 10; min-width: 0; }
+  border-bottom: 1px solid var(--rule); position: relative; z-index: var(--z-bar); min-width: 0; }
 .ui .c-subtitle { margin: 0; font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }  /* a page's title, as the result view's */
 
 /* New search (c2) */
@@ -194,7 +194,7 @@
 .ui .c-newsearch .c-form:has(:is(input:not([type=checkbox], [type=radio], [type=range]), textarea, select):focus) {
   scroll-padding-bottom: 24px; }
 .ui .c-newsearch .c-newmap { grid-area: map; }
-.ui .c-newsearch .c-bar { grid-area: bar; position: relative; z-index: 10; }
+.ui .c-newsearch .c-bar { grid-area: bar; position: relative; z-index: var(--z-bar); }
 
 /* The result (c3): result/view/columns.css (ResultColumns.tsx, shared with a run's map.html) */
 
@@ -303,18 +303,15 @@
 .ui .c-layer-more + .c-layer-legend { border-top: 0; padding-top: 0; }
 .ui .c-layer-legend, .ui .c-layer-cell { display: flex; flex-direction: column; gap: 8px; }
 .ui .c-layer-legend p, .ui .c-layer-cell p { margin: 0; }
-.ui .c-layer-classes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
-.ui .c-layer-classes li { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-1); white-space: nowrap; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.ui .c-layer-swatch { display: block; height: 14px; border-radius: var(--r-1); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }
+/* the legend's title, classes and swatches: the kit's legend (ui.css .u-legend-*; docs/DESIGN.md row 90) */
 .ui .c-layer-k1 { background: var(--layer-1); }
 .ui .c-layer-k2 { background: var(--layer-2); }
 .ui .c-layer-k3 { background: var(--layer-3); }
 .ui .c-layer-k4 { background: var(--layer-4); }
 .ui .c-layer-k5 { background: var(--layer-5); }
 /* the partner cells' swatch: a class colour with the map's hatching (cellsLayer.ts hatchPattern) */
-.ui .c-layer-hatch { width: 30px; flex: none;
+.ui .c-layer-hatch {
   background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ink) 55%, transparent) 0 1.3px, transparent 1.3px 5px), var(--layer-2); }
-.ui .c-layer-legend-extra { display: flex; align-items: center; gap: 8px; font-size: var(--fs-1); color: var(--ink-2); }
 .ui .c-layer-view { display: flex; flex-direction: column; gap: 8px; }
 .ui .c-layer-total { min-height: 20px; font-variant-numeric: tabular-nums; }
 .ui .c-layer-split { color: var(--ink-2); font-size: var(--fs-2); }
@@ -349,7 +346,7 @@
   .ui .c-layer-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ui .c-layer-hist[data-hist="length"] { grid-column: 1 / -1; }
 }
-.ui .c-layer-hist-open { box-shadow: 0 0 0 2px var(--accent); padding: 8px; margin: -8px; border-radius: var(--r-2); }
+.ui .c-layer-hist-open { box-shadow: 0 0 0 2px var(--accent); padding: 8px; margin: -8px; border-radius: var(--r-2); }  /* a ring drawn: no elevation */
 .ui .c-layer-hist-name { display: block; max-width: 100%; border: 0; border-radius: var(--r-1); padding: 0; background: none; font: inherit;
   color: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; cursor: pointer; }
@@ -366,17 +363,17 @@
 .ui .c-layer-hist-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; align-items: end; height: 120px;  /* 2px: between a drawing's marks */
   border-bottom: 1px solid var(--rule); }
 .ui .c-layer-bar { display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; height: 100%; min-width: 0; min-height: 0;
-  margin: 0; padding: 0 1px; border: 0; border-radius: 0; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
+  margin: 0; padding: 0 1px; border: 0; border-radius: 0; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }  /* 1 px: a drawing's marks apart */
 .ui .c-layer-bar-off { cursor: default; }
 .ui .c-layer-bar-n { display: none; flex: none; font-size: var(--fs-1); line-height: 1.2; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted);
   overflow: hidden; white-space: nowrap; }
 .ui .c-layer-bar-fill { display: block; min-height: 1px; border-radius: var(--r-1) var(--r-1) 0 0; background: var(--layer-1);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent); }
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent); }  /* its edge drawn */
 .ui .c-layer-bar.u-on .c-layer-bar-fill { background: var(--layer-3); }
 .ui .c-layer-bar.u-on .c-layer-bar-n { color: var(--ink); }
 .ui .c-layer-bar:hover .c-layer-bar-fill { background: var(--layer-4); }
 /* the keyboard's ring: the kit's (--focus), above the bars beside it */
-.ui .c-layer-bar:focus-visible { position: relative; z-index: 1; border-radius: var(--r-1); }
+.ui .c-layer-bar:focus-visible { position: relative; z-index: var(--z-up); border-radius: var(--r-1); }
 .ui .c-layer-bar { scroll-margin: 8px; }  /* the ring's 4 px stay inside the panel when the keyboard scrolls to a bar */
 /* a bar of a chart too narrow for its counts shows its own while it has the keyboard's focus: a raised label at the
    chart's top, over the bars beside it (data-count; the bar keeps its height; the wide charts' rules take it away) */
@@ -454,7 +451,7 @@
    into view stops under the map (scroll-padding: the map's 34vh and 8 px) */
 @media (min-height: 600px) {
   .ui.c-narrow .c-mappage-3 { scroll-padding-top: calc(34vh + 8px); }
-  .ui.c-narrow .c-mappage-3 > .c-newmap { position: sticky; top: 0; z-index: 2; }
+  .ui.c-narrow .c-mappage-3 > .c-newmap { position: sticky; top: 0; z-index: var(--z-up-2); }
 }
 .ui.c-narrow .c-mappage-3 > .c-col-side { width: auto; flex: none; border: 0; }
 .ui.c-narrow .c-mappage-3 .c-col-scroll { flex: none; overflow: visible; padding: 16px; scrollbar-gutter: auto; }
@@ -481,7 +478,7 @@
 /* Problem reports on the admin page */
 .ui .c-report-text { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ui .c-report-done .c-report-text { color: var(--ink-2); }
-.ui .c-report-agent { overflow-wrap: anywhere; margin-top: 2px; }
+.ui .c-report-agent { overflow-wrap: anywhere; margin-top: 4px; }
 
 /* The area searched (Searched.tsx): the account's line, the home page's card with the 30 days as bars */
 /* the account's line: plain text, no box around a sentence (R8) */
@@ -489,16 +486,16 @@
 .ui .c-searched-empty { margin: 0; }
 .ui .c-searched-chart { display: flex; flex-direction: column; gap: 4px; }
 .ui .c-searched-readout { font-size: var(--fs-2); color: var(--ink-2); font-variant-numeric: tabular-nums; min-height: 1.4em; }
-.ui .c-searched-bars { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 88px; padding-top: 16px;
-  border-bottom: 1px solid var(--rule); touch-action: pan-y; cursor: default; border-radius: 2px; }
+.ui .c-searched-bars { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 88px; padding-top: 16px;  /* 2px: between a drawing's marks */
+  border-bottom: 1px solid var(--rule); touch-action: pan-y; cursor: default; border-radius: var(--r-1); }
 .ui .c-searched-bars:focus-visible { box-shadow: var(--focus); }
 /* A recessive line at the top of the scale (the largest day), its value above it */
 .ui .c-searched-bars::before { content: ""; position: absolute; left: 0; right: 0; top: 16px; border-top: 1px dashed var(--rule); }
 .ui .c-searched-top { position: absolute; top: 0; left: 0; font-size: var(--fs-1); line-height: 1; font-variant-numeric: tabular-nums; }
 .ui .c-searched-day { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; }
-.ui .c-searched-day i { display: block; width: 100%; background: var(--accent); border-radius: 3px 3px 0 0; }
-.ui .c-searched-day.c-zero i { height: 2px; background: var(--line); border-radius: 1px; }
+.ui .c-searched-day i { display: block; width: 100%; background: var(--accent); border-radius: var(--r-1) var(--r-1) 0 0; }
+.ui .c-searched-day.c-zero i { height: 2px; background: var(--line); border-radius: var(--r-full); }
 .ui .c-searched-bars.c-picked .c-searched-day:not(.u-on) i { opacity: .45; }
-.ui .c-searched-day.u-on { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 3px 3px 0 0; }
+.ui .c-searched-day.u-on { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: var(--r-1) var(--r-1) 0 0; }
 .ui .c-searched-bars.c-picked .c-searched-day.c-zero.u-on i { background: var(--muted); }
 .ui .c-searched-axis { display: flex; justify-content: space-between; font-size: var(--fs-1); }

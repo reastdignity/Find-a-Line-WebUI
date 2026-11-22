@@ -3521,7 +3521,7 @@ def test_neutrals_copies_in_step():
                         if token in light and light[token].startswith("#") and len(colour) == 7:
                             assert colour == light[token], (name, token, colour)
                             fallbacks += 1
-    assert fallbacks >= 6, fallbacks  # app/coverageLayer.css
+    assert fallbacks >= 5, fallbacks  # app/coverageLayer.css (6 before step 3d G2: its swatch's --line edge went)
     # the dark halo is the dark ground; the profile chart's frame colour (Profile.tsx PROFILE, the value outside .ui,
     # where profile.css gives --r-frame: var(--ink-2)) is the light second ink
     assert all(d["--halo"] == d["--bg"] for d in darks)
@@ -3603,6 +3603,194 @@ def test_admin_and_doc_pages_css():
     # about 75 characters a line (the user, 2026-11-20; DESIGN.md row 57): the whole doc column, centred
     assert "max-width: calc(63ch + 32px)" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-page.p-doc")
     assert "justify-content: flex-start" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-footer")
+
+
+# ---- The free CSS on the scales and the tokens (step 3d, group G2; docs/DESIGN.md rows 87 to 91) -------------------
+
+# Not free: line volume's round 6 and today's result page (everything under result/ by folder, so a file round 6 adds
+# there passes; profile.css by name) and today's side panels; in ui/ui.css the shore's and the coarser terrain's block
+# (round 6 edits it), by its rules' selectors. The kit's demo pages (?ui=kit, ?ui=kit-search: developers' pages) keep
+# their own sizes and spacing; their layers and colours are checked.
+NOT_FREE_CSS = ("result/", "profile.css", "ui/sidepanel.css")
+NOT_FREE_RULES = (".u-shore", ".u-coarse")  # a rule left out only when each of its selectors names one of these
+DEMO_RULES = (".u-gal-", ".u-stub", ".ui.s-kit")
+RADIUS_KEPT = {"0", "0px", "50%", "999px", "inherit"}  # none, round and full, written out (R6)
+# What is off a scale or the tokens on purpose: (file under viewer/src, the rule's selector, kind, the value; the
+# shadows' and colours' without one) -> why. A row no longer needed fails the test as a value put back does.
+OFF_THE_SCALES = {
+    # font sizes (R5: the --fs-* tokens)
+    ("app/base.css", "html, body", "font", "13px"): "outside .ui: no token reaches html and body (Leaflet's rem sizes)",
+    ("app/c/c.css", ".ui .c-thumb-credit", "font", "11px"): "a map's credits: R1's named exception (10 px or more)",
+    ("coverage/page/page.css", ".cov .leaflet-control-attribution", "font", "11px"): "a map's credits (R1's exception)",
+    ("ui/ui.css", ".ui .leaflet-control-attribution", "font", "10px"): "a map's credits on a phone: R1's floor for them",
+    ("ui/ui.css", ".ui .u-logo", "font", "22px"): "the logo: a drawing sized by its font size, not text",
+    ("ui/pages.css", ".ui .p-doc .p-brand .u-logo", "font", "22px"): "the logo: a drawing",
+    ("ui/pages.css", ".ui .p-provider", "font", "14px"): "the sign-in providers' own button guidelines",
+    # radii (R6: the --r-* tokens, none, round, full)
+    ("ui/pages.css", ".ui .p-provider", "radius", "4px"): "the sign-in providers' own button guidelines",
+    ("ui/ui.css", ".ui .u-split-tab", "radius", "11px"): "the kit's collapse tab: its look is step 3d G3's",
+    # spacing (R7: 0, 4, 8, 12, 16, 24, 32 px)
+    ("access.css", ".ui .ac-pair", "space", "3px"): "one mark of two dots, a drawing (as the coverage stars' 2 px)",
+    ("app/c/c.css", ".ui .c-layer-hist-bars", "space", "2px"): "between a chart's bars: a drawing's marks",
+    ("app/c/c.css", ".ui .c-layer-bar", "space", "1px"): "a bar's fill 1 px in from its button: a drawing's marks",
+    ("app/c/c.css", ".ui .c-searched-bars", "space", "2px"): "between a chart's bars: a drawing's marks",
+    ("app/notices.css", ".ui .n-warn > .u-ic", "space", "2px"): "the icon centred on the first line: a place, not a gap",
+    ("coverage/page/page.css", ".cov .cov-stars", "space", "2px"): "one mark of three stars (DESIGN.md row 63)",
+    ("search/search.css", ".ui .s-reset", "space", "14px"): "a 44 px target that keeps the row's height (row 25)",
+    ("search/search.css", ".ui .s-reset", "space", "6px"): "the same target, under the word",
+    ("search/search.css", ".ui .s-topic-body", "space", "7px"): "7 px and the rule: the middle of the 16 px arrow",
+    ("search/search.css", ".ui .s-heavy", "space", "2px"): "a pill 20 px high, as the status chips",
+    ("search/search.css", ".ui .s-panel .u-field-name", "space", "20px"): "the room of the \"?\"'s target after it",
+    ("ui/pages.css", ".ui .p-provider", "space", "10px"): "the sign-in providers' own button guidelines",
+    ("ui/ui.css", ".ui .u-range::-webkit-slider-thumb", "space", "7px"): "the thumb centred on the 4 px track",
+    ("ui/ui.css", ".ui .u-range::-webkit-slider-thumb", "space", "11px"): "the touch screen's thumb centred on it",
+    ("ui/ui.css", ".ui .u-st", "space", "2px"): "a pill 20 px high: its 16 px line and 2 px",
+    ("ui/ui.css", ".ui .leaflet-control-attribution a:focus-visible", "space", "1px"): "the ring clear of the letters "
+                                                                                      "inside the credits (row 81)",
+    ("ui/ui.css", ".ui .leaflet-control-attribution a:focus-visible", "space", "1.5px"): "the same ring",
+    ("ui/ui.css", ".ui .leaflet-control-attribution a:focus-visible", "space", "3px"): "the same ring, given back",
+    ("view3d/point.css", ".v3-opt-dot", "space", "9px"): "a dot centred on its point (a mark over the picture)",
+    ("view3d/view3d.css", ".v3-handle", "space", "11px"): "a handle centred on its point",
+    # shadows that are drawings, not a level (R8; the three elevation tokens are --shadow, --shadow-track, --shadow-up)
+    ("app/c/c.css", ".ui .c-card-new", "shadow", ""): "a ring of the accent around a new run's card",
+    ("app/c/c.css", ".ui .c-layer-hist-open", "shadow", ""): "a ring of the accent around the open chart",
+    ("ui/ui.css", ".ui .u-legend-sw", "shadow", ""): "a legend's swatch: its inset edge of the ink (rows 68, 90)",
+    ("app/c/c.css", ".ui .c-layer-bar-fill", "shadow", ""): "a bar's inset edge of the ink (row 68)",
+    ("app/coverageLayer.css", ".n-coverage-btn.n-on::before", "shadow", ""): "the ticked box's gap inside its edge",
+    ("search/search.css", ".ui .s-card.u-on", "shadow", ""): "the selected card's second px of edge",
+    ("search/search.css", ".ui .s-card.u-on:focus-visible", "shadow", ""): "that edge beside the keyboard's ring",
+    ("ui/ui.css", ".ui .u-sheet.u-scrolled .u-sheet-head", "shadow", ""): "a drawing: a cue that the sheet's body "
+                                                                           "scrolls under its head, not a raised surface",
+    ("app/coverageLayer.css", ".ui .n-coverage-legend .n-coverage-sw3", "shadow", ""): "the place box's transparent "
+        "\"Everywhere else\" drawn by the controls' --line edge, 1.85:1 on the box (the user, 2026-11-22)",
+    ("ui/ui.css", ".ui .u-split-tab", "shadow", ""): "the kit's collapse tab: its look is step 3d G3's",
+    ("view3d/others.css", ".v3-other", "shadow", ""): "a label over the picture: a lighter drop shadow (35 %, not "
+                                                      "--shadow-mark's 45 %: the same pixels kept)",
+    ("view3d/others.css", ".v3-other:focus-visible", "shadow", ""): "that label's shadow beside the keyboard's ring",
+    ("view3d/point.css", ".v3-point-marker::before", "shadow", ""): "a mark's dark rim (its drop shadow --shadow-mark)",
+    ("view3d/point.css", ".v3-opt-dot::before", "shadow", ""): "a dot's dark edge over the picture",
+    ("view3d/point.css", ".v3-opt-row.v3-on td:first-child", "shadow", ""): "the selected row's 3 px edge",
+    ("view3d/view3d.css", ".v3-handle", "shadow", ""): "a handle's dark rim (its drop shadow --shadow-mark)",
+    ("view3d/view3d.css", ".v3-pin", "shadow", ""): "the pin's rim and shadow (turned: the offset points down on "
+                                                    "screen, which --shadow-mark cannot)",
+    ("view3d/view3d.css", ".v3-leader", "shadow", ""): "the pin's leader: a half-pixel edge",
+    # colours outside the tokens: the providers' marks (their guidelines) and the copies a test binds
+    ("ui/pages.css", ".ui .p-google", "colour", ""): "Google's button guidelines",
+    ("ui/pages.css", ".ui .p-google:hover", "colour", ""): "Google's button guidelines",
+    ("ui/pages.css", ".ui .p-github", "colour", ""): "GitHub's mark",
+    ("ui/pages.css", ".ui .p-github:hover", "colour", ""): "GitHub's mark",
+    ("ui/pages.css", ".ui .p-microsoft", "colour", ""): "Microsoft's button guidelines",
+    ("ui/pages.css", ".ui .p-microsoft:hover", "colour", ""): "Microsoft's button guidelines",
+    ("coverage/page/page.css", "body.cov-body", "colour", ""): "the page's --bg outside .ui (test_neutrals_copies_in_step)",
+}
+
+
+def _free_css() -> list:
+    """(the path under viewer/src, a rule of ui_metrics.css_rules) of every free CSS rule (NOT_FREE_* left out)."""
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import ui_metrics
+    out = []
+    for folder, _, names in os.walk(os.path.join(VIEWER, "src")):
+        for name in sorted(names):
+            path = os.path.join(folder, name)
+            rel = os.path.relpath(path, os.path.join(VIEWER, "src")).replace(os.sep, "/")
+            if not name.endswith(".css") or rel == "ui/tokens.css" or rel.startswith(NOT_FREE_CSS):
+                continue
+            with open(path, encoding="utf-8") as f:
+                for rule in ui_metrics.css_rules(f.read()):
+                    if not all(any(part in sel for part in NOT_FREE_RULES) for sel in rule["selectors"]):
+                        out.append((rel, rule))
+    return out
+
+
+def _off_the_scales() -> dict:
+    """{(file, selector, kind, value): [lines]} of every value of the free CSS off R5, R6, R7, the layers' and the
+    elevation's tokens or the colour tokens; a colour in a var()'s fallback is the token's copy, checked apart."""
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import ui_metrics
+    found = {}
+
+    def off(rel, rule, kind, value=""):
+        found.setdefault((rel, rule["prelude"], kind, value), []).append(rule["line"])
+    for rel, rule in _free_css():
+        demo = any(part in rule["prelude"] for part in DEMO_RULES)
+        for prop, value in rule["decls"]:
+            if prop.startswith("--"):
+                if ui_metrics.CSS_COLOUR.search(value):
+                    off(rel, rule, "colour")
+                continue
+            if prop == "z-index" and not re.fullmatch(r"var\(--z-[\w-]+\)", value):
+                off(rel, rule, "z", value)
+            if prop == "box-shadow" and value != "none" and not all(
+                    re.fullmatch(r"var\(--[\w-]+\)", layer) for layer in ui_metrics._split_top(value, ",")):
+                off(rel, rule, "shadow")
+            # a colour of a shadow belongs to the shadow (checked above); one in a var()'s fallback is a bound copy
+            if prop not in ("box-shadow", "text-shadow") and ui_metrics.CSS_COLOUR.search(
+                    re.sub(r"var\(--[\w-]+,[^()]*(\([^()]*\))?[^()]*\)", "", value)):
+                off(rel, rule, "colour")
+            if demo:
+                continue
+            size = ui_metrics.font_size_of(prop, value)
+            if size and re.fullmatch(r"\d*\.?\d+px", size):
+                off(rel, rule, "font", size)
+            if prop == "border-radius" or re.fullmatch(r"border-(top|bottom)-(left|right)-radius", prop):
+                for part in value.replace("/", " ").split():
+                    if not part.startswith("var(--r-") and part not in RADIUS_KEPT:
+                        off(rel, rule, "radius", part)
+            if ui_metrics.SPACING_PROPS.fullmatch(prop):
+                for part in value.split():
+                    m = re.fullmatch(r"-?(\d*\.?\d+)px", part)
+                    if m and float(m.group(1)) <= 32 and float(m.group(1)) not in ui_metrics.R7_STEPS:  # over 32: a layout's
+                        off(rel, rule, "space", m.group(1) + "px")
+    return found
+
+
+def test_free_css_on_the_scales():
+    """Every font size, radius, spacing, layer, shadow and colour of the free CSS (every file of viewer/src but round 6's
+    and today's result page, ui.css's shore block aside) is a step of DESIGN.md's scales or a token of ui/tokens.css
+    (R5 --fs-*, R6 --r-*, R7's 4 px grid, the layers --z-*, the elevation --shadow, --shadow-track, --shadow-up), or
+    off them for the reason OFF_THE_SCALES names (docs/DESIGN.md rows 87 to 91). A layer is never a number."""
+    found = _off_the_scales()
+    unnamed = {k: v for k, v in found.items() if k not in OFF_THE_SCALES}
+    assert unnamed == {}, unnamed
+    assert sorted(set(OFF_THE_SCALES) - set(found)) == [], "a row of OFF_THE_SCALES no longer needed: remove it"
+    assert not [k for k in found if k[2] == "z"]  # no exception for a layer
+
+
+def test_free_css_names_tokens_that_exist():
+    """Every var(--name) of the free CSS names a custom property that exists: a token of ui/tokens.css, one a CSS file
+    declares, one the code sets by its name, or the coverage palette's --cov-<key> (coverage/palette.ts applyPalette).
+    An unknown name (a typo) would make a layer `auto` and a shadow `none` without a sound. And a colour written as a
+    var()'s fallback is the token's light value: the coverage layer's copies, the dialogs' scrim (::backdrop takes the
+    dialog's custom properties only since Safari 17.4, Chrome 122 and Firefox 120)."""
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import ui_metrics
+    src = os.path.join(VIEWER, "src")
+    light = _css_blocks(TOKENS_CSS)[".ui"]
+    known = {name for block in _css_blocks(TOKENS_CSS).values() for name in block}
+    for folder, _, names in os.walk(src):
+        for name in names:
+            with open(os.path.join(folder, name), encoding="utf-8") as f:
+                text = f.read()
+            if name.endswith(".css"):
+                known |= set(re.findall(r"[{;\s](--[\w-]+)\s*:", re.sub(r"/\*.*?\*/", "", text, flags=re.S)))
+            elif name.endswith((".ts", ".tsx")):
+                known |= set(re.findall(r"[\"'`](--[\w-]+)[\"'`]", text))
+    with open(os.path.join(src, "coverage", "palette.ts"), encoding="utf-8") as f:
+        palette = re.search(r"\blight: \{(.*?)\},", f.read(), flags=re.S).group(1)
+    known |= {"--cov-" + key for key in re.findall(r"(\w+): \"", palette)}
+    used, fallbacks = set(), []
+    for rel, rule in _free_css():
+        for _, value in rule["decls"]:
+            used |= {(rel, name) for name in re.findall(r"var\((--[\w-]+)", value)}
+            for name, fallback in re.findall(r"var\((--[\w-]+),\s*([^()]*(?:\([^()]*\))?[^()]*)\)", value):
+                if ui_metrics.COLOUR.fullmatch(fallback.strip()):
+                    fallbacks.append((rel, name, ui_metrics._colour(fallback.strip())))
+    assert sorted((rel, name) for rel, name in used if name not in known) == []
+    assert {"--z-up", "--z-bar", "--z-head", "--shadow-track", "--shadow-up", "--scrim", "--mark-rim"} <= {n for _, n in used}
+    wrong = [(rel, name, colour) for rel, name, colour in fallbacks if colour != ui_metrics._colour(light[name])]
+    assert wrong == [], wrong
+    assert ("app/notices.css", "--scrim", "rgb(10 15 12 / .45)") in fallbacks
 
 
 def _css_rules(text: str) -> list:

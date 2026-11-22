@@ -237,10 +237,13 @@ changed pixels red). Pillow and numpy (`tests/test_shots_diff.py`)
 Run by hand: counts and measurements of the UI for design work, with no pass or fail (the user picks thresholds from
 the numbers; the bounds are parameters). `static` reads the source only: viewer/src's CSS by its own scanner (no
 nested rules), the .ts/.tsx code without comments and regular expressions, `locales/en.json`: distinct font sizes
-(`var()`/`calc()` "unresolved"), radii, z-index values, normalised colour literals outside `ui/tokens.css`, the
-monospace font and its uppercase, "the same grey box" per selector, characters used as icons or joints (those in an
-`aria-label` or `title` apart, the demo pages left out unless `--with-demos`), dense strings per literal, the
-catalogue's words per group, .tsx files with English text and no `t(`. `pages` measures every state of
+(`var()`/`calc()` "unresolved"), radii, z-index values, the px lengths of padding, margins and gaps with those off R7's
+steps and their places (`R7_STEPS`; a length inside `calc()` or `env()` not counted), normalised colour literals
+outside `ui/tokens.css` (in the CSS also its 148 named colours, `CSS_COLOUR`), the monospace font and its uppercase, "the same grey box" per selector, characters used as
+icons or joints (those in an `aria-label` or `title` apart, the demo pages left out unless `--with-demos`), dense
+strings per literal, the catalogue's words per group with the texts over R10's limits (`r10_over`: `R10_LIMITS` by the
+key's kind, `R10_BY_ROLE` by role, the coverage page's catalogues too; `tests/test_words.py` fails on the same lists),
+.tsx files with English text and no `t(`. `pages` measures every state of
 `ui_shots.PAGES` through `ui_shots.serve`, `select_pages`, `left_out_by_run` and one `shoot_all(act=,
 bypass_csp=True)` per device and theme (axe-core cannot be injected under the app's CSP; the screenshot tool's own
 contexts never bypass it), on a `--data-dir` of its own (one run per data folder; `--fresh` builds it anew; a kept

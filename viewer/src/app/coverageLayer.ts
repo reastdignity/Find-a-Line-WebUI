@@ -54,14 +54,14 @@ export class CoverageLayer {
     this.legend.hidden = true;
     this.status = L.DomUtil.create("div", "n-coverage-status", this.legend);
     this.status.setAttribute("role", "status");
-    const list = L.DomUtil.create("ul", "", this.legend);
+    const list = L.DomUtil.create("ul", "u-legend-items", this.legend);  // the kit's legend (ui.css .u-legend-*)
     for (const level of [1, 2] as Level[]) {
-      const item = L.DomUtil.create("li", "", list);
-      L.DomUtil.create("span", `n-coverage-sw n-coverage-sw${level}`, item);
+      const item = L.DomUtil.create("li", "u-legend-item", list);
+      L.DomUtil.create("span", `n-coverage-sw n-coverage-sw${level} u-legend-sw`, item);
       item.append(`${ct("en", `level.${level}`)} (${ct("en", `level.${level}.tag`)})`);  // the coverage page's tag
     }
-    const rest = L.DomUtil.create("li", "", list);
-    L.DomUtil.create("span", "n-coverage-sw n-coverage-sw3", rest);
+    const rest = L.DomUtil.create("li", "u-legend-item", list);
+    L.DomUtil.create("span", "n-coverage-sw n-coverage-sw3 u-legend-sw", rest);
     rest.append(ct("en", "legend.rest"));
     this.link = L.DomUtil.create("a", "n-coverage-link") as HTMLAnchorElement;
     this.link.href = "/coverage?lang=en";

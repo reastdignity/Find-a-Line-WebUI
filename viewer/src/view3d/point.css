@@ -1,15 +1,16 @@
 /* "Lines from a point" (point.ts, fan.ts, optionlist.ts; docs/3d-view-contract.md, "Round 2", point 9). */
 
-/* The marker at the picked point and the dots at the webbings' ends (placed by fan.ts through the CSSOM) */
+/* The marker at the picked point and the dots at the webbings' ends (placed by fan.ts through the CSSOM): drawings
+   over the picture, as the handles (view3d.css): a white rim, a dark edge, negative margins centring a dot (off R7) */
 .v3-point-marker { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
 .v3-point-marker::before { content: ""; position: absolute; left: -7px; top: -7px; width: 14px; height: 14px;
                            box-sizing: border-box; border-radius: 50%; background: var(--accent);
-                           border: 3px solid #ffffff; box-shadow: 0 0 0 1px rgb(0 0 0 / .65), 0 1px 4px rgb(0 0 0 / .45); }
+                           border: 3px solid var(--mark-rim); box-shadow: 0 0 0 1px rgb(0 0 0 / .65), var(--shadow-mark); }
 .v3-opt-dot { position: absolute; left: 0; top: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px; padding: 0;
               box-sizing: border-box; border: 0; background: transparent; border-radius: 50%; pointer-events: auto;
               cursor: pointer; touch-action: none; }
 .v3-opt-dot::before { content: ""; position: absolute; left: 4px; top: 4px; width: 10px; height: 10px;
-                      box-sizing: border-box; border-radius: 50%; background: var(--clear); border: 2px solid #ffffff;
+                      box-sizing: border-box; border-radius: 50%; background: var(--clear); border: 2px solid var(--mark-rim);
                       box-shadow: 0 0 0 1px rgb(0 0 0 / .55); }
 /* its target (row 43): 24 px with a mouse, 44 px on a touch screen, invisible and centred on the dot; a press on a
    dot's drawn box is that dot's, and where only targets overlap the dot whose centre is nearer to the press takes it
@@ -28,7 +29,7 @@
 /* The list: a raised panel (row 41: no edge, the shadow, 8 px corners) at the stage's right under the activity pill;
    its height is set by optionlist.ts (clear of the credits and the card), it scrolls inside itself and is never
    wider than the stage less the tool strip */
-.v3-optlist { position: absolute; top: 52px; right: 8px; z-index: 1; box-sizing: border-box; display: flex;
+.v3-optlist { position: absolute; top: 52px; right: 8px; z-index: var(--z-up); box-sizing: border-box; display: flex;
               flex-direction: column; width: min(340px, calc(100% - 76px)); min-height: 0; overflow: hidden;
               background: var(--surface); border-radius: var(--r-2); box-shadow: var(--shadow);
               font-size: var(--fs-2); line-height: 1.4; }
@@ -37,7 +38,7 @@
 .v3-optlist-note.v3-failed { color: var(--bad); }
 .v3-optlist-scroll { overflow: auto; min-height: 0; overscroll-behavior: contain; }
 .v3-optlist-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.v3-optlist-table th { position: sticky; top: 0; z-index: 1; padding: 0; text-align: left; font-weight: 500;
+.v3-optlist-table th { position: sticky; top: 0; z-index: var(--z-up); padding: 0; text-align: left; font-weight: 500;
                        background: var(--surface); border-bottom: 1px solid var(--rule); }
 /* A column's head: a button the list sorts by; the sorted one in the ink with the kit's "sort" icon before its
    words (as the result view's heads), turned up while the order is ascending; the keyboard's ring inside the head
@@ -54,7 +55,7 @@
 .v3-optlist-table td { padding: 4px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
 .v3-opt-row { cursor: pointer; }
 .v3-opt-row:hover, .v3-opt-row:focus-visible, .v3-opt-row.v3-on { background: var(--accent-soft); }
-.v3-opt-row.v3-on td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.v3-opt-row.v3-on td:first-child { box-shadow: inset 3px 0 0 var(--accent); }  /* the selected row's edge, drawn */
 /* the keyboard's ring of a row: inside it (the scroll box clips), apart from the selected row's edge */
 .v3-opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: none; }
 .v3-opt-trees { text-align: center; }

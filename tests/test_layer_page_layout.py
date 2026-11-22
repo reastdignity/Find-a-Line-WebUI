@@ -700,3 +700,19 @@ def test_strip_brings_a_focused_chart_name_into_view(site):
     assert out == [], out
     assert page.errors == [], page.errors
     page.context.close()
+
+
+LEGEND_JS = """(root) => { const $$ = (s) => [...document.querySelectorAll(root + ' ' + s)];
+  return {swatches: $$('.u-legend-sw').map((e) => { const r = e.getBoundingClientRect(); return [r.width, r.height]; }),
+          title: $$('.u-legend-title').map((e) => getComputedStyle(e).fontSize),
+          items: $$('.u-legend-item').map((e) => getComputedStyle(e).fontSize)}; }"""
+
+
+def test_legend_in_the_kits_look(site):
+    """The layer's legend in the kit's legend look (docs/DESIGN.md row 90; the user's Q6 b) on a desktop: its classes'
+    swatches 16 x 12 px (the border's hatched one too, when shown), the title and the items at 13 px."""
+    page = _page(site, DESKTOP)
+    got = page.evaluate(LEGEND_JS, ".c-layer-legend")
+    assert len(got["swatches"]) >= 5 and all(s == [16, 12] for s in got["swatches"]), got
+    assert got["title"] == ["13px"] and len(got["items"]) >= 5 and set(got["items"]) == {"13px"}, got
+    page.context.close()

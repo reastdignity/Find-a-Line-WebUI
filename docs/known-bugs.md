@@ -656,6 +656,36 @@ Found by the reviews of G1 and left (DESIGN.md rows 81 to 84 hold what was mende
   (judged acceptable by the design review; a 1 px side ring would be the cheapest remedy).
 - Firefox was not run (by the code: a coverage outline was never focusable there, and a press keeps the map's focus).
 
+## Step 3d, group G2 (tokens and scales): known and left (2026-11-21)
+
+G2 put the free CSS's layers, shadows, type and radius steps, spacing and colours on the tokens and scales (DESIGN.md
+rows 87 to 91; `tests/test_viewer.py::test_free_css_on_the_scales` and its `OFF_THE_SCALES`). Left:
+
+- **The drawings drawn as shadows** (16 declarations: the accent's rings, inset edges, the 3D view's marks' rims and
+  shadows, the sheet head's scroll cue) stay literal, named with their reasons: the planner's decision of three
+  elevation tokens does not cover them; tokens for a ring, an inset edge and a mark's rim are the planner's to decide.
+  The 3D marks' values differ a little (an edge of 55, 60 and 65 % black; the pin's shadow offset turned against its
+  rotation, so that it falls straight down).
+- **The kit's collapse tab** (`ui.css` `.u-split-tab`: its 11 px corners and its own shadow): G3's look.
+- **Round 6's files and ui.css's shore block** keep their numbers, literal shadows, colours and spacing (`result/view/`,
+  `profile.css`, `Profile.tsx`; the shore's and coarser box's rules): step 3d's G6, which can take the names now in
+  `tokens.css` (`--z-map-box` 800, `--z-map-box-2` 810, `--z-map-top` 1100, `--shadow-up`). Today's result page keeps
+  its own (z 1 to 9, 900 to 1100, its dock's shadow): its page goes.
+- **The kit's demo pages** (`?ui=kit`, `?ui=kit-search`: the gallery's rules, `.u-stub`, `.ui.s-kit`) keep their own
+  type, corners and spacing (developers' pages); their layers are tokens.
+- **The dialogs' scrim** has its value twice, the token and `::backdrop`'s fallback (a browser before Safari 17.4,
+  Chrome 122 and Firefox 120 gives `::backdrop` no custom property); a test keeps them the same.
+- **The page's 13 px on html** (`app/base.css`) stays written out: no token reaches html and body, and Leaflet's rem
+  sizes (the map's credits before R1's rules) come from it.
+- **One legend** (DESIGN.md row 90): the coverage page's legend keeps one item a line (the picture's); the kit
+  alone would pair its items where two fit. Its swatches (16 x 12 px, an inset edge) and the list's (22 x 14 px, a
+  `--line` border) are two sizes for one level: left by the user's "Leave for now (Recommended)", 2026-11-22 (the
+  design review's F4). The access mark's help panel, 28 px higher (13 px type, R7's padding), is cut by 37 px at
+  rest in the result view's key on the iPhone (round 6's `.v-over`, 277 px high; 9 px before); it scrolls and reads
+  whole: room for it in `.v-over` is G6's (the design review's F2). The result view's `.v-legend` and the profile's
+  legend (round 6's files) keep their own rules until G6 puts them on `.u-legend-*` (the view's swatches would
+  then gain the inset edge).
+
 ## Step 3d, group G5 (the words): what stays (2026-11-21)
 
 G5 built the words the user approved on the wording review (DESIGN.md choices 92 to 95; `local/ux-design-2026-11-16/

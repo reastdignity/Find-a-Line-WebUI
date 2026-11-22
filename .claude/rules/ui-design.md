@@ -17,6 +17,8 @@ paths:
   picks.
 - Colours and other values come from viewer/src/ui/tokens.css; font sizes, radii and spacing from DESIGN.md's
   scales where a rule in force names one (R5 to R7); a value off them needs a reason in a comment.
+- No raw z-index or literal shadow: the layers `--z-*` and elevation `--shadow*` of tokens.css; a value off the
+  tokens or scales also needs its row in tests/test_viewer.py's `OFF_THE_SCALES` (DESIGN.md rows 87 to 91).
 - The anchors stay: the logo, Barlow Condensed headings, the magenta line, the accepted layouts. The rest of the
   look changes only through a mock-up the user accepted; its decisions go into DESIGN.md in the same branch.
 - Words: docs/wording.md (the words to use and not to use, the characters written out, the style rules by link);
