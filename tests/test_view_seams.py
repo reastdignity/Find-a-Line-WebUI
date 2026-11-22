@@ -47,16 +47,18 @@ def _present(page) -> list:
 # name)
 NAMES = ("c-result-top", "c-cols", "c-col-list", "c-col-map", "c-col-details", "c-back", "c-run-title", "c-leaflet",
          "v-switch", "v-foot", "vl-details", "vl-empty", "vl-list", "c-phone-top", "c-pill", "c-pill-name", "u-sheet",
-         "r-actions", "r-card", "u-grow")
+         "r-actions", "r-card", "u-grow", "v-upright")
 # The view's elements that hold the slots and those around them, with their children: per device, at first and with a
 # spot selected. The frame's own (step 3c's frame): the run's actions after the header's grow (desktop) and the
 # pill's name (phone), the profile's card last in the map's column with a selection (desktop). The details' own as
-# view-3c drew them (their slots are SpotDetails.tsx's)
+# view-3c drew them (their slots are SpotDetails.tsx's). The notice to turn a phone upright (gate 2's 4 a,
+# SpotColumns.tsx Upright) first in both frames, hidden by its CSS until a phone is held sideways: its alert region
+# must be in the page before its words go in, and a phone held sideways (844 px wide) draws the desktop frame
 FRAME = {
-    "desktop first": {".v-result": ["c-result-top", "c-cols"], ".c-result-top": ["c-back", "c-run-title", "u-grow", "r-actions"],
+    "desktop first": {".v-result": ["v-upright", "c-result-top", "c-cols"], ".c-result-top": ["c-back", "c-run-title", "u-grow", "r-actions"],
                       ".c-cols": ["c-col-list", "c-col-map", "c-col-details"], ".c-col-map": ["c-leaflet", "v-switch", "v-foot"]},
     "desktop selected": {".c-col-map": ["c-leaflet", "v-switch", "v-foot", "r-card"]},
-    "phone first": {".v-result": ["c-col-map", "c-phone-top", "u-sheet"], ".c-phone-top": ["c-pill"],
+    "phone first": {".v-result": ["v-upright", "c-col-map", "c-phone-top", "u-sheet"], ".c-phone-top": ["c-pill"],
                     ".c-pill": ["c-back", "c-pill-name", "r-actions"], ".c-col-map": ["c-leaflet", "v-switch", "v-foot"]},
     "phone selected": {},
 }

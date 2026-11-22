@@ -1748,3 +1748,85 @@ def test_notice_record_ends_with_the_view(site):
             browser.close()
     print("the focus in a view opened again:", focus)
     assert "leaflet-container" not in focus, focus
+
+
+@pytest.fixture
+def credits_site(tmp_path, view_clip):
+    """The clip's run with a source's data credits (test_shell_c's add_credits), served by the app; the page's address."""
+    from test_shell_c import add_credits, copy_clip, stub_page
+    from test_web import _server
+    folder = tmp_path / "data"
+    copy_clip(view_clip, folder, BIG, "Clip")
+    add_credits(folder, BIG)
+    page_path = stub_page(folder, "creditstest")
+    with _server(folder) as port:
+        yield f"http://127.0.0.1:{port}/{page_path}?ui=c"
+
+
+# The run's "Data credits" button: its state, its box, the credits shown, and the scale's bottom against the credits'
+CREDITS = """() => { const b = document.querySelector('.v-map .u-credits-toggle'), r = b.getBoundingClientRect(), s = getComputedStyle(b);
+  const attr = document.querySelector('.v-map .leaflet-control-attribution').getBoundingClientRect(), scale = document.querySelector('.v-map .leaflet-control-scale');
+  const sc = scale && scale.getBoundingClientRect();
+  return {expanded: b.getAttribute('aria-expanded'), open: !!document.querySelector('.v-map .u-credits.u-open'), box: [r.left, r.top, r.right, r.bottom],
+          fill: s.backgroundColor, attrHeight: attr.height, inside: r.bottom <= attr.bottom + 0.5 && r.top >= attr.top - 0.5, markFirst: b.querySelector('.u-credits-mark').getBoundingClientRect().left < r.left + 12, scaleAbove: !sc || !sc.height || sc.bottom <= attr.top + 1 || sc.right <= attr.left || sc.left >= attr.right}; }"""
+
+
+@pytest.mark.parametrize("device", ["desktop", "390", "412"])
+def test_data_credits_fold_back(credits_site, device):
+    """Gate 2's second check ("after expanding data notice on 2d map it can not be collapsed back. Make it similiar to
+    3d map."): the run's "Data credits" (a phone; a desktop with the card open) is a pill like the 3D view's (a filled
+    button, its arrow before the words, on a touch screen a 44 px target around it; in the columns within the credits'
+    line, inside the map): a press opens the credits, a press folds them back, a press
+    opens them again, aria-expanded following; a finger's tap 8 px above the pill (within its target) counts; the scale
+    stays above the credits each time; then Enter folds them, the focus kept on the button, its ring inside it."""
+    from playwright.sync_api import sync_playwright
+    context = {"desktop": DESKTOP, "390": SMALL_PHONE, "412": PIXEL}[device]
+    steps, above = [], []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, credits_site + f"#run={BIG}", context, script=HELP)
+            if device == "desktop":
+                _state(page, "view.select(view.order[0]);")
+                page.wait_for_selector(".c-col-map.c-card-on", timeout=WAIT)
+            else:
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.wait_for_selector(".v-map .u-credits-toggle", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            steps.append(page.evaluate(CREDITS))
+            for want in ("true", "false", "true"):
+                b = steps[-1]["box"]
+                x = (b[0] + b[2]) / 2
+                if device == "desktop":
+                    page.mouse.click(x, (b[1] + b[3]) / 2)
+                else:
+                    page.wait_for_function("() => performance.now() - (window.TOUCHED || -1000) > 700", timeout=WAIT)
+                    # above the pill, inside its 44 px target, where no credit's link lies (a link keeps its own
+                    # press there); none such: the pill's middle
+                    up = page.evaluate("""(b) => { const t = document.querySelector('.v-map .u-credits-toggle');
+                      for (let x = b[0] + 4; x <= b[2] - 4; x += 2) { const h = document.elementFromPoint(x, b[1] - 8); if (h && t.contains(h)) return x; }
+                      return null; }""", b)
+                    page.touchscreen.tap(up, b[1] - 8) if up is not None else page.touchscreen.tap(x, (b[1] + b[3]) / 2)
+                    above.append(up is not None)
+                    page.evaluate("() => { window.TOUCHED = performance.now(); }")
+                page.wait_for_function(f"() => document.querySelector('.v-map .u-credits-toggle').getAttribute('aria-expanded') === '{want}'", timeout=WAIT)
+                page.evaluate("() => T.frames().then(() => T.frames())")
+                steps.append(page.evaluate(CREDITS))
+            # the keyboard: Enter on the button (focused after its press) folds them, the focus stays on the new
+            # button, its ring inside it (folded it stands at the map's or the sheet's edge, which cut a ring outside)
+            page.keyboard.press("Enter")
+            page.wait_for_function("() => document.querySelector('.v-map .u-credits-toggle').getAttribute('aria-expanded') === 'false'", timeout=WAIT)
+            keys = page.evaluate("() => { const b = document.querySelector('.v-map .u-credits-toggle'); return {focused: document.activeElement === b, "
+                                 "ring: b.matches(':focus-visible') ? getComputedStyle(b).boxShadow : null}; }")
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert keys["focused"] and keys["ring"] and "inset" in keys["ring"], keys
+    print("the data credits:", device, "taps above the pill:", above, [(s["expanded"], s["open"], round(s["box"][3] - s["box"][1]), round(s["attrHeight"]), s["markFirst"], s["inside"], s["scaleAbove"]) for s in steps])
+    assert [s["expanded"] for s in steps] == ["false", "true", "false", "true"] and [s["open"] for s in steps] == [False, True, False, True], steps
+    # (a phone's pill 26 px high, R2's floor for its target the 44 px around it; the columns' pill as high as the
+    # credits' line, drawn whole inside them)
+    tall = 13.5 if device == "desktop" else 24
+    assert all(s["fill"] not in ("rgba(0, 0, 0, 0)", "transparent") and s["box"][3] - s["box"][1] >= tall for s in steps), steps
+    assert all(s["markFirst"] and s["inside"] for s in steps), steps
+    assert all(s["scaleAbove"] for s in steps), steps
