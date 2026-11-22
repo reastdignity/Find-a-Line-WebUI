@@ -10,6 +10,7 @@ PowerShell (.claude/rules/browser-tests.md)."""
 import json
 import os
 import sys
+import time
 
 import pytest
 
@@ -28,7 +29,7 @@ with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as _f:
 
 # The page's visibility as the test sets it (setVisibility: the property and its event), and the run's lines.arrow
 # requests counted (STORE_ASKED); with CUT the first one fails (an XHR "error" event, as a suspended page's request
-# ends), the page reading hidden first when CUT is "hidden"; with HOLD the next one waits for RELEASE(); with
+# ends), the page reading hidden first when CUT is "hidden" (with CUT_LATER when the test calls FAIL_FIRST()); with HOLD the next one waits for RELEASE(); with
 # HANG_PROFILES the first profiles.arrow request is never answered (as iOS may leave a suspended request), with
 # HANG_RETRY neither of the second try's two
 STUBS = r"""
@@ -43,8 +44,10 @@ XMLHttpRequest.prototype.send = function (...args) {
   if (/\/lines\.arrow$/.test(this.storeUrl || '')) {
     window.STORE_ASKED++;
     if (window.CUT && window.STORE_ASKED === 1) {
-      if (window.CUT === 'hidden') setVisibility('hidden');
-      setTimeout(() => this.dispatchEvent(new ProgressEvent('error')), 0);
+      const fail = () => { if (window.CUT === 'hidden') setVisibility('hidden'); this.dispatchEvent(new ProgressEvent('error')); };
+      // CUT_LATER: the test fails it (FAIL_FIRST()), once the other request is known to be on its way
+      if (window.CUT_LATER) window.FAIL_FIRST = fail;
+      else { if (window.CUT === 'hidden') setVisibility('hidden'); setTimeout(() => this.dispatchEvent(new ProgressEvent('error')), 0); }
       return;
     }
     if (window.HOLD && window.STORE_ASKED === 2) { window.HELD = () => realSend.apply(this, args); return; }
@@ -155,6 +158,128 @@ def test_a_hanging_retry_ends_in_the_message(site):
             # a wait that polls the page would wait for that clock)
             assert page.evaluate("() => !!document.querySelector('.c-error')")
             assert page.evaluate("() => document.querySelector('.c-error').textContent") == FAILED
+            assert page.evaluate("() => window.STORE_ASKED") == 2
+        finally:
+            browser.close()
+
+
+def test_frozen_hidden_time_does_not_count(site):
+    """The code review's F1: the page hidden again during the try after a cut and frozen there (iOS suspends a hidden
+    page: one tick while hidden, then its clock runs on 60 s while no timer runs, and the overdue tick fires once on
+    the return). Only time while the page is visible counts, so the return shows no message and the try goes on; past
+    30 s of visible time without an answer the message comes as before."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=None,
+                         script=STUBS + "window.CUT = 'hidden'; window.HANG_RETRY = true; "
+                         "try { localStorage.setItem('findaline.view', 'b'); } catch (e) {}")
+            page.wait_for_function("() => window.STORE_ASKED === 1 && window.PROFILES_ASKED === 1 && window.VIS === 'hidden'", timeout=WAIT)
+            page.clock.install()
+            page.evaluate("() => setVisibility('visible')")
+            page.wait_for_function("() => window.STORE_ASKED === 2 && window.PROFILES_ASKED === 2", timeout=WAIT, polling=100)
+            page.clock.run_for(5000)
+            page.evaluate("() => setVisibility('hidden')")
+            page.clock.run_for(1000)  # one tick while hidden, then the page is frozen
+            page.evaluate("() => setVisibility('visible')")
+            page.clock.fast_forward(60000)  # back: the clock ran on, the overdue tick fires once
+            page.clock.run_for(2000)
+            # (the page's timers are the fake clock's: read at once, no wait that polls the page)
+            assert page.evaluate("() => !document.querySelector('.c-error') && !!document.querySelector('.c-loading')")
+            assert page.evaluate("() => [window.STORE_ASKED, window.PROFILES_ASKED]") == [2, 2]
+            page.clock.run_for(30000)  # 32 s of visible time since the return, no answer: the message
+            assert page.evaluate("() => document.querySelector('.c-error')?.textContent") == FAILED
+        finally:
+            browser.close()
+
+
+# Every XMLHttpRequest.abort, by the request's file and its state (the code review's probe)
+ABORTS = r"""
+window.ABORTED = [];
+const realAbort = XMLHttpRequest.prototype.abort;
+XMLHttpRequest.prototype.abort = function () { ABORTED.push((this.storeUrl || '').split('/').pop() + ':' + this.readyState); return realAbort.call(this); };
+"""
+
+
+@pytest.mark.parametrize("cut", ["hidden", "visible"])
+def test_the_other_request_is_aborted(site, cut):
+    """The code review's probe, kept: profiles.arrow's first request really pending (its route never answered),
+    lines.arrow's first failing. Hidden: the cut aborts the first try's two requests, the retry's are not aborted and
+    the run is shown; visible: today's message, and the same two requests aborted."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            held, count = [], {"n": 0}
+
+            def profiles(route):
+                count["n"] += 1
+                if count["n"] == 1:
+                    held.append(route)  # never answered
+                else:
+                    route.continue_()
+            page = _open(browser, "about:blank", DESKTOP, flag=None,
+                         script=STUBS + ABORTS + f"window.CUT = '{cut}'; window.CUT_LATER = true; "
+                         "try { localStorage.setItem('findaline.view', 'b'); } catch (e) {}")
+            page.context.route("**/profiles.arrow", profiles)
+            page.goto(f"{site}#run={BIG}")
+            # the first try's lines.arrow fails once its profiles.arrow is held at the route (really pending)
+            page.wait_for_function("() => !!window.FAIL_FIRST", timeout=WAIT)
+            deadline = time.time() + WAIT / 1000
+            while not held and time.time() < deadline:  # (the route's own call, in this process)
+                page.wait_for_timeout(50)
+            assert held, "profiles.arrow's first request never reached the route"
+            page.evaluate("() => FAIL_FIRST()")
+            if cut == "hidden":
+                page.wait_for_function("() => window.STORE_ASKED === 1 && window.VIS === 'hidden'", timeout=WAIT)
+                page.wait_for_function("() => ABORTED.length >= 1", timeout=WAIT)
+                page.evaluate("() => setVisibility('visible')")
+                page.wait_for_function("() => !!window.FINDALINE_VIEW", timeout=WAIT)
+            else:
+                page.wait_for_selector(".c-error", timeout=WAIT)
+                page.wait_for_function("() => ABORTED.length >= 1", timeout=WAIT)
+            aborted = page.evaluate("() => ABORTED")
+            assert sorted(a.split(":")[0] for a in aborted) == ["lines.arrow", "profiles.arrow"], aborted
+            assert count["n"] == (2 if cut == "hidden" else 1)
+        finally:
+            browser.close()
+
+
+# The browser's online state as the test sets it (navigator.onLine and its event)
+OFFLINE = r"""
+window.ONLINE = true;
+Object.defineProperty(Navigator.prototype, 'onLine', {configurable: true, get() { return window.ONLINE; }});
+window.setOnline = (on) => { window.ONLINE = on; if (on) window.dispatchEvent(new Event('online')); };
+"""
+
+
+def test_a_retry_waits_for_the_network(site):
+    """The code review's F2: back from a cut the phone may not be on its network yet. While the browser says it is
+    offline the retry waits for its "online", at most load.ts ONLINE_WAIT_MS (2 s): "online" starts it at once; offline
+    still after 2 s, it starts then (the page's clock Playwright's fake one in the second part)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            script = STUBS + OFFLINE + "window.CUT = 'hidden'; try { localStorage.setItem('findaline.view', 'b'); } catch (e) {}"
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=None, script=script)
+            page.wait_for_function("() => window.STORE_ASKED === 1 && window.VIS === 'hidden'", timeout=WAIT)
+            page.evaluate("() => { window.ONLINE = false; setVisibility('visible'); }")
+            page.evaluate(FRAMES)
+            assert page.evaluate("() => window.STORE_ASKED") == 1 and page.evaluate(WAITING)
+            page.evaluate("() => setOnline(true)")
+            page.wait_for_function(SHOWN["view"], timeout=WAIT)
+            assert page.evaluate("() => window.STORE_ASKED") == 2
+            page.context.close()
+
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=None, script=script)
+            page.wait_for_function("() => window.STORE_ASKED === 1 && window.VIS === 'hidden'", timeout=WAIT)
+            page.clock.install()
+            page.evaluate("() => { window.ONLINE = false; setVisibility('visible'); }")
+            page.clock.run_for(1000)
+            assert page.evaluate("() => window.STORE_ASKED") == 1
+            page.clock.run_for(1500)  # past ONLINE_WAIT_MS, still offline: the retry starts
             assert page.evaluate("() => window.STORE_ASKED") == 2
         finally:
             browser.close()

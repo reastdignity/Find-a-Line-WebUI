@@ -20,8 +20,9 @@
 // A download cut while the page was hidden (a phone's screen off: iOS suspends the page and its requests fail; the
 // user's iPhone test of 2026-11-22) is started again, whole, once the page is visible again, with its progress from
 // nought: one try per visible spell (watchHidden); the other file's request is ended at the cut (stop), and the try
-// after it has a deadline, STALL_MS without an answer or a byte while visible (a request iOS left hanging). A
-// download that fails while the page stays visible is a StoreFailed at once, as before.
+// after it has a deadline, STALL_MS without an answer or a byte while visible (a request iOS left hanging; time hidden
+// or frozen does not count). The retry waits for the browser to be online, at most ONLINE_WAIT_MS. A download that
+// fails while the page stays visible is a StoreFailed at once, as before.
 
 import { RecordBatchReader, Type, type Data, type RecordBatch, type Schema } from "apache-arrow";
 import { download, type Answer } from "../download";
@@ -179,8 +180,9 @@ async function downloadStore(folder: string, key: string, report: OnProgress, st
       stop.abort();  // the other file's request ends now (iOS may leave one hanging)
       if (e === STALLED) throw new StoreFailed(key, `no answer for ${STALL_MS / 1000} s after the page was hidden`);
       if (!cut) throw new StoreFailed(key, "the download failed");
-      // cut while the page was hidden: the whole store again once it is visible
+      // cut while the page was hidden: the whole store again once it is visible (and online, or ONLINE_WAIT_MS on)
       await whenVisible();
+      await whenOnline(ONLINE_WAIT_MS);
       retry = true;
     } finally {
       stall?.stop();
@@ -206,19 +208,48 @@ async function downloadStore(folder: string, key: string, report: OnProgress, st
 export const STALL_MS = 30000;
 const STALLED = new Error("stalled");
 
-/** A deadline of STALL_MS after the last answer or byte (`heard`, set back by `reset` while the page is hidden),
- *  checked every second: `promise` rejects with STALLED; `stop` ends the checks. */
+/** A tick this much later than the one before it found timers held: the page was frozen (iOS suspends a hidden page,
+ *  a browser throttles a hidden tab), so the gap is time hidden. */
+const TICK_GAP_MS = 2500;
+
+/** A deadline of STALL_MS after the last answer or byte (`heard`), checked every second: `promise` rejects with
+ *  STALLED; `stop` ends the checks. Only time while the page is visible counts: `reset` sets `heard` to now while the
+ *  page is hidden, when it becomes visible, and after a tick that came late (TICK_GAP_MS: the page was frozen, its
+ *  overdue tick runs once on its return). */
 function stalled(heard: () => number, reset: (now: number) => void): {promise: Promise<never>; stop(): void} {
-  let timer = 0;
+  let timer = 0, last = performance.now();
+  const shown = () => { if (document.visibilityState !== "hidden") reset(performance.now()); };
+  if (watchable()) document.addEventListener("visibilitychange", shown);
+  const stop = () => {
+    clearInterval(timer);
+    if (watchable()) document.removeEventListener("visibilitychange", shown);
+  };
   const promise = new Promise<never>((_, reject) => {
     timer = setInterval(() => {
-      const now = performance.now();
-      if (watchable() && document.visibilityState === "hidden") reset(now);
-      else if (now - heard() > STALL_MS) { clearInterval(timer); reject(STALLED); }
+      const now = performance.now(), late = now - last > TICK_GAP_MS;
+      last = now;
+      if (late || (watchable() && document.visibilityState === "hidden")) reset(now);
+      else if (now - heard() > STALL_MS) { stop(); reject(STALLED); }
     }, 1000) as unknown as number;
   });
   promise.catch(() => undefined);  // a rejection after the race was decided is no error
-  return {promise, stop: () => clearInterval(timer)};
+  return {promise, stop};
+}
+
+/** How long a retry waits for the network after the page is visible again: a phone unlocked after a cut may take a
+ *  moment to join its network; the retry starts once `navigator.onLine`, at most this late. */
+export const ONLINE_WAIT_MS = 2000;
+
+/** Resolves once the browser says it is online, at once when it does, else at the latest after `ms`. */
+function whenOnline(ms: number): Promise<void> {
+  if (typeof navigator === "undefined" || navigator.onLine !== false || typeof addEventListener !== "function") {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); removeEventListener("online", done); resolve(); };
+    const timer = setTimeout(done, ms);
+    addEventListener("online", done);
+  });
 }
 
 /** Has the page a document whose visibility can be watched (Node's units run this file with a stand-in or none). */
