@@ -913,7 +913,7 @@ def test_layers_menu_lowers_the_sheet(boxes_site, device):
 
 # The first open sector's heads after its rows were scrolled under the scroller's top (`box`: the list's scroller):
 # their top against the scroller's, and what a press at the middle of each of their cells reaches
-STICKY = r"""([box]) => { const scroller = document.querySelector(box), sec = document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec');
+STICKY = r"""([box]) => { const scroller = document.querySelector(box), sec = (window.HEAD_SEC = window.HEAD_SEC ?? document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec').dataset.sector, document.querySelector(`.vl-tree .vl-sec[data-sector="${window.HEAD_SEC}"]`));
   const heads = sec.querySelector(':scope > .vl-cols'), rows = sec.querySelector('.vl-rows');
   scroller.scrollTop += rows.getBoundingClientRect().top - scroller.getBoundingClientRect().top + 200;
   const h = heads.getBoundingClientRect(), s = scroller.getBoundingClientRect(), r = rows.getBoundingClientRect();
@@ -948,14 +948,15 @@ def test_heads_stay_at_the_top(site, device):
     assert all(got["cells"]) and got["right"], got
 
 
-# The first open sector's heads: each one's name, pressed state, class and height; the view's sort and direction, the
-# Sort box's value and the direction button's name
-HEADS = r"""() => { const v = window.FINDALINE_VIEW.view, heads = [...document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec').querySelectorAll(':scope > .vl-cols .vl-head')];
+# The heads of the sector first open when first read (window.HEAD_SEC: that sector stays open once one of its heads
+# was pressed): each one's name, pressed state, class and height; the view's sort and direction, the Sort box's value
+# and the direction button's name
+HEADS = r"""() => { const v = window.FINDALINE_VIEW.view, heads = [...(window.HEAD_SEC = window.HEAD_SEC ?? document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec').dataset.sector, document.querySelector(`.vl-tree .vl-sec[data-sector="${window.HEAD_SEC}"]`)).querySelectorAll(':scope > .vl-cols .vl-head')];
   return {sort: v.sort, desc: v.desc, box: document.querySelector('.vl-tree select.r-sort').value, dir: document.querySelector('.vl-tree .vl-dir').getAttribute('aria-label'),
     heads: heads.map((b) => ({name: b.getAttribute('aria-label'), pressed: b.getAttribute('aria-pressed'), asc: b.parentElement.classList.contains('vl-asc'),
                               h: Math.round(b.getBoundingClientRect().height), hidden: !!b.closest('[aria-hidden="true"]')})),
     best: Array.from(v.inView.best), order: Array.from(v.order)}; }"""
-HEAD = "() => document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec').querySelectorAll(':scope > .vl-cols .vl-head')"
+HEAD = r"""() => (window.HEAD_SEC = window.HEAD_SEC ?? document.querySelector('.vl-tree .vl-sec .vl-rows').closest('.vl-sec').dataset.sector, document.querySelector(`.vl-tree .vl-sec[data-sector="${window.HEAD_SEC}"]`)).querySelectorAll(':scope > .vl-cols .vl-head')"""
 
 
 @pytest.mark.parametrize("device", ["desktop", "phone"])
@@ -1311,3 +1312,36 @@ def test_layers_hover_leaves_the_sheet(boxes_site):
             browser.close()
     print("layers by hover and by a key:", hovered, keyed)
     assert hovered == "half" and keyed == "peek", (hovered, keyed)
+
+
+def test_head_press_keeps_its_place(site):
+    """The code review's G4 (the final design check's F4 for the heads): with a spot selected (the tree's second-last),
+    a press on a head for a new key, then on it again (the reverse), leaves the heads where they were under the pointer
+    (they ran to y 2 before: the list scrolled to the selected row), and the selected row is still drawn."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            tree = page.evaluate("() => window.FINDALINE_VIEW.view.sectors.flatMap((s) => s.spots)")
+            spot = tree[-2]
+            _state(page, f"view.select({spot});")
+            page.wait_for_selector(f"#vl-row-{spot} > .vl-main", timeout=WAIT)
+            sector = page.evaluate(f"() => window.FINDALINE_VIEW.view.sectorOf({spot})")
+            head = f".vl-sec[data-sector='{sector}'] > .vl-cols .vl-head[data-col='len']"
+            page.evaluate(f"() => {{ const h = document.querySelector(\"{head}\"), box = h.closest('.vl-body'); box.scrollTop += h.getBoundingClientRect().top - box.getBoundingClientRect().top - 200; }}")
+            page.evaluate("() => T.frames()")
+            top = lambda: page.evaluate(f"() => Math.round(document.querySelector(\"{head}\").getBoundingClientRect().top)")
+            places = [top()]
+            for desc in (True, False):
+                page.click(head)
+                page.wait_for_function(f"() => window.FINDALINE_VIEW.view.sort === 'len' && window.FINDALINE_VIEW.view.desc === {str(desc).lower()}", timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                places.append(top())
+            drawn = page.evaluate(f"() => !!document.querySelector('#vl-row-{spot} > .vl-main[aria-pressed=\"true\"]')")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the head's place:", places, "row drawn", drawn)
+    assert max(places) - min(places) <= 1, places
+    assert drawn

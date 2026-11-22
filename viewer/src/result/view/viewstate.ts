@@ -140,10 +140,12 @@ export function watchPanels(view: SpotView, f: () => void): () => void {
 }
 
 /** Sort the list of spots and keep the choice (written only when it changes): another key starts in its own first
- *  direction (today's LinesTable). */
-export function sortBy(view: SpotView, sort: ViewSort) {
-  const hint = holdOf(view).state.hint;  // first: a view's first use of its panel state gives it the kept sort
+ *  direction (today's LinesTable). `still`: the list follows a selection into the new order without scrolling (a press
+ *  on a head of the tree: the head stays under the pointer, as the direction button's press). */
+export function sortBy(view: SpotView, sort: ViewSort, still = false) {
+  const state = holdOf(view).state, hint = state.hint;  // first: a view's first use of its panel state gives it the kept sort
   if (sort === view.sort) return;
+  state.still = still && !!view.selected;
   view.setSort(sort);
   view.setDesc(FIRST_DESC[sort]);
   keep({sort, hint, desc: view.desc});

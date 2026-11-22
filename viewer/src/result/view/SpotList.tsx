@@ -405,28 +405,37 @@ function SortHead({view, column, text, sector}: {view: SpotView; column: string;
   const key = headKey(view, column), by = view.sort === key;
   const name = by ? text + t(view.desc ? "ui.list.sorted_desc" : "ui.list.sorted_asc") : text;
   const press = (e: Event) => {
-    const had = document.activeElement === e.currentTarget;  // pressed by the keyboard, or focused by the press
+    const button = e.currentTarget as HTMLElement;
+    const had = document.activeElement === button;  // pressed by the keyboard, or focused by the press
+    const top = button.getBoundingClientRect().top;
     // the sector the person sorts from stays open (else the first sector of the new order would be the only one open by
     // itself, and this one, with the pressed head, would close)
     changePanels(view, (s) => { if (sector >= 0 && !s.open.has(sector)) s.open.set(sector, true); });
-    if (by) reverse(view); else sortBy(view, key);
-    // the new order moves the sectors (Preact moves their nodes, which drops a focus inside them): a head that had the
-    // focus keeps it (the design review's G2-F1, as the stepper keeps its own)
-    if (had) keepHeadFocus(`.vl-sec[data-sector="${sector}"] > .vl-cols .vl-head[data-col="${column}"]`);
+    if (by) reverse(view); else sortBy(view, key, true);
+    // the new order moves the sectors (Preact moves their nodes, which drops a focus inside them): the pressed head
+    // keeps its place under the pointer (the code review's G4) and, where it had it, the focus (the design review's
+    // G2-F1, as the stepper keeps its own)
+    keepHead(`.vl-sec[data-sector="${sector}"] > .vl-cols .vl-head[data-col="${column}"]`, top, had);
   };
   return <span class={cx("vl-hcell", by && "vl-by", by && !view.desc && "vl-asc")}>
     <button type="button" class="vl-head" data-col={column} aria-label={name} aria-pressed={by} onClick={press}>
       {by && <Icon name="sort" />}{text}</button></span>;
 }
 
-/** Give the focus back to a head (`selector`) while the page draws the new order (a few frames: the drawing may come
- *  after the first), wherever it fell to the page's body (its node was moved); a focus the person moved elsewhere
- *  meanwhile is left alone. */
-function keepHeadFocus(selector: string) {
+/** While the page draws the new order (a few frames: the drawing may come after the first), a pressed head
+ *  (`selector`) is put back at `top` (the viewport's px it stood at) by its list's scroll, and, with `focus`, given the
+ *  focus wherever it fell to the page's body (its node was moved); a focus the person moved elsewhere meanwhile is
+ *  left alone. */
+function keepHead(selector: string, top: number, focus: boolean) {
   let frames = 6;
   const go = () => {
-    const at = document.activeElement;
-    if (!at || at === document.body || !at.isConnected) document.querySelector<HTMLElement>(selector)?.focus({preventScroll: true});
+    const head = document.querySelector<HTMLElement>(selector);
+    if (head) {
+      const box = head.closest<HTMLElement>(".vl-body, .u-sheet-body"), moved = head.getBoundingClientRect().top - top;
+      if (box && Math.abs(moved) >= 1) box.scrollTop += moved;
+      const at = document.activeElement;
+      if (focus && (!at || at === document.body || !at.isConnected)) head.focus({preventScroll: true});
+    }
     if (--frames > 0) requestAnimationFrame(go);
   };
   requestAnimationFrame(go);
