@@ -218,11 +218,58 @@ view's pages come from the store (`first_line`; data.js for such an old run; pri
 
 The result view's map states (`c-view*`: the first view, Area, Spots, Lines, Best 30, All refused, Lines held, several
 spots under one press, the map's controls open, a phone's sheet raised to half) open with the page's flag: `VIEWS` names the
-pages whose `findaline.view` `page_storage` sets (removed for every other page of the pass), each waits for
+pages whose `findaline.view` `page_storage` sets to "b" (every other page of the pass has "today": today's result page
+pinned whatever `VIEW_DEFAULT` is, `tools/today_page.py`), each waits for
 `window.FINDALINE_VIEW` (`VIEW_READY`), and a run whose store has no column `spot` leaves them out (`NEEDS` "view":
 `store_has_view`); `tests/test_ui_shots_view.py`. Its panels' states: `c-view-selected` (a phone: the low
 sheet's head; `-half`: its details), `c-view-fan`, `c-view-sector`, `c-view-all-levels`, `c-view-why`, `c-view-start` (a
 phone's sheet at full height for the list's states: `VIEW_HALF` twice); their steps are scripts and waits only.
+`VIEW_STATES` (line volume's round 6, step 3d): the view's states of steps 3c and 3d (the search area's outline, the
+favourites' halos, a measured line, Compare's other run, a selected line with its card or dock, the star's folders,
+the closed profile, the list's stars and help, the spot stepper, the sort's direction, the empty state, the coast
+states `c-view-boxes`, `-chips-held`, `-box-coarser`, `-box-shore`, `-link-centre` with `--run` of a coastal run:
+`tools/ui_coast_run.py`); `tests/test_ui_shots_view_states.py`.
+
+## `tools/ui_coast_run.py`
+
+Run by hand: a coastal run for `ui_shots.py`'s coast states of the result view: a copy of the Żabi Koń clip's run of a
+ui_shots data folder under a run id of its own, given a made-up uncertain shore (a segment of each kind) and coarser
+terrain (one region over the south half) in its store's head and its run.json, as the tests' `_with_boxes` does; the
+pictures show the boxes and chips, not a real coast (`tests/test_ui_coast_run.py`).
+
+## `tools/today_page.py`
+
+Today's result page pinned, for the tests and tools that check it (step 3d of the result view): `SCRIPT` (an init
+script that leaves "today" in the browser's `findaline.view`, so every load of the context opens today's page),
+`VIEW` (the other answer, "b"), `today(url)` (`view=today` in the address's query, for a browser started on an address,
+headless Edge's `--dump-dom`, or a page whose storage is blocked) and `view_default()` (`SpotColumns.tsx`
+`VIEW_DEFAULT` as the source has it). Both answers are the page's own: no new query word or key.
+
+## `tools/view_numbers.py`
+
+Run by hand: how the result view's numbers pile up per state (a run, `ui_shots`' devices, the first view and whole
+zoom levels in, Best 10 / 30 / 100, "Lines from here"): wanted, drawn, left out by today's rule (a third of a box) and
+the pairs overlapping by more than 1/4, 1/3, 1/2 of the smaller box, under today's rule, a quarter, a half and never.
+It runs `SpotMap.ts`'s greedy again in Python on the places the live canvas reads out (no hook) and counts a state
+only when the greedy at today's rule gives the page's own numbers; `--sheets` shows the rules side by side on the
+page's map. Its copy of the rule (`RULES["today"]`, `COLLECT_JS`) changes with `SpotMap.ts`
+(`tests/test_view_numbers.py`, `tests/test_view_values.py::test_the_numbers_rule_and_its_copy`).
+
+## `tools/lan_app.py`
+
+Run by hand: the local app on the local network for a phone's test of the result view (gate 2 of line volume's round
+6). `prepare --from <data folder> --data-dir <scratch> [--run ID ...] [--no-clip] [--coast]` fills a scratch data
+folder with copies of the named runs (`web.RUN_FILES` and run.json), the clip's run, with `--coast` the Gozo coast's
+run searched offline on the copy, the list of runs and a copy (never a link) of the cache files those runs read again,
+and writes its mark `lan-app.json`; nothing is written into `--from`. `serve --data-dir <scratch> [--port 8443]
+[--esri]` starts `web.create_app` with its worker on every address of the PC over HTTPS with `device_page.py`'s
+certificate (kept in the data folder while it runs), never on the app's own port, and only on a folder with the
+mark. It sends no token and has no sign-in, so it refuses what would start work on the PC (a search, "Edit & run
+again", an OSM download: 403 with a plain reason); its page is a scratch build of the viewer with `VIEW_DEFAULT` true
+(`build_viewer`, as `tests/test_view_default.py` builds it), the repository's `viewer/dist` never written; a run's
+store goes out gzipped with its size before compression (`compressing`), as the public site sends it; the Esri key
+only with `--esri`. Ctrl+C or Ctrl+Break stops it. Open points: docs/known-bugs.md ("Line volume, round 6")
+(`tests/test_lan_app.py`, `tests/test_lan_gzip.py`).
 
 ## `tools/shots_diff.py`
 
@@ -272,7 +319,11 @@ its expected state and checks for feedback within 300 ms. Per walk: screens, tap
 between pointer and keyboard, decision points (an action among more than 4 controls), words, waits, dead ends. Writes
 a screenshot per step (share links masked), `walks.json` and `walks.md`; `compare` checks two runs' counts; `probe`
 lists a surface. No walk starts a search. The data folder must be a fresh one: a folder that holds a job or a
-favourite is refused (R4 saves a favourite, and Home then counts differently) (`tests/test_ui_walks.py`)
+favourite is refused (R4 saves a favourite, and Home then counts differently) (`tests/test_ui_walks.py`). A walk's
+`page` names the result page it opens ("today", the default: today's page pinned through `tools/today_page.py`, or
+"view"); `VIEW_WALKS` (`--view`: VR2, VF2, VR3, VR4, VR4 last as R4 is among today's) are today's result walks done in
+the view, each with `mirrors` naming today's walk it counts against; today's and the view's walks never run together,
+each needs a fresh data folder (`tests/test_ui_walks_view.py`)
 
 ## `tools/perf_*.py`
 
