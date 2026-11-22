@@ -391,3 +391,6 @@
 .ui .vl-cols > .vl-hcell { align-self: stretch; display: flex; }
 .ui .vl-cols > .vl-hcell > .vl-head { flex: 1; min-height: 24px; }
 @media (pointer: coarse) { .ui .vl-cols > .vl-hcell > .vl-head { min-height: 44px; } }
+/* the heads' ground reaches the block's edges and no further: a block clips what runs past its sides (not a scroller:
+   the heads stay sticky to the list's), so the list never scrolls sideways (the code review's G2) */
+.ui .vl-topblock, .ui .vl-sec { overflow-x: clip; }

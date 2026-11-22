@@ -1253,3 +1253,30 @@ def test_row_picker_ends_with_its_row(site):
     print("the row's picker:", {"away": away, "back": back})
     assert away[0] != "BODY" and not away[1], away
     assert back == [False, True], back
+
+
+@pytest.mark.parametrize("width", [260, 340, 372, 500])
+def test_list_never_scrolls_sideways(site, width):
+    """The code review's G2: the sticky heads' ground (its layer past the heads' sides) does not widen the desktop list's
+    scroller: at every kept list width the list body is as wide as its content (no sideways scroll); a phone's sheet
+    body neither."""
+    from playwright.sync_api import sync_playwright
+    layout = ("try { localStorage.setItem('findaline.layout', JSON.stringify({v: 1, list: {w: %d, open: true}, details: {w: 380, open: true}, "
+              "profile: {h: 300, folded: false, l: 12, r: 12}})); } catch (e) {}" % width)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", {"viewport": {"width": 1400, "height": 900}}, script=HELP + layout)
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            got = page.evaluate("() => { const b = document.querySelector('.vl-body'); b.scrollLeft = 60; return [b.scrollWidth, b.clientWidth, b.scrollLeft, Math.round(b.getBoundingClientRect().width)]; }")
+            page.context.close()
+            page = _open(browser, site + f"#run={BIG}", SMALL_PHONE, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "full")
+            phone = page.evaluate("() => { const b = document.querySelector('.u-sheet-body'); b.scrollLeft = 60; return [b.scrollWidth, b.clientWidth, b.scrollLeft]; }")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("sideways:", width, "desktop", got, "phone", phone)
+    assert got[0] <= got[1] and got[2] == 0, got
+    assert phone[0] <= phone[1] and phone[2] == 0, phone
