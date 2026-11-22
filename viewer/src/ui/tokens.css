@@ -30,9 +30,10 @@
   --acc-easy: #1a994f; --acc-tell: #ed8c0d; --acc-hard: #2f3a45; --acc-easy-sign: #ffffff; --acc-tell-sign: #2b1a00; --acc-hard-sign: #ffffff;
   --acc-map-easy: #1a994f; --acc-map-tell: #ed8c0d; --acc-map-hard: #2f3a45; --acc-map-tell-sign: #2b1a00; --acc-map-edge: #4d4538;
   --acc-map-easy-sign: #ffffff; --acc-map-hard-sign: #ffffff; --acc-map-ring: #ffffff;
-  /* the same in both themes: a mark's white rim over the 3D view's picture (the handles, the pin and its leader, the
-     picked point, the fan's dots), a tile of white on the accent (the start's icon), the dialogs' scrim */
-  --mark-rim: #ffffff; --accent-tile: rgb(255 255 255 / .18); --scrim: rgb(10 15 12 / .45);
+  /* the same in both themes: a mark's white rim over the 3D view's picture (the handles, the pin, the picked point,
+     the fan's dots) and the pin's leader (white at 65 %), a tile of white on the accent (the start's icon), the
+     dialogs' scrim */
+  --mark-rim: #ffffff; --mark-leader: rgb(255 255 255 / .65); --accent-tile: rgb(255 255 255 / .18); --scrim: rgb(10 15 12 / .45);
   /* the paper of the 3D view's "Edges" look (view3d/scene.ts reads it) */
   --paper: #eceae4;
   /* Elevation (docs/DESIGN.md "Elevation", row 88): what is raised (--shadow), a control set on a track (the selected

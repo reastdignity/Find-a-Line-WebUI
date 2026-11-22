@@ -188,7 +188,7 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
           box-shadow: 0 0 0 1px rgb(0 0 0 / .65), -1px 1px 4px rgb(0 0 0 / .45); }
 .v3-pin-on .v3-pin { display: block; }
 .v3-leader { display: none; position: absolute; left: -.75px; top: 0; width: 1.5px; transform-origin: 50% 0;
-             pointer-events: none; border-radius: var(--r-full); background: color-mix(in srgb, var(--mark-rim) 65%, transparent);
+             pointer-events: none; border-radius: var(--r-full); background: var(--mark-leader);
              box-shadow: 0 0 0 .5px rgb(0 0 0 / .35); }
 .v3-pin-on .v3-leader { display: block; }
 
