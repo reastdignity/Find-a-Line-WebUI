@@ -386,3 +386,8 @@
    size (24 px, 44 px on touch), its folders open under the row's right end */
 .ui .v-result .vl-row > .r-popwrap > .u-ib.vl-star { width: 24px; height: 24px; border-color: transparent; }
 @media (pointer: coarse) { .ui .v-result .vl-row > .r-popwrap > .u-ib.vl-star { width: 44px; height: 44px; } }
+/* the heads' cells take the row's height and their buttons fill them: every head as tall as the tallest (a two-line
+   "Mean height"), never under 24 px on a desktop (R2; the design review's G2-F2) */
+.ui .vl-cols > .vl-hcell { align-self: stretch; display: flex; }
+.ui .vl-cols > .vl-hcell > .vl-head { flex: 1; min-height: 24px; }
+@media (pointer: coarse) { .ui .vl-cols > .vl-hcell > .vl-head { min-height: 44px; } }

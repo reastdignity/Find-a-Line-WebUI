@@ -1201,3 +1201,21 @@ def test_head_keeps_the_focus_when_it_reverses(site, device):
     print("the head's focus:", device, got)
     assert [g[0] if isinstance(g, list) else g for g in got] == ["len", "len", "len"], got
     assert got[1][1] == WORDS["ui.list.col.length"] + WORDS["ui.list.sorted_asc"], got
+
+
+def test_heads_at_least_24_px_on_a_desktop(site):
+    """The design review's G2-F2: on a desktop every sort head of the tree is at least 24 px high (R2) and as tall as
+    the others (Length, Clearance and Lines were 20 px beside a two-line "Mean height")."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            page.wait_for_selector(".vl-tree .vl-sec .vl-cols .vl-head", timeout=WAIT)
+            got = page.evaluate(HEADS)["heads"]
+            assert page.errors == []
+        finally:
+            browser.close()
+    heights = [h["h"] for h in got]
+    print("desktop heads' heights:", heights)
+    assert min(heights) >= 24 and max(heights) - min(heights) <= 1, heights
