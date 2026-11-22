@@ -469,7 +469,11 @@ DTM / DSM, `PackageTiles` per model in the zones of `ON_ZONES`, `ON_PROJECT_DATE
 working CRS, `ON_BOXES` region boxes inside Canada's; fallback and `instead_without_data` `canada`, then
 `canada_2m`, `mrdem30`; neighbour of `usa`, which declares it last). FAMILIES ends `..., brazil, japan, hong_kong,
 world`; `AREA_NAMES` gains the batch's areas (`de-hb-bhv` and `pt-30-ps`/`-de`/`-se` are codes of ours, `hk` the
-map's own).
+map's own). `belgium` (new, 2026-11-23): `wallonia` (SPW's MNT and MNS 2021-2022 as mirror `GridTiles` at 1 m,
+`wallonia/dtm/1m` and `wallonia/dsm/1m`, EPSG:3812, origin (0, 0), each layer its own record's credit; region
+be-wal, its box the region's rectangle, so `belgium` comes after France, the Netherlands, Germany and Luxembourg in
+FAMILIES, before `world`; neighbours `luxembourg` and `netherlands`, each declaring it last; orthophoto SPW's
+ORTHO_LAST WMS); `AREA_NAMES["be-wal"]` "Wallonie".
 
 ## `sources/choose.py`, `mosaic.py`, `filling.py`
 

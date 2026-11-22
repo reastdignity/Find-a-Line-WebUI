@@ -81,7 +81,10 @@ CRS, `origin`, inputs, masks and overlap rule) and two dicts of before that `dat
 DROTe's MDT 2 m, one ZIP of one BigTIFF; `aosta`, Valle d'Aosta's DTM 2005/2008 2 m, one Deflate64 ZIP of an ASCII
 grid with decimal commas: their index keys and published cards `MADEIRA_CARD`/`AOSTA_CARD` stay; a fixed card covers
 one product). Madeira's 5 m ZIP gives three datasets: `porto-santo` (EPSG:3061, the sea 0), `desertas` (EPSG:5016
-over the file's EPSG:3061 label) and `selvagens`, both with a floor of -1 m. Inputs: `Url` (one GET at a time under a
+over the file's EPSG:3061 label) and `selvagens`, both with a floor of -1 m. `wallonia` (`_wallonia`): SPW's five
+province ZIPs per model (fetch-list groups MNT, MNS), 0.5 m inputs cut at 1 m (`Product.average` 2, `input_res`:
+footprints, masks and the overlap rule "agree" on the inputs' pixels, then `_block_means`; the factor in the index,
+the journal rule and the card only when it is not 1). Inputs: `Url` (one GET at a time under a
 lock in `--work`, through the app's headers, rate and counting; a resume by `Range: bytes=N-` only below
 `resume_below`; a 200 to a Range rewrites from the start; never past the known size, `SizeChanged`), `Placed` (one file
 matching a glob in `--inputs`, either case), `Fetched` (a folder tools/cdd_fetch.py fills: manifest.jsonl's rows of a
@@ -139,7 +142,7 @@ space; the listed files copied into `staging/`, the card, the staged copy verifi
 `trash/`, `datasets.json` through a hidden name), `unpublish` (a takedown), `clean` (trash older than `KEEP_DAYS`),
 `stats` (the server's log: requests and bytes per day and dataset, refusals per limit, client versions by
 `client_version`; never an address). `PUBLISHABLE`: one approved row per dataset (Slovakia,
-Madeira, Valle d'Aosta, Porto Santo, the Desertas, the Selvagens; the attribution from the catalogue), `cards()` the cutting tools' texts, `required_folders` from `GridTiles(averaged=)`.
+Madeira, Valle d'Aosta, Porto Santo, the Desertas, the Selvagens, Wallonia; the attribution from the catalogue), `cards()` the cutting tools' texts, `required_folders` from `GridTiles(averaged=)`.
 Prints its own lines only, never rclone's or the remote's name. `tests/test_mirror_publish.py` (rclone's local backend
 as the server; skipped without rclone), `tests/test_mirror_pairs.py`.
 
@@ -156,6 +159,16 @@ saying they were left out); whole-dataset totals. A "partial" folder is listed a
 without index.json, with an unreadable one or one without "tiles", with a note, and the exit code is then 1. Table on
 stdout, `--json` (the mirror named `<mirror>`; refused inside the mirror by any spelling: `inside`, realpath and
 normcase); `tests/test_mirror_sizes.py` (a brute-force walk over the lattice, `weighted_rank` by hand)
+
+## `tools/raster_overlap.py`
+
+Run by hand, read-only (a dataset's gates before its cut: Wallonia's G1 and G2): rasters of one pixel grid
+(`check_one_grid`: pixel, CRS, edges whole pixels apart; files, `/vsizip/` paths, a ZIP of one `.tif`). For every pair
+whose boxes overlap, over the shared box (`compare`): valid in both, in one only, the largest absolute difference and
+a histogram (`BINS`: 0, at most 5 mm, 5 cm, 0.5 m, 5 m, above); per raster (`low_values`): valid pixels, the lowest
+value and its pixel's centre, and per `--below` threshold the pixels below with their box. Valid: finite, not the
+file's nodata tag nor `--nodata`. Bands of rows within `--max-memory-gb` (`rows_per_band`, `BYTES_PER_PX`); a table,
+`--json FILE`; exit 2 off one grid. `tests/test_raster_overlap.py`.
 
 ## `tools/source_docs.py`
 

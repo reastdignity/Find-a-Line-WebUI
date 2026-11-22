@@ -139,6 +139,10 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   provincial survey fills an incomplete newest tile before `canada`. CLOCA 2018's and SNC 2018-19's terrain members
   are Deflate64, not listed. `ontario` only where the province has a tile within 2 km, else `canada`; offline, south
   of 49.4° N the USA's box wins.
+- **Wallonia** (2026-11-23): SPW's province rasters are full-width strips (a tiled copy in `--work`), -9999 outside
+  the province, edges on whole half-metres (origin (0, 0)); the provinces share a seam of identical pixels, hence
+  `overlap="agree"`. Cut at 1 m only, the mean of 2 x 2 (`Product.average`); measure seams and low values first
+  (`tools/raster_overlap.py`).
 - **geoportal orthophoto**: `ORTO/WMS/HighResolution` holds only sheets of 10 cm or finer (mostly towns) and answers
   elsewhere with a white JPEG (667 bytes), not an error; the gaps come from the base tiles (`OrthoService.base_url`:
   the `ORTO/WMTS/StandardResolution` GetTile in EPSG:3857, zoom 0–19). The `ORTO/WMS/StandardResolution` answers about
