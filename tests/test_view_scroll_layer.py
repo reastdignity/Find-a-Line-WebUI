@@ -59,3 +59,27 @@ def test_the_phone_sheet_has_its_own_layer(site, engine):
             assert page.evaluate("() => getComputedStyle(document.querySelector('.u-sheet-body')).willChange") == "auto"
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_the_desktop_columns_have_their_own_layer(site, engine):
+    """A desktop (Safari on a Mac also scrolls on its own thread): the view's list body and details body compute
+    `will-change: transform`; today's page's columns stay `auto`."""
+    from playwright.sync_api import sync_playwright
+    from test_shell_c_view_map import DESKTOP
+    with sync_playwright() as p:
+        browser = _browser(p, engine)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, script=SCRIPT)
+            _view(page)
+            _select(page)
+            layers = page.evaluate("""() => ['.v-result .c-col-body', '.v-result .c-col-dbody'].map((s) => {
+              const e = document.querySelector(s); return e && [getComputedStyle(e).overflowY, getComputedStyle(e).willChange]; })""")
+            assert layers == [["auto", "transform"], ["auto", "transform"]], layers
+            page.context.close()
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=False)
+            page.wait_for_function("() => !!window.FINDALINE_RESULT && !!document.querySelector('.c-col-body')", timeout=WAIT)
+            today = page.evaluate("() => [...document.querySelectorAll('.c-col-body, .c-col-dbody')].map((e) => getComputedStyle(e).willChange)")
+            assert today and set(today) == {"auto"}, today
+        finally:
+            browser.close()

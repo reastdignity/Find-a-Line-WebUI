@@ -402,8 +402,9 @@
    with a layer of its own it scrolls on WebKit's scrolling thread (the user's variant 5: fluid). Scoped to the view:
    today's page shares the kit's .u-sheet-body and scrolls fluid. The layer is also the containing block of what is
    absolute or fixed inside: nothing fixed lives in the body (the spots' chooser, the notice and the pill's menus stand
-   outside it; a help's bubble is a popover in the top layer) */
-.ui .v-result .u-sheet-body { will-change: transform; }
+   outside it; a help's bubble is a popover in the top layer). The desktop's list and details columns hold the same
+   rows and scroll on their own thread in Safari on a Mac too: the same layer */
+.ui .v-result .u-sheet-body, .ui .v-result .c-col-body, .ui .v-result .c-col-dbody { will-change: transform; }
 .ui .v-result .vl-row .r-pop { width: min(340px, calc(100cqw - 16px)); }
 /* the anchors' name (no sort head) on the line of the sort heads' words: their buttons keep 2 px under their words */
 .ui .vl-sec > .vl-cols > .vl-cell-acc { padding-bottom: 2px; }
