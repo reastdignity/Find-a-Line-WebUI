@@ -3252,22 +3252,22 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("cn-hk", (22.558, 22.562, 114.255, 114.439)), ("cn-hk", (22.562, 22.566, 114.266, 114.434)),
          ("cn-hk", (22.566, 22.569, 114.290, 114.371)),
          # Wallonia (2026-11-23): bands inside the region, after Luxembourg's box
-         ("be-wal", (49.55, 49.60, 5.47, 5.78)), ("be-wal", (49.60, 49.65, 5.42, 5.83)),
-         ("be-wal", (49.65, 49.70, 5.31, 5.84)), ("be-wal", (49.70, 49.75, 5.18, 5.78)),
-         ("be-wal", (49.75, 49.80, 5.10, 5.72)), ("be-wal", (49.80, 49.85, 4.86, 4.92)),
-         ("be-wal", (49.80, 49.85, 5.00, 5.72)), ("be-wal", (49.85, 49.90, 4.87, 5.70)),
-         ("be-wal", (49.90, 49.95, 4.87, 5.71)), ("be-wal", (49.95, 50.00, 4.82, 5.74)),
-         ("be-wal", (50.00, 50.05, 4.22, 4.65)), ("be-wal", (50.00, 50.05, 4.84, 5.79)),
-         ("be-wal", (50.05, 50.10, 4.22, 4.66)), ("be-wal", (50.05, 50.10, 4.87, 5.83)),
-         ("be-wal", (50.10, 50.15, 4.21, 4.69)), ("be-wal", (50.10, 50.15, 4.87, 5.85)),
-         ("be-wal", (50.15, 50.20, 4.17, 4.77)), ("be-wal", (50.15, 50.20, 4.87, 5.93)),
-         ("be-wal", (50.20, 50.25, 4.21, 6.14)), ("be-wal", (50.25, 50.30, 4.21, 6.20)),
-         ("be-wal", (50.30, 50.35, 4.11, 6.27)), ("be-wal", (50.35, 50.40, 3.67, 3.74)),
-         ("be-wal", (50.35, 50.40, 3.88, 6.33)), ("be-wal", (50.40, 50.45, 3.66, 6.32)),
-         ("be-wal", (50.45, 50.50, 3.66, 6.17)), ("be-wal", (50.50, 50.55, 3.51, 6.15)),
-         ("be-wal", (50.55, 50.60, 3.28, 6.15)), ("be-wal", (50.60, 50.65, 3.26, 6.13)),
+         ("be-wal", (49.55, 49.60, 5.49, 5.74)), ("be-wal", (49.60, 49.65, 5.42, 5.82)),
+         ("be-wal", (49.65, 49.70, 5.35, 5.80)), ("be-wal", (49.70, 49.75, 5.27, 5.76)),
+         ("be-wal", (49.75, 49.80, 5.10, 5.71)), ("be-wal", (49.80, 49.85, 4.90, 4.92)),
+         ("be-wal", (49.80, 49.85, 5.00, 5.71)), ("be-wal", (49.85, 49.90, 4.87, 5.70)),
+         ("be-wal", (49.90, 49.95, 4.87, 5.71)), ("be-wal", (49.95, 50.00, 4.83, 5.74)),
+         ("be-wal", (50.00, 50.05, 4.22, 4.58)), ("be-wal", (50.00, 50.05, 4.85, 5.79)),
+         ("be-wal", (50.05, 50.10, 4.22, 4.65)), ("be-wal", (50.05, 50.10, 4.87, 5.83)),
+         ("be-wal", (50.10, 50.15, 4.21, 4.69)), ("be-wal", (50.10, 50.15, 4.88, 5.85)),
+         ("be-wal", (50.15, 50.20, 4.18, 4.77)), ("be-wal", (50.15, 50.20, 4.88, 5.93)),
+         ("be-wal", (50.20, 50.25, 4.21, 6.14)), ("be-wal", (50.25, 50.30, 4.21, 6.18)),
+         ("be-wal", (50.30, 50.35, 4.11, 6.27)), ("be-wal", (50.35, 50.40, 3.69, 3.73)),
+         ("be-wal", (50.35, 50.40, 3.97, 6.33)), ("be-wal", (50.40, 50.45, 3.66, 6.30)),
+         ("be-wal", (50.45, 50.50, 3.66, 6.17)), ("be-wal", (50.50, 50.55, 3.57, 6.15)),
+         ("be-wal", (50.55, 50.60, 3.28, 6.15)), ("be-wal", (50.60, 50.65, 3.27, 6.12)),
          ("be-wal", (50.65, 50.70, 3.25, 3.88)), ("be-wal", (50.65, 50.70, 4.08, 4.19)),
-         ("be-wal", (50.65, 50.70, 4.32, 5.05)), ("be-wal", (50.65, 50.70, 5.19, 6.07)),
+         ("be-wal", (50.65, 50.70, 4.32, 5.05)), ("be-wal", (50.65, 50.70, 5.19, 6.04)),
          ("be-wal", (50.70, 50.75, 3.25, 3.29)), ("be-wal", (50.70, 50.75, 3.45, 3.52)),
          ("be-wal", (50.70, 50.75, 3.68, 3.75)), ("be-wal", (50.70, 50.75, 4.66, 4.90)),
          ("be-wal", (50.70, 50.75, 4.97, 4.99)), ("be-wal", (50.70, 50.75, 5.53, 5.68))]
@@ -3629,7 +3629,8 @@ def test_wallonia_declared():
 # stay in Luxembourg's box and Sankt Vith and Monschau in Rhineland-Palatinate's, which come first (old facts of
 # those boxes); places along Wallonia's borders (Bouillon, Kelmis) lie outside its staircase and take europe
 OFFLINE_AROUND_WALLONIA = [
-    ("Givet FR", 50.137, 4.825, "europe", "europe"), ("Charleville-Mezieres FR", 49.77, 4.72, "europe", "europe"),
+    ("Givet FR", 50.137, 4.825, "europe", "europe"), ("Givet east FR", 50.1310, 4.8706, "europe", "europe"),
+    ("Charleville-Mezieres FR", 49.77, 4.72, "europe", "europe"),
     ("Sedan FR", 49.70, 4.94, "europe", "europe"), ("Maubeuge FR", 50.28, 3.97, "europe", "europe"),
     ("Hirson FR", 49.92, 4.08, "france", "france"), ("Lille FR", 50.63, 3.06, "france", "france"),
     ("Longwy FR", 49.52, 5.76, "luxembourg", "luxembourg"), ("Ronse BE-VLG", 50.746, 3.60, "europe", "europe"),
@@ -3669,6 +3670,22 @@ def test_offline_around_wallonia(monkeypatch, tmp_path):
     monkeypatch.setattr(choose, "SOURCES", {k: v for k, v in choose.SOURCES.items() if k != "wallonia"})
     monkeypatch.setattr(choose, "OFFLINE_BOXES", [b for s in choose.SOURCES.values() for b in s.offline])
     assert chosen() == [before for *_, before, _ in OFFLINE_AROUND_WALLONIA]
+
+
+def test_online_wallonia_beyond_its_offline_boxes(monkeypatch, tmp_path):
+    """Online (Nominatim answers BE and BE-WAL) the Walloon places along the borders, outside the offline staircase,
+    take wallonia: its bbox, the region's rectangle, holds them; Flanders (BE-VLG) takes europe."""
+    from sources import choose
+
+    def answer(region):
+        return lambda *args, **kwargs: {"address": {"country_code": "be", "ISO3166-2-lvl4": region}}
+    monkeypatch.setattr(choose, "_cannot_use", lambda source, reach: None)
+    for name, lat, lon in (("Bouillon", 49.794, 5.067), ("Kelmis", 50.716, 6.01), ("Comines", 50.77, 3.0)):
+        assert not any(s <= lat <= n and w <= lon <= e for _, (s, n, w, e) in src.SOURCES["wallonia"].offline), name
+        monkeypatch.setattr(osm, "reverse", answer("BE-WAL"))
+        assert choose.choose_source("auto", lat, lon, str(tmp_path))[0].id == "wallonia", name
+    monkeypatch.setattr(osm, "reverse", answer("BE-VLG"))
+    assert choose.choose_source("auto", 50.746, 3.60, str(tmp_path))[0].id == "europe"  # Ronse
 
 
 def _martelange_grid():

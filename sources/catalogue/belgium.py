@@ -49,20 +49,22 @@ WALLONIA_ORTHO = OrthoService("Orthophoto SPW (most recent)",
 
 WALLONIA_BOX = (49.49, 50.82, 2.83, 6.41)  # the region's rectangle (wave 0; Nominatim's box of BE-WAL)
 # Offline (no lookup) the region by bands of 0.05 degrees, in each the runs of 0.01-degree cells lying inside the
-# coverage map's be-wal outline (Natural Earth) shrunk by 0.01 degrees: they keep off France (Givet, Charleville,
-# Sedan, Maubeuge), Flanders (Ronse, Tongeren), the Netherlands, Germany and Luxembourg, so a point there is chosen
-# as before (europe, or its own source); about 86 % of the outline's area; the strip along the borders (Bouillon,
-# Comines, Kelmis) takes europe offline, as all of Belgium did before. Arlon and Martelange lie in Luxembourg's box,
-# which comes first (as before). Made from the outline on 2026-11-23 (band 0.05, cell 0.01, margin 0.01)
+# coverage map's be-wal outline (Natural Earth) shrunk by 0.01 degrees and 0.015 degrees off every other country's:
+# tools/offline_boxes.py be-wal (its defaults; checked against Natural Earth's unsimplified admin-1 units: no box
+# holds another unit's land). They keep off France (Givet, Charleville, Sedan, Maubeuge), Flanders (Ronse, Tongeren),
+# the Netherlands, Germany and Luxembourg, so a point there is chosen as before (europe, or its own source); 84 % of
+# the outline's area; the strip along the borders (Bouillon, Comines, Kelmis) takes europe offline, as all of Belgium
+# did before (online, Nominatim's region and the bbox choose wallonia there). Arlon and Martelange lie in
+# Luxembourg's box, which comes first (as before)
 WALLONIA_OFFLINE = (
-    (49.55, 49.60, 5.47, 5.78), (49.60, 49.65, 5.42, 5.83), (49.65, 49.70, 5.31, 5.84), (49.70, 49.75, 5.18, 5.78),
-    (49.75, 49.80, 5.10, 5.72), (49.80, 49.85, 4.86, 4.92), (49.80, 49.85, 5.00, 5.72), (49.85, 49.90, 4.87, 5.70),
-    (49.90, 49.95, 4.87, 5.71), (49.95, 50.00, 4.82, 5.74), (50.00, 50.05, 4.22, 4.65), (50.00, 50.05, 4.84, 5.79),
-    (50.05, 50.10, 4.22, 4.66), (50.05, 50.10, 4.87, 5.83), (50.10, 50.15, 4.21, 4.69), (50.10, 50.15, 4.87, 5.85),
-    (50.15, 50.20, 4.17, 4.77), (50.15, 50.20, 4.87, 5.93), (50.20, 50.25, 4.21, 6.14), (50.25, 50.30, 4.21, 6.20),
-    (50.30, 50.35, 4.11, 6.27), (50.35, 50.40, 3.67, 3.74), (50.35, 50.40, 3.88, 6.33), (50.40, 50.45, 3.66, 6.32),
-    (50.45, 50.50, 3.66, 6.17), (50.50, 50.55, 3.51, 6.15), (50.55, 50.60, 3.28, 6.15), (50.60, 50.65, 3.26, 6.13),
-    (50.65, 50.70, 3.25, 3.88), (50.65, 50.70, 4.08, 4.19), (50.65, 50.70, 4.32, 5.05), (50.65, 50.70, 5.19, 6.07),
+    (49.55, 49.60, 5.49, 5.74), (49.60, 49.65, 5.42, 5.82), (49.65, 49.70, 5.35, 5.80), (49.70, 49.75, 5.27, 5.76),
+    (49.75, 49.80, 5.10, 5.71), (49.80, 49.85, 4.90, 4.92), (49.80, 49.85, 5.00, 5.71), (49.85, 49.90, 4.87, 5.70),
+    (49.90, 49.95, 4.87, 5.71), (49.95, 50.00, 4.83, 5.74), (50.00, 50.05, 4.22, 4.58), (50.00, 50.05, 4.85, 5.79),
+    (50.05, 50.10, 4.22, 4.65), (50.05, 50.10, 4.87, 5.83), (50.10, 50.15, 4.21, 4.69), (50.10, 50.15, 4.88, 5.85),
+    (50.15, 50.20, 4.18, 4.77), (50.15, 50.20, 4.88, 5.93), (50.20, 50.25, 4.21, 6.14), (50.25, 50.30, 4.21, 6.18),
+    (50.30, 50.35, 4.11, 6.27), (50.35, 50.40, 3.69, 3.73), (50.35, 50.40, 3.97, 6.33), (50.40, 50.45, 3.66, 6.30),
+    (50.45, 50.50, 3.66, 6.17), (50.50, 50.55, 3.57, 6.15), (50.55, 50.60, 3.28, 6.15), (50.60, 50.65, 3.27, 6.12),
+    (50.65, 50.70, 3.25, 3.88), (50.65, 50.70, 4.08, 4.19), (50.65, 50.70, 4.32, 5.05), (50.65, 50.70, 5.19, 6.04),
     (50.70, 50.75, 3.25, 3.29), (50.70, 50.75, 3.45, 3.52), (50.70, 50.75, 3.68, 3.75), (50.70, 50.75, 4.66, 4.90),
     (50.70, 50.75, 4.97, 4.99), (50.70, 50.75, 5.53, 5.68))
 

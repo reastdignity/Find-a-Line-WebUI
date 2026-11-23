@@ -84,8 +84,9 @@ one product). Madeira's 5 m ZIP gives three datasets: `porto-santo` (EPSG:3061, 
 over the file's EPSG:3061 label) and `selvagens`, both with a floor of -1 m. `wallonia` (`_wallonia`): SPW's five
 province ZIPs per model (fetch-list groups MNT, MNS), 0.5 m inputs cut at 1 m (`Product.average` 2, `input_res`:
 footprints, masks and the overlap rule "agree" on the inputs' pixels, then `_block_means`; the factor in the index,
-the journal rule and the card only when it is not 1; verify also compares up to `EDGE_BLOCKS` partly valid blocks and
-as many on a seam per sampled tile, found from the inputs by `_edge_blocks`, counted in verify.json; the card's
+the journal rule and the card only when it is not 1; verify also compares up to `EDGE_BLOCKS` blocks of each of
+`EDGE_KINDS` per sampled tile (partly valid, on a seam, joined from two rasters that touch), found from the inputs by
+`_edge_blocks`, those compared counted in verify.json (found but none compared: a fault); the card's
 heading the approved row's title, `Dataset.heading`). Inputs: `Url` (one GET at a time under a
 lock in `--work`, through the app's headers, rate and counting; a resume by `Range: bytes=N-` only below
 `resume_below`; a 200 to a Range rewrites from the start; never past the known size, `SizeChanged`), `Placed` (one file
@@ -161,6 +162,14 @@ saying they were left out); whole-dataset totals. A "partial" folder is listed a
 without index.json, with an unreadable one or one without "tiles", with a note, and the exit code is then 1. Table on
 stdout, `--json` (the mirror named `<mirror>`; refused inside the mirror by any spelling: `inside`, realpath and
 normcase); `tests/test_mirror_sizes.py` (a brute-force walk over the lattice, `weighted_rank` by hand)
+
+## `tools/offline_boxes.py`
+
+Run by hand, read-only: a region's offline boxes (`Source.offline`) from the coverage map's outline (shapes.json):
+bands of `--band` degrees, in each the runs of `--cell` cells inside the outline shrunk by `--margin` and `--off`
+degrees off every other country's outline; `--check` an unsimplified Natural Earth admin-1 ZIP, the boxes holding
+another unit's land with their km². Wallonia's `WALLONIA_OFFLINE` is its output with the defaults
+(`tests/test_offline_boxes.py`).
 
 ## `tools/raster_overlap.py`
 
