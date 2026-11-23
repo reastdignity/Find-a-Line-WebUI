@@ -3,7 +3,6 @@ Converting results to GPS coordinates and displaying them on maps.
 """
 
 import dataclasses
-import html
 import json
 import math
 import os
@@ -19,6 +18,9 @@ from grid import Grid
 from helpers import END_VALUES, HIGH_ABOVE, LEASH_FALL, SLOPE, LineTable
 from progress import progress
 from runs import ACCESS, STANDS_FOR, round_floats
+# A run's map page (its template, the disk notice, the viewer's folder) is runs.py's, where the web process may import
+# it (a renamed run's map.html: runs.rename_run); mapping keeps the names for its users
+from runs import DISK_NOTICE, MAP_HTML, VIEWER_FOLDER, map_page  # noqa: F401
 from sag import Rigging
 
 MAX_ZOOM = 21  # about 5 cm per pixel, the detail of the best geoportal orthophotos
@@ -411,7 +413,6 @@ def mapify(results: List[Dict], area):
 
 
 VIEWER_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer", "dist")
-VIEWER_FOLDER = "_viewer"  # in runs/: the viewer bundle shared by every map
 
 
 def _relative_url(folder: str, html_path: str) -> str:
@@ -458,37 +459,6 @@ def install_viewer(runs_dir: str):
                         continue
             with cache.replacing(copy) as f:
                 f.write(content)
-
-
-# A run's map: over http(s) the viewer loads the run's store itself (viewer/src/map/main.tsx, result/load.ts). From
-# disk (file://) it loads nothing: the disk notice (the element DISK_NOTICE) names the run and the command that opens
-# it through the app (docs/line-volume/spec-store.md 1.2), and shows without the viewer too. It stands after the
-# viewer's script, so that over http the viewer, run first, hides it before it is parsed: no frame shows it there.
-# Maps written before store wave 4 have no notice: from disk the viewer builds the same one (its main.tsx diskNotice:
-# no run is read from disk since store wave 4's item 5)
-DISK_NOTICE = "disk-notice"  # viewer/src/map/main.tsx NOTICE
-MAP_HTML = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} - Find-a-Line</title>
-<link rel="stylesheet" href="../{viewer}/viewer.css">
-</head><body><div id="map"></div>
-<script src="../runs.js"></script>
-<script src="../{viewer}/viewer.js"></script>
-<main id="{notice_id}" class="ui fal-disk" data-run="{run}"><div class="fal-disk-box">
-<h1 class="fal-disk-name">{title}</h1>
-<p class="fal-disk-text">{notice}</p>
-<pre class="fal-disk-command"><code>findaline.py view {run}</code></pre>
-</div></main>
-</body></html>
-"""
-
-
-def map_page(run: Dict) -> str:
-    """The text of a run's map.html (MAP_HTML): its name, its id in the disk notice's command and the notice's
-    sentence from the message catalogue (locales/en.json `ui.map.disk_notice`), each escaped for HTML."""
-    import messages  # the catalogue (json only)
-    return MAP_HTML.format(title=html.escape(run["name"]), viewer=VIEWER_FOLDER, notice_id=DISK_NOTICE,
-                           run=html.escape(str(run["id"])), notice=html.escape(messages.text("ui.map.disk_notice")))
 
 
 def save_map(run_path: str, runs_dir: str, run: Dict) -> str:

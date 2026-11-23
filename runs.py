@@ -19,6 +19,7 @@ runs.js is rewritten after every run (write_index).
 """
 
 import contextlib
+import html
 import json
 import math
 import os
@@ -370,6 +371,39 @@ def attribution_text(meta: Dict) -> str:
 
 
 RESULT_FILES = ("lines.csv", "lines.geojson", "ATTRIBUTION.txt", "run.json")  # what save_results writes
+
+VIEWER_FOLDER = "_viewer"  # in runs/: the viewer bundle shared by every map (mapping.install_viewer)
+# A run's map: over http(s) the viewer loads the run's store itself (viewer/src/map/main.tsx, result/load.ts). From
+# disk (file://) it loads nothing: the disk notice (the element DISK_NOTICE) names the run and the command that opens
+# it through the app (docs/line-volume/spec-store.md 1.2), and shows without the viewer too. It stands after the
+# viewer's script, so that over http the viewer, run first, hides it before it is parsed: no frame shows it there.
+# Maps written before store wave 4 have no notice: from disk the viewer builds the same one (its main.tsx diskNotice:
+# no run is read from disk since store wave 4's item 5). Here, not in mapping: the web process rewrites a renamed
+# run's map.html (rename_run) and never imports mapping (numpy, pyproj, rasterio); mapping keeps the names.
+DISK_NOTICE = "disk-notice"  # viewer/src/map/main.tsx NOTICE
+MAP_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title} - Find-a-Line</title>
+<link rel="stylesheet" href="../{viewer}/viewer.css">
+</head><body><div id="map"></div>
+<script src="../runs.js"></script>
+<script src="../{viewer}/viewer.js"></script>
+<main id="{notice_id}" class="ui fal-disk" data-run="{run}"><div class="fal-disk-box">
+<h1 class="fal-disk-name">{title}</h1>
+<p class="fal-disk-text">{notice}</p>
+<pre class="fal-disk-command"><code>findaline.py view {run}</code></pre>
+</div></main>
+</body></html>
+"""
+
+
+def map_page(run: Dict) -> str:
+    """The text of a run's map.html (MAP_HTML): its name, its id in the disk notice's command and the notice's
+    sentence from the message catalogue (locales/en.json `ui.map.disk_notice`), each escaped for HTML."""
+    import messages  # the catalogue (json only)
+    return MAP_HTML.format(title=html.escape(run["name"]), viewer=VIEWER_FOLDER, notice_id=DISK_NOTICE,
+                           run=html.escape(str(run["id"])), notice=html.escape(messages.text("ui.map.disk_notice")))
+
 
 
 def save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, file: None,
