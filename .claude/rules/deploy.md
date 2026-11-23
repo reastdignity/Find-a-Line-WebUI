@@ -41,6 +41,11 @@ loads with `deploy/monitoring/` too.
   go per server, never into `conf.d/`). Anything written at run time must go to the data folder or `/tmp` (`HOME`,
   `NUMBA_CACHE_DIR`, `MPLCONFIGDIR` point into `/data/home`); a file the image needs at run time must not be excluded
   by `.dockerignore` (it keeps only the scripts and `viewer/dist`).
+- `usa_renewal` of `vps.sh` (`findaline-usa-renewal.service`/`.timer`, docs/deployment.md section 13): `cache update
+  usa` through `compose exec -T worker` under the container's `timeout` (a killed exec client leaves its process), the
+  interval only in `USA_RENEWAL_CALENDAR`, installed before `monitoring` (its timer is in D1's list of
+  `telegraf.conf`), enabled only when first installed (`tests/test_deploy.py::test_usa_renewal_*`); CI's docker job
+  reads the shipped `sources/catalogue/usa_unlisted_1m.json` in the image.
 
 ## The project's data server (`deploy/mirror/`, docs/mirror-hosting/spec.md)
 

@@ -45,7 +45,8 @@ installs nginx and, once the A record points at the server, the certificate (4),
 and the automatic updates (6), writes `findaline.env`, `.env` (the worker's cores and, on a
 server with less than 10 GB, its memory) and the secrets (8; in a terminal it asks for the
 sign-in apps' client ids and secrets and for the GitHub login or id of the administrator), builds and
-starts the site (9), installs the daily backup once `/etc/findaline-backup.env` exists (11),
+starts the site (9), installs the monthly renewal of the USA's 1 m index (13), the daily backup once
+`/etc/findaline-backup.env` exists (11),
 sets up the monitoring (15; in a terminal it asks for the healthchecks.io ping URLs and the ntfy
 topic) and runs the checks of `deploy/vps.sh check`. Each step looks at what is already there,
 so run it again after it stops: it ends with a list of what is still missing (the DNS record, a
@@ -857,7 +858,8 @@ asks, and `--skip-ci` leaves the check out), pulls them, installs the files of `
 where they changed (nginx reloaded, fail2ban restarted, the blocks of `ufw`'s files replaced and
 `ufw` reloaded), makes the file of every secret added since (empty, so its service or source is off; owned by its container's uid, mode 0400: secrets/README.md), builds the image, restarts the services, downloads the OpenStreetMap data not there yet
 (section 9), converts the cached elevation tiles still in an older encoding (`cache_migrate`:
-`findaline.py cache migrate` in the worker, see below), installs the monitoring's units and
+`findaline.py cache migrate` in the worker, see below), installs the monthly renewal of the USA's 1 m
+index (below), installs the monitoring's units and
 pulls and starts its containers (section 15; a failure there is listed at the end and leaves the
 site running) and warns when the examples of the settings changed. By hand:
 
@@ -897,6 +899,51 @@ only counts them; `cache status` says how many are left). It can run while the s
 be stopped at any tile; with nothing left it only reads the tiles' headers. `deploy/vps.sh update`
 runs it after the services started; a failure is listed at the end and leaves the site running.
 
+**The USA's 1 m index, every month.** USGS publishes new lidar projects all the time, and the site
+caches the answers of its index per 0.25° tile, which a search never asks again (README, "Keeping the
+cache up to date"). So `deploy/vps.sh` (`setup` and `update`) installs a timer that asks it again once
+a month: `findaline-usa-renewal.timer` starts `findaline-usa-renewal.service`, which runs
+`findaline.py cache update usa` in the worker's container, as the script runs `cache migrate`:
+the list of the 1 m files USGS's index does not list (about 1,700 requests, 0.7 GB, 10 minutes) when
+the cached one is older than 28 days, every cached answer of the USA older than 28 days (one request
+each; Alaska's IfSAR answers after 180 days), the blocks whose files changed read again (the older
+ones deleted), and the USA's tiles of services that serve their current state when older than 2 years. On a site that never searched the
+USA it prints one line and asks nothing. It fires on the 1st of every month at 04:00 of the server's
+clock and a delay of up to 4 hours that systemd fixes per server (`RandomizedDelaySec`,
+`FixedRandomDelay`: installations do not ask USGS at the same minute), and a month missed while the
+server was off is caught up once at the next boot (`Persistent=true`).
+- It runs beside the searches: it is another process in the worker's container (its memory and cores
+  count toward `WORKER_MEMORY` and `WORKER_CPUS`; it takes none of the worker's slots), shares the
+  data servers' download slots with the searches' downloads (`cache/locks/hosts`), and replaces an
+  answer or the list in one move under the tile's lock: a search reads the old or the new one, and
+  one asking USGS for a tile the renewal holds waits for that one request. Like a second search over
+  the same area, it may delete a block another search listed a moment earlier (docs/known-bugs.md,
+  "a reader can find its block pruned").
+- One run at a time: systemd never starts a second run of a service still running. A run is bounded
+  to 6 hours inside the container (`timeout`) and by systemd 10 minutes later; a run stopped or ended
+  by systemd's bound alone leaves its process running in the container (seen with Docker's client), so
+  the bound inside is the one that ends it.
+- A run fails when the command ends with an error: the list could not be made or USGS refused it
+  (the cached list stays in use; another try after a day), an answer could not be asked (its cached
+  one stays), or the worker is not running (one line: `service "worker" is not running`). The site
+  goes on as before and the next month tries again. With `notify-failure@.service` (section 11) a
+  failed run sends its message to the ntfy topic; Grafana watches the timer (D1: failed or not
+  loaded), not the runs.
+
+```sh
+systemctl list-timers findaline-usa-renewal.timer          # the next run and the last
+journalctl -u findaline-usa-renewal -n 30                  # what the last runs printed
+sudo systemctl start findaline-usa-renewal.service         # a run now (waits until it ends)
+docker compose exec -T worker python findaline.py cache status usa   # the list's age and what is due
+```
+
+Another day or hour on one server: `sudo systemctl edit findaline-usa-renewal.timer` with
+`[Timer]`, an empty `OnCalendar=` and the new one (e.g. `OnCalendar=*-*-15 02:00`): the drop-in stays
+when `update` writes the unit again. For every installation: `USA_RENEWAL_CALENDAR` of
+`deploy/vps.sh`. Off: `sudo systemctl disable --now findaline-usa-renewal.timer` (later updates
+leave it off; `deploy/vps.sh check` says so); on again: `sudo systemctl enable --now
+findaline-usa-renewal.timer`.
+
 **Old runs: removed in two deploys** (store wave 4, docs/line-volume/spec-store.md section 2; the user's word of
 2026-11-14, "old runs removed - both on server and on this pc"). Since the first deploy a new run keeps its lines
 only in its store (`lines.arrow`, `profiles.arrow`, with `map.html`, `ATTRIBUTION.txt`, `run.json`), and the page
@@ -923,7 +970,8 @@ data could not be loaded, and its share link the same; run `runs remove-old --dr
 **Moving the checkout** (e.g. after the repository was renamed): stop the services
 (`docker compose down`, the volumes stay), move the folder, point `git remote set-url origin` at
 the new address and run `sudo deploy/vps.sh setup` from the new place: it writes the backup's unit
-(`ExecStart` names the path of `backup.sh`) again and starts the services; a backup run by cron
+(`ExecStart` names the path of `backup.sh`) and the USA's monthly renewal (it names the checkout's
+`compose.yaml`) again and starts the services; a backup run by cron
 instead (section 11) needs its line in `/etc/cron.d/findaline-backup` changed by hand. Docker's
 project (`name: findaline` in compose.yaml), its volumes and the other files in `/etc` do not
 depend on the folder's name.
