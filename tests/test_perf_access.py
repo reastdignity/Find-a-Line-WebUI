@@ -56,6 +56,15 @@ def test_shares_of_heights_area_and_blocks():
     assert got["with_heights"] == round(1000 / 13000, 4) and got["search_area"] == round(100 / 13000, 4)
     assert got["strip_width_with_heights_mean"] == round((0.42 + 0.42 + 0) / 3, 4)
     assert got["strips_without_heights"] == round(1 / 3, 4) and got["strips"] == 3
+    # the land: the measure's data (not filled unless water) that is not water: columns 32-34, span 16-50
+    water, filled = np.zeros(z.shape, bool), np.zeros(z.shape, bool)
+    water[:100, 35:40] = True
+    filled[:100, 30:32] = True
+    filled[:100, 38:40] = True  # filled water stays water
+    land = pa.data_shares(z, mask, rows, 16, water, filled)
+    assert land["with_land"] == round(300 / 13000, 4) and land["with_heights"] == got["with_heights"]
+    assert land["strip_width_with_land_mean"] == round((0.35 + 0.35 + 0) / 3, 4)
+    assert land["strips_without_land"] == round(1 / 3, 4)
     z[:, 95:] = 2.0  # heights at the last column: the span clipped to the grid
     # 14..100 in the first two strips, 79..100 in the last
     assert pa.data_shares(z, None, rows, halo=16)["strip_width_with_heights_mean"] == round((0.86 * 2 + 0.21) / 3, 4)

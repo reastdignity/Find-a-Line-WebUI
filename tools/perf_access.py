@@ -365,29 +365,47 @@ def strip_pieces(mask, strip_rows: Sequence[Tuple[int, int]]) -> Dict[str, int]:
             "strips": len(strip_rows)}
 
 
-def data_shares(z, mask, strip_rows: Sequence[Tuple[int, int]], halo: int = HALO) -> Dict[str, float]:
-    """The share of pixels with heights (finite z) and of the search area (mask, None: not counted); per strip the
-    share of its width inside the span of columns with heights in its rows and `halo` rows each side, grown by `halo`
-    columns each side and clipped to the grid: their mean over the strips and the share of strips without heights."""
+def data_shares(z, mask, strip_rows: Sequence[Tuple[int, int]], halo: int = HALO, water=None,
+                filled=None) -> Dict[str, float]:
+    """The share of pixels with heights (finite z: the search's filled terrain, the sea's fill included) and of the
+    search area (mask, None: not counted); per strip the share of its width inside the span of columns with heights
+    in its rows and `halo` rows each side, grown by `halo` columns each side and clipped to the grid: their mean over
+    the strips and the share of strips without heights. The same for the land: the measure's data (access_grid's
+    `data`: heights, not a filled pixel unless water) that is not water."""
     h, w = z.shape
-    finite = area = 0
-    widths, empty = [], 0
+    counts = {"heights": 0, "land": 0}
+    widths = {"heights": [], "land": []}
+    area = 0
+
+    def kinds(r0, r1):
+        zz = np.asarray(z[r0:r1], np.float32)
+        finite = np.isfinite(zz)
+        wet = np.asarray(water[r0:r1], bool) if water is not None else np.zeros(zz.shape, bool)
+        data = finite & ~(np.asarray(filled[r0:r1], bool) & ~wet) if filled is not None else finite
+        return {"heights": finite, "land": data & ~wet}
+
     for r0, r1 in strip_rows:
-        zz = np.isfinite(np.asarray(z[r0:r1], np.float32))
-        finite += int(zz.sum())
+        own = kinds(r0, r1)
+        for k in counts:
+            counts[k] += int(own[k].sum())
         if mask is not None:
             area += int(np.count_nonzero(np.asarray(mask[r0:r1])))
         a, b = max(0, r0 - halo), min(h, r1 + halo)
-        cols = np.flatnonzero(np.isfinite(np.asarray(z[a:b], np.float32)).any(axis=0))
-        if not cols.size:
-            widths.append(0.0)
-            empty += 1
-            continue
-        lo, hi = max(0, int(cols[0]) - halo), min(w, int(cols[-1]) + 1 + halo)
-        widths.append((hi - lo) / w)
-    out = {"pixels": h * w, "with_heights": round(finite / (h * w), 4),
-           "strip_width_with_heights_mean": round(float(np.mean(widths)), 4) if widths else 0.0,
-           "strips_without_heights": round(empty / len(widths), 4) if widths else 0.0, "strips": len(widths)}
+        around = kinds(a, b)
+        for k in widths:
+            cols = np.flatnonzero(around[k].any(axis=0))
+            if not cols.size:
+                widths[k].append(None)
+                continue
+            lo, hi = max(0, int(cols[0]) - halo), min(w, int(cols[-1]) + 1 + halo)
+            widths[k].append((hi - lo) / w)
+    n = len(strip_rows)
+    out = {"pixels": h * w, "strips": n}
+    for k, name in (("heights", "heights"), ("land", "land")):
+        got = [x or 0.0 for x in widths[k]]
+        out[f"with_{name}"] = round(counts[k] / (h * w), 4)
+        out[f"strip_width_with_{name}_mean"] = round(float(np.mean(got)), 4) if n else 0.0
+        out[f"strips_without_{name}"] = round(sum(x is None for x in widths[k]) / n, 4) if n else 0.0
     if mask is not None:
         out["search_area"] = round(area / (h * w), 4)
     return out
@@ -647,9 +665,13 @@ class Search:
             shutil.rmtree(self.work)
         os.makedirs(self.work)
         self.events: List[str] = []
-        self.plan = search.plan_search(self.params, search.Paths(data_dir, self.work),
-                                       emit or (lambda kind, text: self.events.append(str(text))), reach=True)
         self.data = None
+        try:
+            self.plan = search.plan_search(self.params, search.Paths(data_dir, self.work),
+                                           emit or (lambda kind, text: self.events.append(str(text))), reach=True)
+        except BaseException:
+            self.close()
+            raise
 
     @property
     def pixels(self) -> int:
@@ -1019,7 +1041,7 @@ def run_pieces(args) -> Dict:
     strip_rows = list(own(h, w)) if callable(own) else list(strips(h, w, getattr(access, "STRIP_PX", STRIP_PX)))
     halo = getattr(access, "HALO", HALO)
     mask = data.mask if data.mask is not None else s.plan.area.mask(s.plan.grid)
-    out["shares"] = data_shares(z, mask, strip_rows, halo)
+    out["shares"] = data_shares(z, mask, strip_rows, halo, water, filled)
     sides = {"rule": out["rule"]["block_px"]} if out["rule"]["block_px"] else {}
     sides.update({f"{km} km": int(round(km * 1000 / res)) for km in BLOCK_KM})
     out["blocks_with_area"] = {name: blocks_holding(mask, px) for name, px in sides.items()}
@@ -1189,6 +1211,8 @@ def print_table(out: Dict):
         sh = out["shares"]
         print(f"with heights {sh['with_heights']:.3f}, search area {sh.get('search_area', 0):.3f}, strips' width "
               f"with heights {sh['strip_width_with_heights_mean']:.3f}, strips without {sh['strips_without_heights']:.3f}")
+        print(f"land (data, not water) {sh['with_land']:.3f}, strips' width with land "
+              f"{sh['strip_width_with_land_mean']:.3f}, strips without {sh['strips_without_land']:.3f}")
         for name, b in out["blocks_with_area"].items():
             a = out.get("blocks_with_anchor", {}).get(name)
             print(f"blocks of {name} ({b['block_px']} px): {b['holding']}/{b['blocks']} hold the area"
