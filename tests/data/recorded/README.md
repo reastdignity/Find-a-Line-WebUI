@@ -23,7 +23,10 @@ stay small.
 `sources/layers/tnmbucket.py` lists it (ListObjectsV2: the 1 m projects, then the `TIFF/` folders of
 `ME_Umbagog_2016` and `UT_StrawberryRiver_2019`) and The National Map Access API's 1 m products over two boxes
 around them: `expected.json` is the list of the files the index does not list that `make_unlisted` made of them
-(no 0.25° tile, no header read), read back by `tests/test_usa_unlisted.py`. USGS, public domain.
+(no 0.25° tile, no header read), read back by `tests/test_usa_unlisted.py`. USGS, public domain. The recipe's
+own code (`record_answers._bucket1m`, one request at a time) has no test of its own: it was checked by recording
+the case (2026-11-22, 5 answers, 70 kB, 4 items) and by `test_recorded_bucket_and_index` replaying it, the same
+requests in the same order and the same items (fix round 2 of the USA's wave A).
 
 Files of a case: `answers.json` (the recipe, the date, the tile, the recorded hosts and every request in
 order: method, URL, status, content type, body file), the bodies (`001.xml`, `002.json.gz`...: gzipped above

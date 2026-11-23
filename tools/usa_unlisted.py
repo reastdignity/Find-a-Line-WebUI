@@ -9,13 +9,16 @@ and whose project does not tell it (about 300 small reads), each part 4 requests
 481 s on 2026-11-23, the bucket 196 s and 53 MB, the index 250 s and 620 MB, the headers 35 s; one at a time it took
 1947 s). Every request has the app's User-Agent and a slot of its host (the
 locks of the cache folder given). Nothing is written when a step fails. It refuses a list when the index lists
-clearly fewer files than the list before (tnmbucket.MAX_LISTED_DROP): check the index, then --allow-drop. It prints
+clearly fewer files than the list before (tnmbucket.MAX_LISTED_DROP): check the index, then --allow-drop (a
+renewal also accepts it by itself when a listing a day later agrees). With --cached it writes the list of the cache
+folder given (its usa/sheet-index/bucket1m/unlisted.json, with its row) instead of the shipped copy: the way to
+accept a real shrink at once on an installed machine (--cached --allow-drop --cache <its cache folder>). It prints
 what it did, the projects whose files took their upload year (no year in their folders, no listed file) and the
 files left out. Run it again before a release (the copy goes stale between releases), check its counts against the
 last run and commit the file.
 
     uv run tools/usa_unlisted.py [--cache <cache folder for the host slots>]
-                                 [--out sources/catalogue/usa_unlisted_1m.json] [--allow-drop]
+                                 [--out sources/catalogue/usa_unlisted_1m.json | --cached] [--allow-drop]
                                  [--bucket <URL> --api <URL>: another bucket and index, e.g. a stand-in of the tests]
 """
 
@@ -34,13 +37,15 @@ def main(argv=None) -> int:
     parser.add_argument("--cache", default=os.path.join(HERE, "cache"),
                         help="the cache folder whose locks hold the host slots (default: the repository's cache)")
     parser.add_argument("--out", default=tnmbucket.SHIPPED, help="the file written (default: the shipped copy)")
+    parser.add_argument("--cached", action="store_true",
+                        help="write the cache folder's own list (with its row) instead of --out")
     parser.add_argument("--allow-drop", action="store_true",
                         help="write the list also when the index lists clearly fewer files than the list before")
     parser.add_argument("--bucket", default=tnmbucket.BUCKET, help="the bucket's address")
     parser.add_argument("--api", default=tnmbucket.TNM_API, help="the TNM Access API's products address")
     args = parser.parse_args(argv)
-    done = tnmbucket.make_unlisted(args.cache, out=args.out, bucket=args.bucket, api=args.api,
-                                   allow_drop=args.allow_drop)
+    done = tnmbucket.make_unlisted(args.cache, out=None if args.cached else args.out, bucket=args.bucket,
+                                   api=args.api, allow_drop=args.allow_drop)
     print(json.dumps({k: v for k, v in done.items() if k not in ("left_out", "upload_year_projects")}, indent=1))
     print(f"dated by their upload ({done['year_from_upload']} files):",
           ", ".join(done["upload_year_projects"]) or "-")
