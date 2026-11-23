@@ -2100,6 +2100,7 @@ def _open_run(plan: Plan) -> Dict:
     process killed while _progress wrote it before it wrote whole) is skipped: its run never resumes."""
     keys = _search_keys(plan)
     key = keys[0]
+    ranges = TILE_RANGES if getattr(plan, "square", 0) else None  # the square rule's tiles carry the ranges
     for path in sorted(glob.glob(os.path.join(plan.paths.runs, "*", "progress.json")), reverse=True):
         try:
             with open(path, encoding="utf-8") as f:
@@ -2109,7 +2110,8 @@ def _open_run(plan: Plan) -> Dict:
         if not isinstance(state, dict):
             continue
         if state.get("status") == "running" and state.get("search") in keys \
-                and state.get("access_skipped") == plan.access_skipped:  # a mark left out: tiles without it
+                and state.get("access_skipped") == plan.access_skipped \
+                and state.get("ranges") == ranges:  # a mark left out, or tiles of before the ranges: not theirs
             folder = os.path.dirname(path)
             if state["tile_core"] != plan.tile_core:
                 plan.tile_core = state["tile_core"]
@@ -2118,14 +2120,15 @@ def _open_run(plan: Plan) -> Dict:
             plan.emit("info", f"Resuming run {os.path.basename(folder)}: {done} of {len(plan.tiles)} tiles done")
             run = {"id": os.path.basename(folder), "path": folder, "name": state["name"],
                    "created": datetime.fromisoformat(state["created"]), "search": key,
-                   "tile_core": state["tile_core"], "access_skipped": plan.access_skipped}
+                   "tile_core": state["tile_core"], "access_skipped": plan.access_skipped, "ranges": ranges}
             if state["search"] != key:  # found under a key of before: today's from now on
                 _progress(run, "running")
             return run
     created = datetime.now()
     name = _run_name(plan)
     run = rn.new_run(plan.paths.runs, name, created)
-    run.update(name=name, created=created, search=key, tile_core=plan.tile_core, access_skipped=plan.access_skipped)
+    run.update(name=name, created=created, search=key, tile_core=plan.tile_core, access_skipped=plan.access_skipped,
+               ranges=ranges)
     _progress(run, "running")
     return run
 
@@ -2134,18 +2137,23 @@ def _progress(run: Dict, status: str):
     """progress.json of a tiled run: its state while running (run.json is written at the end). Written whole
     (a .part beside it, then replaced), so another search's _open_run never reads it half written. A search whose
     access mark was left out (Plan.access_skipped) says so ("access_skipped"): its tiles have no access columns, so
-    only a search of the same choice resumes it (the same request on a larger budget starts a run of its own)."""
+    only a search of the same choice resumes it (the same request on a larger budget starts a run of its own). A
+    search with the square rule says that its tiles carry the ranges of the kept lines ("ranges": TILE_RANGES): its
+    tiles saved before them have none, so it is not resumed (a search without the rule writes no such key)."""
     path = os.path.join(run["path"], "progress.json")
     state = {"status": status, "search": run["search"], "tile_core": run["tile_core"], "name": run["name"],
              "created": run["created"].isoformat()}
     if run.get("access_skipped"):
         state["access_skipped"] = run["access_skipped"]
+    if run.get("ranges"):
+        state["ranges"] = run["ranges"]
     with open(path + ".part", "w", encoding="utf-8") as f:
         json.dump(state, f)
     os.replace(path + ".part", path)
 
 
 TILE_FILE = "{}.table.pkl.gz"  # a finished tile's lines; "<k>.pkl.gz" of before held a dict per line
+TILE_RANGES = 1  # progress.json's "ranges" of a search with the square rule: its tiles carry samelines.RANGED
 TERRAIN_FILE = "{}.terrain.npz"  # its terrain's histogram (hypsometry.save), saved before the tile file
 
 
