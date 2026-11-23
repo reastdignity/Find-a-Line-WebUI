@@ -29,9 +29,11 @@ What counts as the same file, and why each field is compared:
   a look, a missed change costs stale tiles; a date that moved over the same file is ended with `adopt`.
 Whatever was readable is compared. A field or a piece (a Feed's enclosure length, an entry's `updated`) the baseline
 has and the answer lacks makes the signal not checkable when nothing readable differs; when something does, it is
-changed and the missing piece is named beside it ("-> none"). A field the baseline recorded as absent (the provider
-sent none when it was adopted) and the answer now has is a change ("none -> <value> (a new field)"), said until it is
-adopted. A Feed's enclosure gone or new is a change; a Listing compares its set.
+changed and the missing piece is named beside it ("-> none"). Nothing that only follows from an unreadable piece is a
+change: a length gone where an enclosure lost its address, or an entry gone where an entry has no id, is that piece
+missing ("-> unreadable"). A field the baseline recorded as absent (the provider sent none when it was adopted) and
+the answer now has is a change ("none -> <value> (a new field)"), said until it is adopted. A Feed's enclosure gone
+or new is a change; a Listing compares its set.
 
     python tools/mirror_watch.py check [dataset ...] [--baseline FILE] [--json] [--json-out FILE] [--previous FILE]
     python tools/mirror_watch.py adopt dataset ... [--baseline FILE]
@@ -45,8 +47,9 @@ of providers only.
 check: every signal of the datasets named (all by default) read once, then one line per dataset: `same`, `changed:
 <what>: <from> -> <to>; ...` (every difference), `not checkable: <signal>: <why>; ...` (no answer, a refusal, a
 status other than 200 (redirects are not followed: a 3xx names its target without a query), an answer cut short of
-its Content-Length or larger than MAX_BODY, an HTML page for a file, an answer without a field the baseline has, a
-feed that is not XML or has no matching entry, a page from which the patterns extract nothing, any other failure of
+its Content-Length or by its own structure or larger than MAX_BODY, an HTML page for a file, an answer without a
+field the baseline has, a feed that does not parse or has no matching entry, a page from which the patterns extract
+nothing, any other failure of
 the answer's reading (its kind and a short text), the run's time up (RUN_SECONDS), no baseline record, a record read
 another way). A provider that does not answer is never a change, and a change is never hidden by another signal's
 failure: a dataset with both says both, ` | ` between them. A dataset without a Listing says `check 2: none` on its
@@ -70,8 +73,13 @@ or the tool's own failure.
 
 Requests: a HEAD for a File (never a GET: no data file is ever downloaded), a GET for a Feed or a Listing (read up to
 MAX_BODY), one at a time, each at least REQUEST_PAUSE after the previous answer (or failure) from the same host,
-TIMEOUT seconds at most a socket wait, none started (and no body read on) after RUN_SECONDS of the run, only https,
-with the tool's User-Agent and nothing else of the machine (no cookies, no proxy: it connects directly). The output
+none started (and no body read on) after RUN_SECONDS of the run, each socket wait (connect, TLS, a read) at most
+TIMEOUT seconds or the run's time left; what stays outside the run's bound is a host that drips its status line and
+headers a byte within each wait (the socket's timeout is per wait, not per answer): the job's own 15 minutes end that
+run red. Only https, with the tool's User-Agent and nothing else of the machine (no cookies, no proxy: it connects
+directly). An answer cut short is not checkable: by its Content-Length, and where HTTP cannot tell (no
+Content-Length), by its own structure for a Listing (an XML answer must parse, an HTML page end with </html>) and a
+Feed (it must parse). The output
 holds only provider addresses and the facts above; a request's error is named by its kind, a reader's by its kind and
 a short text of the parser's. It never recuts, never adopts by itself and writes nothing but the baseline (adopt) and
 --json-out.
@@ -142,10 +150,12 @@ class Feed:
 @dataclasses.dataclass(frozen=True)
 class Listing:
     """A page, feed or record reduced to the set of the strings its patterns extract (re.finditer over the decoded
-    text; a pattern's groups joined by a space, entities decoded, white space collapsed)."""
+    text; a pattern's groups joined by a space, entities decoded, white space collapsed). `form`: how a whole answer
+    is known where HTTP cannot tell a cut one (no Content-Length): "xml" it parses, "html" it ends with </html>."""
     url: str
     patterns: Tuple[str, ...]
     label: str = ""
+    form: str = "html"
     kind: ClassVar[str] = "listing"
 
 
@@ -184,7 +194,7 @@ SNIG = Listing("https://snig.dgterritorio.gov.pt/rndg/srv/api/records/abba9a83-c
                (r"<gco:Date>([^<]+)</gco:Date>", r"<gco:DateTime>([^<]+)</gco:DateTime>",
                 r"(?s)<gmd:URL>([^<]+)</gmd:URL>\s*</gmd:linkage>\s*<gmd:protocol>\s*"
                 r"<gco:CharacterString>WWW:DOWNLOAD[^<]*</gco:CharacterString>"),
-               "SNIG record abba9a83")
+               "SNIG record abba9a83", form="xml")
 # Valle d'Aosta: the region's one ZIP of the DTM 2005/2008 and its geoportal's page of DTM products (the download
 # keys `carta=` and the products' information sheets); the download folder itself answers 403
 AOSTA_ZIP = File("https://geoprodotti.regione.vda.it/download/DTM0508_002/DTM0508_002_UNICO.zip")
@@ -201,15 +211,15 @@ _MNS = _SPW + "5a4c28fe-d30c-493e-861e-a80ebc703b64/atom_dataset.xml"
 _ENTRY_IDS = (r"(?s)<entry\b[^>]*>.*?<id>([^<]+)</id>",)
 MNT_FEED = Feed(_MNT, r"_GEOTIFF_3812_PROV$", "SPW MNT feed")
 MNS_FEED = Feed(_MNS, r"_GEOTIFF_3812_PROV$", "SPW MNS feed")
-MNT_ENTRIES = Listing(_MNT, _ENTRY_IDS, "SPW MNT feed entries")
-MNS_ENTRIES = Listing(_MNS, _ENTRY_IDS, "SPW MNS feed entries")
+MNT_ENTRIES = Listing(_MNT, _ENTRY_IDS, "SPW MNT feed entries", form="xml")
+MNS_ENTRIES = Listing(_MNS, _ENTRY_IDS, "SPW MNS feed entries", form="xml")
 METAWAL = Listing("https://metawal.wallonie.be/geonetwork/srv/fre/csw?service=CSW&version=2.0.2&request=GetRecords"
                   "&typeNames=csw:Record&resultType=results&elementSetName=brief&maxRecords=100&sortBy=Identifier:A"
                   "&constraintLanguage=CQL_TEXT&constraint_language_version=1.1.0&constraint=Title%20like%20%27%25"
                   "Relief%25%27%20AND%20Title%20like%20%27%25Wallonie%25%27%20AND%20Type%20%3D%20%27dataset%27",
                   (r"(numberOfRecordsMatched=\"\d+\")",
                    r"(?s)<dc:identifier[^>]*>([^<]+)</dc:identifier>\s*<dc:title[^>]*>([^<]+)</dc:title>"),
-                  "Metawal Relief de la Wallonie records")
+                  "Metawal Relief de la Wallonie records", form="xml")
 
 # Every dataset on the mirror, or cut for it, with its signals: a dataset is published only with a row here
 # (tests/test_mirror_pairs.py); a row may come before its dataset is published
@@ -302,6 +312,11 @@ class Http:
             raise found
         return found
 
+    def _timeout(self) -> float:
+        """A socket wait's bound: TIMEOUT, or the run's time left when that is shorter (one wait at a time: connect,
+        TLS, each read of the status line, the headers and the body)."""
+        return max(min(TIMEOUT, self.deadline - _clock()), 0.1)
+
     def _time_up(self) -> None:
         if _clock() > self.deadline:
             raise NotCheckable("the run's time was up")
@@ -318,7 +333,7 @@ class Http:
         request = urllib.request.Request(url, method=method, headers={"User-Agent": AGENT})
         try:
             try:
-                answer = self.opener.open(request, timeout=TIMEOUT)
+                answer = self.opener.open(request, timeout=self._timeout())
             except urllib.error.HTTPError as error:  # an answer too
                 answer = error
             with answer:
@@ -376,21 +391,27 @@ def read_file(http: Http, signal: File) -> Dict:
             "etag": headers.get("ETag")}
 
 
+def _xml(body: bytes):
+    """The parsed answer; a body that does not parse is not whole (cut short, or not XML at all)."""
+    try:
+        return ET.fromstring(body)
+    except ET.ParseError:
+        raise NotCheckable("an answer cut short or not XML (it does not parse)") from None
+
+
 def read_feed(http: Http, signal: Feed) -> Dict:
     """The matching entries' `updated` and their enclosures' lengths (None where an entry has no readable <updated>
-    or an enclosure no readable length); "unaddressed": the entries with an enclosure without an address."""
-    body = http.ask("GET", signal.url).body
-    try:
-        root = ET.fromstring(body)
-    except ET.ParseError:
-        raise NotCheckable("not XML") from None
+    or an enclosure no readable length); "unaddressed": the entries with an enclosure without an address;
+    "unidentified": the entries without an id (which no pattern can match)."""
+    root = _xml(http.ask("GET", signal.url).body)
     if root.tag != ATOM + "feed":
         raise NotCheckable("not an ATOM feed")
     pattern = re.compile(signal.entries)
-    updated, lengths, unaddressed = {}, {}, []
+    updated, lengths, unaddressed, unidentified = {}, {}, [], 0
     for entry in root.findall(ATOM + "entry"):
         entry_id = (entry.findtext(ATOM + "id") or "").strip()
-        if not pattern.search(entry_id):
+        unidentified += not entry_id
+        if not entry_id or not pattern.search(entry_id):
             continue
         updated[entry_id] = (entry.findtext(ATOM + "updated") or "").strip() or None
         for link in entry.findall(ATOM + "link"):
@@ -405,7 +426,7 @@ def read_feed(http: Http, signal: Feed) -> Dict:
         raise NotCheckable("no entry matches")
     if not lengths:
         raise NotCheckable("no enclosure in the matching entries")
-    return {"updated": updated, "lengths": lengths, "unaddressed": unaddressed}
+    return {"updated": updated, "lengths": lengths, "unaddressed": unaddressed, "unidentified": unidentified}
 
 
 def _text(answer: Answer) -> str:
@@ -428,8 +449,18 @@ def extract(signal: Listing, text: str) -> List[str]:
     return sorted(found)
 
 
+HTML_END = re.compile(r"</html>\s*\Z", re.I)
+
+
 def read_listing(http: Http, signal: Listing) -> Dict:
-    items = extract(signal, _text(http.ask("GET", signal.url)))
+    """The set, from an answer whole by its own structure (an answer cut short would read as items removed)."""
+    answer = http.ask("GET", signal.url)
+    text = _text(answer)
+    if signal.form == "xml":
+        _xml(answer.body)
+    elif not HTML_END.search(text):
+        raise NotCheckable("an answer cut short (no closing </html>)")
+    items = extract(signal, text)
     if not items:
         raise NotCheckable("the patterns found nothing")
     return {"items": items}
@@ -456,7 +487,8 @@ def lacking(signal, facts: Dict) -> List[str]:
     if signal.kind == "feed":
         return ([f"entry {_short(k)} has no updated" for k, v in facts["updated"].items() if v is None]
                 + [f"{_short(k)} has no length" for k, v in facts["lengths"].items() if v is None]
-                + [f"an enclosure of entry {_short(k)} has no address" for k in facts["unaddressed"]])
+                + [f"an enclosure of entry {_short(k)} has no address" for k in facts["unaddressed"]]
+                + ["an entry has no id"] * facts["unidentified"])
     return []
 
 
@@ -488,10 +520,11 @@ def _tag(etag: str) -> str:
     return etag[2:] if etag.startswith("W/") else etag
 
 
-def compare(signal, base: Dict, now: Dict) -> Tuple[List[str], List[Tuple[str, str, object]]]:
+def compare(signal, base: Dict, now: Dict) -> Tuple[List[str], List[Tuple[str, str, object, str]]]:
     """(changes, missing) of a signal's facts now against its record: each change as "<what>: <from> -> <to>", each
-    piece the record has and the answer lacks as (what the answer has not, what it is, the recorded value; None when
-    there is none to name)."""
+    piece the record has and the answer lacks (or cannot be read) as (what the answer has not, what it is, the
+    recorded value or None when there is none to name, "none" or "unreadable"). Nothing that only follows from an
+    unreadable piece is a change."""
     name, changes, missing = name_of(signal), [], []
     if signal.kind == "file":
         for field in ("size", "etag", "last_modified"):
@@ -501,25 +534,34 @@ def compare(signal, base: Dict, now: Dict) -> Tuple[List[str], List[Tuple[str, s
             if before is None:
                 changes.append(f"{what}: none -> {after} (a new field)")
             elif after is None:
-                missing.append((ABSENT[field], what, before))
+                missing.append((ABSENT[field], what, before, "none"))
             elif (_tag(after) != _tag(before)) if field == "etag" else (after != before):
                 changes.append(f"{what}: {before} -> {after}")
     elif signal.kind == "feed":
+        unaddressed, unidentified = list(now.get("unaddressed") or ()), now.get("unidentified") or 0
         for field, (shown, absent) in PIECES.items():
             before, after = base.get(field) or {}, now.get(field) or {}
             for key in sorted(set(before) | set(after)):
                 what = f"{name} {shown.format(_short(key))}"
                 if key not in after:
-                    changes.append(f"{what}: {before[key]} -> gone")
+                    # Gone, where the answer has an unreadable piece that may be it (an enclosure without its
+                    # address, an entry without its id): that piece missing, never a difference
+                    if field == "lengths" and unaddressed:
+                        unaddressed.pop()
+                        missing.append((f"address of {_short(key)}", what, before[key], "unreadable"))
+                    elif unidentified:
+                        missing.append(("id of an entry", what, before[key], "unreadable"))
+                    else:
+                        changes.append(f"{what}: {before[key]} -> gone")
                 elif key not in before:
                     changes.append(f"{what}: new -> {'none' if after[key] is None else after[key]}")
                 elif after[key] is None:
-                    missing.append((absent.format(_short(key)), what, before[key]))
+                    missing.append((absent.format(_short(key)), what, before[key], "none"))
                 elif after[key] != before[key]:
                     changes.append(f"{what}: {before[key]} -> {after[key]}")
-        for entry_id in now.get("unaddressed") or ():
+        for entry_id in unaddressed:   # an enclosure without its address that no gone length explains
             missing.append((f"address of an enclosure of entry {_short(entry_id)}",
-                            f"{name} an enclosure of entry {_short(entry_id)}", None))
+                            f"{name} an enclosure of entry {_short(entry_id)}", None, "unreadable"))
     else:
         before, after = set(base.get("items") or ()), set(now.get("items") or ())
         changes += [f"{name} added: {item}" for item in sorted(after - before)]
@@ -529,7 +571,8 @@ def compare(signal, base: Dict, now: Dict) -> Tuple[List[str], List[Tuple[str, s
 
 def _gone(missing) -> List[str]:
     """The missing pieces beside a change."""
-    return [f"{what}: {before} -> none" if before is not None else f"{what}: unreadable" for _, what, before in missing]
+    return [f"{what}: {before} -> {word}" if before is not None else f"{what}: {word}"
+            for _, what, before, word in missing]
 
 
 @dataclasses.dataclass
@@ -555,7 +598,7 @@ def judge(signal, record: Optional[Dict], facts: Optional[Dict], why: Optional[s
     if changes:  # something readable differs: the missing pieces are said beside it
         return SignalResult(signal, facts, changes + _gone(missing), None)
     if missing:
-        return SignalResult(signal, facts, [], "the answer has no " + ", ".join(absent for absent, _, _ in missing))
+        return SignalResult(signal, facts, [], "the answer has no " + ", ".join(dict.fromkeys(m[0] for m in missing)))
     return SignalResult(signal, facts, [], None)
 
 

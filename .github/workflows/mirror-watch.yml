@@ -41,9 +41,11 @@ jobs:
       # answering is a first time. A look-up that fails (the API, the download) never stops the check (the user's
       # decision of 2026-11-23, "Check anyway"): a warning, and the check runs as with no previous result. The step
       # cannot end the job: every command that may fail is an `if` condition (the default shell, bash -e without
-      # pipefail, does not stop on a failing condition), the others are echo, and continue-on-error covers the rest
+      # pipefail, does not stop on a failing condition), the others are echo; continue-on-error covers the rest, and
+      # 3 minutes end a look-up that hangs (the job goes on, as after a failure)
       - name: The previous run's result
         continue-on-error: true
+        timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -53,9 +55,7 @@ jobs:
               | select(.workflow_run.head_branch == \"$GITHUB_REF_NAME\")] | sort_by(.created_at) | last
               | .workflow_run.id // empty"); then
             echo "::warning title=Mirror watch::the previous result could not be looked up: checked as a first run"
-            run=
-          fi
-          if [ -z "$run" ]; then
+          elif [ -z "$run" ]; then
             echo "No previous result (the first run, or its artifact expired): a provider not answering is a warning"
           elif gh run download "$run" -R "$GITHUB_REPOSITORY" -n mirror-watch-result -D previous; then
             echo "The previous result: run $run"

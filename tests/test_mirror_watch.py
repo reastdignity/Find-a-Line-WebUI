@@ -81,8 +81,8 @@ def atom(lengths=None, updated="2024-05-27T09:36:05Z") -> bytes:
 
 
 # A cut of ÚGKK's provision page (read 2026-11-22): lots of the second cycle, the national ZIPs, the INSPIRE copies
-# and a footprint archive (the pattern takes LLS/ only), a relative link
-SK_PAGE = """<table><tr>
+# and a footprint archive (the pattern takes LLS/ only), a relative link; the page's end as the real one's
+SK_PAGE = """<!DOCTYPE html><html lang="sk"><body><table><tr>
 <td class="text-center">LOT31</td>
 <td class="text-center"><a href="https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT31/LOT31_DMR6_sjtsk03_bpv.zip" \
 onclick="return openTargetBlank(this, event)" title="Odkaz sa otvorí v novom okne">ZIP (13,8 GB)</a></td>
@@ -100,7 +100,9 @@ title="Súbor ZIP">ZIP (144 GB) </a></td>
 <td class="text-center"><a href="https://opendata.skgeodesy.sk/static/LLS/Footprints/1_cyklus/\
 las_footprints_s-jtsk03_1_cyklus_shp.zip" title="Odkaz sa otvorí v novom okne">ZIP (480 MB)</a></td>
 <td><a href="/files/geoportal/zbgis/lls/prehlad_lokalit_lls_2_cyklus.zip">prehľad</a></td>
-</tr></table>"""
+</tr></table></body>
+</html>
+"""
 SK_LINKS = ["https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT31/LOT31_DMP2_sjtsk03_bpv.zip",
             "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT31/LOT31_DMR6_sjtsk03_bpv.zip",
             "https://opendata.skgeodesy.sk/static/LLS/DMP1/DMP1_0_sjtsk03_bpv.zip",
@@ -160,7 +162,7 @@ VERSION=1.3.0&amp;REQUEST=GetCapabilities</gmd:URL>
 
 # A cut of Valle d'Aosta's geoportal page of DTM products (read 2026-11-22): a product's download key and sheet, as
 # the page writes them (in an attribute's escaped copy too)
-VDA_PAGE = """<h3 class='av-icon-title'>DTM 2022 Dora Baltea &#8211; quota ortometrica</h3>
+VDA_PAGE = """<html><body><h3 class='av-icon-title'>DTM 2022 Dora Baltea &#8211; quota ortometrica</h3>
 <a href='https://mappe.regione.vda.it/pub/geonavitg/geodownload.asp?carta=DTM2022_DORA' title='Download' \
 target="_blank">Download</a>
 <div aria-label="Icona: &lt;a href=&#039;https://metadati.partout.it/metadata_documents/DTM_2022_DORA_ORTOMETRICA.pdf\
@@ -171,6 +173,7 @@ Scheda informativa</a>
 <a href='https://mappe.regione.vda.it/pub/geonavitg/geodownload.asp?carta=DTM0508' title='Download'>Download</a>
 <a href='https://metadati.partout.it/metadata_documents/DTM_2005_2008_ORTOMETRICA.pdf' title='Scheda informativa'>\
 Scheda informativa</a>
+</body></HTML>
 """
 
 # A cut of Metawal's CSW answer (read 2026-11-22): the count, two brief records
@@ -197,8 +200,9 @@ METAWAL_ANSWER = """<?xml version="1.0" encoding="UTF-8"?>
 LINKS = r'href="(https://example\.org/data/[^"]+\.zip)"'
 
 
-def page(*names) -> bytes:
-    return "".join(f'<a href="https://example.org/data/{n}.zip">{n}</a>\n' for n in names).encode()
+def page(*names, end="</body></html>\n") -> bytes:
+    links = "".join(f'<a href="https://example.org/data/{n}.zip">{n}</a>\n' for n in names)
+    return f"<html><body>\n{links}{end}".encode()
 
 
 class Bare(HttpServer):
@@ -449,7 +453,8 @@ def test_feed_enclosure_gone_or_new(tool):
 
 
 @pytest.mark.parametrize("body, why", [
-    (b"<html><body>Service unavailable</body></html", "not XML"),
+    (b"<html><body>Service unavailable</body></html", "an answer cut short or not XML (it does not parse)"),
+    (atom()[:-200], "an answer cut short or not XML (it does not parse)"),
     (b"<html><body>maintenance</body></html>", "not an ATOM feed"),
     (atom().replace(b"3812_PROV</id>", b"3812_PROVINCES</id>"), "no entry matches"),
 ])
@@ -493,25 +498,54 @@ def test_an_entry_without_updated_never_hides_a_change(tool):
     (lambda b: b.replace(LIEGE_LENGTH, ' length="²"'.encode()), f"the answer has no length of {LIEGE}"),
     (lambda b: b.replace(b"<updated>2024-05-27T09:36:05Z</updated>", b""),
      f"the answer has no updated of entry {ENTRY}"),
-    (lambda b: b.replace(f'href="{ZIP.format("LIEGE")}"'.encode(), b""), None),
+    # an enclosure that lost its address: LIEGE's length is gone with it, its shadow, never a change
+    (lambda b: b.replace(f'href="{ZIP.format("LIEGE")}"'.encode(), b""), f"the answer has no address of {LIEGE}"),
 ])
 def test_a_feed_piece_missing_alone_is_not_checkable_and_not_adopted(tool, cut, why):
-    """A piece missing where nothing readable differs: not checkable (the length "²" too: str.isdigit takes it, int()
-    does not); an enclosure without its address is LIEGE's gone, a change, the unreadable one said beside it. adopt
-    refuses each and leaves the baseline."""
+    """A piece missing (or unreadable) where nothing readable differs: not checkable (the length "²" too:
+    str.isdigit takes it, int() does not); first time with --previous; adopt refuses each and leaves the baseline."""
     _feed_row(tool)
     with open(tool.baseline, "rb") as f:
         before = f.read()
     tool.server.add("/spw/atom_dataset.xml", cut(atom()))
-    if why is None:
-        assert tool.check()[:2] == (1, [f"w: changed: MNT feed {LIEGE} length: 48579593210 -> gone; MNT feed an "
-                                        f"enclosure of entry {ENTRY}: unreadable | check 2: none"])
-    else:
-        assert tool.check()[:2] == (3, [f"w: not checkable: MNT feed: {why} | check 2: none"])
+    assert tool.check()[:2] == (3, [f"w: not checkable: MNT feed: {why} | check 2: none"])
+    previous = _previous(tool, tool.tmp / "previous.json", w=[])
+    assert tool.check("--previous", previous)[:2] == (0, ["previous run: the run of 2026-10-01T03:17:00Z",
+                                                          f"w: not checkable (first time): MNT feed: {why} | check 2: "
+                                                          "none"])
     code, lines, _ = tool.run("adopt", "w")
     assert code == 3 and lines[0] == "not adopted, the baseline left as it was:"
     with open(tool.baseline, "rb") as f:
         assert f.read() == before
+
+
+def test_an_enclosure_without_its_address_beside_a_real_change(tool):
+    """LIEGE's address gone and NAMUR's length changed: changed by NAMUR, LIEGE said unreadable beside it."""
+    _feed_row(tool)
+    body = atom({**PROVINCES, "NAMUR": 1}).replace(f'href="{ZIP.format("LIEGE")}"'.encode(), b"")
+    tool.server.add("/spw/atom_dataset.xml", body)
+    assert tool.check()[:2] == (1, [f"w: changed: MNT feed {NAMUR} length: 46315489746 -> 1; MNT feed {LIEGE} "
+                                    "length: 48579593210 -> unreadable | check 2: none"])
+
+
+def test_an_entry_without_its_id_is_a_missing_piece_not_entries_gone(tool):
+    """Two matching entries adopted; one loses its <id>: what was under it is gone only because it cannot be named,
+    so not checkable, never changed; adopt refuses."""
+    tool.server.add("/spw/atom_dataset.xml", atom(), "application/atom+xml")
+    tool.rows(w=[mw.Feed(tool.url("/spw/atom_dataset.xml"), r"_GEOTIFF_3812_", "MNT feed")])
+    tool.adopt("w")
+    assert len(tool.records()[f"feed {tool.url('/spw/atom_dataset.xml')}"]["updated"]) == 2
+    tool.server.add("/spw/atom_dataset.xml", atom().replace(f"<id>{ID}3812_PROV</id>".encode(), b"<id></id>"))
+    assert tool.check()[:2] == (3, ["w: not checkable: MNT feed: the answer has no id of an entry | check 2: none"])
+    code, lines, _ = tool.run("adopt", "w")
+    assert code == 3 and "  MNT feed: not checkable: an entry has no id" in lines
+
+
+def test_an_entry_with_no_enclosure_is_not_checkable(tool):
+    _feed_row(tool)
+    text = FEED_HEAD.format(spw=SPW, id=ID) + FEED_ENTRY.format(id=ID, links="", updated="2024-05-27T09:36:05Z")
+    tool.server.add("/spw/atom_dataset.xml", BOM + text.encode("utf-8"))
+    assert tool.check()[:2] == (3, ["w: not checkable: MNT feed: no enclosure in the matching entries | check 2: none"])
 
 
 # Listing
@@ -543,10 +577,54 @@ def test_listing_that_extracts_nothing_is_not_checkable(tool):
     assert tool.check()[:2] == (3, ["p: not checkable: the page: the patterns found nothing"])
 
 
+def test_a_page_without_its_end_is_cut_short(tool):
+    """Where HTTP cannot tell a cut answer (here it carries its own length), an HTML page must end with </html> (any
+    case, white space after it): one that stops early is not checkable, never "removed", and is not adopted."""
+    _listing_row(tool)
+    with open(tool.baseline, "rb") as f:
+        before = f.read()
+    tool.server.add("/page", page("a", end=""), "text/html")
+    assert tool.check()[:2] == (3, ["p: not checkable: the page: an answer cut short (no closing </html>)"])
+    assert tool.run("adopt", "p")[0] == 3
+    with open(tool.baseline, "rb") as f:
+        assert f.read() == before
+    tool.server.add("/page", page("a", "b", end="</BODY></HTML> \r\n\t"), "text/html")
+    assert tool.check()[:2] == (0, ["p: same"])
+
+
+def test_an_xml_listing_that_does_not_parse_is_cut_short(tool):
+    """A Listing of XML (a record, a catalogue's answer, a feed's entries) must parse whole."""
+    tool.server.add("/record.xml", METAWAL_ANSWER.encode(), "application/xml")
+    tool.rows(r=[mw.Listing(tool.url("/record.xml"), mw.METAWAL.patterns, "the record", form="xml")])
+    tool.adopt("r")
+    tool.server.add("/record.xml", METAWAL_ANSWER.encode()[:-60], "application/xml")
+    assert tool.check()[:2] == (3, ["r: not checkable: the record: an answer cut short or not XML (it does not "
+                                    "parse)"])
+    assert tool.run("adopt", "r")[0] == 3
+
+
 def test_an_answer_larger_than_the_cap_is_not_checkable(tool):
     _listing_row(tool)
     tool.monkeypatch.setattr(mw, "MAX_BODY", 50)
     assert tool.check()[:2] == (3, ["p: not checkable: the page: the answer is larger than 50 bytes"])
+
+
+def test_the_reading_stops_at_the_cap(tool):
+    """A body far over MAX_BODY is read only up to it (one chunk past), never whole: no data file is downloaded by a
+    row that points at one."""
+    tool.server.add("/huge", b"x" * 100_000, "text/html")
+    tool.rows(p=[mw.Listing(tool.url("/huge"), (LINKS,), "the page")])
+    tool.monkeypatch.setattr(mw, "MAX_BODY", 100)
+    tool.monkeypatch.setattr(mw, "CHUNK", 10)
+    reads = []
+    real = mw.http.client.HTTPResponse.read1
+
+    def counted(self, n=-1):
+        reads.append(n)
+        return real(self, n)
+    tool.monkeypatch.setattr(mw.http.client.HTTPResponse, "read1", counted)
+    assert tool.check()[:2] == (3, ["p: not checkable: the page: the answer is larger than 100 bytes"])
+    assert len(reads) <= 100 // 10 + 2, len(reads)
 
 
 def test_an_answer_cut_short_is_not_checkable_and_not_adopted(tool):
@@ -607,20 +685,56 @@ def test_a_result_file_that_cannot_be_written_is_said_after_the_lines(tool):
 
 
 def test_the_runs_time_is_bounded(tool):
-    """After RUN_SECONDS no request starts: what was not reached is not checkable, the result file still written."""
-    def slow(request):
-        time.sleep(0.4)
+    """After RUN_SECONDS no request starts: what was not reached is not checkable, the result file still written. The
+    run's clock is the tool's swappable one: the first answer moves it past the bound (no real waiting)."""
+    now, armed = [0.0], [False]
+
+    def slow(request):   # answered by the server's thread: the run's time passes while it answers
+        if armed[0]:
+            now[0] = mw.RUN_SECONDS + 1
         return Answer(200, b"x" * 1000, {"ETag": '"e1"', "Last-Modified": LM})
     tool.server.route("/slow/", slow)
     tool.server.add("/page", page("a"), "text/html")
     tool.rows(a=[mw.File(tool.url("/slow/a.zip"))], p=[mw.Listing(tool.url("/page"), (LINKS,), "the page")])
     tool.adopt("a", "p")
-    tool.monkeypatch.setattr(mw, "RUN_SECONDS", 0.2)
+    tool.monkeypatch.setattr(mw, "_clock", lambda: now[0])
+    armed[0] = True
     result = tool.tmp / "result.json"
     code, lines, _ = tool.check("--json-out", str(result))
     assert (code, lines) == (3, ["a: same | check 2: none", "p: not checkable: the page: the run's time was up"])
     assert json.loads(result.read_text(encoding="utf-8"))["exit"] == 3
     assert len(tool.server.requests("/page")) == 1   # the adopt's only
+
+
+def test_the_runs_time_is_checked_between_body_chunks(tool):
+    """A clock that ticks once a reading of it: a body of many chunks outlasts the run's time while it is read."""
+    tool.server.add("/page", page(*[f"n{i:03d}" for i in range(40)]), "text/html")
+    tool.rows(p=[mw.Listing(tool.url("/page"), (LINKS,), "the page")])
+    tool.adopt("p")
+    ticks = iter(range(10 ** 6))
+    tool.monkeypatch.setattr(mw, "_clock", lambda: next(ticks))
+    tool.monkeypatch.setattr(mw, "RUN_SECONDS", 50)   # readings, not seconds: fewer than the body's 2000 / 10 chunks
+    tool.monkeypatch.setattr(mw, "CHUNK", 10)
+    assert tool.check()[:2] == (3, ["p: not checkable: the page: the run's time was up"])
+
+
+def test_a_request_waits_no_longer_than_the_runs_time_left(tool):
+    """Each socket wait is bounded by TIMEOUT or by the run's time left, whichever is shorter."""
+    now = [0.0]
+    tool.monkeypatch.setattr(mw, "_clock", lambda: now[0])
+    http = mw.Http()
+    asked = []
+
+    def opener(request, timeout):
+        asked.append(timeout)
+        raise mw.urllib.error.URLError(TimeoutError())
+    http.opener.open = opener
+    for at, url in ((0.0, "http://127.0.0.1:9/a"), (mw.RUN_SECONDS - 5, "http://127.0.0.1:9/b"),
+                    (mw.RUN_SECONDS - 0.01, "http://127.0.0.1:9/c")):
+        now[0] = at
+        with pytest.raises(mw.NotCheckable, match=r"no answer \(TimeoutError\)"):
+            http.ask("HEAD", url)
+    assert asked == [mw.TIMEOUT, 5, 0.1]
 
 
 # Several signals, several datasets
@@ -645,7 +759,7 @@ def _three_rows(tool):
     shared, listing = mw.File(tool.url("/f/shared.zip")), mw.Listing(tool.url("/page"), (LINKS,), "the page")
     feed = tool.url("/spw/atom_dataset.xml")
     tool.rows(one=[shared, listing], two=[mw.File(tool.url("/f/own.zip")), shared, listing],
-              three=[mw.Feed(feed, r"_3812_PROV$", "feed"), mw.Listing(feed, mw._ENTRY_IDS, "entries")])
+              three=[mw.Feed(feed, r"_3812_PROV$", "feed"), mw.Listing(feed, mw._ENTRY_IDS, "entries", form="xml")])
 
 
 def test_shared_signals_and_one_address_are_asked_once(tool):
@@ -885,7 +999,8 @@ def test_the_real_rows_read_cuts_of_the_providers_answers():
                     mw.VDA_PAGE.url: VDA_PAGE.encode(), mw.METAWAL.url: METAWAL_ANSWER.encode()})
     facts, why = mw.read(saved, mw.MNT_FEED)
     assert why is None and facts == {"updated": {ID + "3812_PROV": "2024-05-27T09:36:05Z"},
-                                     "lengths": {ZIP.format(p): n for p, n in PROVINCES.items()}, "unaddressed": []}
+                                     "lengths": {ZIP.format(p): n for p, n in PROVINCES.items()}, "unaddressed": [],
+                                     "unidentified": 0}
     assert mw.read(saved, mw.MNT_ENTRIES)[0]["items"] == [ID + "31370_PROV", ID + "3812_PROV", ID + "3812_REGION"]
     assert mw.read(saved, mw.SK_PAGE)[0]["items"] == SK_LINKS
     assert mw.read(saved, mw.SNIG)[0]["items"] == [   # dates and download links: no contact's, viewer's or WMS link
@@ -961,12 +1076,20 @@ def test_the_monthly_workflow():
     # does not stop on them), each else-branch a warning; only this repository's runs count (not a fork's)
     (look,) = [s for s in steps if f"-n {upload['with']['name']} -D previous" in s.get("run", "")]
     assert look["continue-on-error"] is True and steps.index(look) < steps.index(upload)
+    assert look["timeout-minutes"] == 3   # a look-up that hangs ends there, and the job goes on to the check
     commands = [line.strip() for line in look["run"].splitlines() if line.strip()]
     assert commands[0].startswith("if ! run=$(gh api ") and "head_repository_id == .workflow_run.repository_id" in \
         look["run"]
-    assert any(c.startswith("elif gh run download ") and c.endswith("; then") for c in commands)
-    assert look["run"].count("::warning title=Mirror watch::") == 2
-    assert not [c for c in commands if c.startswith(("gh ", "run=$(", "exit"))]
+    # One if/elif chain: after the API error's warning no other line (not "No previous result": not the reason)
+    branches = [c for c in commands if c.startswith(("if ", "elif ", "else", "fi"))]
+    assert [b.split()[0] for b in branches] == ["if", "elif", "elif", "else", "fi"]
+    said = [next(c for c in commands[commands.index(b) + 1:] if c.startswith("echo")) for b in branches[:4]]
+    assert said[0].startswith('echo "::warning title=Mirror watch::the previous result could not be looked up')
+    assert branches[1] == 'elif [ -z "$run" ]; then' and said[1].startswith('echo "No previous result')
+    assert branches[2].startswith("elif gh run download ") and branches[2].endswith("; then")
+    assert said[3].startswith('echo "::warning title=Mirror watch::the result of run $run did not download')
+    assert look["run"].count("::warning title=Mirror watch::") == 2 and look["run"].count("No previous result") == 1
+    assert not [c for c in commands if c.startswith(("gh ", "run=$(", "run=", "exit"))]
 
 
 def test_the_tool_imports_nothing_of_the_project():

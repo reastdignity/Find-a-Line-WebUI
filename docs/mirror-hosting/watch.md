@@ -25,10 +25,16 @@ never recuts: a report is for the user, and a new edition is his decision.
 
 Whatever was readable is compared: a piece missing from an answer (a size, an enclosure's length, an entry's date)
 is named beside a change found in the rest, and makes the signal "not checkable" only when nothing readable differs.
-A field the provider did not send when the record was adopted and sends now (an ETag that appears) is reported as a
-change, "(a new field)", until it is adopted. An answer cut short of its Content-Length, larger than 20 MB, or that a
-reader cannot parse is "not checkable" for that signal alone: the other datasets' lines and the result file follow
-as always.
+Nothing that only follows from an unreadable piece is a change: a province ZIP's length "gone" because its enclosure
+lost its address, or entries "gone" because one lost its id, are that piece missing. The three ETag cases: a weak
+and a strong form of one tag are the same; an ETag gone alone is a missing piece (not checkable); an ETag appearing
+where the provider sent none when the record was adopted is a change, "(a new field)", every month until it is
+adopted, since the baseline has nothing to compare it with before the user adopts it. An answer cut short (by its
+Content-Length, or where HTTP cannot tell, by its own structure: an XML answer must parse, an HTML page end with
+`</html>`), larger than 20 MB, or that a reader cannot parse is "not checkable" for that signal alone: the other
+datasets' lines and the result file follow as always. Each request waits at most 60 s a step, and never past the
+run's 10 minutes; a host that drips its headers a byte at a time can still hold a run until the job's 15 minutes end
+it red.
 
 ## The rows
 
@@ -71,8 +77,8 @@ The user's words of 2026-11-22: "Yes, GitHub Actions monthly", to the question "
 runner's own `python3` (no project dependency), keeps `result.json` as an artifact for 90 days and reads the
 previous run's before the check. "The previous run" is the newest unexpired result of an earlier run of this
 repository's branch (a run that left none, or a fork's, is skipped). None found, or a look-up that fails (GitHub's
-API, the download): a warning, and the check runs as with no previous result (the user's choice of 2026-11-23, "Check
-anyway"). The one action beside checkout is `actions/upload-artifact`, pinned by its commit (accepted by the user on
+API, the download): a warning; one that hangs is stopped after 3 minutes; either way the check runs as with no
+previous result (the user's choice of 2026-11-23, "Check anyway"). The one action beside checkout is `actions/upload-artifact`, pinned by its commit (accepted by the user on
 2026-11-23): only an action can keep a file from one run for the next. It starts by hand from the repository's
 Actions tab ("Run workflow").
 
