@@ -367,7 +367,8 @@ def test_published_limits():
     """The rates and slot caps of the providers' terms (the comments in net.py quote them)."""
     assert net.HOST_RATES_OF == {"data.geo.admin.ch": 36, "wmts.geo.admin.ch": 1080,
                                  "environment.data.gov.uk": 180, "data.geopf.fr": 2160,
-                                 "tiles-eu1.arcgis.com": 54, "mirror.findaline.lukawski.org": 600}
+                                 "tiles-eu1.arcgis.com": 54, "basisdata.nl": 54,
+                                 "mirror.findaline.lukawski.org": 600}
     assert net.HOST_SLOTS_OF == {"data.bev.gv.at": 2, "www.nic.funet.fi": 4, "mirrors.nic.funet.fi": 4,
                                  "servicios.idee.es": 4,
                                  "wcs-mds.idee.es": 4, "malta.coverage.wetransform.eu": 4,
@@ -385,7 +386,7 @@ def test_published_limits():
                                  "data.slackmap.com": 2, "api.slackmap.com": 1, "services.ga.gov.au": 2,
                                  "visualizador.ide.uy": 2, "tinitaly.pi.ingv.it": 2,
                                  "webgis.regione.sardegna.it": 2,
-                                 "service.pdok.nl": 4, "basisdata.nl": 2, "cdn.foroyakort.fo": 2,
+                                 "service.pdok.nl": 4, "basisdata.nl": 1, "cdn.foroyakort.fo": 2,
                                  "www.inegi.org.mx": 2, "eservices.dls.moi.gov.cy": 2, "geoportaal.maaruum.ee": 2, "www502.regione.toscana.it": 2,
                                  "tiles-eu1.arcgis.com": 2, "tiles.arcgis.com": 2, "admin.opendatani.gov.uk": 2,
                                  "www.daten-hamburg.de": 2, "ws.gisetl.lrc.gov.on.ca": 2, "gdi2.geo.bremen.de": 2,
@@ -486,6 +487,107 @@ def test_describe_coverage_waits(http_server, monkeypatch):
                       None, False)
     assert other.coverage_extent() is None
     assert not http_server.requests("/other")
+
+
+@pytest.fixture(scope="module")
+def ahn_like(tmp_path_factory):
+    """A file of the Caribbean AHN's kind (float32 0.5 m, tiled 256, DEFLATE, overviews), 600 x 600 px."""
+    import numpy as np
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    path = tmp_path_factory.mktemp("ahn") / "M_TEST2023.TIF"
+    rows, cols = np.mgrid[0:600, 0:600]
+    with rio.open(path, "w", driver="GTiff", width=600, height=600, count=1, dtype="float32", crs="EPSG:2180",
+                  transform=from_origin(2000.0, 4000.0, 0.5, 0.5), tiled=True, blockxsize=256, blockysize=256,
+                  compress="deflate", nodata=3.4e38) as dst:
+        dst.write((100 + rows * 0.3 + cols * 0.1 + np.sin(cols / 7.0)).astype(np.float32), 1)
+        dst.build_overviews([2, 4])
+    return path
+
+
+def _block_reads(http_server, ahn_like, tmp_path, slots: int, threads: int = 4):
+    """Four blocks of 100 m (200 px, over one to four of the file's 256 px tiles) of a FileBlocks layer whose file is on
+    the test server, downloaded by `threads` threads at once as a search downloads them (_download_and_record: the
+    tile's lock, the host's slot, the reader), the host at `slots` slots. Every answer waits 30 ms, so requests
+    answered at once show in peak(). Returns the layer and its tiles."""
+    from sources.layers.fileblocks import FileBlocks
+    from http_server import Answer
+    import grid as gd
+    body = ahn_like.read_bytes()
+
+    def slow(request):
+        time.sleep(0.03)
+        return Answer(200, body, {"Content-Type": "image/tiff"})
+    http_server.route("/ahn/", slow)
+    net.HOST_SLOTS_OF["127.0.0.1"] = slots
+    layer = FileBlocks("AHN test", "test/ahn/1", "EPSG:2180", 0.5, 100, http_server.url("/ahn/M_TEST2023.TIF"),
+                       extent=(2000.0, 3700.0, 2300.0, 4000.0), force_crs=True)
+    tiles = layer.tiles(gd.Grid(left=2000.0, top=4000.0, res=0.5, height=400, width=400, crs="EPSG:2180"))[:4]
+    assert len(tiles) == 4
+    cache_dir = str(tmp_path / f"cache{slots}")
+    os.makedirs(cache_dir)
+    workers = [threading.Thread(target=layer._download_and_record, args=(tile, cache_dir)) for tile in tiles]
+    for t in workers[:threads]:
+        t.start()
+    for t in workers[:threads]:
+        t.join()
+    return layer, tiles, cache_dir
+
+
+def test_window_reads_take_turns_and_one_connection(http_server, ahn_like, tmp_path, monkeypatch):
+    """Each block read through GDAL's /vsicurl/ of a host with a rate takes one turn of it (net.rate_turn, inside
+    the host's slot: _download_and_record holds it), and a host of one slot never has two requests answered at once:
+    not two blocks (the slot), not two ranges of one block (net.single_connection: GDAL's ranges one after another,
+    where GDAL_HTTP_MULTIRANGE=YES asks them on several connections at once). The values are a local read's."""
+    import numpy as np
+    import rasterio as rio
+    import rasterio.cache
+    monkeypatch.setattr(net, "HOST_SLOTS_OF", dict(net.HOST_SLOTS_OF))
+    turns, inside = [], []
+    holding = threading.local()
+    host_slot = net.host_slot
+
+    @contextlib.contextmanager
+    def slot(cache_dir, url):
+        with host_slot(cache_dir, url):
+            holding.on = True
+            try:
+                yield
+            finally:
+                holding.on = False
+    import sources.layer
+    monkeypatch.setattr(sources.layer, "host_slot", slot)
+    monkeypatch.setattr(net, "rate_turn", lambda url, share=1.0: (turns.append(url),
+                                                                  inside.append(getattr(holding, "on", False))))
+    url = http_server.url("/ahn/M_TEST2023.TIF")
+    rasterio.cache.invalidate(url)
+    layer, tiles, cache_dir = _block_reads(http_server, ahn_like, tmp_path, slots=1)
+    assert turns == [url] * 4 and all(inside)
+    assert http_server.peak("/ahn/") == 1 and len(http_server.requests("/ahn/")) > 4
+    local = type(layer)("AHN test", "test/ahn/1", "EPSG:2180", 0.5, 100, str(ahn_like),
+                        extent=(2000.0, 3700.0, 2300.0, 4000.0), force_crs=True)
+    for tile in tiles:
+        path = str(tmp_path / "local.tif")
+        local.download_tile(tile, path)
+        with rio.open(layer.tile_path(cache_dir, tile)) as a, rio.open(path) as b:
+            assert np.array_equal(a.read(1), b.read(1), equal_nan=True)
+
+
+def test_window_reads_overlap_without_the_cap(http_server, ahn_like, tmp_path, monkeypatch):
+    """The control of the test above: at 8 slots the same reads have requests answered at once (blocks in parallel
+    and GDAL's parallel ranges), so peak() would see an overlap at one slot."""
+    import rasterio.cache
+    monkeypatch.setattr(net, "HOST_SLOTS_OF", dict(net.HOST_SLOTS_OF))
+    rasterio.cache.invalidate(http_server.url("/ahn/M_TEST2023.TIF"))
+    _block_reads(http_server, ahn_like, tmp_path, slots=8)
+    assert http_server.peak("/ahn/") > 1
+
+
+def test_single_connection_hosts():
+    """basisdata.nl takes one connection; a host of the default slots, a local path and no address do not."""
+    assert net.single_connection("https://basisdata.nl/hwh-ortho/x.TIF")
+    assert not net.single_connection("https://service.pdok.nl/x.tif")
+    assert not net.single_connection("C:/data/x.tif") and not net.single_connection(None)
 
 
 def test_probe_time_per_source():

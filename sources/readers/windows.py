@@ -282,7 +282,8 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
     used, years = [], []
     wrong: List[WrongCrs] = []
     read = 0  # files read for the block, in its CRS (with or without data there)
-    with _gdal_http(serial):
+    # A host of one connection (net.single_connection: basisdata.nl) has its ranges asked one after another
+    with _gdal_http(serial or any(net.single_connection(url) for _, url, _ in files)):
         for name, url, year in files:
             if ranged and re.match(r"https?://", url):
                 try:
@@ -296,8 +297,10 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
                     break
                 continue
             for attempt in range(net.RETRIES):
-                # One request counted per file read for the block, every attempt (servicecounts;
-                # GDAL's own HTTP requests, their bytes and its retries are not seen)
+                # One request per file read for the block, every attempt: its turn of the host's rate
+                # (net.rate_turn; the caller holds the host's slot) and counted (servicecounts; GDAL's own
+                # HTTP requests, their bytes and its retries are not seen)
+                net.rate_turn(url)
                 with servicecounts.request(url) as counted:
                     try:
                         values = _read_file(url, crs, transform, shape, name, what, force_crs, warp)

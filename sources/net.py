@@ -24,7 +24,10 @@ import servicecounts
 # of the web worker download at once), through lock files in cache/locks/hosts (host_slot);
 # HOST_SLOTS_OF holds the hosts that need another number: connections at once. A slot is held
 # for a whole tile; a block of a FileBlocks/TnmBlocks layer is one slot however many range
-# requests GDAL makes for it (merged, several ranges per request: GDAL_HTTP_MULTIRANGE).
+# requests GDAL makes for it. Those GDAL asks in parallel (GDAL_HTTP_MULTIRANGE=YES: "each range will
+# be requested in parallel, using HTTP/2 multiplexing or several HTTP connections", GDAL 3.12's
+# configuration options): up to 8 connections at once inside one block's read (measured on the test
+# server, 2026-11-23), so a host of one slot reads its ranges one after another (single_connection).
 HOST_SLOTS = 8
 # GDAL's cache of the ranges it downloaded (CPL_VSIL_CURL_CACHE_SIZE, 16 MB by default), in each
 # process: the layers that read their windows range by range (Windows(serial=True), GDAL_HTTP_MULTIRANGE
@@ -135,10 +138,12 @@ HOST_SLOTS_OF: Dict[str, int] = {
     "service.pdok.nl": 4,
     # Het Waterschapshuis' basisdata.nl (Caribbean Netherlands' whole-island AHN files, redirected to Hetzner's
     # fsn1.your-objectstorage.com): no published limits (the dataroom page https://www.beeldmateriaal.nl/
-    # dataroom-caribisch-nederland and https://www.ahn.nl/dataroom, read 2026-11-15). It stopped answering this
-    # PC's connections on 2026-11-15 after about 18 parallel window reads per island at 4 connections (an outage or
-    # a block, unknown): two at once
-    "basisdata.nl": 2,
+    # dataroom-caribisch-nederland and https://www.ahn.nl/dataroom, read 2026-11-15). It blocked a development PC's
+    # network address on 2026-11-15 after about 18 parallel window reads per island at 4 connections (confirmed a
+    # block, not an outage, on 2026-11-23: the same address refused, other networks served). One at a time (and
+    # HOST_RATES_OF), the user's decision of 2026-11-23, until Het Waterschapshuis answers (a mail asks for its
+    # limits). One slot is one connection: its window reads ask their ranges one after another (single_connection)
+    "basisdata.nl": 1,
     # Umhvørvisstovan's file server (the Faroe Islands' DSM): its terms (https://www.foroyakort.fo/um-foeroyakort/
     # terms-and-conditions-in-english, June 2019, read 2026-11-15) give no numbers and do "not guarantee the
     # continued provision of data": courtesy, two at once
@@ -233,9 +238,12 @@ RETRIES = 3
 # Requests per minute to a host, for the hosts whose provider publishes a limit (rate_turn): one
 # request admitted every 60/n s, shared by every process of the machine (or container). What
 # counts as a request is one we make: an attempt of _get, a page of a STAC search, an orthophoto
-# tile, a request of the probe; a window or block read through GDAL counts as one (its range
-# requests are GDAL's, merged and retried inside GDAL where nothing can wait between them; none
-# of these hosts is read that way now). The values stay about 10 % below the published ones.
+# tile, a request of the probe; a window or block read through GDAL counts as one, one turn per
+# attempt of a file's read (windows._read_block, the probe's _window): its range requests are
+# GDAL's (a block of Caribbean Netherlands' AHN files: a HEAD and about 16-18 ranges), retried
+# inside GDAL where nothing can wait between them, so the turns space the blocks, not GDAL's
+# requests (basisdata.nl). The values stay about 10 % below the published ones, or name the
+# promise or decision they keep.
 HOST_RATES_OF: Dict[str, int] = {
     # FSDI, "Fair use" limits of the federal geoservices (https://www.geo.admin.ch/de/allgemeine-
     # nutzungsbedingungen-bgdi, read 2026-11-01; the German page binds): "API Rest Services
@@ -258,6 +266,12 @@ HOST_RATES_OF: Dict[str, int] = {
     # of 2026-11-15 promises, "at most one request per second" (less 10 %), until DAERA answers (no limits published:
     # the items, the services and OpenDataNI's pages, read 2026-11-15)
     "tiles-eu1.arcgis.com": 54,
+    # Not a published limit: Het Waterschapshuis' basisdata.nl (Caribbean Netherlands' AHN files, read by windows) at
+    # one request a second less 10 %, as DAERA's tiles: the user's decision of 2026-11-23, after the host blocked a
+    # development PC's network address on 2026-11-15 (about 18 parallel window reads per island at 4 connections;
+    # confirmed a block on 2026-11-23), until Het Waterschapshuis answers (the mail is drafted, not sent; no limits
+    # published: the dataroom pages, read 2026-11-15)
+    "basisdata.nl": 54,
     # The project's own data server (sources/readers/tilebases.py MIRROR_URL): 20 requests a second per address
     # (burst 40) by its limits (docs/mirror-hosting/spec.md A.5); half of it, 600 a minute (C.6)
     "mirror.findaline.lukawski.org": 600,
@@ -536,6 +550,15 @@ def host_slot(cache_dir: str, url: Optional[str]):
             yield
     finally:
         queue.release()
+
+
+def single_connection(url: Optional[str]) -> bool:
+    """Whether the host of url takes one connection at a time (one slot in HOST_SLOTS_OF): GDAL's window reads of
+    its files then ask their ranges one after another (_gdal_http(serial=True)), as GDAL otherwise opens several
+    connections at once inside one read. GDAL_HTTP_MAX_TOTAL_CONNECTIONS (GDAL 3.11+) would cap them, but GDAL reads
+    it when it makes its pool of connections at the first read, not at every read, so it cannot be set per host
+    (measured on the test server, 2026-11-23)."""
+    return _host(url) is not None and HOST_SLOTS_OF.get(limits_host(url), HOST_SLOTS) == 1
 
 
 @contextlib.contextmanager

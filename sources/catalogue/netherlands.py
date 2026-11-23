@@ -82,7 +82,9 @@ NL_ORTHO = OrthoService("PDOK aerial photo (Beeldmateriaal Nederland)", None, ""
 # (the sea), pixel edges on whole metres; the files name only a LOCAL_CS, their coordinates those of the island's
 # own CRS (EPSG:10641 Saba DPnet, 10745 Sint Eustatius DPnet long, 10759 Bonaire DPnet, PROJ 9.8; checked at The
 # Quill and Mount Scenery), so the layers force it (FileBlocks(force_crs=True)). The addresses (dated 2025-03-19)
-# answer 307 to Hetzner's object storage. The DTM has pinholes under forest (at The Quill 43 % of 0.5 m pixels
+# answer 307 to Hetzner's object storage. basisdata.nl blocked a development network's address on 2026-11-15 after
+# parallel window reads (confirmed a block on 2026-11-23): one connection and 54 requests a minute (sources/net.py,
+# HOST_SLOTS_OF and HOST_RATES_OF) until Het Waterschapshuis answers. The DTM has pinholes under forest (at The Quill 43 % of 0.5 m pixels
 # valid, 81 % at 1 m, 97 % at 2 m; Saba's summit 54 % at 1 m): the 2 m working grid averages them away, what
 # stays is filled from europe.
 BQ_FILES = "https://basisdata.nl/hwh-ortho/Caribisch_NL/LiDAR/caribisch"
