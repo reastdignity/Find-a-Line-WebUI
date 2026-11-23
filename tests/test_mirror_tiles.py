@@ -1833,11 +1833,11 @@ def test_wallonia_averaged_cut(tmp_path, monkeypatch):
         # on the seam (tile 1_0 only)
         edges = {s["tile"]: s for s in result["samples"]}
         assert set(edges) == {"0_0", "1_0", "2_0"}
-        for key, s in edges.items():
-            assert (s["partial_found"] > 0) == (key != "1_0"), key
-            assert s["partial_chosen"] == min(mt.EDGE_BLOCKS, s["partial_found"]), key
-            assert (s["seam_found"] > 0) == (key == "1_0") and s["seam_chosen"] == min(mt.EDGE_BLOCKS,
-                                                                                       s["seam_found"]), key
+        for key, s in edges.items():  # every block chosen is compared (a value on both sides); no two rasters touch
+            assert (s["partial_found"] > 0) == (key != "1_0") and (s["seam_found"] > 0) == (key == "1_0"), key
+            assert s["joined_found"] == 0, key
+            for kind in mt.EDGE_KINDS:
+                assert s[f"{kind}_compared"] == min(mt.EDGE_BLOCKS, s[f"{kind}_found"]), (key, kind)
         saved = json.loads((out / "wallonia" / name / "1m" / "verify.json").read_text(encoding="utf-8"))
         assert saved["samples"] == result["samples"]
     # The averaged indexes (with their two new keys) pass the client's check and the publish tool's verify, and the
@@ -1933,6 +1933,101 @@ def test_averaged_verify_finds_a_change(tmp_path, monkeypatch, kind):
         assert "read straight from the inputs" in problems and "differs from the inputs by" not in problems
 
 
+def _touching(inputs):
+    """Two 0.5 m rasters that touch on an odd half-metre without overlapping: A from x 0 to 1000.5, B from 1000.5 to
+    2000, B 3 m higher, both from y 1000 to 1200 (tile 0_0): the blocks of the 1 m column 1000 hold a pixel of each."""
+    a = np.tile((300 + 0.001 * 0.5 * np.arange(2001)).astype(np.float32), (400, 1))
+    b = np.tile((303 + 0.001 * (1000.5 + 0.5 * np.arange(1999))).astype(np.float32), (400, 1))
+    _tif(inputs / "a.tif", a, 0.0, 1200.0, res=0.5, crs="EPSG:3812", nodata=-9999.0)
+    _tif(inputs / "b.tif", b, 1000.5, 1200.0, res=0.5, crs="EPSG:3812", nodata=-9999.0)
+    return _product([mt.Placed("a.tif"), mt.Placed("b.tif")], res=1.0, crs="EPSG:3812", origin=(0.0, 0.0),
+                    nodata=(-9999.0,), overlap="agree", average=2)
+
+
+def _per_raster():
+    """An averaged product's assemble that takes each raster's own block means, then joins them (the first wins):
+    wrong where two rasters touch inside a block (it keeps one raster's half of the block)."""
+    real = mt.assemble
+
+    def assemble(key, product, footprints, handles):
+        tile = None
+        for fp in footprints:
+            part = real(key, product, [fp], handles)
+            tile = part if tile is None else np.where(np.isnan(tile), part, tile)
+        return tile
+    return assemble
+
+
+def test_verify_finds_a_join_of_two_touching_rasters(tmp_path, monkeypatch):
+    """Two rasters touching on an odd half-metre (no pixel valid in both, so no seam, and every block whole): verify
+    looks for the blocks holding pixels of both ("joined") and compares them, so an assemble that averages per raster
+    before joining (here equal in the cut and in verify's re-assembly) is found by the pixels read straight from the
+    inputs; the right cut passes, with the joined blocks counted as compared."""
+    inputs = tmp_path / "in"
+    _dataset(monkeypatch, "jn", _touching(inputs))
+    assert mt.cut("jn", str(tmp_path / "w"), str(tmp_path / "m"), inputs=str(inputs)) == {"dtm": "cut"}
+    good = mt.verify("jn", str(tmp_path / "w"), str(tmp_path / "m"), inputs=str(inputs))["dtm"]
+    sample = next(s for s in good["samples"] if s["tile"] == "0_0")
+    assert good["ok"], good["problems"]
+    assert sample["joined_found"] == 200 and sample["joined_compared"] == mt.EDGE_BLOCKS
+    assert sample["seam_found"] == 0 and sample["partial_found"] == 0
+    monkeypatch.setattr(mt, "assemble", _per_raster())
+    assert mt.cut("jn", str(tmp_path / "w2"), str(tmp_path / "m2"), inputs=str(inputs)) == {"dtm": "cut"}
+    bad = mt.verify("jn", str(tmp_path / "w2"), str(tmp_path / "m2"), inputs=str(inputs))["dtm"]
+    problems = "\n".join(bad["problems"])
+    assert not bad["ok"] and "read straight from the inputs differ by up to 1." in problems, problems
+    assert "differs from the inputs by" not in problems
+
+
+def test_verify_says_when_found_blocks_are_not_compared(tmp_path, monkeypatch):
+    """Blocks found where a mean can go wrong but none of them compared is a fault of verify: a point check that
+    leaves the edge blocks out (its random pixels only) makes it fire, for each kind that was found."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _wallonia_fetch(inputs, tmp_path)
+    mt.cut("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")
+    real = mt._point_problems
+
+    def without_edges(key, got, product, readers, rng, n, handles, extra=None, counted=None):
+        return real(key, got, product, readers, rng, n, handles)
+    monkeypatch.setattr(mt, "_point_problems", without_edges)
+    result = mt.verify("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")["dtm"]
+    problems = set(result["problems"])
+    assert not result["ok"]
+    assert problems == {"0_0: partial blocks found but none compared", "2_0: partial blocks found but none compared",
+                        "1_0: seam blocks found but none compared"}, problems
+
+
+def test_averaged_product_masks_sea_and_floor_before_the_mean(tmp_path, monkeypatch):
+    """An averaged product's sea value and floor (a floor the user may choose after the measurement) make the 0.5 m
+    pixels no data before the mean: a block with one pixel of the sea or below the floor is the mean of the other
+    three, and of none is no data; verify finds those blocks partly valid from the inputs (its own masks) and passes;
+    the card names the masks "on the 0.5 m pixels, before the mean"."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    values = np.repeat(np.repeat(_heights((100, 120), 31).astype(np.float32), 2, axis=0), 2, axis=1)
+    values[0, 0] = 0.0          # the sea's value: block (0, 0) the mean of three
+    values[0, 3] = -2.5         # below the floor: block (0, 1) the mean of three
+    values[2:4, 4:6] = -7.0     # block (1, 2): none valid
+    values[10, 10] = -0.5       # above the floor, not the sea: a value
+    _tif(inputs / "s.tif", values, 2000.0, 2100.0, res=0.5, crs="EPSG:3812", nodata=-9999.0)
+    product = _product([mt.Placed("s.tif")], res=1.0, crs="EPSG:3812", origin=(0.0, 0.0), sea=0.0, floor=-1.0,
+                       average=2)
+    ds = _dataset(monkeypatch, "sf", product)
+    mt.cut("sf", str(work), str(out), inputs=str(inputs))
+    tiles, _ = _tiles(out, ds)
+    part = tiles["1_1"][1900:2000, 0:120]
+    fine = values.astype(np.float64)
+    assert abs(part[0, 0] - fine[0:2, 0:2].ravel()[1:].mean()) <= 0.0051
+    assert abs(part[0, 1] - np.delete(fine[0:2, 2:4].ravel(), 1).mean()) <= 0.0051
+    assert np.isnan(part[1, 2])
+    assert abs(part[5, 5] - fine[10:12, 10:12].mean()) <= 0.0051  # -0.5 m kept: above the floor
+    result = mt.verify("sf", str(work), str(out), inputs=str(inputs))["dtm"]
+    sample = result["samples"][0]
+    assert result["ok"] and sample["partial_found"] >= 2 and sample["partial_compared"] == sample["partial_found"]
+    card = mt.card_text(ds)
+    assert ("the files' own no-data value, the sea's value 0 and every value below -1 m made no data (on the 0.5 m "
+            "pixels, before the mean)") in " ".join(card.split())
+
+
 def test_averaged_assemble_is_exact(tmp_path):
     """assemble of an averaged product: a block of four equal values gives that value exactly (float32 out, the mean
     in float64); one, two or three valid pixels their mean; none no data; the footprint, the tiles and the memory
@@ -1994,27 +2089,22 @@ def test_averaged_mean_in_float64(tmp_path):
 
 
 # The dataset "pa" of the bit-for-bit proof (local, 2026-11-23): two placed 5 m rasters ("first", -9999 and -999),
-# a terrain and a surface product. Its tiles, indexes and card as the base commit 083af314's tool cut them, before
-# Product.average: each tile's file sha256 and the sha256 of its decoded values (NaN as -1e30), the index's sha256
-# without "created", the same with each tile's sha256 replaced by whether it has data, and the card's
-PA_TILES = {
-    "dtm/0_0": ("fe517ecee5f8cd8d12da484ed410c0f1345bcb069ba5fc284536279dd8ca9f55",
-                "bee428c548acf43a13221e23e54adf21a23d75f89948b19317d80ce6620ad359"),
-    "dtm/0_1": ("39f83b35a50640d3e2ea007ab056f7821073f399d7192a1753e04a0cefe7bf30",
-                "064d46b3c5253037320edd5e98d73266246ea4b6a62eb251513c6e621680147d"),
-    "dtm/1_0": ("5705028d5a9a7628c35691319374c919f9645877f10b8c477d390c1acc1786a5",
-                "54a928896b406ec9cd20391e0649386cd65e9ed721d09da0c5117d519bb2add8"),
-    "dtm/1_1": ("057d250b2d20f1d20f2f0078dd49de59058801612bb24332e714057096bbb187",
-                "47d138919c0840a98db11e0bb49fecd5f9358a3d0e7ad58f595ed04347d10a10"),
-    "dsm/0_0": ("ae8a18a0628235a2498b931145f7fc8313ca796065c542abd0a4021d15eede2f",
-                "98cde57aac26f6c69ebe5db2c125dbf9c022df902320911c5a093a7bdaffdd6d"),
-    "dsm/1_0": ("72e67d2cbf6f20a285978eae2ea61a4aac2446b6e136805d4d73e5103fb10cd8",
-                "fd17ae3187d1fa4fa60aed0142e039559ed816651e7f32c00ca97d4753f4e01e")}
+# a terrain and a surface product, as the base commit 083af314's tool (before Product.average) cut them. The byte pins
+# are this PC's build's (Windows, the GDAL and LERC of uv.lock's rasterio wheel): each tile file's sha256 and each
+# index's without "created"; another build may encode the same values into other bytes. Every platform: the index's
+# content with each tile's sha256 replaced by whether it has data, and the card's text
+PA_TILE_FILES = {
+    "dtm/0_0": "fe517ecee5f8cd8d12da484ed410c0f1345bcb069ba5fc284536279dd8ca9f55",
+    "dtm/0_1": "39f83b35a50640d3e2ea007ab056f7821073f399d7192a1753e04a0cefe7bf30",
+    "dtm/1_0": "5705028d5a9a7628c35691319374c919f9645877f10b8c477d390c1acc1786a5",
+    "dtm/1_1": "057d250b2d20f1d20f2f0078dd49de59058801612bb24332e714057096bbb187",
+    "dsm/0_0": "ae8a18a0628235a2498b931145f7fc8313ca796065c542abd0a4021d15eede2f",
+    "dsm/1_0": "72e67d2cbf6f20a285978eae2ea61a4aac2446b6e136805d4d73e5103fb10cd8"}
 PA_INDEXES = {"dtm": ("e6de2da8042a235b2256f953f39178d32e15ebd6250f7806f235dc9546988449",
                       "c2680f7d248fe4e96f11d3bfe8d3c43a5a404497e08b3d9e89aa12dd62ec89f6"),
               "dsm": ("ae0c83b4c18196d2cf2769f41a2a77b2297b1b2ebcde641b48e4ba458c6fa0c3",
                       "13de10a197569c34bb4ab5938ac6ed23aa9f2b53cd7f2c3cc25f5585951839de")}
-PA_CARD = "9c4388b5535bf23b6b4de24ae56da831e44b7a767ac8d724d645aa832b2ee9eb"
+PA_CARD_TEXT = "ff5be76565372a61f79b70a282cd4cf6580547c8c405e0bcd9f5c7bfe795f486"  # its text with LF line ends
 
 
 def _proof_heights(shape, seed):
@@ -2023,10 +2113,10 @@ def _proof_heights(shape, seed):
 
 
 def test_products_without_a_factor_as_the_base_cut_them(tmp_path, monkeypatch):
-    """Products of before (average 1) are cut as the tool of before Product.average cut them: the dataset "pa"'s
-    decoded tile values, its indexes' content and its card equal the base commit's (pinned above); on Windows, where
-    the pins were taken, every tile file and index byte for byte too (another platform's GDAL may encode the same
-    values into other bytes)."""
+    """Products of before (average 1) are cut as the tool of before Product.average cut them (dataset "pa"): on every
+    platform the tiles' values equal the inputs' mosaic within the 5 mm of LERC, the tiles with data, the indexes'
+    content and the card's text are the base's; on Windows (this PC's GDAL build) every tile file and index byte for
+    byte too."""
     inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
     a, b = _proof_heights((500, 450), 1), _proof_heights((400, 500), 2)
     a[:30] = -9999.0
@@ -2036,28 +2126,30 @@ def test_products_without_a_factor_as_the_base_cut_them(tmp_path, monkeypatch):
     _dataset(monkeypatch, "pa", _product([mt.Placed("a.tif"), mt.Placed("b.tif")], nodata=(-999.0,)),
              _product([mt.Placed("b.tif")], "dsm", sea=0.0, floor=-1.0))
     mt.cut("pa", str(work), str(out), inputs=str(inputs), threads=4)
+    am, bm = a.copy(), b.copy()
+    am[am == -9999.0] = np.nan
+    bm[bm == -999.0] = np.nan
+    want = {"dtm": _expected([(am, 2.5, 2502.5), (bm, 1502.5, 2002.5)]),
+            "dsm": _expected([(bm, 1502.5, 2002.5)])}  # the surface's -999 lies below its floor of -1 m
     for name in ("dtm", "dsm"):
-        folder = out / "pa" / name / "5m"
-        index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+        ds = mt.dataset("pa")
+        tiles, index = _tiles(out, ds, ds.products[0] if name == "dtm" else ds.products[1])
         index.pop("created")
         exact = hashlib.sha256(json.dumps(index).encode()).hexdigest()
         shape_only = dict(index, tiles={k: v is not None for k, v in index["tiles"].items()})
         assert hashlib.sha256(json.dumps(shape_only).encode()).hexdigest() == PA_INDEXES[name][1], name
-        assert sorted(f"{name}/{k}" for k, v in index["tiles"].items() if v) == sorted(
-            k for k in PA_TILES if k.startswith(name + "/"))
-        for key, sha in index["tiles"].items():
-            if sha is None:
-                continue
-            path = folder / src.grid_tile_name(*map(int, key.split("_")))
-            with rio.open(path) as t:
-                values = t.read(1)
-            decoded = np.where(np.isnan(values), np.float32(-1e30), values).astype(np.float32).tobytes()
-            assert hashlib.sha256(decoded).hexdigest() == PA_TILES[f"{name}/{key}"][1], key
-            if os.name == "nt":
-                assert hashlib.sha256(path.read_bytes()).hexdigest() == PA_TILES[f"{name}/{key}"][0], key
+        assert sorted(f"{name}/{k}" for k, v in tiles.items() if v is not None) == sorted(
+            k for k in PA_TILE_FILES if k.startswith(name + "/"))
+        for key, values in tiles.items():
+            if values is not None:
+                _close(values, want[name][key])
+                if os.name == "nt":  # this PC's build's bytes
+                    path = out / "pa" / name / "5m" / src.grid_tile_name(*map(int, key.split("_")))
+                    assert hashlib.sha256(path.read_bytes()).hexdigest() == PA_TILE_FILES[f"{name}/{key}"], key
         if os.name == "nt":
             assert exact == PA_INDEXES[name][0], name
-    assert hashlib.sha256((out / "pa" / "README.md").read_bytes()).hexdigest() == PA_CARD
+    card = (out / "pa" / "README.md").read_text(encoding="utf-8")
+    assert hashlib.sha256(card.encode("utf-8")).hexdigest() == PA_CARD_TEXT
 
 
 def _two_rows(inputs):
@@ -2070,10 +2162,10 @@ def _two_rows(inputs):
                     average=2)
 
 
-def test_averaged_cut_restarts(tmp_path, monkeypatch):
+def test_averaged_cut_restarts(tmp_path, monkeypatch, capsys):
     """An averaged cut stopped after a row of tiles and one staged tile's bytes spoiled: the next run keeps the good
-    tiles of its journal, cuts the spoiled one and the rest again, and ends with the index and tiles of a cut in one
-    go; verify passes. The footprint cache knows the factor (a state of the same file at average 1 is no state)."""
+    tile of its journal ("1 kept from before, 3 to cut"), cuts the spoiled one and the rest again, and ends with the
+    index and tiles of a cut in one go; verify passes. The footprint cache knows the factor (a state of the same file at average 1 is no state)."""
     inputs = tmp_path / "in"
     product = _two_rows(inputs)
     _dataset(monkeypatch, "rs", product)
@@ -2088,7 +2180,9 @@ def test_averaged_cut_restarts(tmp_path, monkeypatch):
     data = bytearray(staged[0].read_bytes())
     data[-1] ^= 0xFF
     staged[0].write_bytes(bytes(data))
+    capsys.readouterr()
     assert mt.cut("rs", str(work), str(out), inputs=str(inputs)) == {"dtm": "cut"}
+    assert "1 kept from before, 3 to cut" in capsys.readouterr().out
     again, index = _tiles(out, ds)
     assert set(again) == set(whole) == {"0_0", "1_0", "0_1", "1_1"} and index["average"] == 2
     for key in whole:

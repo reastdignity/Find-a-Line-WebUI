@@ -92,11 +92,12 @@ sha256, finds every file in the folder the index does not list, compares the til
 the index's keys and the inputs with the journal's feeders, and compares sampled tiles (`--samples`, by default 1 %
 of the tiles with data, at least 8, at most 500; `--seed`, recorded) with the inputs twice: re-assembled from
 footprints read again, and POINTS pixels each read straight from the input rasters through their own transforms with
-the masks applied apart (an averaged product's also up to EDGE_BLOCKS partly valid blocks and as many on a seam per
-tile, found from the inputs; verify.json counts them). It judges against the inputs the cut read (inputs.jsonl): an
-input that came later is no part of the edition (one line), a tile whose inputs are gone or changed is not checkable, never a failure. A verify
-that compares no tile with data is "not checkable" (ok null; status: final, not verified), and keeps an earlier
-passing verify.json of the same index.json. It writes verify.json beside the index.
+the masks applied apart (an averaged product's also up to EDGE_BLOCKS blocks per tile of each of EDGE_KINDS: partly
+valid, on a seam, joined from two rasters that touch; found from the inputs; verify.json counts those compared).
+It judges against the inputs the cut read (inputs.jsonl): an input that came later is no part of the edition (one
+line), a tile whose inputs are gone or changed is not checkable, never a failure. A verify that compares no tile
+with data is "not checkable" (ok null; status: final, not verified), and keeps an earlier passing verify.json of
+the same index.json. It writes verify.json beside the index.
 
 In a container of the project's image (Linux). The image holds no tools/ (.dockerignore), so the clone's is mounted
 too; the container runs as uid 10001 unless --user says otherwise, the mounted folders must be writable by that user,
@@ -175,7 +176,8 @@ SHA_MISMATCH = ("its sha256 is not the one done.jsonl records: remove the file a
 # cut again (product_rule)
 CUT_VERSION = 1
 POINTS = 300           # verify: pixels of each sampled tile also read straight from the inputs
-EDGE_BLOCKS = 50       # ... and of an averaged product at most so many partly valid blocks and so many on a seam
+EDGE_BLOCKS = 50       # ... and of an averaged product at most so many blocks of each of EDGE_KINDS
+EDGE_KINDS = ("partial", "seam", "joined")  # partly valid; a pixel valid in two rasters; two rasters that touch
 VERIFY_EPS = MAX_Z_ERROR + 1e-4  # LERC's bound and float32 rounding at heights of a few thousand metres
 NAME = re.compile(r"^[a-z0-9_-]+$")
 NOT_INPUTS = (".part", ".crdownload", ".tmp", ".new")
@@ -2113,16 +2115,17 @@ def _input_masks(src, product: Product, values: np.ndarray) -> np.ndarray:
 def _edge_blocks(key: str, product: Product, readers: Sequence[Tuple[str, str, Tuple]], rng: random.Random,
                  handles: Dict[str, "rio.DatasetReader"], most: int = EDGE_BLOCKS) -> Tuple[Tuple, Dict[str, int]]:
     """An averaged product's blocks of a tile where its mean can go wrong, found from the input rasters themselves
-    (each read through its own transform, masked apart): partly valid (1 to average² - 1 valid input pixels) and on a
-    seam (an input pixel valid in two rasters). At most `most` of each kind, chosen by rng. ((rows, cols) of the chosen
-    blocks on the tile's pixels, {"partial_found", "partial_chosen", "seam_found", "seam_chosen"})."""
+    (each read through its own transform, masked apart): partly valid (1 to average² - 1 valid input pixels), on a
+    seam (an input pixel valid in two rasters) and joined (valid pixels from two rasters or more, none valid in both:
+    rasters that touch). At most `most` of each kind, chosen by rng. ((rows, cols, kinds) of the chosen blocks on the
+    tile's pixels, {"<kind>_found": n} for each of EDGE_KINDS)."""
     i, j = map(int, key.split("_"))
     a, fine, (ox, oy) = product.average, input_res(product), product.origin
     n = tile_px(fine)
     left, top = ox + i * TILE_M, oy + (j + 1) * TILE_M
-    valid_any = np.zeros((n, n), dtype=bool)
     valid_count = np.zeros((n, n), dtype=np.uint8)
-    for _, path, (b_left, b_bottom, b_right, b_top) in readers:
+    owner = np.full((n, n), 255, dtype=np.uint8)  # the first raster with a value (the one the tile takes it from)
+    for k, (_, path, (b_left, b_bottom, b_right, b_top)) in enumerate(readers):
         if b_right <= left or b_left >= left + TILE_M or b_top <= top - TILE_M or b_bottom >= top:
             continue
         if path not in handles:
@@ -2134,29 +2137,41 @@ def _edge_blocks(key: str, product: Product, readers: Sequence[Tuple[str, str, T
         if r_in >= r_end or c_in >= c_end:
             continue
         ok = _input_masks(src, product, src.read(1, window=Window(c_in, r_in, c_end - c_in, r_end - r_in)))
-        valid_any[r_in - r0:r_end - r0, c_in - c0:c_end - c0] |= ok
-        valid_count[r_in - r0:r_end - r0, c_in - c0:c_end - c0] += ok.astype(np.uint8)
-    per_block = valid_any.reshape(n // a, a, n // a, a).sum(axis=(1, 3))
-    seam = (valid_count >= 2).reshape(n // a, a, n // a, a).any(axis=(1, 3))
-    rows, cols, counts = [], [], {}
-    for kind, where in (("partial", (per_block > 0) & (per_block < a * a)), ("seam", seam)):
+        window = (slice(r_in - r0, r_end - r0), slice(c_in - c0, c_end - c0))
+        valid_count[window] += ok.astype(np.uint8)
+        first = owner[window]
+        first[ok & (first == 255)] = min(k, 254)
+
+    def blocks(grid):
+        return grid.reshape(n // a, a, n // a, a)
+    valid = valid_count > 0
+    per_block = blocks(valid).sum(axis=(1, 3))
+    seam = blocks(valid_count >= 2).any(axis=(1, 3))
+    lowest = blocks(np.where(valid, owner, 255)).min(axis=(1, 3))
+    highest = blocks(np.where(valid, owner, 0)).max(axis=(1, 3))
+    joined = (per_block > 0) & (lowest != highest) & ~seam
+    rows, cols, kinds, counts = [], [], [], {}
+    for kind, where in zip(EDGE_KINDS, ((per_block > 0) & (per_block < a * a), seam, joined)):
         found = list(zip(*np.nonzero(where)))
         chosen = sorted(rng.sample(found, min(most, len(found))))
         rows += [r for r, _ in chosen]
         cols += [c for _, c in chosen]
-        counts[f"{kind}_found"], counts[f"{kind}_chosen"] = len(found), len(chosen)
-    return (np.array(rows, dtype=int), np.array(cols, dtype=int)), counts
+        kinds += [kind] * len(chosen)
+        counts[f"{kind}_found"] = len(found)
+    return (np.array(rows, dtype=int), np.array(cols, dtype=int), kinds), counts
 
 
 def _point_problems(key: str, got: np.ndarray, product: Product, readers: Sequence[Tuple[str, str, Tuple]],
                     rng: random.Random, n: int, handles: Dict[str, "rio.DatasetReader"],
-                    extra: Optional[Tuple[np.ndarray, np.ndarray]] = None) -> Tuple[List[str], int]:
-    """A check apart from the cut's own reading: n random pixels of a tile (and the pixels of extra, (rows, cols):
-    an averaged product's edge blocks), their centres' coordinates in the dataset's CRS read straight from the input
-    rasters through each raster's own transform (the rasters chosen by their own bounds), masked by these few lines
-    (not mask()), the first raster with a value taken; compared with the tile within 5 mm and for no
-    data. An averaged product's pixel is compared with the mean of its block's input pixels, each read so (the sum of
-    the valid ones over their count, here). The problems found and the random pixels compared."""
+                    extra: Optional[Tuple[np.ndarray, np.ndarray, List[str]]] = None,
+                    counted: Optional[Dict[str, int]] = None) -> Tuple[List[str], int]:
+    """A check apart from the cut's own reading: n random pixels of a tile (and the pixels of extra, (rows, cols,
+    kinds): an averaged product's edge blocks), their centres' coordinates in the dataset's CRS read straight from the
+    input rasters through each raster's own transform (the rasters chosen by their own bounds), masked by these few
+    lines (not mask()), the first raster with a value taken; compared with the tile within 5 mm and for no data. An
+    averaged product's pixel is compared with the mean of its block's input pixels, each read so (the sum of the valid
+    ones over their count, here). counted: per kind of extra, the blocks compared (a value on both sides) added as
+    "<kind>_compared". The problems found and the random pixels compared."""
     i, j = map(int, key.split("_"))
     px, res, (ox, oy) = got.shape[0], product.res, product.origin
     rows = np.array([rng.randrange(px) for _ in range(n)], dtype=int)
@@ -2207,6 +2222,10 @@ def _point_problems(key: str, got: np.ndarray, product: Product, readers: Sequen
         found = np.full(n, np.nan)
         found[count > 0] = total[count > 0] / count[count > 0]
     tile_values = got[rows, cols].astype(np.float64)
+    if counted is not None and extra is not None:
+        compared = ~np.isnan(tile_values[random_points:]) & ~np.isnan(found[random_points:])
+        for kind in dict.fromkeys(extra[2]):
+            counted[f"{kind}_compared"] = int(sum(c for c, k in zip(compared, extra[2]) if k == kind))
     problems = []
     nodata = np.isnan(tile_values) != np.isnan(found)
     if nodata.any():
@@ -2373,10 +2392,12 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
                 extra, edges = None, {}
                 if product.average != 1:  # the blocks where a mean can go wrong, from the inputs themselves
                     extra, edges = _edge_blocks(key, product, readers, rng, handles)
-                    problems += [f"{key}: {kind} blocks found but none compared" for kind in ("partial", "seam")
-                                 if edges[f"{kind}_found"] and not edges[f"{kind}_chosen"]]
+                    edges.update({f"{kind}_compared": 0 for kind in EDGE_KINDS})
                 found, n = (_point_problems(key, got, product, readers, rng, points, handles) if extra is None else
-                            _point_problems(key, got, product, readers, rng, points, handles, extra=extra))
+                            _point_problems(key, got, product, readers, rng, points, handles, extra=extra,
+                                            counted=edges))
+                problems += [f"{key}: {kind} blocks found but none compared" for kind in EDGE_KINDS
+                             if edges and edges[f"{kind}_found"] and not edges[f"{kind}_compared"]]
                 problems += found
                 pixels += n
                 compared.append({"tile": key, "data": True, "max_diff_m": round(worst, 5),
