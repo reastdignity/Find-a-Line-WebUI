@@ -94,7 +94,7 @@ export function FavouritePicker({model, line, icon, onOpen, opened = false, butt
             <Button kind="primary" type="submit" disabled={!name.trim() || busy}>{t("ui.picker.create")}</Button>
           </form>
         : <Button kind="ghost" icon="plus" onClick={() => setNaming(true)}>
-            {t("ui.picker.new")}{here !== null ? " " + t("ui.picker.new_in", {name: tree.byId.get(here)?.name ?? ""}) : ""}</Button>}
+            {here !== null ? t("ui.picker.new_in", {name: tree.byId.get(here)?.name ?? ""}) : t("ui.picker.new")}</Button>}
       {favourite && <Button kind="danger" class="r-unfav" onClick={remove}>{t("ui.picker.remove")}</Button>}
     </div>}
   </Popover>;

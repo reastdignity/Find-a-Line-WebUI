@@ -26,9 +26,8 @@
    pills); a chip that is on in the soft accent ---- */
 .ui .v-result .u-btn { min-height: 32px; padding: 0 12px; border-color: var(--line); font-size: var(--fs-3); }
 .ui .v-result .u-btn:hover, .ui .v-result .u-btn.u-ghost:hover { background: var(--hover); }
-.ui .v-result .u-ib { width: 32px; height: 32px; border-color: var(--line); }
-.ui .v-result .u-ib.u-x { width: 24px; height: 24px; border-color: transparent; background: transparent; }  /* a close: the kit's (44 px on touch, below) */
-.ui .v-result .u-ib.u-x:hover { background: var(--hover); }
+/* (a close keeps the kit's look: .u-ib.u-x, 24 px, 44 px on touch) */
+.ui .v-result .u-ib:not(.u-x) { width: 32px; height: 32px; border-color: var(--line); }
 .ui .v-result .u-ib:hover { background: var(--hover); }
 .ui .v-result .u-ib.u-plain { border-color: transparent; background: transparent; }
 .ui .v-result .u-ib.u-plain:hover { background: var(--hover); }
@@ -57,7 +56,7 @@
 @media (pointer: coarse) {
   .ui .v-result .u-btn, .ui .v-result .u-chip, .ui .v-result .r-sort, .ui .v-result .v-select { min-height: 44px; }
   .ui .v-result .u-chip { font-size: var(--fs-3); }
-  .ui .v-result .u-ib, .ui .v-result .u-ib.u-x, .ui .v-result .ac-info { width: 44px; height: 44px; }
+  .ui .v-result .u-ib:not(.u-x), .ui .v-result .ac-info { width: 44px; height: 44px; }
 }
 
 /* ---- the list: head, blocks parted by rules (no boxes) ---- */

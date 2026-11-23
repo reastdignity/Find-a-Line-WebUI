@@ -3522,11 +3522,12 @@ def test_neutrals_copies_in_step():
                             assert colour == light[token], (name, token, colour)
                             fallbacks += 1
     assert fallbacks >= 5, fallbacks  # app/coverageLayer.css (6 before step 3d G2: its swatch's --line edge went)
-    # the dark halo is the dark ground; the profile chart's frame colour (Profile.tsx PROFILE, the value outside .ui,
-    # where profile.css gives --r-frame: var(--ink-2)) is the light second ink
+    # the dark halo is the dark ground; the profile chart draws no colour of its own (its curves by classes, profile.css
+    # colours them from tokens: step 3d G6), its A-frames in the second ink
     assert all(d["--halo"] == d["--bg"] for d in darks)
     with open(os.path.join(VIEWER, "src", "Profile.tsx"), encoding="utf-8") as f:
-        assert re.findall(r'frame: "(#[0-9a-f]{6})"', f.read()) == [light["--ink-2"]]
+        assert not re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", f.read())
+    assert light["--r-frame"] == "var(--ink-2)"
     with open(os.path.join(VIEWER, "src", "app", "c", "cellsLayer.ts"), encoding="utf-8") as f:
         assert re.findall(r'getPropertyValue\("--ink"\)\.trim\(\) \|\| "(#[0-9a-f]{6})"', f.read()) == [light["--ink"]] * 2
 
@@ -3613,6 +3614,10 @@ def test_admin_and_doc_pages_css():
 # ?ui=kit-search: developers' pages) keep their own sizes and spacing; their layers and colours are checked.
 NOT_FREE_CSS = ("result/view/result.css", "result/view/columns.css", "ui/sidepanel.css")
 NOT_FREE_RULES: tuple = ()  # a rule left out only when each of its selectors names one of these
+# The rules of a NOT_FREE_CSS file that are checked all the same: those step 3d G6 wrote (each of their selectors names
+# one of these; the scope and code reviews' finding 8: G6's new rules in result.css were outside the test)
+FREE_IN_NOT_FREE = {"result/view/result.css": (".r-far", ".r-more-sec > h3", ".r-field-lab", ".r-dock-bar .u-ib.r-fold",
+                                                  ".r-folder", ".r-check input", ".r-why-show input", ".r-note-x")}
 DEMO_RULES = (".u-gal-", ".u-stub", ".ui.s-kit")
 RADIUS_KEPT = {"0", "0px", "50%", "999px", "inherit"}  # none, round and full, written out (R6)
 # What is off a scale or the tokens on purpose: (file under viewer/src, the rule's selector, kind, the value; the
@@ -3711,10 +3716,15 @@ def _free_css() -> list:
         for name in sorted(names):
             path = os.path.join(folder, name)
             rel = os.path.relpath(path, os.path.join(VIEWER, "src")).replace(os.sep, "/")
-            if not name.endswith(".css") or rel == "ui/tokens.css" or rel.startswith(NOT_FREE_CSS):
+            if not name.endswith(".css") or rel == "ui/tokens.css":
+                continue
+            checked = FREE_IN_NOT_FREE.get(rel) if rel.startswith(NOT_FREE_CSS) else None
+            if rel.startswith(NOT_FREE_CSS) and not checked:
                 continue
             with open(path, encoding="utf-8") as f:
                 for rule in ui_metrics.css_rules(f.read()):
+                    if checked and not all(any(part in sel for part in checked) for sel in rule["selectors"]):
+                        continue
                     if not all(any(part in sel for part in NOT_FREE_RULES) for sel in rule["selectors"]):
                         out.append((rel, rule))
     return out
@@ -3842,8 +3852,9 @@ def test_placeholder_contrast():
 
 def test_profile_label_contrast():
     """The profile chart's coloured labels (highest, over trees, min. clearance; profile.css) read at 4.5:1 or more on
-    the card's --surface in both themes, each from its own colour per theme, while the curves keep Profile.tsx's
-    PROFILE colours (report defect 4: 2.26:1 and 3.96:1 in the dark theme, 4.04:1 and 4.37:1 in the light one)."""
+    the card's --surface in both themes, each from its own colour per theme, while the curves keep their colours
+    (tokens.css --r-envelope, --r-trees, --r-terrain-line, the same in both themes since step 3d G6; report defect 4:
+    2.26:1 and 3.96:1 in the dark theme, 4.04:1 and 4.37:1 in the light one)."""
     path = os.path.join(VIEWER, "src", "profile.css")
     blocks = _css_blocks(TOKENS_CSS)  # the labels' colours are tokens since step 3d G6 (DESIGN.md row 135)
     dark = _dark_blocks(blocks)
@@ -3857,8 +3868,10 @@ def test_profile_label_contrast():
     for theme, colours in (("light", light), ("dark", dark[0])):
         for name in names:
             assert contrast(colours[name], themes[theme]["--surface"]) >= 4.5, (theme, name, colours[name])
-    profile = open(os.path.join(VIEWER, "src", "Profile.tsx"), encoding="utf-8").read()
-    assert all(c in profile for c in ('envelope: "#6a3d9a"', 'trees: "#3f8f35"', 'terrain: "#8a7656"'))
+    assert (light["--r-envelope"], light["--r-trees"], light["--r-terrain-line"]) == ("#6a3d9a", "#3f8f35", "#8a7656")
+    assert not any(n in d for d in dark for n in ("--r-envelope", "--r-trees", "--r-terrain-line"))
+    for cls, name in (("fal-mark-highest", "--r-envelope"), ("fal-mark-trees", "--r-trees"), ("fal-mark-min", "--r-terrain-line")):
+        assert re.search(rf"\.{cls}\s*\{{\s*stroke:\s*var\({name}\)", text), cls
 
 
 def _mix(a: str, b: str, share: float) -> str:

@@ -62,6 +62,29 @@ def test_profile_and_shares_write_words_not_characters():
     assert "height difference" in en["ui.profile.title"]
 
 
+@pytest.mark.skipif(not os.path.isdir(os.path.join(REPO, "viewer", "node_modules")), reason="needs npm install in viewer/")
+def test_readout_marks_water_and_gaps_without_terrain(tmp_path):
+    """The profile's readout (Profile.tsx readText) writes "(water)" and "(filled gap)" where the terrain has no value
+    too, after the distance (as before G6: the code review's finding 2), and after the terrain's part where it has one."""
+    import json
+    import subprocess
+    entry, bundle = tmp_path / "entry.ts", tmp_path / "profile.cjs"
+    entry.write_text(f'export {{ readText }} from "{SRC.replace(os.sep, "/")}/Profile";\n', encoding="utf-8")
+    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], bundle: true, "
+                                  "format: 'cjs', platform: 'node', loader: {'.css': 'empty', '.png': 'dataurl', '.svg': 'text', "
+                                  f"'.woff2': 'empty'}}, outfile: {json.dumps(str(bundle))}}})"],
+                   cwd=os.path.join(REPO, "viewer"), check=True)
+    cases = [{"at": "12", "water": True}, {"at": "12", "gap": True, "limit": "310.0"},
+             {"at": "12", "z": "300.0", "water": True, "gap": True}, {"at": "12", "z": "300.0"}]
+    script = tmp_path / "readout.cjs"
+    script.write_text(f"const m = require({json.dumps(str(bundle))});\n"
+                      f"console.log(JSON.stringify({json.dumps(cases)}.map((v) => m.readText(v))));\n", encoding="utf-8")
+    done = subprocess.run(["node", str(script)], capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == ["12 m from A1 (water)", "12 m from A1 (filled gap); safety limit: 310.0 m",
+                                       "12 m from A1; terrain: 300.0 m (water) (filled gap)", "12 m from A1; terrain: 300.0 m"]
+
+
 def test_level_switch_is_a_radio_group():
     """The map's level switch: one Tab stop and the arrows (ui/radios.ts), its buttons radios (DESIGN.md row 82)."""
     code = _code("result/view/MapBar.tsx")
@@ -178,3 +201,143 @@ def test_map_ring_inside_its_box_and_layers_computed(site):
                      "ground": "-1"}, z
     finally:
         page.context.close()
+
+
+# ---- in the browser: the result view (a run with a source's credits, and a second run) -----------------------------
+
+from test_shell_c import BIG, add_credits, copy_clip, stub_page  # noqa: E402
+from test_shell_c_view_map import (DESKTOP as VIEW_DESKTOP, OLD, SMALL_PHONE, WAIT,  # noqa: E402
+                                   _open as _view, _state, view_clip)  # noqa: F401
+from test_view_frame import HELP  # noqa: E402
+from test_web import _server  # noqa: E402
+
+LEVELS = ["auto", "area", "spots", "lines"]
+
+
+@pytest.fixture
+def kit_site(tmp_path, view_clip):
+    """The clip's run with a source's data credits (BIG) and the same run again (OLD), served by the app."""
+    folder = tmp_path / "data"
+    copy_clip(view_clip, folder, BIG, "Clip")
+    copy_clip(view_clip, folder, OLD, "Clip again")
+    add_credits(folder, BIG)
+    page_path = stub_page(folder, "kittest")
+    with _server(folder) as port:
+        yield f"http://127.0.0.1:{port}/{page_path}?ui=c"
+
+
+# The map's bottom corners: each one's class, its raise (style.bottom) and whether it holds the scale or the credits
+CORNERS = """() => [...document.querySelectorAll('.v-map .leaflet-bottom')].map((c) => [c.className, c.style.bottom,
+  !!c.querySelector('.leaflet-control-scale, .leaflet-control-attribution')])"""
+
+
+@browser_test
+def test_map_corners_raised_where_their_controls_stand(site, kit_site):
+    """On a phone the frame puts the scale in the credits' corner (over the credits); the corners raised above the
+    sheet are those that hold the scale or the credits, read from where the frame put them (corners.ts cornersOf,
+    the user's Q18 a), never a corner taken for the scale (the code review's finding 5: a fixed left corner passed
+    every test), at the sheet's low stop and at half."""
+    browser = site[1]  # the module's browser (test_keyboard_app's site)
+    got = []
+    page = _view(browser, kit_site + f"#run={BIG}", SMALL_PHONE, script=HELP)
+    try:
+        page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+        page.evaluate("() => T.frames()")
+        got.append(page.evaluate(CORNERS))
+        page.focus(".u-sheet-handle")
+        page.keyboard.press("ArrowUp")
+        page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+        page.evaluate("() => T.frames()")
+        got.append(page.evaluate(CORNERS))
+        scale = page.evaluate("() => document.querySelector('.v-map .leaflet-control-scale')?.parentElement?.className")
+        assert page.errors == []
+    finally:
+        page.context.close()
+    print("the map's corners:", scale, got)
+    assert scale == "leaflet-bottom leaflet-right", scale  # the phone's frame: the scale over the credits
+    for corners in got:
+        assert any(bottom for _, bottom, _ in corners), corners  # raised above the sheet
+        assert all(not bottom or holds for _, bottom, holds in corners), corners
+
+
+@browser_test
+def test_level_switch_arrows_choose(site, kit_site):
+    """The map's level switch as a radio group in the browser (T1): one Tab stop, the checked level; ArrowRight checks
+    the next level and moves the focus to it; ArrowLeft back."""
+    browser = site[1]  # the module's browser (test_keyboard_app's site)
+    read = """() => { const all = [...document.querySelectorAll('.v-levels [role=radio]')];
+      return {checked: all.filter((b) => b.getAttribute('aria-checked') === 'true').map((b) => b.dataset.level),
+              stops: all.map((b) => b.tabIndex), focus: document.activeElement?.dataset?.level ?? null}; }"""
+    page = _view(browser, kit_site + f"#run={BIG}", VIEW_DESKTOP, script=HELP)
+    try:
+        page.wait_for_selector(".v-levels [role=radio][aria-checked=true]", timeout=WAIT)
+        page.focus(".v-levels [role=radio][aria-checked=true]")
+        first = page.evaluate(read)
+        page.keyboard.press("ArrowRight")
+        page.evaluate("() => T.frames()")
+        right = page.evaluate(read)
+        page.keyboard.press("ArrowLeft")
+        page.evaluate("() => T.frames()")
+        left = page.evaluate(read)
+        assert page.errors == []
+    finally:
+        page.context.close()
+    assert len(first["checked"]) == 1 and sorted(first["stops"]) == [-1, -1, -1, 0], first
+    k = LEVELS.index(first["checked"][0])
+    assert right["checked"] == [LEVELS[(k + 1) % 4]] and right["focus"] == right["checked"][0], (first, right)
+    assert left["checked"] == first["checked"] and left["focus"] == first["checked"][0], (first, left)
+    assert sorted(right["stops"]) == [-1, -1, -1, 0], right
+
+
+@browser_test
+@pytest.mark.parametrize("forced", [False, True], ids=["colours", "forced"])
+def test_folder_rows_ring_inside(site, kit_site, forced):
+    """The folder picker's rows (FavouritePicker, `.u-item.r-folder`) draw the keyboard's ring inside them: their list
+    scrolls and clipped one outside (the design review's F3); in forced colours their outline 2 px inside."""
+    browser = site[1]  # the module's browser (test_keyboard_app's site)
+    page = _view(browser, kit_site + f"#run={BIG}", {**VIEW_DESKTOP, **({"forced_colors": "active"} if forced else {})},
+                 script=HELP)
+    try:
+        _state(page, "view.select(view.order[0]);")
+        page.wait_for_selector(".v-result .r-fav", timeout=WAIT)
+        page.focus(".v-result .r-fav")
+        page.keyboard.press("Enter")
+        page.wait_for_selector(".r-picker .r-folder", timeout=WAIT)
+        for _ in range(8):
+            if page.evaluate("() => !!document.activeElement?.classList.contains('r-folder')"):
+                break
+            page.keyboard.press("Tab")
+        ring = page.evaluate("""() => { const e = document.activeElement, s = getComputedStyle(e);
+          return {row: e.classList.contains('r-folder'), visible: e.matches(':focus-visible'), shadow: s.boxShadow,
+                  outline: [s.outlineStyle, s.outlineOffset]}; }""")
+        assert page.errors == []
+    finally:
+        page.context.close()
+    assert ring["row"] and ring["visible"], ring
+    if forced:
+        assert ring["outline"][0] != "none" and ring["outline"][1] == "-2px", ring
+    else:
+        assert "inset" in ring["shadow"], ring
+
+
+@browser_test
+def test_one_key_listener_for_the_maps(site, kit_site):
+    """The maps' press mark (layersControl.ts pressMarks) puts one key listener on the page, however many maps it
+    made: a second run's map adds none (the code review's finding 4: one per map stayed with each removed map)."""
+    browser = site[1]  # the module's browser (test_keyboard_app's site)
+    count = """window.G6_KEYS = 0; (() => { const add = EventTarget.prototype.addEventListener;
+      EventTarget.prototype.addEventListener = function (type, fn, opt) {
+        if (this === document && type === 'keydown' && fn && String(fn).includes('u-map-pressed')) window.G6_KEYS++;
+        return add.call(this, type, fn, opt); }; })();"""
+    page = _view(browser, kit_site + f"#run={BIG}", VIEW_DESKTOP, script=HELP + count)
+    try:
+        page.wait_for_selector(".v-map .leaflet-control-layers", timeout=WAIT)
+        first = page.evaluate("() => { window.G6_MAP = window.FINDALINE_MAP; return window.G6_KEYS; }")
+        page.evaluate(f"() => {{ location.hash = '#run={OLD}'; }}")
+        page.wait_for_function("() => window.FINDALINE_MAP && window.FINDALINE_MAP !== window.G6_MAP && "
+                               "!!document.querySelector('.v-map .leaflet-control-layers')", timeout=WAIT)
+        second = page.evaluate("() => window.G6_KEYS")
+        assert page.errors == []
+    finally:
+        page.context.close()
+    assert first == 1 and second == 1, (first, second)

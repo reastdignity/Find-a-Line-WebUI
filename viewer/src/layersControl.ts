@@ -10,12 +10,19 @@ import { ICONS } from "./ui/icons";
  *  tap is under 300 ms; the box's rows of 44 px appear under the finger at once). */
 export const OPEN_GUARD_MS = 400;
 
+let keyUnmarks = false;  // the page's one listener of keys added
 /** The map's own keyboard ring only after a key (step 3d G6, A7): Leaflet focuses its box on every press, and the
  *  browsers then mark that focus :focus-visible, so a press marks the box (`u-map-pressed`, mapbar.css draws no ring
- *  then) until the next key anywhere on the page. Both maps take it with their layers control (one place). */
+ *  then) until the next key anywhere on the page. Both maps take it with their layers control (one place). The key's
+ *  listener is one for the page, whatever the maps made and removed (Leaflet's map.remove() does not call a control's
+ *  onRemove, so a listener per map would stay with its removed box: the code review's finding 4). */
 export function pressMarks(box: HTMLElement) {
   box.addEventListener("pointerdown", () => box.classList.add("u-map-pressed"), true);
-  document.addEventListener("keydown", () => box.classList.remove("u-map-pressed"), true);
+  if (keyUnmarks) return;
+  keyUnmarks = true;
+  document.addEventListener("keydown", () => {
+    for (const marked of document.querySelectorAll(".u-map-pressed")) marked.classList.remove("u-map-pressed");
+  }, true);
 }
 
 /** The layers' control: opened at the map's top it never grows past the map's bottom edge (Leaflet leaves 50 px

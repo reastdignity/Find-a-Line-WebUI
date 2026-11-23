@@ -927,7 +927,7 @@ def test_phone_controls_apart(boxes_site):
                             # (1:1) and the access marks, which wrap once at the pilot's 13 px (112 px measured
                             # 2026-11-18; before R2 and the pilot: under 70); _apart keeps it clear of every control
                             assert ramp["lines"] == 2 and ramp["whole"] and ramp["swatches"] == 5 and ramp["height"] < 120, ramp
-                            assert ramp["text"].startswith("1") and ramp["text"].endswith(" or more") and "," in ramp["name"], ramp
+                            assert ramp["text"].startswith("1") and re.search(r"\d\+$", ramp["text"]) and "," in ramp["name"], ramp
                 # the map's help, opened by its "i" on the access mark's key (the user's 7 b): a panel above the
                 # controls, the others still apart
                 _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")

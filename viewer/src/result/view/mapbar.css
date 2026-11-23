@@ -50,16 +50,16 @@
 .ui .v-status .v-msg + * { margin-left: 0; }
 .ui .v-hint-slot { display: contents; }  /* the frame's slot beside the status line: its children are the boxes */
 
-/* The legend: the shapes and colours on the map now; on a phone two lines of short labels and a fold */
-.ui .v-legend { padding: 8px 8px 8px 12px; font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); display: flex; flex-wrap: wrap;
-  gap: 4px 16px; align-items: center; }
+/* The legend: the shapes and colours on the map now; on a phone two lines of short labels and a fold. The kit's legend
+   (.u-legend-items, .u-legend-item, .u-legend-classes: row 133) with only what differs here: the box's padding and its
+   own lines' text (a note, the lines' rows), an item kept on one line, the classes' row inline */
+.ui .v-legend { padding: 8px 8px 8px 12px; font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); }
 .ui .v-legend b { color: var(--ink); font-weight: 600; }
-.ui .v-lg { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.ui .v-lg { white-space: nowrap; }
 .ui .v-lg .r-sw { width: 16px; height: 4px; border-radius: var(--r-1); }
 .ui .v-pale { width: 16px; height: 2px; background: var(--map-clean); opacity: .35; }  /* style.ts COLORS.clean, as the map draws it */
 .ui .v-ring { width: 16px; height: 16px; border-radius: var(--r-round); border: 2px dashed var(--ink); }
-.ui .v-classes { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
-.ui .v-class { gap: 4px; font-variant-numeric: tabular-nums; }
+.ui .v-classes { display: inline-flex; }
 .ui .v-lay { width: 16px; height: 12px; border-radius: var(--r-1); }
 .ui .v-lay-1 { background: var(--layer-1); } .ui .v-lay-2 { background: var(--layer-2); } .ui .v-lay-3 { background: var(--layer-3); }
 .ui .v-lay-4 { background: var(--layer-4); } .ui .v-lay-5 { background: var(--layer-5); }
@@ -116,6 +116,9 @@
 .ui .v-about b { color: var(--ink); font-weight: 600; }
 /* its close (the mock-up's ×): 24 px on a desktop, a finger's 44 px on a touch screen */
 .ui .v-result .v-about .v-about-x { flex: none; }  /* the kit's close (.u-ib.u-x): 24 px, 44 px on a touch screen */
+/* its ring inside: the help's box scrolls and cut the top of one outside on a phone (the design review's P1) */
+.ui .v-result .v-about .v-about-x:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .ui .v-result .v-about .v-about-x:focus-visible { outline-offset: -2px; } }
 .ui .v-result .v-about .v-about-x .u-ic { width: 16px; height: 16px; }
 .ui .v-map > .v-about-all { position: absolute; z-index: var(--z-map-top); top: 56px; left: 50%; transform: translateX(-50%);
   width: min(340px, calc(100% - 16px)); max-height: calc(100% - 72px); }

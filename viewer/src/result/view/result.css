@@ -325,6 +325,10 @@
 .ui .r-folders { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; }
 .ui .r-folder { width: 100%; min-height: 34px; padding: 4px 8px; }  /* the kit's row (.u-item): its size here */
 .ui .r-folder.u-on { background: var(--accent-soft); }
+/* the keyboard's ring inside the row: the list's scroller (.r-folders) clips one outside (row 81; step 3d G6, the
+   design review's F3), with its forced-colours twin */
+.ui .u-item.r-folder:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .ui .u-item.r-folder:focus-visible { outline-offset: -2px; } }
 .ui .r-folder span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .r-newfolder { display: flex; gap: 6px; }
 .ui .r-newfolder .u-input { flex: 1; min-width: 0; }

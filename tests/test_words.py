@@ -61,6 +61,8 @@ R9_KEPT = {
     "ui.view3d.speed_value": "\"×1\": the 3D view's speed, a multiplier the user kept like a unit (row 47)",
     "ui.view3d.zoom_factor": "\"×8\": the eyes' zoom (row 47)",
     "ui.profile.scale_true": "\"×1.6\": the profile's vertical scale, kept like the 3D view's \"×1\" (the user, 2026-11-23)",
+    "ui.view.map.class_ramp_end": "\"7+\": a phone's Area ramp, its end in the room beside the select (the user's F2 b, "
+                                  "2026-11-23); the desktop's classes say \"from 7\"",
     "ui.view.chip.length_min": "≥ in a filter's chip (R9)", "ui.view.chip.length_max": "≤ in a filter's chip (R9)",
     "ui.view.chip.clearance_min": "≥ in a filter's chip (R9)", "ui.view.chip.height_min": "≥ in a filter's chip (R9)",
     "intro.result.spots": "today's result page (the user, 2026-11-19)",

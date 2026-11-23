@@ -35,11 +35,30 @@
 .ui .r-profile .fal-profile-chart svg { display: block; }
 .ui .r-profile .fal-hover { touch-action: pan-y; }
 .ui .r-profile .fal-profile-readout { min-height: 18px; color: var(--ink); font-variant-numeric: tabular-nums; }
-/* The chart's colours: tokens (ui/tokens.css, the profile's --r-*); its terrain's fill darker in the dark theme */
-.ui .r-profile svg polygon[fill="#e3d8c3"] { fill: var(--r-terrain-fill); }
-.ui .r-profile svg line[stroke="#eee"] { stroke: var(--rule); }
-.ui .r-profile svg text[fill="#777"] { fill: var(--muted); }
-.ui .r-profile svg text:not([fill]) { fill: var(--ink); }
+/* The chart's colours: tokens (ui/tokens.css, the profile's --r-* and the map's line colours), each curve by its class
+   (Profile.tsx draws no colour: step 3d G6, the scope review's finding 2); its terrain's fill darker in the dark theme */
+.ui .r-profile svg text { fill: var(--ink); }
+.ui .r-profile svg .fal-axis { fill: var(--muted); }
+.ui .r-profile svg .fal-grid { stroke: var(--rule); }
+.ui .r-profile svg .fal-terrain { fill: var(--r-terrain-fill); stroke: var(--r-terrain-line); }
+.ui .r-profile svg .fal-trees { fill: var(--r-trees-fill); }
+.ui .r-profile svg .fal-water { fill: var(--r-water-fill); stroke: var(--r-water); }
+.ui .r-profile svg .fal-fall { fill: var(--r-fall-fill); }
+.ui .r-profile svg .fal-limit { stroke: var(--r-limit); }
+.ui .r-profile svg .fal-envelope { stroke: var(--r-envelope); }
+.ui .r-profile svg .fal-webbing { stroke: var(--map-clean); }
+.ui .r-profile svg .fal-webbing.fal-over { stroke: var(--map-over); }
+.ui .r-profile svg .fal-end { fill: var(--map-clean); }
+.ui .r-profile svg .fal-end.fal-over { fill: var(--map-over); }
+.ui .r-profile svg .fal-mark-min { stroke: var(--r-terrain-line); }
+.ui .r-profile svg .fal-mark-trees { stroke: var(--r-trees); }
+.ui .r-profile svg .fal-mark-highest { stroke: var(--r-envelope); }
+/* the layers' swatches (Profile.tsx LAYERS: fal-sw-<layer>) and the safety limit's in the key */
+.ui .r-profile .fal-sw-webbing { height: 3px; background: var(--map-clean); }
+.ui .r-profile .fal-sw-athlete { height: 2px; background: var(--r-athlete); }
+.ui .r-profile .fal-sw-envelope { height: 0; border-top: 2px dotted var(--r-envelope); }
+.ui .r-profile .fal-sw-fall { height: 8px; background: var(--r-fall-fill); border: 1px solid var(--r-limit); }
+.ui .r-profile .fal-sw-limit { height: 0; border-top: 2px dashed var(--r-limit); }
 .ui .r-profile svg line.fal-cursor { stroke: var(--ink); }
 /* the webbing loaded by the athlete under the cursor: near black on a dark surface otherwise */
 .ui .r-profile svg .fal-loaded { stroke: var(--ink); }
@@ -65,8 +84,8 @@
 .ui .r-profile svg .fal-frame polyline { stroke: var(--r-frame); }
 .ui .r-profile svg .fal-frame circle { fill: var(--r-frame); }
 .ui .r-profile svg .fal-frame-label { fill: var(--r-frame); }
-/* The labels of the highest point, the trees and the smallest clearance: the hue of their curve (Profile.tsx PROFILE,
-   which stays the curves' colour), as text at 4.5:1 or more on the card's --surface in each theme */
+/* The labels of the highest point, the trees and the smallest clearance: the hue of their curve (--r-envelope,
+   --r-trees, --r-terrain-line), as text at 4.5:1 or more on the card's --surface in each theme */
 
 .ui .r-profile svg .fal-label-highest { fill: var(--r-highest-label); }
 .ui .r-profile svg .fal-label-trees { fill: var(--r-trees-label); }

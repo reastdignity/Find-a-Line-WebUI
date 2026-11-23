@@ -18,23 +18,13 @@ import { chartFrame, chartLabels, frameLeg, MARGIN as M, type ChartMarks, type M
 import * as Sag from "./sag";
 import { clearanceText } from "./tight";
 import { Icon } from "./ui/icons";
-import { COLORS } from "./style";
 import type { Line, Rigging } from "./types";
 
-export const PROFILE = {terrain: "#8a7656", terrainFill: "#e3d8c3", trees: "#3f8f35",
-                        treesFill: "rgba(76,153,60,0.45)", limit: "#d62728", envelope: "#6a3d9a",
-                        fallFill: "rgba(214,39,40,0.12)", athlete: "#222", water: "#2f6fc0",
-                        waterFill: "rgba(47,111,192,0.45)", zone: "#2350c8", zoneFill: "rgba(35,80,200,0.11)",
-                        frame: "#3c4e52"};
 // a rigging field's step and its label's key (ui.profile.rig.<name>: the unit first, after the number field)
 const RIGGING: [keyof Rigging, number][] = [
   ["pretension", 0.1], ["stretch", 0.5], ["webbing_weight", 5], ["athlete_mass", 5], ["fall_zone", 0.5]];
 type LayerName = "webbing" | "athlete" | "envelope" | "fall";
-const LAYERS: [LayerName, string][] = [
-  ["webbing", "height:3px;background:" + COLORS.clean],
-  ["athlete", "height:2px;background:" + PROFILE.athlete],
-  ["envelope", "border-top:2px dotted " + PROFILE.envelope + ";height:0"],
-  ["fall", "height:8px;background:" + PROFILE.fallFill + ";border:1px solid " + PROFILE.limit]];
+const LAYERS: LayerName[] = ["webbing", "athlete", "envelope", "fall"];  // each with its swatch fal-sw-<name> (profile.css)
 // The chart's height: fixed, or in fill mode its box's (a card the user resizes), at least CHART_MIN
 const HEIGHT = 170, CHART_MIN = 120;
 // The chart's text, px (R1's smallest: the user's "12 a", 11 before), and its labels' boxes for labels.ts' layout at
@@ -42,8 +32,33 @@ const HEIGHT = 170, CHART_MIN = 120;
 // each (they stood on touching lines on the narrow card: the UX task's P1)
 const TEXT_PX = 12, LABEL_BOXES = {ascent: 13, descent: 3, pad: 2};
 
-function Swatch({style, class: cls}: {style?: string; class?: string}) {
-  return <span class={"fal-swatch" + (cls ? " " + cls : "")} style={style}></span>;
+// The readout's parts under the cursor (and their widest values for its room): a label with a colon each, joined
+// by "; " (R9 and docs/wording.md: no " · " between values); the water, a filled gap, the clearance over the trees
+// and the zone in brackets after the part they belong to
+export type ReadValues = {at: string; z?: string; water?: boolean; gap?: boolean; s?: string; limit?: string; clear?: string;
+                          over?: string; zone?: boolean; sag?: string; kn?: string; above?: string};
+export function readText(v: ReadValues): string {
+  const parts = [t("ui.profile.read_at", {d: v.at})];
+  // (the water and a filled gap stand after the terrain's part, or after the distance where the terrain has no value)
+  const marks = [v.water && t("ui.profile.read_water"), v.gap && t("ui.profile.read_gap")].filter(Boolean);
+  if (v.z !== undefined) parts.push([t("ui.profile.read_terrain", {m: v.z}), ...marks].join(" "));
+  else if (marks.length) parts[0] += " " + marks.join(" ");
+  if (v.s !== undefined) parts.push(t("ui.profile.read_trees", {m: v.s}));
+  if (v.limit !== undefined) parts.push(t("ui.profile.read_limit", {m: v.limit}));
+  if (v.clear !== undefined) {
+    parts.push(v.over !== undefined ? t("ui.profile.read_clear", {m: v.clear}) + " " + t("ui.profile.read_over", {m: v.over})
+      : t("ui.profile.read_clear", {m: v.clear}));
+  }
+  if (v.zone) parts[parts.length - 1] += " " + t("ui.profile.in_zone");
+  if (v.sag !== undefined) {
+    parts.push(t("ui.profile.read_athlete", {sag: v.sag, kn: v.kn}) +
+               (v.above !== undefined ? ", " + t("ui.profile.read_above", {m: v.above}) : ""));
+  }
+  return parts.join("; ");
+}
+
+function Swatch({class: cls}: {class?: string}) {
+  return <span class={"fal-swatch" + (cls ? " " + cls : "")}></span>;
 }
 
 function niceStep(span: number, count: number): number {
@@ -118,7 +133,7 @@ export function ProfilePanel(props: ProfileProps) {
   const est = useMemo(() => Sag.estimate(l.len, l.e1 - l.e2, rigging), [l, rigging]);
   const H = fill ? Math.max(CHART_MIN, boxHeight) : HEIGHT;
   const W = width;
-  const color = l.over ? COLORS.over : COLORS.clean;
+  const over = l.over ? " fal-over" : "";  // the line's colour (the map's: style.ts COLORS, tokens --map-clean, --map-over)
   const chord = (d: number) => l.e1 + (l.e2 - l.e1) * d / l.len;
   const fall = rigging.fall_zone;
   const envelopeAt = (d: number) => chord(d) - est!.sagAt(d / l.len);
@@ -150,12 +165,12 @@ export function ProfilePanel(props: ProfileProps) {
   const grid = [];
   const yStep = niceStep(visibleMax - visibleMin, 4);
   for (let z = Math.ceil(visibleMin / yStep) * yStep; z <= visibleMax; z += yStep) {
-    grid.push(<line x1={M.l} x2={W - M.r} y1={Y(z)} y2={Y(z)} stroke="#eee" />);
-    grid.push(<text x={M.l - 6} y={Y(z) + 4} text-anchor="end" fill="#777">{z.toFixed(0) + " m"}</text>);
+    grid.push(<line class="fal-grid" x1={M.l} x2={W - M.r} y1={Y(z)} y2={Y(z)} />);
+    grid.push(<text class="fal-axis" x={M.l - 6} y={Y(z) + 4} text-anchor="end">{z.toFixed(0) + " m"}</text>);
   }
   const xStep = niceStep(l.len, 6);
   for (let d = 0; d <= l.len + 0.01; d += xStep) {
-    grid.push(<text x={X(d)} y={H - 6} text-anchor="middle" fill="#777">{d.toFixed(0) + " m"}</text>);
+    grid.push(<text class="fal-axis" x={X(d)} y={H - 6} text-anchor="middle">{d.toFixed(0) + " m"}</text>);
   }
 
   const ground: string[] = [], top: string[] = [], bottom: string[] = [];
@@ -203,7 +218,7 @@ export function ProfilePanel(props: ProfileProps) {
     if (!isFinite(topZ)) return null;
     // the clearance as the rows write it (tight.ts: a tight line's rounded down); over the trees as before
     const value = kind === "min" ? clearanceText(min[1]) : min[1].toFixed(1);
-    return {d: min[0], top: topZ, bottom: topZ - min[1], texts: [t(`ui.profile.mark_${kind}`, {m: value})], at};
+    return {d: min[0], top: topZ, bottom: topZ - min[1], texts: [t(kind === "min" ? "ui.profile.clear" : "ui.profile.mark_trees", {m: value})], at};
   };
   const minMark = minTerrain ? markerOf(minTerrain, "min", "below") : null;
   const treesMark = minTerrain && minSurface && minSurface[1] < minTerrain[1] - 0.05
@@ -246,8 +261,8 @@ export function ProfilePanel(props: ProfileProps) {
     : estimateWidth(text, bold, TEXT_PX);
   const placed = chartLabels(frame, marks, measure, LABEL_BOXES);
   const label = (id: string) => placed.find((q) => q.id === id);
-  const labelText = (q: PlacedLabel | undefined, cls: string, fill?: string, bold = false) => q &&
-    <text class={"fal-label " + cls} x={q.x} y={q.y} text-anchor={q.anchor} fill={fill}
+  const labelText = (q: PlacedLabel | undefined, cls: string, bold = false) => q &&
+    <text class={"fal-label " + cls} x={q.x} y={q.y} text-anchor={q.anchor}
           font-weight={bold ? "bold" : undefined}>{q.text}</text>;
 
   let summary = t("ui.profile.sag_none");
@@ -258,30 +273,6 @@ export function ProfilePanel(props: ProfileProps) {
                                    free: Math.max(...est.unloaded.map((e) => e[1] - (l.e1 - l.e2) * e[0] / l.len)).toFixed(2)});
   }
 
-  // The readout's parts under the cursor (and their widest values for its room): a label with a colon each, joined
-  // by "; " (R9 and docs/wording.md: no " · " between values); the water, a filled gap, the clearance over the trees
-  // and the zone in brackets after the part they belong to
-  type ReadValues = {at: string; z?: string; water?: boolean; gap?: boolean; s?: string; limit?: string; clear?: string;
-                     over?: string; zone?: boolean; sag?: string; kn?: string; above?: string};
-  const readText = (v: ReadValues): string => {
-    const parts = [t("ui.profile.read_at", {d: v.at})];
-    if (v.z !== undefined) {
-      parts.push([t("ui.profile.read_terrain", {m: v.z}), v.water && t("ui.profile.read_water"),
-                  v.gap && t("ui.profile.read_gap")].filter(Boolean).join(" "));
-    }
-    if (v.s !== undefined) parts.push(t("ui.profile.read_trees", {m: v.s}));
-    if (v.limit !== undefined) parts.push(t("ui.profile.read_limit", {m: v.limit}));
-    if (v.clear !== undefined) {
-      parts.push(v.over !== undefined ? t("ui.profile.read_clear", {m: v.clear}) + " " + t("ui.profile.read_over", {m: v.over})
-        : t("ui.profile.read_clear", {m: v.clear}));
-    }
-    if (v.zone) parts[parts.length - 1] += " " + t("ui.profile.in_zone");
-    if (v.sag !== undefined) {
-      parts.push(t("ui.profile.read_athlete", {sag: v.sag, kn: v.kn}) +
-                 (v.above !== undefined ? ", " + t("ui.profile.read_above", {m: v.above}) : ""));
-    }
-    return parts.join("; ");
-  };
 
   // Under the cursor: readout, the loaded webbing, the point on the map
   let readout = summary, athlete: Sag.Athlete | null = null;
@@ -444,11 +435,11 @@ export function ProfilePanel(props: ProfileProps) {
     <span class="u-legend-item"><span class="u-legend-sw fal-sw-terrain" />{t("ui.profile.legend_terrain")}</span>
     <span class="u-legend-item"><span class="u-legend-sw fal-sw-trees" />{t("ui.profile.legend_trees")}</span>
     <span class="u-legend-item"><span class="u-legend-sw fal-sw-water" />{t("ui.profile.legend_water")}</span>
-    <span class="u-legend-item"><Swatch style={"border-top:2px dashed " + PROFILE.limit + ";height:0"} />
+    <span class="u-legend-item"><Swatch class="fal-sw-limit" />
       {t("ui.profile.legend_limit", {model: t(model === "sag" ? "ui.profile.model_sag" : "ui.profile.model_formula")})}</span>
     {zone > 0 && <span class="u-legend-item"><Swatch class="fal-swatch-zone" />{t("ui.profile.legend_zone")}</span>}
     {framed && <span class="u-legend-item"><svg class="fal-swatch-frame" width="12" height="10" viewBox="0 0 12 10" aria-hidden="true">
-      <polyline points="1,10 6,1 11,10" fill="none" stroke={PROFILE.frame} stroke-width="2" /></svg>{t("ui.profile.legend_aframe")}</span>}
+      <polyline points="1,10 6,1 11,10" fill="none" stroke-width="2" /></svg>{t("ui.profile.legend_aframe")}</span>}
   </span>;
   // the kit's button (the user kept "×1.6" as the 3D view's "×1": docs/wording.md)
   const scale = <button type="button" class="u-btn fal-scale" onClick={() => setEqual(!equal)}>
@@ -460,12 +451,12 @@ export function ProfilePanel(props: ProfileProps) {
       const leg = frameLeg(frame, g, h), inner = X(d) + side * leg, outer = X(d) - side * leg;
       return <g class="fal-frame">
         <polyline points={`${outer.toFixed(1)},${Y(g).toFixed(1)} ${X(d).toFixed(1)},${Y(g + h).toFixed(1)} ${inner.toFixed(1)},${Y(g).toFixed(1)}`}
-                  fill="none" stroke={PROFILE.frame} stroke-width={2} stroke-linejoin="round" />
-        <circle cx={X(d)} cy={Y(g)} r={2} fill={PROFILE.frame} />
+                  fill="none" stroke-width={2} stroke-linejoin="round" />
+        <circle cx={X(d)} cy={Y(g)} r={2} />
       </g>;
     }) : null;
-  const marker = (m: MarkerMark | null, stroke: string, width: number, dash?: string) => m &&
-    <line x1={X(m.d)} x2={X(m.d)} y1={Y(m.top)} y2={Y(m.bottom)} stroke={stroke} stroke-width={width}
+  const marker = (m: MarkerMark | null, cls: string, width: number, dash?: string) => m &&
+    <line class={cls} x1={X(m.d)} x2={X(m.d)} y1={Y(m.top)} y2={Y(m.bottom)} stroke-width={width}
           stroke-dasharray={dash} />;
 
   return <div class={"fal-profile" + (fill ? " fal-fill" : "") + (compact ? " fal-compact" : "")}
@@ -479,7 +470,7 @@ export function ProfilePanel(props: ProfileProps) {
         {scale}{" "}
         {/* the kit's close (components.tsx CloseButton's markup: this file is in the 3D view's bundle too, which
             does not take the kit's components) */}
-        <button type="button" class="u-ib u-x fal-close" aria-label={t("ui.profile.close")} title={t("ui.profile.close")}
+        <button type="button" class="u-ib u-x fal-close" aria-label={t("ui.dock.close")} title={t("ui.dock.close")}
                 onClick={props.onClose}><Icon name="close" /></button>
       </div>
     </div>}
@@ -492,54 +483,53 @@ export function ProfilePanel(props: ProfileProps) {
       <span class="fal-rigging">{RIGGING.map(([key, step]) =>
         <label><input type="number" min={0} step={step} value={rigging[key]}
                       onChange={(e) => setRig(key, e.currentTarget)} /> {t(`ui.profile.rig.${key}`)}</label>)}</span>
-      <span class="fal-layers">{LAYERS.map(([key, style]) =>
+      <span class="fal-layers">{LAYERS.map((key) =>
         <label><input type="checkbox" class="u-check" checked={show[key]}
                       onChange={(e) => setShow({...show, [key]: e.currentTarget.checked})} />{" "}
-          <Swatch style={style} /> {t(`ui.profile.layer.${key}`)}</label>)}</span>
+          <Swatch class={"fal-sw-" + key} /> {t(`ui.profile.layer.${key}`)}</label>)}</span>
     </div>
     <div class="fal-profile-chart" ref={chartRef}>
       <svg width={W} height={H} font-size={TEXT_PX}>
         {grid}
         {zone > 0 && [[0, zone], [l.len - zone, l.len]].map(([a, b], k) => <g class="fal-zone">
-          <rect class="fal-zone-band" x={X(a)} y={M.t} width={(b - a) * sx} height={ph} fill={PROFILE.zoneFill} />
-          <line class="fal-zone-edge" x1={X(k ? a : b)} x2={X(k ? a : b)} y1={M.t} y2={H - M.b} stroke={PROFILE.zone}
+          <rect class="fal-zone-band" x={X(a)} y={M.t} width={(b - a) * sx} height={ph} />
+          <line class="fal-zone-edge" x1={X(k ? a : b)} x2={X(k ? a : b)} y1={M.t} y2={H - M.b}
                 stroke-width={1} stroke-dasharray="4 3" />
         </g>)}
-        {est && show.fall && <polygon fill={PROFILE.fallFill} stroke="none" points={
+        {est && show.fall && <polygon class="fal-fall" stroke="none" points={
           dsamples.map((d) => pt(d, envelopeAt(d))).concat(
             dsamples.map((d) => pt(d, envelopeAt(d) - fall)).reverse()).join(" ")} />}
-        {p.s && <polygon points={top.concat(bottom).join(" ")} fill={PROFILE.treesFill} stroke="none" />}
-        <polygon points={ground.concat([base(l.len), base(0)]).join(" ")} fill={PROFILE.terrainFill}
-                 stroke={PROFILE.terrain} stroke-width={1} />
+        {p.s && <polygon class="fal-trees" points={top.concat(bottom).join(" ")} stroke="none" />}
+        <polygon class="fal-terrain" points={ground.concat([base(l.len), base(0)]).join(" ")} stroke-width={1} />
         {water.map((points) =>
-          <polygon points={points} fill={PROFILE.waterFill} stroke={PROFILE.water} stroke-width={1} />)}
-        <polyline points={dsamples.map((d) => pt(d, limit(d))).join(" ")} fill="none" stroke={PROFILE.limit}
-                  stroke-width={1.5} stroke-dasharray="6 4" />
+          <polygon class="fal-water" points={points} stroke-width={1} />)}
+        <polyline points={dsamples.map((d) => pt(d, limit(d))).join(" ")} fill="none"
+                  class="fal-limit" stroke-width={1.5} stroke-dasharray="6 4" />
         {est && show.envelope && <polyline points={dsamples.map((d) => pt(d, envelopeAt(d))).join(" ")}
-                                           fill="none" stroke={PROFILE.envelope} stroke-width={1.5}
+                                           class="fal-envelope" fill="none" stroke-width={1.5}
                                            stroke-dasharray="2 3" />}
-        {show.webbing && <polyline fill="none" stroke={color} stroke-width={2.5} points={
+        {show.webbing && <polyline class={"fal-webbing" + over} fill="none" stroke-width={2.5} points={
           (est ? est.unloaded.map((e) => pt(e[0], l.e1 - e[1])) : [pt(0, l.e1), pt(l.len, l.e2)]).join(" ")} />}
-        {athlete && <polyline class="fal-loaded" fill="none" stroke={PROFILE.athlete} stroke-width={1.5}
+        {athlete && <polyline class="fal-loaded" fill="none" stroke-width={1.5}
                               points={athlete.curve.map((e) => pt(e[0], l.e1 - e[1])).join(" ")} />}
-        {athlete && hover !== null && <circle class="fal-athlete" r={4} fill={PROFILE.athlete} cx={X(hover)}
+        {athlete && hover !== null && <circle class="fal-athlete" r={4} cx={X(hover)}
                                               cy={Y(chord(hover) - athlete.sag)} />}
-        {marker(minMark, PROFILE.terrain, 2)}
-        {marker(treesMark, PROFILE.trees, 2)}
-        {marker(highMark, PROFILE.envelope, 1.5, "4 3")}
+        {marker(minMark, "fal-mark-min", 2)}
+        {marker(treesMark, "fal-mark-trees", 2)}
+        {marker(highMark, "fal-mark-highest", 1.5, "4 3")}
         {aframes}
-        {([[0, l.e1], [l.len, l.e2]] as [number, number][]).map(([d, z]) => <circle cx={X(d)} cy={Y(z)} r={4} fill={color} />)}
-        {labelText(label("highest"), "fal-label-highest", PROFILE.envelope)}
-        {labelText(label("zone1"), "fal-zone-label", PROFILE.zone)}
-        {labelText(label("zone2"), "fal-zone-label", PROFILE.zone)}
-        {labelText(label("aframe1"), "fal-frame-label", PROFILE.frame)}
-        {labelText(label("aframe2"), "fal-frame-label", PROFILE.frame)}
-        {labelText(label("trees"), "fal-label-trees", PROFILE.trees)}
-        {labelText(label("min"), "fal-label-min", PROFILE.terrain)}
-        {labelText(label("anchor1"), "fal-label-anchor", undefined, true)}
-        {labelText(label("anchor2"), "fal-label-anchor", undefined, true)}
+        {([[0, l.e1], [l.len, l.e2]] as [number, number][]).map(([d, z]) => <circle class={"fal-end" + over} cx={X(d)} cy={Y(z)} r={4} />)}
+        {labelText(label("highest"), "fal-label-highest")}
+        {labelText(label("zone1"), "fal-zone-label")}
+        {labelText(label("zone2"), "fal-zone-label")}
+        {labelText(label("aframe1"), "fal-frame-label")}
+        {labelText(label("aframe2"), "fal-frame-label")}
+        {labelText(label("trees"), "fal-label-trees")}
+        {labelText(label("min"), "fal-label-min")}
+        {labelText(label("anchor1"), "fal-label-anchor", true)}
+        {labelText(label("anchor2"), "fal-label-anchor", true)}
         {hover !== null && <line class="fal-cursor" x1={X(hover)} x2={X(hover)} y1={M.t} y2={H - M.b}
-                                 stroke="#333" stroke-dasharray="2 2" />}
+                                 stroke-dasharray="2 2" />}
         <rect class="fal-hover" x={M.l} y={M.t} width={pw} height={ph} fill="transparent" tabIndex={0}
               role="slider" aria-label={t("ui.profile.slider")} aria-valuemin={0}
               aria-valuemax={Math.round(l.len)} aria-valuenow={hover === null ? undefined : Math.round(hover)}
