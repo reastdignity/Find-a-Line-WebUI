@@ -34,7 +34,8 @@ def test_declarations():
     nl = src.SOURCES["netherlands"]
     assert nl.countries == ("nl",) and nl.bbox == netherlands.NL_BOX and nl.crs == "EPSG:28992"
     assert nl.default_resolution == 1.0 and nl.fallbacks == ["europe"]
-    assert nl.neighbours == ("north_rhine_westphalia",)  # Lower Saxony has six already (countcube.PARTNERS)
+    # Lower Saxony has six already (countcube.PARTNERS); Wallonia (2026-11-23) last
+    assert nl.neighbours == ("north_rhine_westphalia", "wallonia")
     for layer, coverage in ((nl.nmt, "dtm_05m"), (nl.nmpt, "dsm_05m")):
         assert (layer.coverage, layer.fetch_res, layer.tile_px, layer.crs) == (coverage, 0.5, 2000, "EPSG:28992")
         assert layer.url == netherlands.NL_WCS and layer.ttl_days is None
@@ -109,7 +110,7 @@ def test_offline_boxes():
     (50.85, 4.35, None),    # Brussels
     (51.22, 4.40, None),    # Antwerp
     (51.05, 3.72, None),    # Ghent
-    (50.63, 5.57, None),    # Liège
+    (50.63, 5.57, "be"),    # Liège: Wallonia's box (2026-11-23)
     (51.21, 3.22, None),    # Bruges
     (51.32, 4.95, None),    # Turnhout
     (51.10, 5.79, None),    # Maaseik

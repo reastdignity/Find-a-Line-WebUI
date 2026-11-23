@@ -340,7 +340,9 @@ GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", 
                      "jp-13": "kanto", "jp-22": "chubu",
                      # Hong Kong (the region cn-hk of Nominatim's "cn"): Geofabrik's "hong-kong" (asia/china/hong-kong,
                      # 38 MB; China whole is 1.6 GB; checked 2026-11-16)
-                     "cn-hk": "hong-kong"}
+                     "cn-hk": "hong-kong",
+                     # Wallonia: Geofabrik's "belgium" (700 MB), which has no regions (checked 2026-11-23)
+                     "be-wal": "belgium"}
 # ... and by source, for a source covering a part of its country that Geofabrik keeps apart
 GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",),
                        # France's overseas territories (checked in Geofabrik's index, 2026-11-15): its "france"
