@@ -56,9 +56,9 @@ What each part holds: docs/code-map/web.md (`metrics.py`, `servicecounts.py`), d
 - The units on the host and Grafana's alert on failed units (D1 of docs/monitoring.md, in
   `deploy/monitoring/grafana/`): `nginx.service`, `docker.service`, `fail2ban.service`, `ssh.service`,
   `certbot.timer`, `findaline-backup.timer`, `findaline-facts.timer`, `findaline-check.timer`,
-  `findaline-heartbeat.timer`, `unattended-upgrades.service` (not `telegraf.service`: stopped, it cannot report
-  itself; G2's alert on missing samples does); a unit renamed or added in `deploy/monitoring/systemd/` or `vps.sh`
-  (`MONITORING_TIMERS`, `backups`) changes the alert too.
+  `findaline-heartbeat.timer`, `findaline-usa-renewal.timer`, `unattended-upgrades.service` (not `telegraf.service`:
+  stopped, it cannot report itself; G2's alert on missing samples does); a unit renamed or added in
+  `deploy/monitoring/systemd/` or `vps.sh` (`MONITORING_TIMERS`, `backups`, `usa_renewal`) changes the alert too.
 
 - The data server's checks (C7, C8): `mirror_http_response` and `mirror_x509_cert` in `telegraf.conf`, measurements of
   their own (the site's C5, C6 and G2 read `http_response`/`x509_cert` by host), their address the client's

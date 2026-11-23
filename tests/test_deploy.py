@@ -2,8 +2,8 @@
 the host (deploy/nginx, deploy/fail2ban, deploy/firewall, deploy/monitoring): the fail2ban filter
 and the masking of the access log, with Python's re (fail2ban's own engine; nginx's PCRE patterns
 differ only in the spelling of named groups), the metrics log without addresses and its route
-groups, the monitoring's bridge in the firewall, the monitoring's systemd units and the SSH login
-notice (pam_exec). nginx itself runs in tests/nginx_check.sh (CI, the docker job)."""
+groups, the monitoring's bridge in the firewall, the monitoring's systemd units, the SSH login
+notice (pam_exec) and the monthly renewal of the USA's index (its units, run in bash). nginx itself runs in tests/nginx_check.sh (CI, the docker job)."""
 
 import configparser
 import glob
@@ -468,6 +468,107 @@ def test_secret_files(tmp_path):
         assert f"chown {uid}:{uid} {repo.as_posix()}/secrets/{name}" in log, name
         assert f"chmod 400 {repo.as_posix()}/secrets/{name}" in log, name
     assert len(log) == 2 * len(examples)
+
+
+def test_usa_renewal_step():
+    """The USA's 1 m index every month (the user's D3a; docs/deployment.md, section 13): the interval in one place
+    (USA_RENEWAL_CALENDAR, the timer's only OnCalendar), the units installed in setup and update after the start and
+    before the monitoring (Telegraf lists the timer for D1, and a timer it lists unloaded fires the alert), `check`
+    looking at the timer."""
+    vps = _read("vps.sh")
+    assert re.findall(r"^USA_RENEWAL_CALENDAR='([^']*)'$", vps, re.M) == ["*-*-01 04:00"]
+    assert vps.count("*-*-01 04:00") == 1   # the calendar nowhere else
+    body = vps[vps.index("\nusa_renewal() {"):]
+    body = body[:body.index("\n}")]
+    assert re.findall(r"^OnCalendar=.*$", body, re.M) == ["OnCalendar=$USA_RENEWAL_CALENDAR"]
+    for function, before in (("setup", "backups"), ("update", "monitoring")):
+        steps = vps[vps.index(f"\n{function}() {{"):]
+        steps = steps[:steps.index("\n}")]
+        assert steps.count("usa_renewal\n") == 1, function
+        assert steps.index("start\n") < steps.index("usa_renewal\n") < steps.index(f"{before}\n"), function
+        assert steps.index("usa_renewal\n") < steps.index("monitoring"), function
+    check = vps[vps.index("\ncheck() {"):]
+    assert 'systemctl is-enabled "$USA_RENEWAL.timer"' in check[:check.index("\n}")]
+    assert re.search(r"^USA_RENEWAL=findaline-usa-renewal$", vps, re.M)
+    with open(os.path.join(DEPLOY, "monitoring", "telegraf.conf"), encoding="utf-8") as f:
+        assert "findaline-usa-renewal.timer" in re.findall(r'^  pattern = "(.*)"$', f.read(), re.M)[1].split()
+
+
+def _usa_renewal(tmp_path, runs, notify=False):
+    """usa_renewal run `runs` times (a list of shell lines run before each) with the real put, its units in
+    tmp_path/units, systemctl a stand-in that logs its calls and keeps the timer's enabled state in a file; returns
+    the outputs and systemctl's calls of each run."""
+    units = tmp_path / "units"
+    units.mkdir(parents=True, exist_ok=True)
+    if notify:
+        (units / "notify-failure@.service").write_text("[Service]\nType=oneshot\nExecStart=/usr/bin/true %i\n")
+    results = []
+    for k, before in enumerate(runs):
+        log = tmp_path / f"systemctl.{k}"
+        script = tmp_path / "run.sh"
+        script.write_text('source "$1"\nREPO=/srv/find-a-line-webui\nUNITS=$2\nNOTIFY_FAILURE=$UNITS/notify-failure@.service\n'
+                          'LOG=$3\nsystemctl() {\n    echo "$*" >> "$LOG"\n    case $1 in\n'
+                          '        enable) touch "$UNITS/enabled" ;;\n        disable) rm -f "$UNITS/enabled" ;;\n'
+                          '        is-enabled) [ -f "$UNITS/enabled" ] ;;\n        *) return 0 ;;\n    esac\n}\n'
+                          + before + "\nusa_renewal\n", newline="\n")
+        result = subprocess.run([_bash(), script.as_posix(), os.path.join(DEPLOY, "vps.sh").replace("\\", "/"),
+                                 units.as_posix(), log.as_posix()], capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0, result.stderr
+        results.append((result.stdout + result.stderr, log.read_text().splitlines() if log.exists() else []))
+    return units, results
+
+
+@pytest.mark.skipif(_bash() is None, reason="no bash")
+def test_usa_renewal_units(tmp_path):
+    """The service runs `cache update usa` in the worker's container as cache_migrate does (compose exec -T), bounded
+    inside the container (timeout: a killed client leaves its process running there) and by systemd a little longer;
+    the timer once a month with a random delay fixed per machine and Persistent (a month missed while the server was
+    off is caught up once). A second run changes nothing, a timer the operator turned off stays off, OnFailure= only
+    when the host has notify-failure@.service."""
+    units, results = _usa_renewal(tmp_path, ["", "", "systemctl disable --now findaline-usa-renewal.timer", ""])
+    (first, calls1), (second, calls2), (off, calls3), _ = results
+    assert "wrote" in first and calls1[0] == "daemon-reload" and "enable -q --now findaline-usa-renewal.timer" in calls1
+    assert "no notify-failure@.service" in first
+    assert "wrote" not in second and not [c for c in calls2 if c.startswith(("daemon-reload", "enable"))]
+    assert "is off" in off and not [c for c in calls3 if c.startswith("enable")]
+    service, timer = _unit_file(units / "findaline-usa-renewal.service"), _unit_file(units / "findaline-usa-renewal.timer")
+    assert "OnFailure" not in service["Unit"] and service["Unit"]["After"] == "network-online.target docker.service"
+    assert service["Service"]["Type"] == "oneshot"
+    start = service["Service"]["ExecStart"]
+    repo = "/srv/find-a-line-webui"
+    prefix = (f"/usr/bin/docker compose --project-directory {repo} -f {repo}/compose.yaml exec -T worker "
+              f"timeout 6h sh -c '")
+    assert start.startswith(prefix) and start.endswith("'"), start
+    assert service["Service"]["TimeoutStartSec"] == "6h 10min"
+    assert dict(timer["Timer"]) == {"OnCalendar": "*-*-01 04:00", "RandomizedDelaySec": "4h",
+                                    "FixedRandomDelay": "true", "Persistent": "true"}
+    assert timer["Install"]["WantedBy"] == "timers.target"
+    # The command inside the container: no folder of the USA, one line and success without the app; with it the app's
+    # `cache update usa` and its exit code (1: a check failed; the unit fails)
+    inner = start[len(prefix):-1]
+    data = tmp_path / "data"
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "python").write_text('#!/bin/sh\necho "python $*"\nexit 1\n', newline="\n")
+    os.chmod(bin_ / "python", 0o755)
+    env = {**os.environ, "PATH": str(bin_) + os.pathsep + os.environ.get("PATH", "")}
+    script = inner.replace("/data/cache/usa", (data / "cache" / "usa").as_posix())
+    nothing = subprocess.run([_bash(), "-c", script], capture_output=True, text=True, timeout=30, env=env)
+    assert (nothing.returncode, nothing.stdout) == (0, "No cached data of the USA: nothing to renew\n")
+    (data / "cache" / "usa").mkdir(parents=True)
+    update = subprocess.run([_bash(), "-c", script], capture_output=True, text=True, timeout=30, env=env)
+    assert (update.returncode, update.stdout) == (1, "python findaline.py cache update usa\n")
+    # notify-failure@.service on the host: the failed run reported (section 11)
+    units, results = _usa_renewal(tmp_path / "with", [""], notify=True)
+    assert _unit_file(units / "findaline-usa-renewal.service")["Unit"]["OnFailure"] == "notify-failure@%N.service"
+    assert "no notify-failure@.service" not in results[0][0]
+
+
+def _unit_file(path):
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    parser.optionxform = str
+    parser.read(path, encoding="utf-8")
+    return parser
 
 
 def test_push_cube_script(tmp_path):

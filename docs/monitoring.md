@@ -158,7 +158,7 @@ Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 d
 **D. Services and security**
 | # | What | Why / alert | How | Priority | Phase |
 | --- | --- | --- | --- | --- | --- |
-| D1 | systemd units: nginx, docker, fail2ban, ssh, `certbot.timer`, `findaline-backup.timer`, the facts and heartbeat timers, unattended-upgrades | alert: a unit in state failed | `systemd_units` through the D-Bus socket (mounted read-only) | P1 | 1 |
+| D1 | systemd units: nginx, docker, fail2ban, ssh, `certbot.timer`, `findaline-backup.timer`, the facts, check and heartbeat timers, `findaline-usa-renewal.timer` (the USA's index every month, deployment.md section 13: a failed run is its service's, reported by `notify-failure@`, not here), unattended-upgrades | alert: a unit in state failed | `systemd_units` through the D-Bus socket (mounted read-only) | P1 | 1 |
 | D2 | fail2ban: banned now and bans per hour (jails `findaline`, `sshd`), counts only | alert: a sudden jump (an attack, or a legitimate user banned) | the host facts (`fail2ban-client status <jail>`, numbers only) → input `file` | P2 | 1 |
 | D3 | `vps.sh check` once a day (the firewall from inside the containers, headers, SSH, the jail) | alert: any FAIL | the host facts (the number of FAIL lines and the time of the check) → input `file` | P2 | 1 |
 | D4 | Successful SSH logins | info, each one (straight from the host to ntfy) | `pam_exec` in sshd's session: a message to ntfy and a count in `ssh.json` → input `file` | P3 | 3 |
