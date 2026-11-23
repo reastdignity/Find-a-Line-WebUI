@@ -9,6 +9,16 @@ The command line (fixed for the study):
     python tools/prune_study.py <table folder> --rule <name> [--param k=v ...] [--rules-file F]
         [--radius M] [--known DIR] [--pictures] --out <folder>
         [--cache DIR | --no-cache] [--threads N] [--picture-places N] [--terrain F.npz]
+    python tools/prune_study.py <run without the square rule> --ranges <run with it> --out <folder>
+        [--filters N] [--seed S]
+
+--ranges (not a rule: a report of the square rule's ranges, step 2e): two runs of one search, one without
+--same-line-square (its store holds every found line) and one with it; ranges_check's four checks (the pairs
+of squares are the kept lines with their counts; each kept line's lo / hi is the outward float32 of the least
+/ most stored value of its pair; no found line passing a random filter over the six values has its kept line
+failing by "its own value or its range"; the share of kept lines named too many per filter) into
+<out>/ranges.json and <out>/ranges.md, from the stores' own values (linestore.read, never the CSV's). Exit
+status 1 when one of the first three fails.
 
 <table folder>: a run's folder as a search saves it (read only): its store (lines.arrow) and run.json,
 or, for a run saved before the store (2026-11-15), its lines.csv and run.json (lines.js beside them when
@@ -1420,6 +1430,222 @@ def draw_places(result: Audit, out: str, count: int = PICTURE_PLACES) -> List[st
 
 
 # ---------------------------------------------------------------------------------------------
+# the ranges of the square rule's kept lines (step 2e): a report on two runs of one search, not a rule
+
+# The filters of the page that a kept line passes by its own value or by its range (docs: the store's
+# specification, section 3; the round's interface, section 5): filter -> (the value, the range column it may pass
+# by, the test). "liftMaxNoZone" is liftMax with the switch "without the no-fall zone" on (never both at once).
+RANGE_BOUNDS = {"lenMin": ("length", "length_hi", "min"), "lenMax": ("length", "length_lo", "max"),
+                "clrMin": ("clearance", "clearance_hi", "min"), "heightMin": ("height_max", "height_max_hi", "min"),
+                "meanMin": ("height_mean", "height_mean_hi", "min"),
+                "liftMax": ("lift_needed", "lift_needed_lo", "lift"),
+                "liftMaxNoZone": ("lift_no_zone", "lift_no_zone_lo", "lift")}
+RANGE_VALUES = ("length", "clearance", "height_max", "height_mean", "lift_needed", "lift_no_zone")
+LIFT_EPS = 1e-9  # the page's slack of "A-frame needed at most" (viewer/src/filters.ts passes)
+STUDY_SHARE = (1.0, 17.0)  # % of kept lines named too many by a range in the earlier study (spec-store.md 3)
+
+
+def _own_passes(values: np.ndarray, test: str, bound: float) -> np.ndarray:
+    """A line's own value against a bound as the page tests it (filters.ts passes): NaN fails a minimum or a maximum,
+    a missing A-frame need passes."""
+    if test == "min":
+        return values >= bound
+    if test == "max":
+        return values <= bound
+    return ~(values > bound + LIFT_EPS)
+
+
+def _range_passes(values: np.ndarray, test: str, bound: float) -> np.ndarray:
+    """A kept line's range value against a bound (the interface's section 5): a missing (NaN) range never passes."""
+    if test == "min":
+        return values >= bound
+    return values <= (bound + LIFT_EPS if test == "lift" else bound)
+
+
+def _store_columns(folder: str, names: Sequence[str]) -> Tuple[Dict[str, np.ndarray], Dict]:
+    """The store's columns named (the store's own values, unrounded where it keeps them: linestore.read) that it has,
+    and run.json."""
+    import linestore
+    lines, _ = linestore.read(folder, profiles=False, columns=list(names))
+    with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
+        return dict(lines.columns), json.load(f)
+
+
+def _is_outward(got: np.ndarray, want: np.ndarray, down: bool) -> np.ndarray:
+    """Whether each float32 is the outward cast of its float64 (down: the largest float32 not above it, else the
+    smallest not below it; NaN for NaN; an infinity as it is), written as properties, not as a cast."""
+    g = got.astype(np.float64)
+    with np.errstate(over="ignore", invalid="ignore"):
+        step = np.nextafter(got, np.float32(np.inf if down else -np.inf)).astype(np.float64)
+        ok = (g <= want) & (want < step) if down else (step < want) & (want <= g)
+    return ok | (np.isnan(g) & np.isnan(want)) | (np.isinf(want) & (g == want))
+
+
+def ranges_check(full: Dict[str, np.ndarray], kept: Dict[str, np.ndarray], side: float, filters: int = 300,
+                 seed: int = 0) -> Dict:
+    """The four checks of the ranges of one search's kept lines (kept: its run with the square rule, columns as
+    linestore.read gives them: a1_xy, a2_xy, stands_for, the values and their "_lo"/"_hi") against every line it
+    found (full: the run of the same search without the rule), with squares of `side` metres:
+    1. the pairs of squares of the found lines are the kept lines, each stands_for its pair's count;
+    2. each lo / hi is the outward float32 of the least / most stored value of its pair (NaN skipped);
+    3. under `filters` random filters over the six values (single bounds, then 2 to 4 at once; bounds from the values'
+       spread and at exact stored values; a fixed seed) no found line that passes has its kept line failing by
+       "its own value or its range" (misses);
+    4. per filter, the share of kept lines shown although none of their found lines passes (named too many).
+    Returns a dict (JSON-able); nothing of a place is in it (counts, shares, bounds of values)."""
+    import samelines
+    out: Dict = {"side": side, "found": int(len(full["length"])), "kept": int(len(kept["length"]))}
+
+    def keys(c):
+        return samelines.square_keys(c["a1_xy"][:, 0], c["a1_xy"][:, 1], c["a2_xy"][:, 0], c["a2_xy"][:, 1], side)
+    fa, fb = keys(full)
+    ka, kb = keys(kept)
+    both = np.unique(np.column_stack([np.concatenate([ka, fa]), np.concatenate([kb, fb])]), axis=0,
+                     return_inverse=True)[1].ravel()
+    kept_id, found_id = both[:len(ka)], both[len(ka):]
+    of = np.full(int(both.max()) + 1 if len(both) else 0, -1, dtype=np.int64)
+    of[kept_id] = np.arange(len(ka))
+    owner = of[found_id]  # the kept line of each found line's pair (-1: none)
+    counts = np.bincount(owner[owner >= 0], minlength=len(ka))
+    pairs = len(np.unique(found_id))
+    stands = kept.get("stands_for")
+    out["check1"] = {"pairs": int(pairs), "kept_pairs_unique": bool(len(np.unique(kept_id)) == len(ka)),
+                     "found_without_kept": int((owner < 0).sum()), "kept_without_found": int((counts == 0).sum()),
+                     "stands_for_differs": None if stands is None else int((counts != stands).sum()),
+                     "ok": bool(pairs == len(ka) and (owner >= 0).all() and (counts > 0).all()
+                                and stands is not None and np.array_equal(counts, stands))}
+    found_rows = np.flatnonzero(owner >= 0)
+    order = found_rows[np.argsort(owner[found_rows], kind="stable")]
+    starts = np.searchsorted(owner[order], np.arange(len(ka)))
+    present = counts > 0
+    check2 = {}
+    values = [v for v in RANGE_VALUES if v in full]
+    for v in values:
+        least = np.full(len(ka), np.nan)
+        most = np.full(len(ka), np.nan)
+        if len(order):
+            sorted_values = full[v][order]
+            at = starts[present]
+            least[present] = np.fmin.reduceat(sorted_values, at)
+            most[present] = np.fmax.reduceat(sorted_values, at)
+        for column, want, down in ((v + "_lo", least, True), (v + "_hi", most, False)):
+            if column not in kept:
+                check2[column] = None  # not in the store (RANGES of seven)
+                continue
+            check2[column] = int((~_is_outward(kept[column], want, down)).sum())
+    out["check2"] = {"wrong": check2, "ok": all(n == 0 for n in check2.values() if n is not None)}
+    # 3 and 4: random filters
+    rng = np.random.default_rng(seed)
+    bounds = [b for b, (v, _, _) in RANGE_BOUNDS.items() if v in full]
+
+    def draw(name):
+        v = RANGE_BOUNDS[name][0]
+        finite = full[v][np.isfinite(full[v])]
+        if not len(finite):
+            return 0.0
+        kind = rng.integers(3)
+        if kind == 0:  # within the values' spread
+            lo, hi = np.percentile(finite, [1, 99])
+            return float(rng.uniform(lo, hi))
+        if kind == 1:  # at a found line's stored value
+            return float(finite[rng.integers(len(finite))])
+        column = RANGE_BOUNDS[name][1]  # at a kept line's range value (float32 as a double)
+        edge = kept.get(column)
+        edge = edge[np.isfinite(edge)] if edge is not None else edge
+        return float(edge[rng.integers(len(edge))]) if edge is not None and len(edge) else float(finite[0])
+    chosen = []
+    for name in bounds:  # single bounds: 20 each
+        chosen += [{name: draw(name)} for _ in range(20)]
+    target = max(filters, len(chosen))
+    while len(chosen) < target:  # then 2 to 4 bounds at once
+        other = "liftMaxNoZone" if rng.random() < 0.5 else "liftMax"  # one switch: never both
+        pool = [name for name in bounds if name != other]
+        names = list(rng.choice(pool, size=int(rng.integers(2, min(4, len(pool)) + 1)), replace=False))
+        chosen.append({name: draw(name) for name in names})
+    rows, misses = [], 0
+    for f in chosen:
+        found_pass = np.ones(len(owner), dtype=bool)
+        kept_pass = np.ones(len(ka), dtype=bool)
+        for name, bound in f.items():
+            v, column, test = RANGE_BOUNDS[name]
+            found_pass &= _own_passes(full[v], test, bound)
+            own = _own_passes(kept[v], test, bound)
+            if column in kept:
+                own |= _range_passes(kept[column].astype(np.float64), test, bound)
+            kept_pass &= own
+        passing = found_pass & (owner >= 0)
+        missed = int((passing & ~kept_pass[np.maximum(owner, 0)]).sum())
+        misses += missed
+        with_found = np.zeros(len(ka), dtype=bool)
+        with_found[owner[passing]] = True
+        shown = int(kept_pass.sum())
+        too_many = int((kept_pass & ~with_found).sum())
+        rows.append({"filter": f, "found_passing": int(passing.sum()), "kept_shown": shown,
+                     "kept_with_a_passing_copy": int(with_found.sum()), "misses": missed, "named_too_many": too_many,
+                     "share_too_many_pct": round(100.0 * too_many / shown, 3) if shown else None})
+    shares = [r["share_too_many_pct"] for r in rows if r["share_too_many_pct"] is not None]
+    per_bound = {}
+    for name in bounds:
+        own = [r["share_too_many_pct"] for r in rows if list(r["filter"]) == [name] and r["share_too_many_pct"] is not None]
+        per_bound[name] = {"filters": len(own), "mean_pct": round(float(np.mean(own)), 3) if own else None,
+                           "max_pct": round(float(np.max(own)), 3) if own else None}
+    out["check3"] = {"filters": len(rows), "seed": seed, "misses": misses, "ok": misses == 0}
+    out["check4"] = {"study_pct": list(STUDY_SHARE), "single_bounds": per_bound,
+                     "all_filters": {"median_pct": round(float(np.median(shares)), 3) if shares else None,
+                                     "max_pct": round(float(np.max(shares)), 3) if shares else None}}
+    out["filters"] = rows
+    return out
+
+
+def ranges_report(full_folder: str, kept_folder: str, out: str, filters: int = 300, seed: int = 0) -> Dict:
+    """ranges_check of two runs of one search (full_folder: without the square rule; kept_folder: with it), read from
+    their stores and run.json; also run.json's found against the found lines and whether the two searches are the
+    same but for the rule. Writes <out>/ranges.json and <out>/ranges.md; returns the dict."""
+    import linestore
+    names = ["a1_xy", "a2_xy", "stands_for", *RANGE_VALUES,
+             *(column for _, column in linestore.RANGE_COLUMNS)]
+    full, full_meta = _store_columns(full_folder, names)
+    kept, kept_meta = _store_columns(kept_folder, names)
+    side = (kept_meta.get("params") or {}).get("same_line_side")
+    if not side:
+        raise ValueError(f"{kept_folder}: not a run made with the square rule (no params.same_line_side)")
+    if "stands_for" in full:
+        raise ValueError(f"{full_folder}: a run made with the square rule, not every found line")
+    result = ranges_check(full, kept, float(side), filters, seed)
+    rule_free = lambda p: {k: v for k, v in (p or {}).items() if not k.startswith("same_line")}  # noqa: E731
+    result["summary_found"] = (kept_meta.get("summary") or {}).get("found")
+    result["summary_found_ok"] = result["summary_found"] == result["found"]
+    result["same_search"] = rule_free(full_meta.get("params")) == rule_free(kept_meta.get("params"))
+    os.makedirs(out, exist_ok=True)
+    with open(os.path.join(out, "ranges.json"), "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=1)
+    with open(os.path.join(out, "ranges.md"), "w", encoding="utf-8") as f:
+        f.write(ranges_markdown(result))
+    return result
+
+
+def ranges_markdown(r: Dict) -> str:
+    """A short text table of ranges_check's result."""
+    c1, c2, c3, c4 = r["check1"], r["check2"], r["check3"], r["check4"]
+    wrong = ", ".join(f"{k} {v}" for k, v in c2["wrong"].items() if v)
+    lines = ["| check | result |", "|---|---|",
+             f"| found lines / kept lines / pairs of {r['side']:g} m squares | {_number(r['found'])} / "
+             f"{_number(r['kept'])} / {_number(c1['pairs'])} |",
+             f"| 1. pairs = kept lines, stands_for = its pair's count | {'yes' if c1['ok'] else 'NO'} "
+             f"(stands_for differs: {c1['stands_for_differs']}, found without a kept line: {c1['found_without_kept']}) |",
+             f"| 2. lo / hi = outward float32 of the least / most | {'yes' if c2['ok'] else 'NO: ' + wrong} |",
+             f"| 3. misses under {c3['filters']} random filters (seed {c3['seed']}) | {c3['misses']} |",
+             f"| 4. named too many, all filters: median / max | {c4['all_filters']['median_pct']} % / "
+             f"{c4['all_filters']['max_pct']} % (the study: {c4['study_pct'][0]:g} to {c4['study_pct'][1]:g} %) |"]
+    for name, s in c4["single_bounds"].items():
+        lines.append(f"| 4. {name} alone ({s['filters']} filters): mean / max | {s['mean_pct']} % / {s['max_pct']} % |")
+    if "summary_found_ok" in r:
+        lines.append(f"| run.json's found = the found lines; the same search but for the rule | "
+                     f"{'yes' if r['summary_found_ok'] else 'NO'}; {'yes' if r['same_search'] else 'NO'} |")
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------------------------
 # the command line
 
 def _value(text: str):
@@ -1446,7 +1672,12 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="What a pruning rule keeps of a saved table of lines, and an "
                                                  "audit of what it drops.")
     parser.add_argument("table", help="a run's folder: its store (lines.arrow) or lines.csv, and run.json (read only)")
-    parser.add_argument("--rule", required=True, help="the rule's registered name")
+    parser.add_argument("--rule", help="the rule's registered name (required but with --ranges)")
+    parser.add_argument("--ranges", metavar="KEPT", help="instead of a rule: the report of the square rule's ranges of "
+                                                         "the run KEPT (made with --same-line-square) against the run "
+                                                         "<table> (the same search without it): ranges.json, ranges.md")
+    parser.add_argument("--filters", type=int, default=300, help="--ranges: random filters (default 300)")
+    parser.add_argument("--seed", type=int, default=0, help="--ranges: the filters' seed (default 0)")
     parser.add_argument("--param", action="append", default=[], metavar="K=V", help="a parameter of the rule")
     parser.add_argument("--rules-file", action="append", default=[], metavar="F",
                         help="a Python file that registers more rules with prune_study.rule")
@@ -1469,6 +1700,15 @@ def main(argv=None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
     if args.threads:
         numba.set_num_threads(args.threads)
+    if args.ranges:
+        start = time.perf_counter()
+        result = ranges_report(args.table, args.ranges, args.out, args.filters, args.seed)
+        print(ranges_markdown(result))
+        print(f"seconds: {time.perf_counter() - start:.1f}; written: ranges.json, ranges.md in {os.path.abspath(args.out)}")
+        return 0 if result["check1"]["ok"] and result["check2"]["ok"] and result["check3"]["ok"] else 1
+    if not args.rule:
+        print("prune_study: --rule is required (or --ranges)", file=sys.stderr)
+        return 2
     try:
         for path in args.rules_file:
             load_rules_file(path)
