@@ -8,18 +8,19 @@ days or weeks, so it survives what happens in that time, and can be followed.
   whole layer) ends with it. A pass that did not finish is followed by another after RETRY_SECONDS, and what is
   cached stays: restarting costs the listing only.
 - Every start of a row (a finished row started again too) asks the index of the layers that renew again before it
-  lists (sources/renewal.py: the USA's 1 m DEM with the list of the bucket's unlisted files, Alaska's IfSAR), so a
-  file published since is downloaded. The passes of one start renew until the start's renewal went through (the
-  user's answer of 2026-11-23): each index answer under the row asked once, successfully or refused by the drop
-  rule (its cached answer kept: counted as asked, the user's answer of 2026-11-24; the state's "renewed" says how
-  many were kept; the next start asks them again), and the list looked at once, whatever the outcome (made, kept, or
-  failed with its day's record: a start never looks at it again). The start's time (the state's "renewal_since",
-  set by pass 1) is handed to each pass's renewal as `since`, so a later pass asks only the answers this start has
-  not yet asked (failed, left after the service was found down, never reached because a pass died; the refused
-  ones, whose cached answer was not written, are skipped by their tiles in "renewed"), none twice; once
-  the start's renewal went through, a later pass of it does not call the renewal at all (no request, no lookup, no
-  list made in a start's later weeks). Pass 1 writes the state as it begins, so a later pass never takes an older
-  start's time. The "down" mark is a pass's own: the next pass may try again.
+  lists (sources/renewal.py: the USA's 1 m DEM with the list of the bucket's unlisted files, Alaska's IfSAR), so a file
+  published since is downloaded. The passes of one start renew until the start's renewal went through (the user's answer
+  of 2026-11-23): each index answer under the row asked once, successfully or refused by the drop rule because a dropped
+  file still exists (its cached answer kept: counted as asked, the user's answer of 2026-11-23; a drop not confirmed,
+  the two answers disagreeing or a check failing, stays open; the state's "renewed" says how many were kept; the next
+  start asks them again), and the list looked at once, whatever the outcome (made, kept, or failed with its day's
+  record: a start never looks at it again). The start's time (the state's "renewal_since", set by pass 1) is handed to
+  each pass's renewal as `since`, so a later pass asks only the answers this start has not yet asked (failed, left after
+  the service was found down, never reached because a pass died; those refused for a file that still exists, whose
+  cached answer was not written, are skipped by their tiles in "renewed"), none twice; once the start's renewal went
+  through, a later pass of it does not call the renewal at all (no request, no lookup, no list made in a start's later
+  weeks). Pass 1 writes the state as it begins, so a later pass never takes an older start's time. The "down" mark is a
+  pass's own: the next pass may try again.
 - A pass downloads the source's layers and, where the catalogue names one (Source.instead_without_data: alaska and
   alaska_ifsar), the stand-in's too. The window layers' groups hold the same pixels whatever the files' resolution
   (country.PREFETCH_GROUP_M at 1 m, half that for 0.5 m files), and a pass over --max-memory-gb (a quarter of the
@@ -591,7 +592,8 @@ def _renew(plans: Sequence, cache_dir: str, reporter: Reporter, number: int = 1)
     passes = number
     through = not faulted and not still
     summary = (f"this start: {total:,} index answers asked in {passes} pass{'es' if passes > 1 else ''}, "
-               + (f"{kept:,} answers kept: the index dropped files that still exist, " if kept else "")
+               + (f"{kept:,} answer{'s' if kept != 1 else ''} kept: the index dropped files that still exist, "
+                  if kept else "")
                + ("the renewal went through" if through else
                   f"{still:,} still to ask by the next pass" if not faulted else "the next pass tries again"))
     with reporter.lock:
@@ -599,8 +601,8 @@ def _renew(plans: Sequence, cache_dir: str, reporter: Reporter, number: int = 1)
         # the start's totals, this pass's line and its counts by part (requests, bytes, seconds; why files left the
         # list)
         reporter.state["renewed"] = {"at": _now(), "since": since, "passes": passes, "asked": total, "open": still,
-                                     "kept": kept, "kept_tiles": kept_tiles, "through": through, "text": f"{summary}; this pass: " + "; ".join(done),
-                                     "renewals": counts}
+                                     "kept": kept, "kept_tiles": kept_tiles, "through": through,
+                                     "text": f"{summary}; this pass: " + "; ".join(done), "renewals": counts}
 
 
 def run_pass(area: Area, number: int) -> int:

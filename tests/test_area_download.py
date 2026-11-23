@@ -393,10 +393,11 @@ def test_a_restarted_row_asks_the_index_again(tmp_path, monkeypatch, http_server
 
 
 def test_a_refused_answer_counts_as_asked(tmp_path, monkeypatch):
-    """The user's answer of 2026-11-24: an index answer the drop rule refused (a file the index dropped still exists:
-    the cached answer kept) counts as asked: a start with one goes through in pass 1, says "1 answers kept", and its
-    later passes do not ask that tile again, also when the start is still open for a failed one; a new start asks it
-    again."""
+    """The user's answer of 2026-11-23: an index answer the drop rule refused because a file the index dropped still
+    exists (the cached answer kept) counts as asked: a start with one goes through in pass 1, says "1 answer kept", and
+    its later passes do not ask that tile again, also when the start is still open for a failed one; a new start asks
+    it again. The other refusals are no decisions and stay open, asked again by the next pass: the two fresh answers
+    disagreeing, the check of a dropped file failing."""
     import requests
     from sources.indexes.cached import index_tiles
     from sources.layers import tnmbucket as tb
@@ -405,17 +406,26 @@ def test_a_refused_answer_counts_as_asked(tmp_path, monkeypatch):
     from test_usa_renewal import Response, Tnm, _grid, _layer, _settle
 
     class Refusing(Tnm):
-        """The stand-in TNM index dropping the file from the answers of the tiles in `refuse` (the file stays) and not
-        answering those in `down`."""
+        """The stand-in TNM index dropping the file from the answers of the tiles in `refuse` (the file stays),
+        answering those in `unsteady` with another file every second time (two answers that disagree) and not
+        answering those in `down`; `last` is the box asked last (whose dropped file's check fails if in `unchecked`)."""
         def __init__(self):
             super().__init__()
-            self.refuse, self.down = set(), set()
+            self.refuse, self.down, self.unsteady, self.unchecked, self.last, self.count = \
+                set(), set(), set(), set(), None, 0
 
         def get(self, url, params=None, **kwargs):
+            if str(url).startswith(TNM_API) and params:
+                self.last = params["bbox"]
             if str(url).startswith(TNM_API) and params and params["bbox"] in self.down:
                 raise requests.ConnectionError("the service does not answer")
             response = super().get(url, params=params, **kwargs)
-            if str(url).startswith(TNM_API) and params and params["bbox"] in self.refuse:
+            if str(url).startswith(TNM_API) and params and params["bbox"] in self.unsteady:
+                self.count += 1
+                other = {"downloadURL": "https://bucket.example/Projects/P/TIFF/USGS_1M_13_x50y450_P.tif",
+                         "publicationDate": "2024-01-01", "boundingBox": self.products[0]["boundingBox"]}
+                return Response({"total": 1, "items": [other]} if self.count % 2 == 0 else {"total": 0, "items": []})
+            if str(url).startswith(TNM_API) and params and params["bbox"] in self.refuse | self.unchecked:
                 return Response({"total": 0, "items": []})
             return response
     monkeypatch.setenv(tb.RENEW_ENV, "off")
@@ -443,7 +453,7 @@ def test_a_refused_answer_counts_as_asked(tmp_path, monkeypatch):
     tnm.refuse = {box[tiles[1]]}
     assert ad.run_pass(area, 1) == ad.EXIT_DONE
     assert renewed() == (1, 0, True)
-    assert "1 answers kept: the index dropped files that still exist" in ad.read_state(area.state_dir, "utah")[
+    assert "1 answer kept: the index dropped files that still exist" in ad.read_state(area.state_dir, "utah")[
         "renewed"]["text"]
     tnm.asked.clear()
     assert ad.run_pass(area, 2) == ad.EXIT_DONE and tnm.tile_requests() == {}
@@ -455,6 +465,17 @@ def test_a_refused_answer_counts_as_asked(tmp_path, monkeypatch):
     tnm.down, tnm.asked = set(), []
     assert ad.run_pass(area, 2) == ad.EXIT_DONE       # only the failed one: the refused tile counts as asked
     assert tnm.tile_requests() == {box[tiles[2]]: 1} and renewed() == (1, 0, True)
+
+    # a new start with one tile of each kind of refusal: only "still exists" is kept, the other two stay open
+    gone = tb.file_gone
+    monkeypatch.setattr(tb, "file_gone", lambda url: None if tnm.last in tnm.unchecked else gone(url))
+    _settle(cache_dir)
+    tnm.refuse, tnm.unsteady, tnm.unchecked, tnm.asked = {box[tiles[1]]}, {box[tiles[2]]}, {box[tiles[3]]}, []
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert renewed() == (1, 2, False)                 # 1 kept, the unsteady and the unchecked ones open
+    tnm.refuse, tnm.unsteady, tnm.unchecked, tnm.asked = set(), set(), set(), []
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE       # those two asked again, the kept one not
+    assert tnm.tile_requests() == {box[tiles[2]]: 1, box[tiles[3]]: 1} and renewed() == (1, 0, True)
 
 
 def test_the_passes_of_a_start_renew_until_it_went_through(tmp_path, monkeypatch):

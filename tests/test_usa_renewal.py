@@ -283,7 +283,7 @@ def test_a_fault_of_one_tile_is_that_tiles(http_server, tmp_path, monkeypatch, r
         return real(self, cache_dir, lat, lon, *args)
     monkeypatch.setattr(CachedIndex, "ask_again", ask_again)
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert (done.failed, done.kept, done.asked, done.left) == (len(faults) - 1, 1, len(tiles) - len(faults), 0)
+    assert (done.failed, done.kept, done.asked, done.left) == (len(faults), 0, len(tiles) - len(faults), 0)
     monkeypatch.setattr(CachedIndex, "ask_again", lambda *a: (_ for _ in ()).throw(KeyboardInterrupt()))
     with pytest.raises(KeyboardInterrupt):
         renewal.renew([_layer()], grid, cache_dir, lambda text: None)
@@ -460,7 +460,7 @@ def test_the_check_of_dropped_files(http_server, tmp_path, monkeypatch, renewing
     monkeypatch.setattr(tb, "file_gone", lambda url: checked.append(url))   # None: not known
     tnm.fault, tnm.times, tnm.url = "dropped", 2, newer
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert (done.kept, checked) == (1, [newer]) and open(path, encoding="utf-8").read() == text
+    assert (done.failed, checked) == (1, [newer]) and open(path, encoding="utf-8").read() == text
     assert "at its URL failed" in capsys.readouterr().out
     monkeypatch.setattr(cached_module, "CHECK_GONE_MAX", 1)
     checked.clear()
@@ -468,7 +468,7 @@ def test_the_check_of_dropped_files(http_server, tmp_path, monkeypatch, renewing
     tnm.fault, tnm.times = "empty", 2                                   # two dropped, more than 1: the first checked
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
     first = min(p["downloadURL"] for p in tnm.products)
-    assert (done.kept, checked) == (1, [first]) and open(path, encoding="utf-8").read() == text
+    assert (done.failed, checked) == (1, [first]) and open(path, encoding="utf-8").read() == text
     _settle(cache_dir)
     tnm.fault, tnm.times = "empty", 2
     layer = _layer()

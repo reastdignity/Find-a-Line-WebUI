@@ -106,7 +106,14 @@ class IndexUnavailable(requests.RequestException):
 
 class DroppedFiles(IndexUnavailable):
     """A fresh answer dropped files the cached answer held and the drop was not confirmed (CachedIndex._fetch): the
-    cached answer stays."""
+    cached answer stays. As such: the two fresh answers disagree, or the check of a dropped file failed (no answer
+    of the bucket); DroppedStillThere: a decision of the index (a renewal counts it as asked)."""
+
+
+class DroppedStillThere(DroppedFiles):
+    """The two fresh answers agree in dropping a file that still exists at its URL (the index wrong, or delisting a
+    file the bucket keeps): the cached answer stays, and a renewal counts the answer as asked (the user's answer of
+    2026-11-23); the next listing takes the file into the list."""
 
 
 # The dropped files of one tile an index checks at their URL at most (CachedIndex.check_gone, a small request each,
@@ -169,25 +176,25 @@ class CachedIndex(Index):
 
     tiles() gets only the grid: use() gives it the cache folder and the update mode first.
 
-    confirms_drops (the indexes of layers that renew, tnm.TnmBlocks: set per instance): an answer that replaces a
-    cached one is checked for dropped files (_fetch): file names (the URL's last part: a file the index lists at
-    another URL is the same file; also for Alaska's IfSAR, which has no list: the uniqueness of its names rests on
-    the 8 recorded items, the 1 m DEM's on 126,767 names at as many URLs) the cached answer holds that neither the fresh answer nor the tile's extra versions
-    (the bucket's unlisted files) hold. Nothing dropped: it is written (an empty answer as
-    such is never refused: most tiles hold nothing). Something dropped: asked once more; a second answer that drops
-    nothing is written. Else, with check_gone (the 1 m DEM's: tnmbucket.file_gone, a small request per file), it is
-    written only when the two answers agree and the dropped files are gone at their URLs (a real removal, taken at
-    once): checked in the order of their URLs until the first that is not gone, at most CHECK_GONE_MAX of them, that
-    many gone in a row taking the drop of all. A dropped file that still answers (the index wrong, or delisting a
-    file the bucket keeps) or a check that fails keeps the cached answer (DroppedFiles), until the next listing of the
-    bucket puts such a file into the list (then nothing is dropped: at most 28 days, `cache update --all` at once).
-    What slips through: more than CHECK_GONE_MAX dropped, the first CHECK_GONE_MAX by URL gone, a later one delisted
-    but kept in the bucket: that file is out of the tile until the next listing takes it into the list (at most 28
-    days). Without check_gone (Alaska's IfSAR: no list) two agreeing answers are taken, so nothing stays refused for
-    good. Every path that replaces a cached answer goes through it: answers() with an update (a search's --update: a
-    refused tile is one printed line and its cached answer is read, the rest of the grid is still asked),
-    ask_again (sources/renewal.py: the tile fails), fresh_answer (ComposedBlocks.update_tile, `cache update`: the
-    tile fails). Off, an answer is fetched and written as before.
+    confirms_drops (the indexes of layers that renew, tnm.TnmBlocks: set per instance): an answer that replaces a cached
+    one is checked for dropped files (_fetch): file names (the URL's last part: a file the index lists at another URL is
+    the same file; also for Alaska's IfSAR, which has no list: the uniqueness of its names rests on the 8 recorded
+    items, the 1 m DEM's on 126,767 names at as many URLs) the cached answer holds that neither the fresh answer nor the
+    tile's extra versions (the bucket's unlisted files) hold. Nothing dropped: it is written (an empty answer as such is
+    never refused: most tiles hold nothing). Something dropped: asked once more; a second answer that drops nothing is
+    written. Else, with check_gone (the 1 m DEM's: tnmbucket.file_gone, a small request per file), it is written only
+    when the two answers agree and the dropped files are gone at their URLs (a real removal, taken at once): checked in
+    the order of their URLs until the first that is not gone, at most CHECK_GONE_MAX of them, that many gone in a row
+    taking the drop of all. A dropped file that still answers (the index wrong, or delisting a file the bucket keeps) or
+    a check that fails keeps the cached answer (DroppedFiles), until the next listing of the bucket puts such a file
+    into the list (then nothing is dropped: at most 28 days, `cache update --all` at once). What slips through: more
+    than CHECK_GONE_MAX dropped, the first CHECK_GONE_MAX by URL gone, a later one delisted but kept in the bucket: that
+    file is out of the tile until the next listing takes it into the list (at most 28 days). Without check_gone
+    (Alaska's IfSAR: no list) two agreeing answers are taken, so nothing stays refused for good. Every path that
+    replaces a cached answer goes through it: answers() with an update (a search's --update: a refused tile is one
+    printed line and its cached answer is read, the rest of the grid is still asked), ask_again (sources/renewal.py: the
+    tile fails; one dropping a file that still exists, DroppedStillThere, counts as asked), fresh_answer
+    (ComposedBlocks.update_tile, `cache update`: the tile fails). Off, an answer is fetched and written as before.
     """
     confirms_drops = False
     check_gone: Optional[Callable[[str], Optional[bool]]] = None  # url -> gone (True), there (False), not known
@@ -249,11 +256,12 @@ class CachedIndex(Index):
             gone = self.check_gone(url)
             if gone is True:
                 continue
-            raise DroppedFiles(f"the index answer of {tile} dropped {len(dropped)} of the files the cached one holds, "
-                               + (f"of which {url.rsplit('/', 1)[-1]} still answers at its URL: the index is wrong "
-                                  f"or delisted files the bucket keeps (the next listing of the bucket takes them in)"
-                                  if gone is False else f"and the check of {url.rsplit('/', 1)[-1]} at its URL failed")
-                               + ": the cached answer is kept")
+            refused = DroppedStillThere if gone is False else DroppedFiles  # a decision of the index, or not known
+            raise refused(f"the index answer of {tile} dropped {len(dropped)} of the files the cached one holds, "
+                          + (f"of which {url.rsplit('/', 1)[-1]} still answers at its URL: the index is wrong "
+                             f"or delisted files the bucket keeps (the next listing of the bucket takes them in)"
+                             if gone is False else f"and the check of {url.rsplit('/', 1)[-1]} at its URL failed")
+                          + ": the cached answer is kept")
         return again
 
     def fresh_answer(self, cache_dir: str, lat: float, lon: float) -> Dict:

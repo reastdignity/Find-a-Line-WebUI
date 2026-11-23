@@ -59,7 +59,7 @@ import cache
 import osm
 
 from . import net
-from .indexes.cached import CachedIndex, DroppedFiles, index_tiles
+from .indexes.cached import CachedIndex, DroppedFiles, DroppedStillThere, index_tiles
 
 # How long a renewal waits for another process making the list (a listing takes about 8 minutes at 4 requests at a
 # time, 33 one at a time): after that it goes on with the list there is
@@ -81,7 +81,7 @@ class Renewal:
     asked: int = 0     # answers asked and written
     changed: int = 0   # of those, whose listed files changed
     failed: int = 0    # answers whose request failed (the cached ones kept; asked again by a later pass)
-    kept: int = 0      # answers the drop rule refused (DroppedFiles: the cached ones kept): asked, as the user decided
+    kept: int = 0      # answers dropping a file that still exists (DroppedStillThere, the cached ones kept): asked
     kept_tiles: List[tuple] = field(default_factory=list)  # their (top, prefix, lat, lon): later passes skip them
     left: int = 0      # answers not asked after FAILED_IN_A_ROW failures in a row (the cached ones kept)
     skipped: int = 0   # answers asked since the renewal's `since` (another renewal, an earlier pass of the start)
@@ -100,7 +100,8 @@ class Renewal:
         """The renewal in a line."""
         parts = [f"{self.asked:,} index answers asked again, {self.changed:,} changed"]
         if self.kept:
-            parts.append(f"{self.kept:,} answers kept: the index dropped files that still exist")
+            parts.append(f"{self.kept:,} answer{'s' if self.kept != 1 else ''} kept: the index dropped files that "
+                         f"still exist")
         if self.failed or self.left:
             parts.append(f"{self.failed + self.left:,} kept as cached (failed)")
         if self.skipped:
@@ -171,11 +172,13 @@ def _tiles_met(item: Dict) -> List[Tuple[float, float]]:
 def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since: str, asked: Set[tuple],
                  result: Renewal, say: Say, what: str):
     """The answers of these tiles asked again (those not asked by this renewal yet), counted into result. Any fault of
-    one tile but a KeyboardInterrupt (a request, a locked database) is that tile's failure, and a drop the rule
-    refused (DroppedFiles) is "kept" (asked: the user's answer of 2026-11-24): its cached answer stays, one line. After FAILED_IN_A_ROW requests in a row that did not reach the service (a
-    requests.RequestException; not DroppedFiles, not a fault of this machine: those neither add to the streak nor
-    end it) the API counts as down for the rest of the start (("down", its URL) in asked): this and every
-    later call for it count their tiles as left at once, one line each."""
+    one tile but a KeyboardInterrupt (a request, a locked database, a drop not confirmed: the two answers disagree
+    or a check failed) is that tile's failure, and a dropped file that still exists (DroppedStillThere) makes the
+    answer "kept" (asked: the user's answer of 2026-11-23): its cached answer stays, one line. After FAILED_IN_A_ROW
+    requests in a row that did not reach the service (a requests.RequestException; not DroppedFiles, not a fault of
+    this machine: those neither add to the streak nor end it) the API counts as down for the rest of the start
+    (("down", its URL) in asked): this and every later call for it count their tiles as left at once, one line
+    each."""
     index: CachedIndex = layer.index
     todo = [t for t in tiles if (index.top, index.prefix, t) not in asked]
     down, broken = ("down", index.listing.url), ("broken", index.top, index.prefix)
@@ -193,7 +196,7 @@ def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since:
         asked.add((index.top, index.prefix, (lat, lon)))
         try:
             changed = index.ask_again(cache_dir, lat, lon, since)
-        except DroppedFiles as e:  # the drop rule refused it: asked (the user's answer of 2026-11-24), not failed
+        except DroppedStillThere as e:  # a dropped file that still exists: asked (the user's answer of 2026-11-23)
             result.kept += 1
             result.kept_tiles.append((index.top, index.prefix, lat, lon))
             print(f"{layer.description}: {e}", flush=True)
@@ -201,8 +204,9 @@ def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since:
         except Exception as e:  # noqa: BLE001 (one tile's fault: the rest of the grid is still asked)
             result.failed += 1
             # Only the service not answering counts toward its being down: a fault of this machine (a locked
-            # database, the tile's lock) neither adds to the streak nor ends it
-            if isinstance(e, requests.RequestException):
+            # database, the tile's lock) or a drop not confirmed (DroppedFiles: the index did answer) neither adds to
+            # the streak nor ends it
+            if isinstance(e, requests.RequestException) and not isinstance(e, DroppedFiles):
                 in_a_row += 1
             if isinstance(e, requests.RequestException):
                 own, own_type = 0, None
