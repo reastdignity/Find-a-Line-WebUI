@@ -22,6 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_shell_c import BIG, copy_clip, stub_page  # noqa: E402
 from test_web import EDGE, _playwright, _server  # noqa: E402
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import today_page  # noqa: E402  (the pin of today's page, whatever SpotColumns.tsx VIEW_DEFAULT is)
+DEFAULT = today_page.view_default()  # is the result view the default (VIEW_DEFAULT; false until gate 2)
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
                                 reason="needs Microsoft Edge and Playwright (group ui)")
@@ -63,6 +66,46 @@ def site(tmp_path, view_clip):
         yield f"http://127.0.0.1:{port}/{page_path}?ui=c"
 
 
+BOXES = "2026-10-30_100000_Boxes_00000000000000e3"  # the clip's run with an uncertain shore and coarser terrain
+
+
+def _with_boxes(run):
+    """The run's head given an uncertain shore (a segment of each kind) and coarser terrain (one region over the south
+    half) over its lines' box, so both controls stand on the map, as a coastal run's would (tests/test_access_view.py's
+    own, for this file's fixture)."""
+    import pyarrow as pa
+    import linestore
+    from test_web import store_with
+    with pa.OSFile(str(run / linestore.LINES_FILE), "rb") as f:
+        table = pa.ipc.open_file(f).read_all()
+    lat, lon = ([v / 10 ** int(table.schema.field(name).metadata[b"decimals"]) for v in table.column(name).to_pylist()]
+                for name in ("lat1", "lon1"))
+    s, n, w, e = min(lat), max(lat), min(lon), max(lon)
+    mid_lat, mid_lon = (s + n) / 2, (w + e) / 2
+
+    def ring(a, b, c, d):
+        return [[a, b], [c, b], [c, d], [a, d], [a, b]]
+    shore = {"rim_min": 5, "totals": {"surface_m": 420, "sea_m": 260, "surface_px": 60, "sea_px": 40},
+             "segments": [{"kind": "surface", "px": 60, "m": 420, "ring": ring(w, s, mid_lon, mid_lat)},
+                          {"kind": "sea", "px": 40, "m": 260, "ring": ring(mid_lon, mid_lat, e, n)}]}
+    sources = {"land_km2": 0.3, "fallback_share": 0.3, "totals": {"fallback_km2": 0.09, "listed_km2": 0.09},
+               "layers": [{"role": "source", "name": "Own", "resolution": 1.0, "share": 0.7},
+                          {"role": "fallback", "name": "Coarse", "resolution": 10.0, "share": 0.3}],
+               "regions": [{"layer": 1, "km2": 0.09, "rings": [ring(w, s, e, mid_lat)]}]}
+    store_with(run, head={"shore": shore, "terrain_sources": sources})
+
+
+@pytest.fixture
+def boxes_site(tmp_path, view_clip):
+    """A data folder with the clip's run given both boxes (BOXES), served by the app; the app page's address."""
+    folder = tmp_path / "data"
+    copy_clip(view_clip, folder, BOXES, "Clip with the boxes")
+    _with_boxes(folder / "runs" / BOXES)
+    page_path = stub_page(folder, "viewboxes")
+    with _server(folder) as port:
+        yield f"http://127.0.0.1:{port}/{page_path}?ui=c"
+
+
 # The page's helpers of the checks: everything is counted in the map's own pixels from the lines' latitudes and
 # longitudes (the page counts in grid metres through its fit)
 HELPERS = r"""
@@ -70,9 +113,13 @@ window.T = {
   v() { return window.FINDALINE_VIEW; }, m() { return window.FINDALINE_MAP; },
   frames() { return new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(ok, 0)))); },
   box() { return this.m().getContainer().getBoundingClientRect(); },
-  // the part of the map's box a person sees: above a phone's sheet
-  free() { const b = this.box(), sheet = document.querySelector(".u-sheet");
-    return [0, 0, b.width, sheet ? Math.min(b.height, sheet.getBoundingClientRect().top - b.top) : b.height]; },
+  // the part of the map's box a person sees: above a phone's sheet, above a desktop's profile card (the canvas's
+  // covered term, step 3c)
+  free() { const b = this.box(), sheet = document.querySelector(".u-sheet"), card = document.querySelector(".c-col-map > .r-card");
+    let bottom = b.height;
+    if (sheet) bottom = Math.min(bottom, sheet.getBoundingClientRect().top - b.top);
+    if (card) bottom = Math.min(bottom, Math.round(card.getBoundingClientRect().top - b.top));
+    return [0, 0, b.width, bottom]; },
   // a line's ends in the map's box, px (not rounded to whole pixels as Leaflet's own points are: a line that ends
   // within half a pixel of the view's edge would be counted on the wrong side of it)
   ends(row) { const c = this.v().view.model.data.columns, m = this.m(), origin = m.getPixelOrigin(), pane = m._getMapPanePos();
@@ -82,11 +129,17 @@ window.T = {
     for (let k = 0; k < 4; k++) { if (p[k] === 0) { if (q[k] < 0) return false; continue; } const r = q[k] / p[k];
       if (p[k] < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; } }
     return t1 > t0; },
+  // does the run's search area's outline cross the part a person sees (the head's GeoJSON as Leaflet projects it)
+  areaCrosses() { const m = this.m(), f = this.free(), rings = [], at = ([lon, lat]) => { const p = m.latLngToContainerPoint([lat, lon]); return [p.x, p.y]; };
+    const walk = (o) => { if (!o) return; if (o.type === "Polygon") rings.push(...o.coordinates); else if (o.type === "MultiPolygon") o.coordinates.forEach((p) => rings.push(...p));
+      else if (o.type === "Feature") walk(o.geometry); else if (o.type === "FeatureCollection") o.features.forEach((x) => walk(x.geometry)); else if (o.type === "GeometryCollection") o.geometries.forEach(walk); };
+    walk(this.v().view.model.data.area);
+    return rings.some((r) => r.some((p, k) => k > 0 && this.crosses([...at(r[k - 1]), ...at(p)], f))); },
   away(px, py, [ax, ay, bx, by]) { const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
     const f = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0; return Math.hypot(px - ax - f * dx, py - ay - f * dy); },
   // every control over the map, by its own class (not by the page's own list of them, `data-map-control`): Leaflet's
-  // control containers, the bar's boxes, the frame's hint, the message, a phone's top bar
-  CONTROLS: ".v-map .leaflet-control, .v-levels, .v-best, .v-status, .v-fold, .v-help-button, .v-help, .v-legend, .v-hint-slot > *, .v-toast, .c-phone-top > *",
+  // control containers, the bar's boxes, the frame's hint, the message, a phone's top bar, a desktop's profile card
+  CONTROLS: ".v-map .leaflet-control, .v-levels, .v-best, .v-about-button, .v-status, .v-fold, .v-help-button, .v-help, .v-legend, .v-hint-slot > *, .v-toast, .c-phone-top > *, .c-col-map > .r-card",
   controls() { return [...document.querySelectorAll(this.CONTROLS)].map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height); },
   // the numbers of one kind on the map now: the middle of each in the viewport, its line and that line's spot
   numbersOf(kind) { const {view, map} = this.v();
@@ -112,7 +165,8 @@ window.T = {
     return null; },
   // the boxes of the map's controls by name (those on the page now), for "no control covers another"
   boxes() { const named = {status: ".v-status", legend: ".v-legend", fold: ".v-fold", help: ".v-help-button", levels: ".v-levels", best: ".v-best",
-      zoom: ".v-map .leaflet-control-zoom", layers: ".v-map .leaflet-control-layers", chip: ".v-map .u-shore-ctl", scale: ".v-map .leaflet-control-scale",
+      info: ".v-about-button", coarse: ".v-map .u-coarse-ctl, .v-map .leaflet-control.u-coarse",
+      zoom: ".v-map .leaflet-control-zoom", layers: ".v-map .leaflet-control-layers", chip: ".v-map .u-shore-ctl:not(.u-coarse-ctl)", scale: ".v-map .leaflet-control-scale",
       credits: ".v-map .leaflet-control-attribution", toast: ".v-toast", top: ".c-phone-top > *", hint: ".v-hint-slot > *",
       back: ".v-status .v-back-auto"}, out = {};
     for (const [name, selector] of Object.entries(named)) { const e = document.querySelector(selector), r = e && e.getBoundingClientRect();
@@ -136,6 +190,7 @@ window.T = {
       inPixels: Array.from(view.order).filter((s) => this.crosses(this.ends(view.shownOf(s)), f)),
       numbered: v.numbered, refused: v.refused, thin: v.strokes, strokes: d.strokes, numbers, picks: view.picks().length,
       legend: [...document.querySelectorAll(".v-legend [data-kind]")].map((e) => e.dataset.kind), shapes: Object.keys(map.legend().shapes),
+      runs: (map.legend().runs || []).length,
       status: document.querySelector(".v-status-text")?.textContent ?? null, bar: document.querySelector(".v-status")?.textContent ?? null,
       marked: !!document.querySelector(".v-status.v-refused"), mpp: view.mpp, zoom: this.m().getZoom(), size: [box.width, box.height], free: f,
       selected: sel && [sel.spot, sel.row], shown: sel && view.shownOf(sel.spot), fan: fan && {lines: fan.lines, rows: fan.rows.map((r) => [r.label, r.row]), xy: fan.xy},
@@ -195,10 +250,32 @@ window.T = {
 """
 
 
-def _open(browser, url: str, context: dict, flag: bool = True, script: str = ""):
-    """The run's page with the page's helpers; with `flag` the result view is asked for and awaited."""
+# A phone held sideways sees the notice "Turn your phone upright" over the whole page (the user's gate-2 answer 4 a):
+# shown, with its words, over the page's middle; and the style that hides it, for a test that goes on with the
+# layout under it (kept for a phone whose page is not locked, as one turned while the notice is up)
+UPRIGHT_SHOWN = """() => { const n = document.querySelector('.v-upright'), hit = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+  return !!n && getComputedStyle(n).display !== 'none' && n.textContent.trim() === %s && !!hit && n.contains(hit); }""" % json.dumps(WORDS["ui.view.upright"])
+# (a rule added through the CSSOM to the page's own sheet: the page's CSP refuses a <style> element; and the page's
+# parts made inert behind the notice made reachable again, also when the page turns and the notice comes back)
+UPRIGHT_HIDDEN = "() => { const sheet = [...document.styleSheets].find((x) => { try { return !!x.cssRules; } catch (e) { return false; } }); sheet.insertRule('.ui .v-result .v-upright { display: none !important; }', sheet.cssRules.length); const lift = () => document.querySelectorAll('.v-result > [inert]').forEach((e) => e.removeAttribute('inert')); lift(); new MutationObserver(lift).observe(document.body, {subtree: true, attributes: true, attributeFilter: ['inert']}); }"
+
+
+def _upright_then_hidden(page):
+    """The notice shown over the page (4 a), then hidden for the checks of the layout under it."""
+    assert page.evaluate(UPRIGHT_SHOWN), "a phone on its side: no notice to turn it upright"
+    page.evaluate(UPRIGHT_HIDDEN)
+    page.evaluate("() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)))")
+
+
+def _open(browser, url: str, context: dict, flag: bool | None = True, script: str = "", requests: list | None = None):
+    """The run's page with the page's helpers; with `flag` the result view is asked for and awaited; False: today's
+    page pinned (tools/today_page.py); None: neither (the browser's default). `requests`, when given, gets the address
+    of every request the page's context sends, from before the first (Playwright's request event: a second load of an
+    address in one document is one more, which the page's resource timing does not list)."""
     ctx = browser.new_context(**context)
-    ctx.add_init_script(HELPERS + (FLAG if flag else "") + script)
+    if requests is not None:
+        ctx.on("request", lambda request: requests.append(request.url))
+    ctx.add_init_script(HELPERS + (FLAG if flag else today_page.SCRIPT if flag is False else "") + script)
     page = ctx.new_page()
     page.errors = []
     page.on("pageerror", lambda e: page.errors.append(str(e)[:300]))
@@ -305,9 +382,13 @@ def _numbers_hold(s: dict, labels: set):
 
 def _legend_holds(s: dict):
     """The legend lists exactly the shapes and colours on the map now (at Area the squares stand for the lines'
-    colours), then the access mark's three states."""
+    colours), then what is drawn besides the spots (a favourite's halo, the search area's outline, each other run of
+    Compare), then the access mark's three states only while an anchor of the selected line is in view (the canvas's
+    `ends`: the user's L b, 2026-11-20)."""
     kinds = ("sq", "P") if s["level"] == "area" else ("clear", "over", "P", "B", "pale", "A", "L", "here")
-    assert s["legend"] == [k for k in kinds if k in s["shapes"]] + ["access-2", "access-1", "access-0"], s["legend"]
+    shapes = s["shapes"]
+    want = [k for k in kinds if k in shapes] + [k for k in ("fav", "area") if k in shapes] + ["run"] * s["runs"]
+    assert s["legend"] == want + (["access-2", "access-1", "access-0"] if "ends" in shapes else []), (s["legend"], shapes)
 
 
 def _in_view_holds(s: dict):
@@ -390,8 +471,8 @@ def test_levels_in_view_numbers(site):
 
 
 def test_limit_legend_squares(site):
-    """Above 5 000 thin lines the Lines level draws only the pale lines and says so, marked; with the best 100 it
-    draws again. The squares' legend: the select of four values, five classes; a press on a square zooms to it and
+    """Above 5 000 thin lines the Lines level draws only the pale lines and says so, marked (the search area's outline
+    stays: the legend's `area` while it crosses the view, none off it); with the best 100 it draws again. The squares' legend: the select of four values, five classes; a press on a square zooms to it and
     Auto lands on Spots."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -405,8 +486,14 @@ def test_limit_legend_squares(site):
             count = f"{lines // 1000}{chr(160)}{lines % 1000:03d}"
             assert refused["status"] == WORDS["ui.view.map.status_refused"].replace("{{n}}", count).replace("{{lower}}", "100")
             _legend_holds(refused)
-            assert refused["shapes"] == ["pale"] or set(refused["shapes"]) <= {"pale", "clear", "over"}
-            fewer = _state(page, "view.setBest(100);")
+            # no bold line and no number; the search area's outline is drawn at every level (B1's 68dd2e83): `area`
+            # exactly while it crosses the part a person sees (strict both ways: here in view, off it at the end)
+            assert set(refused["shapes"]) - {"area"} <= {"pale", "clear", "over"}, refused["shapes"]
+            assert page.evaluate("() => T.areaCrosses()") is True and "area" in refused["shapes"], refused["shapes"]
+            # the legend's rows in this known state, fixed (not rebuilt from the canvas's shapes): the lines' colours (the
+            # pale lines are drawn in them), the pale lines, the area
+            assert refused["legend"] == ["clear", "over", "pale", "area"], refused["legend"]
+            fewer =_state(page, "view.setBest(100);")
             assert fewer["refused"] == 0 and 100 < fewer["thin"] <= LIMIT and fewer["marked"] is False
             assert fewer["m"] > 100 and fewer["strokes"] == fewer["m"] - 100 + fewer["thin"] and fewer["numbered"] and len(fewer["numbers"]) > 10
             _numbers_hold(fewer, {f"B{k}" for k in range(1, 101)})
@@ -436,6 +523,10 @@ def test_limit_legend_squares(site):
             page.wait_for_function("() => window.FINDALINE_VIEW.view.level !== 'area' && !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
             zoomed = _state(page)
             assert zoomed["level"] == "spots" and 0.96 * 0.999 <= zoomed["mpp"] < 2 and zoomed["selected"] is None
+            # the map moved off the search area (twice its width east): no `area` in the legend's state
+            off = _state(page, "const b = map.areaBounds(), w = b.getEast() - b.getWest(); "
+                               "leaflet.setView([b.getCenter().lat, b.getEast() + 2 * w], leaflet.getZoom(), {animate: false});")
+            assert page.evaluate("() => T.areaCrosses()") is False and "area" not in off["shapes"], off["shapes"]
             assert page.errors == []
         finally:
             browser.close()
@@ -457,8 +548,17 @@ def test_presses_with_a_mouse(site):
             number = s["numbers"][0]
             spot = s["bestSpots"][int(number["label"][1:]) - 1]
             page.mouse.click(box[0] + number["x"], box[1] + number["y"])
+            page.wait_for_selector(".c-col-map > .r-card", timeout=WAIT)
+            # the profile's card opened: the foot is the short one, the legend behind "Legend" (the user's 4 a)
+            assert page.evaluate("() => [!!document.querySelector('.v-legend'), document.querySelector('.v-fold')?.getAttribute('aria-expanded')]") == [False, "false"]
+            page.click(".v-fold")
+            page.wait_for_selector(".v-legend", timeout=WAIT)
             chosen = _state(page)
             assert chosen["selected"] == [spot, chosen["shown"]] and chosen["made"] == 1
+            # the legend's rows with this selection, fixed (not rebuilt from the canvas's shapes): the lines' colours,
+            # the best, the pale others, the selected line's anchors, the search area, the access marks (its anchors in
+            # view: L b)
+            assert chosen["legend"] == ["clear", "over", "B", "pale", "A", "area", "access-2", "access-1", "access-0"], chosen["legend"]
             _legend_holds(chosen)
             assert {n["label"] for n in chosen["numbers"]} >= {"A1", "A2"} and "A" in chosen["shapes"]
             _numbers_hold(chosen, {f"B{k}" for k in range(1, 11)} | {"A1", "A2"})
@@ -577,7 +677,11 @@ def test_phone_touch(site):
             _legend_holds(start)
             _numbers_hold(start, {f"B{k}" for k in range(1, 11)})
             fold = page.evaluate("() => [document.querySelector('.v-fold').getAttribute('aria-expanded'), document.querySelectorAll('.v-lg-line').length]")
-            assert fold == ["true", 2]  # the legend: two lines, unfolded while the sheet is low
+            # the legend unfolded while the sheet is low, its rows fixed for this known state (not rebuilt from the
+            # canvas's shapes): the lines and numbers on a line, the search area's outline on the second; no access mark
+            # (nothing selected: L b)
+            assert start["legend"] == ["clear", "over", "B", "pale", "area"], start["legend"]
+            assert fold == ["true", 2], (fold, start["shapes"])
             # the sheet raised to half: the view's rectangle is taken again, fewer spots are in view
             page.focus(".u-sheet-handle")
             page.keyboard.press("ArrowUp")
@@ -693,6 +797,26 @@ CHIP = """() => { const holder = document.createElement("div");
   metres.className = "u-shore-chip-m"; metres.textContent = "1.6 km";
   document.querySelector(".v-map .leaflet-top.leaflet-left").appendChild(holder); }"""
 
+# A stand-in for the coarser terrain's box alone (coarserLayer.ts coarserControl's box, as a desktop shows it: no chip),
+# for the sizes of its help (tests/test_view_frame.py): the same classes and help button (shoreLayer.ts helpButton, the
+# kit's "info" icon), its title and one fallback's row in the catalogue's words. A run with the real controls:
+# boxes_site
+COARSE = """() => { const box = document.createElement("div");
+  box.className = "leaflet-control u-shore u-coarse";
+  const head = box.appendChild(document.createElement("div"));
+  head.className = "u-shore-head";
+  head.appendChild(document.createElement("b")).textContent = %s;
+  const help = head.appendChild(document.createElement("button"));
+  help.type = "button"; help.className = "u-ib u-plain u-shore-help"; help.setAttribute("aria-label", %s);
+  help.innerHTML = '<svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>';
+  const row = box.appendChild(document.createElement("div"));
+  row.className = "u-shore-row";
+  row.appendChild(document.createElement("span")).className = "u-coarse-swatch";
+  row.appendChild(document.createElement("span")).textContent = %s;
+  document.querySelector(".v-map .leaflet-top.leaflet-left").appendChild(box); }""" % (
+    json.dumps(WORDS["ui.coarse.title"]), json.dumps(WORDS["ui.coarse.help_button"]),
+    json.dumps(WORDS["ui.coarse.km2"].replace("{{km2}}", "0.4").replace("{{res}}", "30").replace("{{name}}", "Copernicus GLO-30")))
+
 
 # The panels' hint hidden by its ×: on a phone its button then stands on the map, in the row of buttons beside "Legend"
 # (the frame's slot), the worst case of the pilot's arrangement (2026-11-18)
@@ -742,13 +866,16 @@ def _apart(page, state: str, known: tuple = ()) -> dict:
     return boxes
 
 
-def test_phone_controls_apart(site):
-    """A small phone (390 x 664) with the shore's chip on the map and the hint hidden (its button in the bar's row of
-    buttons: the pilot's worst case). At the sheet's low
-    stop and at half, no control of the map covers another (the status line, the legend, its fold, the key's "i", the
-    hint's button, the switch, Best, the zoom buttons, the layers button, the shore's chip, the scale, the credits,
-    the top bar; the message is the status line's first line, a part of its box; the access mark's key, opened,
-    lies above them as a panel) and each stands above
+def test_phone_controls_apart(boxes_site):
+    """A small phone (390 x 664) with the uncertain shore's chip and the coarser terrain's chip on the map (a run with
+    both in its head; the coarser box folds into a chip on a phone since step 3c: the user's choice of 2026-11-20) and
+    the hint hidden (its button in the bar's row of buttons: the pilot's worst case). At the sheet's low
+    stop and at half, no control of the map covers another (the status line, the legend, its fold, the map's "i", the
+    hint's button, the switch, Best, the zoom buttons, the layers button (the kit's icon), the shore's chip, the
+    coarser terrain's chip, the scale, the credits, the top bar with the
+    run's actions; the message is the status line's first line, a part of its box; the map's help, opened, lies above
+    them as a panel), but for one known pair at half with a level held (CHIPS_HALF_HELD: the coarser chip and the
+    status line's two lines; the user's answer of 2026-11-20, a known bug for now), and each stands above
     the sheet: at Area, Spots, Lines, Lines with All refused, and after a tap on several spots (the message up). The
     legend is unfolded by itself while the sheet is low and folded at half, where this phone has no room for it: a
     press on "Legend" there lowers the sheet and unfolds it. An opened layers list lies above the bar. A tap on a
@@ -762,11 +889,13 @@ def test_phone_controls_apart(site):
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            page = _open(browser, f"{site}#run={BIG}", SMALL_PHONE)
+            page = _open(browser, f"{boxes_site}#run={BOXES}", SMALL_PHONE)
             page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]", timeout=WAIT)
-            page.evaluate(CHIP)
             page.evaluate(HINT)
             page.wait_for_function(HINT_SHOWN, timeout=WAIT)
+            # the layers button with the kit's "layers" icon (layersControl.ts), not Leaflet's picture
+            assert page.evaluate("() => { const t = document.querySelector('.v-map .leaflet-control-layers-toggle'); "
+                                 "return !!t.querySelector('svg.u-ic') && getComputedStyle(t).backgroundImage === 'none'; }")
             seen = {}
             for stop in ("low", "half"):
                 if stop == "half":
@@ -775,8 +904,8 @@ def test_phone_controls_apart(site):
                     page.wait_for_function(settled % "s.free[3] < s.size[1] * 0.6", timeout=WAIT)
                 for name, script in states:
                     s = _state(page, fit + script)
-                    boxes = seen[stop, name] = _apart(page, f"{stop} {name}")
-                    assert {"status", "fold", "help", "hint", "levels", "best", "zoom", "layers", "chip", "scale"} <= set(boxes), (stop, name, sorted(boxes))
+                    boxes = seen[stop, name] = _apart(page, f"{stop} {name}", known=CHIPS_HALF_HELD if stop == "half" else ())
+                    assert {"status", "fold", "help", "hint", "levels", "best", "zoom", "layers", "chip", "coarse", "scale"} <= set(boxes), (stop, name, sorted(boxes))
                     # the legend by itself: unfolded while the sheet is low, folded at half
                     assert page.evaluate(legend) == (["true", True] if stop == "low" else ["false", False]), (stop, name)
                     assert ("legend" in boxes) == (stop == "low")
@@ -799,13 +928,14 @@ def test_phone_controls_apart(site):
                             # 2026-11-18; before R2 and the pilot: under 70); _apart keeps it clear of every control
                             assert ramp["lines"] == 2 and ramp["whole"] and ramp["swatches"] == 5 and ramp["height"] < 120, ramp
                             assert ramp["text"].startswith("1") and ramp["text"].endswith("+") and "," in ramp["name"], ramp
-                # the access mark's key, opened by its "?": a panel above the controls, the others still apart
+                # the map's help, opened by its "i" on the access mark's key (the user's 7 b): a panel above the
+                # controls, the others still apart
                 _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
                 _tap_on(page, ".v-help-button button")
                 page.wait_for_selector(".v-over > .v-help", timeout=WAIT)
                 page.evaluate("() => T.frames()")
-                _apart(page, f"{stop}, the access mark's key open")
-                key = _over_holds(page, ".v-over > .v-help", f"{stop}, the access mark's key")
+                _apart(page, f"{stop}, the map's help open", known=CHIPS_HALF_HELD if stop == "half" else ())
+                key = _over_holds(page, ".v-over > .v-help", f"{stop}, the map's help")
                 assert key["box"][3] - key["box"][1] > 40, key
                 # its "i" says it is open, in words and in the kit's on-state (the soft accent)
                 look = "() => { const b = document.querySelector('.v-help-button button'), s = getComputedStyle(b); return [b.getAttribute('aria-expanded'), s.backgroundColor]; }"
@@ -826,7 +956,7 @@ def test_phone_controls_apart(site):
                 page.wait_for_selector(".v-toast", timeout=WAIT)
                 page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
                 page.evaluate("() => T.frames()")
-                boxes = seen[stop, "tap"] = _apart(page, f"{stop} tap")
+                boxes = seen[stop, "tap"] = _apart(page, f"{stop} tap", known=CHIPS_HALF_HELD if stop == "half" else ())
                 # the message stands in the status line's box, its first line (the pilot's arrangement of 2026-11-18)
                 assert "status" in boxes and page.evaluate("() => [document.querySelector('.v-toast').textContent, "
                                                            "document.querySelector('.v-status').firstElementChild.classList.contains('v-toast')]") == \
@@ -847,7 +977,7 @@ def test_phone_controls_apart(site):
             page.wait_for_function(settled % "s.free[3] < s.size[1] * 0.6", timeout=WAIT)
             _state(page, fit + "view.setLevel('spots');")
             assert page.evaluate(legend) == ["false", False]
-            _apart(page, "half again")
+            _apart(page, "half again", known=CHIPS_HALF_HELD)
             # an opened layers list lies above the bar: where it crosses the bar's boxes, a press reaches the list (the
             # clip's list is short: made as long as a run's with an orthophoto and overlays, it crosses the bar's foot)
             _tap_on(page, ".leaflet-control-layers-toggle")
@@ -900,11 +1030,85 @@ def test_phone_controls_apart(site):
             browser.close()
 
 
+# Both chips on the small phone at half with a level held: the coarser chip wraps under the zoom row (no room for two
+# chips beside the zoom) and the status line's two lines and its "Back to Auto" reach it (measured 2026-11-20: chip
+# [8,172,219,216], status [8,200,281,248], back from 209). The user's answer of 2026-11-20: a known bug for now
+# (docs/known-bugs.md). Excepted only there: one chip alone, Auto, the low stop and the Pixel stay checked
+CHIPS_HALF_HELD = (("back", "coarse"), ("coarse", "status"))
+
+
+def test_phone_chips(boxes_site):
+    """Both phones (390 x 664, the Pixel's 412 x 839) with the uncertain shore's and the coarser terrain's controls:
+    each starts folded into its chip (the user's choice of 2026-11-20 for the coarser box: the shore's rules), and no
+    control covers another at the sheet's low stop and at half, Auto or a level held (Spots, Area), but for the one known
+    pair (CHIPS_HALF_HELD: 390 x 664, half, a level held, both chips); with the coarser chip alone (the shore's control
+    taken off the map) nothing is excepted. A chip's press opens its box (aria-expanded, the chip gone, the box's fold
+    button the focus after a key's press), the fold button folds it again and gives the focus back to the chip; the
+    coarser chip says "Coarser terrain" (the overlay's name) and the km² in view."""
+    from playwright.sync_api import sync_playwright
+    settled = "() => { const s = T.state(); return %s && s.spots.length === s.inPixels.length; }"
+    fit = "map.fitArea({top: 115, right: 10, bottom: T.box().height - T.free()[3] + 80, left: 10});"
+    chips = """() => [...document.querySelectorAll('.v-map .u-shore-ctl')].map((h) => { const c = h.querySelector('.u-shore-chip'), b = h.querySelector('.u-shore');
+      return {coarse: h.classList.contains('u-coarse-ctl'), folded: h.classList.contains('u-shore-folded'), expanded: c.getAttribute('aria-expanded'),
+              controls: c.getAttribute('aria-controls') === b.id, chip: getComputedStyle(c).display !== 'none', box: getComputedStyle(b).display !== 'none',
+              text: c.textContent.trim(), name: c.getAttribute('aria-label')}; })"""
+    pixel = {"viewport": {"width": 412, "height": 839}, "device_scale_factor": 2.625, "is_mobile": True, "has_touch": True}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for name, context in (("390 x 664", SMALL_PHONE), ("412 x 839", pixel)):
+                page = _open(browser, f"{boxes_site}#run={BOXES}", context)
+                page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]", timeout=WAIT)
+                for stop in ("low", "half"):
+                    if stop == "half":
+                        page.focus(".u-sheet-handle")
+                        page.keyboard.press("ArrowUp")
+                        page.wait_for_function(settled % "s.free[3] < s.size[1] * 0.6", timeout=WAIT)
+                    for level in ("auto", "spots", "area"):
+                        _state(page, fit + f"view.setLevel('{level}');")
+                        known = CHIPS_HALF_HELD if (name, stop) == ("390 x 664", "half") and level != "auto" else ()
+                        boxes = _apart(page, f"{name} {stop} {level}", known=known)
+                        assert {"chip", "coarse", "zoom", "layers", "status"} <= set(boxes), (name, stop, level, sorted(boxes))
+                got = page.evaluate(chips)
+                assert [c["coarse"] for c in got] == [False, True] and all(c["folded"] and c["chip"] and not c["box"] and c["expanded"] == "false" and c["controls"] for c in got), got
+                coarse = got[1]
+                assert coarse["text"].startswith(WORDS["ui.coarse.layer"]) and coarse["text"].endswith("km²"), coarse
+                assert coarse["name"] == WORDS["ui.coarse.unfold"].replace("{{total}}", coarse["text"][len(WORDS["ui.coarse.layer"]):].strip()), coarse
+                # each opened by its chip (a key's press: the focus moves to the box's fold button), folded again by it
+                for k, sel in enumerate((".v-map .u-shore-ctl:not(.u-coarse-ctl)", ".v-map .u-coarse-ctl")):
+                    page.focus(f"{sel} .u-shore-chip")
+                    page.keyboard.press("Enter")
+                    page.wait_for_function(f"() => !document.querySelector({json.dumps(sel)}).classList.contains('u-shore-folded')", timeout=WAIT)
+                    opened = page.evaluate(chips)[k]
+                    assert opened["expanded"] == "true" and not opened["chip"] and opened["box"], (name, opened)
+                    assert page.evaluate(f"() => document.activeElement === document.querySelector({json.dumps(sel + ' .u-shore-fold')})"), name
+                    page.keyboard.press("Enter")
+                    page.wait_for_function(f"() => document.querySelector({json.dumps(sel)}).classList.contains('u-shore-folded')", timeout=WAIT)
+                    assert page.evaluate(f"() => document.activeElement === document.querySelector({json.dumps(sel + ' .u-shore-chip')})"), name
+                # the coarser chip alone (a run with coarser terrain and no uncertain shore): it stands beside the zoom
+                # and nothing is excepted, at half and at the low stop
+                page.evaluate("() => document.querySelector('.v-map .u-shore-ctl:not(.u-coarse-ctl)').remove()")
+                for stop in ("half", "low"):
+                    if stop == "low":
+                        page.focus(".u-sheet-handle")
+                        page.keyboard.press("ArrowDown")
+                        page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75", timeout=WAIT)
+                    for level in ("auto", "spots", "area"):
+                        _state(page, fit + f"view.setLevel('{level}');")
+                        boxes = _apart(page, f"{name} {stop} {level}, the coarser chip alone")
+                        assert "coarse" in boxes and boxes["coarse"][1] == boxes["zoom"][1], (name, stop, level, boxes)
+                assert page.errors == [], (name, page.errors)
+                page.context.close()
+        finally:
+            browser.close()
+
+
 def test_phone_on_its_side(site):
     """A phone on its side (667 x 375, the phone's layout), with the shore's chip (the test's stand-in): the zoom and
     the layers stand in the level switch's row, right of Best (the user's Q2 a of 2026-11-18), the chip after the zoom
-    or on the next row. No control covers another at the low stop, nor at half, but for one known pair (at half with
-    a level held, the status line's longer sentence under the chip: docs/known-bugs.md). The map has no room for a
+    or on the next row. No control covers another at the low stop, nor at half, but for one known pair (with a level
+    held, the status line's longer sentence and its "Back to Auto" under the chip: at half, and since the user's W1
+    words at the low stop too; the user's P c of 2026-11-20, docs/known-bugs.md). The map has no room for a
     line of the legend even with the sheet low: the legend is folded by itself; a press on "Legend" opens it as a panel
     above the map's other controls, within the map's height, and says so (aria-expanded); the same button, Esc (which
     ends nothing else) and a press on the map close it; at half the press lowers the sheet and opens the panel."""
@@ -917,13 +1121,17 @@ def test_phone_on_its_side(site):
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             page = _open(browser, f"{site}#run={BIG}", SIDE_PHONE)
+            _upright_then_hidden(page)  # (4 a: the notice; the layout under it, kept)
             page.wait_for_function(low, timeout=WAIT)
             page.evaluate(CHIP)  # the shore's chip: this run has no uncertain shore
             first = _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
             assert first["selected"] is not None and page.evaluate("() => document.querySelector('.v-fold').disabled") is False
             page.wait_for_function(closed, timeout=WAIT)  # folded by itself: no room
             page.evaluate("() => T.frames()")
-            side = _apart(page, "on its side, low")
+            # a level held: the status line's longer sentence since the user's W1 ("Kept while you zoom."), and its
+            # "Back to Auto", reach under the shore's chip at the low stop too (the user's P c of 2026-11-20: the phone
+            # held sideways stays a known bug; docs/known-bugs.md); every other control stays apart
+            side = _apart(page, "on its side, low", known=(("back", "chip"), ("chip", "status")))
             # the zoom and the layers up in the switch's row, the zoom right of Best; the chip after the zoom or below it
             assert side["zoom"][0] >= side["best"][2] and side["zoom"][3] <= side["levels"][3] + 0.5, side
             assert side["layers"][3] <= side["levels"][3] + 0.5 and side["chip"][0] >= side["zoom"][0], side
@@ -1092,7 +1300,136 @@ def test_pick_row_kept_in_the_legend(site):
             browser.close()
 
 
-LANDSCAPES = ((844, 390), (852, 393), (915, 412), (932, 430))  # phones held sideways, 768 px wide or more: the columns
+# The squares' values at Area as the canvas drew them (SpotMap drawn().values), each found again in its square from
+# its box's middle (the run's grid through the view's fit) and checked against every control of the map by its own
+# class (T.controls) and every number's shape: a value drawn crosses none of them (1 px kept: the canvas keeps PAD,
+# 2 px, from the controls' boxes rounded outwards); one in its square's middle stands exactly there; one moved or left
+# out had its middle taken (within PAD and that rounding, 3.5 px) and a moved one lies inside its square; every
+# square a person sees has one value, of its own number. `cell`: the grid's cell of one square, its value returned;
+# `byNumber`: the kinds of the numbers (P, L, A) whose box lies within 2 px of a value's middle.
+VALUES = r"""([cell]) => { const {view, map} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, g = map.grid, box = T.box(), f = T.free(), d = map.drawn();
+  const others = T.controls().concat(d.numbers.map((n) => n.box)), wrong = [], cells = new Map(), byNumber = new Set();
+  const cross = (b, r, pad) => b.left < r.right + pad && b.right > r.left - pad && b.top < r.bottom + pad && b.bottom > r.top - pad;
+  const corners = (i, j) => [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, w]) => { const p = m.latLngToContainerPoint(view.fit.toLatLng(g.x0 + (i + u) * g.side, g.y0 + (j + w) * g.side));
+    return [p.x + box.left, p.y + box.top]; });
+  let moved = 0, left = 0, mine = null;
+  for (const v of d.values) {
+    const b = v.box, x = (b.left + b.right) / 2, y = (b.top + b.bottom) / 2, at = m.containerPointToLatLng([x - box.left, y - box.top]);
+    const [gx, gy] = view.fit.toGrid(at.lat, at.lng), i = Math.floor((gx - g.x0) / g.side), j = Math.floor((gy - g.y0) / g.side), k = g.cells.indexOf(j * g.nx + i);
+    if (k < 0 || cells.has(k)) { wrong.push(["no square of its own", v.text, k]); continue; }
+    cells.set(k, v);
+    if (g.cells[k] === cell) mine = {text: v.text, moved: v.moved, left: v.left};
+    const c = corners(i, j), cx = (c[0][0] + c[2][0]) / 2, cy = (c[0][1] + c[2][1]) / 2, xs = c.map((p) => p[0]).sort((p, q) => p - q), ys = c.map((p) => p[1]).sort((p, q) => p - q);
+    const middle = new DOMRect(cx - b.width / 2, cy - b.height / 2, b.width, b.height), taken = others.some((r) => cross(middle, r, 3.5));
+    d.numbers.forEach((n) => { if (cross(middle, n.box, 2)) byNumber.add(n.label[0]); });
+    if (v.text !== String(Math.round(g.values[k]))) wrong.push(["not its square's number", v.text, g.values[k]]);
+    if (v.left) { left++; if (!taken) wrong.push(["left out with its middle free", v.text]); continue; }
+    if (others.some((r) => cross(b, r, 1))) wrong.push(["under a control or a number", v.text, [b.left, b.top, b.right, b.bottom]]);
+    if (v.moved) {
+      moved++;
+      if (!taken) wrong.push(["moved with its middle free", v.text]);
+      if (b.left < xs[1] - 0.5 || b.right > xs[2] + 0.5 || b.top < ys[1] - 0.5 || b.bottom > ys[2] + 0.5) wrong.push(["moved out of its square", v.text]);
+    } else if (Math.abs(x - cx) > 0.5 || Math.abs(y - cy) > 0.5) wrong.push(["not in its square's middle", v.text, x - cx, y - cy]);
+  }
+  const labelled = g.side / view.mpp >= 26;
+  g.cells.forEach((n, k) => { const i = n % g.nx, j = (n - i) / g.nx, c = corners(i, j), cx = (c[0][0] + c[2][0]) / 2 - box.left, cy = (c[0][1] + c[2][1]) / 2 - box.top;
+    if (cx > f[0] && cx < f[2] && cy > f[1] && cy < f[3] && labelled !== cells.has(k)) wrong.push(["a square a person sees without its value", k]); });
+  return {values: d.values.length, moved, left, wrong, mine, labelled, byNumber: [...byNumber].sort()}; }"""
+
+
+def test_area_values_clear(site):
+    """At Area a square's value lies under no control of the map and no pick's number (the design review's list of
+    step 3c, item 3): in its square's middle where that is clear, as before; else moved inside its square; else left
+    out, the square staying. On the desktop and on the small phone with the shore's chip (the test's stand-in), the
+    map held at Area as it opens, then moved so that one square's middle lies on each control's middle in turn: that
+    value is moved or left out, and every other one holds the rule (VALUES)."""
+    from playwright.sync_api import sync_playwright
+    fit = "map.fitArea({top: 115, right: 10, bottom: T.box().height - T.free()[3] + 80, left: 10});"
+    area = "view.setTopOnly(true); view.setBest(10); view.setLevel('area');"
+    # one square's middle onto a point of the viewport (the square of the grid's first cell with a value)
+    onto = """([x, y]) => { const {view, map} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, g = map.grid, box = T.box(), i = g.cells[0] % g.nx, j = (g.cells[0] - i) / g.nx;
+      const p = m.latLngToContainerPoint(view.fit.toLatLng(g.x0 + (i + 0.5) * g.side, g.y0 + (j + 0.5) * g.side));
+      m.panBy([Math.round(p.x + box.left - x), Math.round(p.y + box.top - y)], {animate: false}); return g.cells[0]; }"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for name, context in (("desktop", DESKTOP), ("phone", SMALL_PHONE)):
+                page = _open(browser, f"{site}#run={BIG}", context)
+                if context is SMALL_PHONE:
+                    page.wait_for_function("() => { const s = T.state(); return s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]; }", timeout=WAIT)
+                    page.evaluate(CHIP)
+                s = _state(page, fit + area)
+                assert s["level"] == "area" and not s["auto"], (name, s["level"])
+                first = page.evaluate(VALUES, [-1])
+                assert first["labelled"] and first["values"] > 1 and not first["wrong"], (name, first)
+                assert s["numbers"], (name, "no pick's number on the map")
+                print(f"{name}, Area as it opens: {first['values']} values, {first['moved']} moved, {first['left']} left out")
+                boxes, sheet = page.evaluate("() => [T.boxes(), document.querySelector('.u-sheet')?.getBoundingClientRect().top ?? 1e9]")
+                frame = page.evaluate("() => { const b = T.box(); return [b.left, b.top, b.right, b.bottom]; }")
+                tried = []
+                for control, (x0, y0, x1, y1) in sorted(boxes.items()):
+                    x, y = (x0 + x1) / 2, (y0 + y1) / 2
+                    if not (frame[0] < x < frame[2] and frame[1] < y < min(frame[3], sheet)):
+                        continue  # (a control outside the map's part a person sees: none here, kept for a change of the frame)
+                    cell = page.evaluate(onto, [x, y])
+                    page.evaluate("() => T.frames()")
+                    got = page.evaluate(VALUES, [cell])
+                    assert got["labelled"] and not got["wrong"], (name, control, got)
+                    assert got["mine"] and (got["mine"]["moved"] or got["mine"]["left"]), (name, control, got)
+                    tried.append(control)
+                    print(f"{name}, a square's middle on {control}: {got['values']} values, {got['moved']} moved, "
+                          f"{got['left']} left out")
+                assert {"status", "levels", "best", "zoom", "layers", "scale"} <= set(tried), (name, tried)
+                if context is SMALL_PHONE:
+                    assert {"chip", "fold", "legend", "top"} <= set(tried), (name, tried)
+                assert page.errors == [], (name, page.errors)
+                page.context.close()
+        finally:
+            browser.close()
+
+
+def test_area_values_clear_of_the_fan_and_selection(site):
+    """At Area held the squares' values keep clear of the numbers drawn after the squares too: "Lines from here"
+    opened at P1's first anchor (the fan's L1 … and P1 drawn by the fan), then P1's line selected (A1 and A2 on its
+    anchors). On the desktop and the small phone with the shore's chip: every value holds VALUES' rule (none under a
+    control or a number), and in each of the two states a number of that kind took some value's middle (else the
+    state would test nothing)."""
+    from playwright.sync_api import sync_playwright
+    fit = "map.fitArea({top: 115, right: 10, bottom: T.box().height - T.free()[3] + 80, left: 10});"
+    area = "view.setTopOnly(true); view.setBest(10); view.setLevel('area');"
+    fan = ("const row = view.picks()[0].row, c = view.model.data.columns; "
+           "view.openFan({lat: c.lat1.at(row), lng: c.lon1.at(row)}, {row, end: 1});")
+    select = "view.closeFan(); const pick = view.picks()[0]; view.select(pick.spot, pick.row);"
+    took = {"fan": set(), "selected": set()}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for name, context in (("desktop", DESKTOP), ("phone", SMALL_PHONE)):
+                page = _open(browser, f"{site}#run={BIG}", context)
+                if context is SMALL_PHONE:
+                    page.wait_for_function("() => { const s = T.state(); return s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]; }", timeout=WAIT)
+                    page.evaluate(CHIP)
+                _state(page, fit + area)
+                for state, script, kinds in (("fan", fan, {"L", "P"}), ("selected", select, {"A"})):
+                    page.evaluate("() => { const {view} = window.FINDALINE_VIEW; %s }" % script)
+                    page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
+                    s = _state(page)
+                    labels = {n["label"][0] for n in s["numbers"]}
+                    assert s["level"] == "area" and not s["auto"] and kinds & labels, (name, state, s["level"], sorted(labels))
+                    assert (s["fan"] is not None) == (state == "fan") and (s["selected"] is not None) == (state == "selected"), (name, state)
+                    got = page.evaluate(VALUES, [-1])
+                    assert got["labelled"] and not got["wrong"], (name, state, got)
+                    took[state] |= set(got["byNumber"]) & kinds
+                    print(f"{name}, {state}: numbers {sorted(n['label'] for n in s['numbers'])}; {got['values']} values, "
+                          f"{got['moved']} moved, {got['left']} left out; middles taken by {got['byNumber']}")
+                assert page.errors == [], (name, page.errors)
+                page.context.close()
+        finally:
+            browser.close()
+    assert "L" in took["fan"] and took["selected"] == {"A"}, took  # (an L is the fan's own: a P may be a pick's)
+
+
+LANDSCAPES =((844, 390), (852, 393), (915, 412), (932, 430))  # phones held sideways, 768 px wide or more: the columns
 # A run's long data credits (this run has none; the ui_shots clip's run to 8 lines in the columns): credits.ts's own
 # markup (layers.ts creditsHtml with its "Data credits" button) put into the map's attribution
 LONG_CREDITS = """() => { const words = 'Source: Glowny Urzad Geodezji i Kartografii, the numerical terrain model (CC BY 4.0) | FABDEM V1-2 (CC BY-NC-SA 4.0) | ';
@@ -1120,6 +1457,7 @@ def test_landscape_phone_columns_fold_the_legend(site):
             for (w, h), level, long in [(size, level, long) for size in LANDSCAPES for level in ("auto", "area") for long in (False, True)]:
                     state = f"{w} x {h}, {level}{', long credits' if long else ''}"
                     page = _open(browser, f"{site}#run={BIG}", {**PHONE, "viewport": {"width": w, "height": h}})
+                    _upright_then_hidden(page)  # (4 a: the notice; the layout under it, kept)
                     if long:
                         page.evaluate(LONG_CREDITS)
                         page.set_viewport_size({"width": 1400, "height": 900})  # a phone turned: the credits drawn whole first
@@ -1191,25 +1529,25 @@ def test_focus_rings(site):
 
 
 def test_flag_old_run_and_blocked_storage(site):
-    """Without the flag every run opens in today's page; `?view=b` opens the view and is remembered, `?view=today`
-    ends it; a run without the view's columns opens today's page also with the flag, and the console says why;
-    with the browser's storage blocked `?view=b` still opens the view for that load and it works."""
+    """Without the flag a run opens in the default (DEFAULT: today's page until gate 2); `?view=b` opens the view and
+    is remembered, `?view=today` ends it; a run without the view's columns opens today's page also with the flag, and
+    the console says why; with the browser's storage blocked `?view=b` still opens the view for that load and it works."""
     from playwright.sync_api import sync_playwright
     which = "() => [!!window.FINDALINE_VIEW, !!window.FINDALINE_RESULT]"
     ready = "() => !!(window.FINDALINE_VIEW || window.FINDALINE_RESULT)"
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=False)
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=None)
             page.wait_for_function(ready, timeout=WAIT)
-            assert page.evaluate(which) == [False, True]
+            assert page.evaluate(which) == [DEFAULT, not DEFAULT]
             for address, want in ((f"{site}&view=b#run={BIG}", [True, False]), (f"{site}#run={BIG}", [True, False]),
                                   (f"{site}&view=today#run={BIG}", [False, True]), (f"{site}#run={BIG}", [False, True])):
                 page.goto("about:blank")
                 page.goto(address)
                 page.wait_for_function(ready, timeout=WAIT)
                 assert page.evaluate(which) == want, address
-            # the run's actions are not in the view yet; today's page has them
+            # today's page has the run's actions (the view too since step 3c: below)
             assert page.evaluate("() => !!document.querySelector('.r-actions')") is True
             page.close()
             # a run saved before the view's columns (a store without them): today's page, the console says why
@@ -1231,11 +1569,11 @@ def test_flag_old_run_and_blocked_storage(site):
             page.goto(f"{site}&view=b#run={BIG}")
             page.wait_for_function("() => !!window.FINDALINE_VIEW", timeout=WAIT)
             s = _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
-            assert s["level"] == "spots" and s["selected"] is not None and not page.evaluate("() => !!document.querySelector('.r-actions')")
+            assert s["level"] == "spots" and s["selected"] is not None and page.evaluate("() => !!document.querySelector('.c-result-top .r-actions')")
             _in_view_holds(s)
             page.goto("about:blank")
             page.goto(f"{site}#run={BIG}")
             page.wait_for_function(ready, timeout=WAIT)
-            assert page.evaluate(which) == [False, True] and errors == []
+            assert page.evaluate(which) == [DEFAULT, not DEFAULT] and errors == []
         finally:
             browser.close()

@@ -236,7 +236,7 @@ def test_shell_c_flows(data, tmp_path):
     profile's point on the map goes with Next spot; Esc on Compare gives the focus back; the favourite button's
     new folder, the line saved into it, the #favourites shelf with a subfolder, Move to…, drag and drop and
     deleting a folder after a confirmation; no CSP violations."""
-    page = stub_page(data, "cflows", DESKTOP_SCRIPT % {"small": SMALL})
+    page = stub_page(data, "cflows", DESKTOP_SCRIPT % {"small": SMALL}, today=True)
     with _server(data) as port:
         r = _edge(port, page + "?ui=c", tmp_path / "edge", size="1400,900")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
@@ -439,7 +439,7 @@ def test_shell_c_pick(data, tmp_path):
     line (also as WebKit sends it: a "mouse" click after a "touch" press), the mouse's click does not; while
     measuring a click is a point; where spots lie about as near, a list of them: its second row taken, Esc closes
     it and the selection stays; no CSP violations."""
-    page = stub_page(data, "cpick", PICK_SCRIPT % {"small": SMALL})
+    page = stub_page(data, "cpick", PICK_SCRIPT % {"small": SMALL}, today=True)
     with _server(data) as port:
         r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-pick", size="1400,900")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
@@ -501,7 +501,7 @@ def test_shell_c_intros(data, tmp_path):
     from test_shell_c import C_STUBS
     from test_web import INTROS_SEEN
     stubs = C_STUBS.replace(INTROS_SEEN, "") + 'try { localStorage.removeItem("findaline.intro.search"); localStorage.removeItem("findaline.intro.result"); } catch (e) {}\n'
-    page = stub_page(data, "cintro", INTRO_SCRIPT % {"small": SMALL}, stubs=stubs)
+    page = stub_page(data, "cintro", INTRO_SCRIPT % {"small": SMALL}, stubs=stubs, today=True)
     with _server(data) as port:
         r = _edge(port, page + "?ui=c#new", tmp_path / "edge-intro")
     assert "timeout" not in r and "error" not in r, json.dumps(r)

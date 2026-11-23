@@ -13,6 +13,8 @@ paths:
   - "tests/test_test_lock_page.py"
   - "tests/test_thumb_store.py"
   - "tests/test_disk_notice.py"
+  - "tests/test_view_*.py"
+  - "tests/test_access_view.py"
 ---
 # Tests that start a browser
 
@@ -27,8 +29,8 @@ run them from PowerShell (CLAUDE.md, "This PC").
   subscription that must not miss an event (`hashchange` in `AppC`, once added after the paint, so a "New search"
   clicked at once changed the hash unseen and the page stayed on Home) goes in `useLayoutEffect`, and a test that
   reads state an effect sets waits for it (`ProfileDock`'s "Computing…" before its chart: `[aria-busy]`); the same
-  hashchange-in-`useEffect` pattern is left in `map/main.tsx`, `FavouritesPage.tsx`, `LayerPage.tsx` and
-  `KitResult.tsx`, which no test hits. (2) Virtual time moves on only while the page is idle, and
+  hashchange-in-`useEffect` pattern is left in `map/main.tsx` (hit by `test_view_link.py`'s `test_map_page` and `test_share_page`),
+  `FavouritesPage.tsx`, `LayerPage.tsx` and `KitResult.tsx`. (2) Virtual time moves on only while the page is idle, and
   `requestAnimationFrame` runs in real time: a page that animates all the time (the coverage globe's spin, on a busy
   machine) freezes it with every `setTimeout`-polled wait, so the test hangs until msedge's 180 s (await such a view
   with a `MutationObserver` and leave it); a page whose first frame never comes inside a plain timer's budget (the 3D
@@ -63,6 +65,14 @@ run them from PowerShell (CLAUDE.md, "This PC").
   the event that ends what it measures; limiters on a held clock: `test_public._hold_rate_clock`). Each worker's
   basetemp is `<basetemp>/popen-gwN`: keep `--basetemp` short (point 3). A test that starts a nested pytest drops
   `PYTEST_XDIST_WORKER`/`_COUNT` from the child's environment.
+- **The result view's tests** (line volume round 6): a test or tool that checks today's result page pins it with
+  `tools/today_page.py` (`SCRIPT` in an init script or a page's stubs; `today(url)` for an address where no copied
+  link is compared), never by leaving the view's flag out; a check of the default reads `today_page.view_default()`
+  (`tests/test_view_default.py` builds both settings itself). A Playwright init script (`add_init_script`) runs before
+  the document has its element: a MutationObserver there observes `document`, never `document.documentElement` (it
+  throws, and a stub installed after it never runs). WebKit (Playwright's iPhone 13) reports "ResizeObserver loop
+  completed with undelivered notifications." as a page error at every change of the view's sheet stop: a WebKit test
+  of the view filters that message; Safari's one CSP refusal per `<select>` is WebKit's own (docs/known-bugs.md).
 - **A run of the Żabi Koń clip** comes from the fixtures `clip_data`, `clip_run`, `big_clip` or
   `clip_runs.data_copy`, never from a module's own `findaline.py` call: each distinct search runs once per session
   (shared by the workers) and every module gets its own copy of the data folder (`tests/clip_runs.py`).

@@ -17,9 +17,15 @@
 // words the page shows (ui.result.store_failed). A body the browser could not hold (a null ArrayBuffer) is TooLarge.
 // Only answers of 200 report the download's progress (an error's short body is no part of the run). The lines of
 // other runs (Compare) and of Home's mini maps come from their lines.arrow alone (loadOtherRun, loadRunLines).
+// A download cut while the page was hidden (a phone's screen off: iOS suspends the page and its requests fail; the
+// user's iPhone test of 2026-11-22) is started again, whole, once the page is visible again, with its progress from
+// nought: one try per visible spell (watchHidden); the other file's request is ended at the cut (stop), and the try
+// after it has a deadline, STALL_MS without an answer or a byte while visible (a request iOS left hanging; time hidden
+// or frozen does not count). The retry waits for the browser to be online, at most ONLINE_WAIT_MS. A download that
+// fails while the page stays visible is a StoreFailed at once, as before.
 
 import { RecordBatchReader, Type, type Data, type RecordBatch, type Schema } from "apache-arrow";
-import { download } from "../download";
+import { download, type Answer } from "../download";
 import { t } from "../i18n";
 import { measure, timed } from "../perf";
 import { nextPaint } from "../paint";
@@ -150,11 +156,38 @@ async function downloadStore(folder: string, key: string, report: OnProgress, st
     const total = sum(totals), got = done.reduce((a, b) => a + b, 0);
     report({phase: "download", fraction: total ? Math.min(1, got / total) : null, done: got, total});
   };
-  report({phase: "download", fraction: null});
-  const answers = await Promise.all(names.map((name, k) => download(folder + name, "arraybuffer", {
-    onHeaders: (total, status) => { refused ||= status !== 200; totals[k] = total; progress(); },
-    onBytes: (bytes) => { done[k] = bytes; progress(); },
-  }))).catch(() => { throw new StoreFailed(key, "the download failed"); });
+  let answers: Answer<ArrayBuffer>[], retry = false;
+  for (;;) {
+    totals.fill(undefined);
+    done.fill(0);
+    refused = false;
+    report({phase: "download", fraction: null});
+    const hidden = watchHidden(), stop = new AbortController();
+    let heard = performance.now();  // the last answer or byte of this try
+    const loads = names.map((name, k) => download(folder + name, "arraybuffer", {
+      signal: stop.signal,
+      onHeaders: (total, status) => { heard = performance.now(); refused ||= status !== 200; totals[k] = total; progress(); },
+      onBytes: (bytes) => { heard = performance.now(); done[k] = bytes; progress(); },
+    }));
+    // a try after a cut has a deadline: STALL_MS without an answer or a byte while the page is visible
+    const stall = retry ? stalled(() => heard, (now) => { heard = now; }) : null;
+    try {
+      answers = await (stall ? Promise.race([Promise.all(loads), stall.promise]) : Promise.all(loads));
+      hidden();
+      break;
+    } catch (e) {
+      const cut = hidden();
+      stop.abort();  // the other file's request ends now (iOS may leave one hanging)
+      if (e === STALLED) throw new StoreFailed(key, `no answer for ${STALL_MS / 1000} s after the page was hidden`);
+      if (!cut) throw new StoreFailed(key, "the download failed");
+      // cut while the page was hidden: the whole store again once it is visible (and online, or ONLINE_WAIT_MS on)
+      await whenVisible();
+      await whenOnline(ONLINE_WAIT_MS);
+      retry = true;
+    } finally {
+      stall?.stop();
+    }
+  }
   for (const answer of answers) {
     if (answer.status !== 200) throw new StoreFailed(key, String(answer.status));
     // The XHR gives null when it could not allocate the body's ArrayBuffer (XMLHttpRequest standard, "response")
@@ -169,6 +202,85 @@ async function downloadStore(folder: string, key: string, report: OnProgress, st
     throw e instanceof NewerStore ? e : new StoreFailed(key, e instanceof Error ? e.message : String(e));
   }
 }
+/** How long a try of the store after a cut while hidden may go without an answer or a byte while the page is visible
+ *  (the time hidden does not count); then it ends as a StoreFailed (today's message): a request iOS left hanging
+ *  must not keep the page waiting. The loader has no other timeout (the browser's own). */
+export const STALL_MS = 30000;
+const STALLED = new Error("stalled");
+
+/** A tick this much later than the one before it found timers held: the page was frozen (iOS suspends a hidden page,
+ *  a browser throttles a hidden tab), so the gap is time hidden. */
+const TICK_GAP_MS = 2500;
+
+/** A deadline of STALL_MS after the last answer or byte (`heard`), checked every second: `promise` rejects with
+ *  STALLED; `stop` ends the checks. Only time while the page is visible counts: `reset` sets `heard` to now while the
+ *  page is hidden, when it becomes visible, and after a tick that came late (TICK_GAP_MS: the page was frozen, its
+ *  overdue tick runs once on its return). */
+function stalled(heard: () => number, reset: (now: number) => void): {promise: Promise<never>; stop(): void} {
+  let timer = 0, last = performance.now();
+  const shown = () => { if (document.visibilityState !== "hidden") reset(performance.now()); };
+  if (watchable()) document.addEventListener("visibilitychange", shown);
+  const stop = () => {
+    clearInterval(timer);
+    if (watchable()) document.removeEventListener("visibilitychange", shown);
+  };
+  const promise = new Promise<never>((_, reject) => {
+    timer = setInterval(() => {
+      const now = performance.now(), late = now - last > TICK_GAP_MS;
+      last = now;
+      if (late || (watchable() && document.visibilityState === "hidden")) reset(now);
+      else if (now - heard() > STALL_MS) { stop(); reject(STALLED); }
+    }, 1000) as unknown as number;
+  });
+  promise.catch(() => undefined);  // a rejection after the race was decided is no error
+  return {promise, stop};
+}
+
+/** How long a retry waits for the network after the page is visible again: a phone unlocked after a cut may take a
+ *  moment to join its network; the retry starts once `navigator.onLine`, at most this late. */
+export const ONLINE_WAIT_MS = 2000;
+
+/** Resolves once the browser says it is online, at once when it does, else at the latest after `ms`. */
+function whenOnline(ms: number): Promise<void> {
+  if (typeof navigator === "undefined" || navigator.onLine !== false || typeof addEventListener !== "function") {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); removeEventListener("online", done); resolve(); };
+    const timer = setTimeout(done, ms);
+    addEventListener("online", done);
+  });
+}
+
+/** Has the page a document whose visibility can be watched (Node's units run this file with a stand-in or none). */
+const watchable = () => typeof document !== "undefined" && typeof document.addEventListener === "function";
+
+/** Watch whether the page is hidden from now on; the function returned ends the watch and tells whether it was hidden
+ *  at any time since (a page without a document: never). */
+function watchHidden(): () => boolean {
+  if (!watchable()) return () => false;
+  let hidden = document.visibilityState === "hidden";
+  const seen = () => { if (document.visibilityState === "hidden") hidden = true; };
+  document.addEventListener("visibilitychange", seen);
+  return () => {
+    document.removeEventListener("visibilitychange", seen);
+    return hidden || document.visibilityState === "hidden";
+  };
+}
+
+/** Resolves once the page is visible (at once when it is). */
+function whenVisible(): Promise<void> {
+  if (!watchable() || document.visibilityState !== "hidden") return Promise.resolve();
+  return new Promise((resolve) => {
+    const seen = () => {
+      if (document.visibilityState === "hidden") return;
+      document.removeEventListener("visibilitychange", seen);
+      resolve();
+    };
+    document.addEventListener("visibilitychange", seen);
+  });
+}
+
 /** A store's Arrow file (`bytes`, the whole file) as its one record batch and its metadata `findaline`; a store of
  *  a higher format is refused before its batch is read. */
 function storeBatch(bytes: ArrayBuffer): {batch: RecordBatch; meta: StoreMeta} {

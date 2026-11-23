@@ -6,7 +6,11 @@ pitfalls are in `.claude/rules/` (web-app, metrics).
 
 ## `web.py`
 
-`findaline.py web` (`main(argv, open_path="/")`: the page the browser opens, `findaline.py view`'s `/#run=<id>`): FastAPI on 127.0.0.1 (`TrustedHostMiddleware`, Origin and session token for changes,
+`findaline.py web` (`main(argv, open_path="/")`: the page the browser opens, `findaline.py view`'s `/#run=<id>`): FastAPI on 127.0.0.1 (`TrustedHostMiddleware`, Origin and session token for changes;
+`create_app(lan_origins=())`, the local app only and never set by the command line: full origins such as
+`https://192.0.2.5:8443` whose hosts join the allowed hosts and whose changes are taken with the page's token, for
+`tools/lan_app.py`'s phone test on the local network; a bad origin, a wildcard or the public mode raise,
+`tests/test_lan_app.py`;
 `SECURITY_HEADERS` incl. CSP; `--public`: the public host, trusted proxy, sign-in with GitHub/Google/Microsoft
 (`/login/<provider>`, `/auth/<provider>`, `POST /logout`), the token of a change is the session's CSRF token, a
 sign-in page (`signin_page`, no script, nothing that changes state but signing out) with the demo runs for visitors

@@ -15,18 +15,21 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Splitter } from "../../ui/components";
 import type { Line } from "../../types";
 import type { ResultModel } from "../model";
-import type { ResultMap } from "../ResultMap";
 import { cx, useModel } from "./common";
 import { CHART_MIN, DEFAULT_LAYOUT, LIMITS, cardHeight, cardInsets, cardMaxHeight, cardWidthMin, isLowMap, moveCardEdge,
          type Layout } from "./layout";
-import { ProfileDock, profileShown } from "./ProfileDock";
+import { ProfileDock, profileShown, type ProfileMap } from "./ProfileDock";
 
 export interface ProfileCardProps {
   model: ResultModel;
-  view?: ResultMap | null;
+  view?: ProfileMap | null;
+  /** The line whose profile is shown (ProfileDock's `line`; default: the selected one). */
+  line?: Line | null;
   /** Two points measured on the map, shown in the same card. */
   measured?: Line | null;
   onCloseMeasured?(): void;
+  /** The given line's profile was closed (ProfileDock's `onClose`; the result view: model.closeProfile). */
+  onClose?(): void;
   layout: Layout;
   /** A new layout: `commit` true when it should be kept now. */
   onLayout(next: Layout, commit: boolean): void;
@@ -55,14 +58,15 @@ export function cardHeightAhead(layout: Layout, mapHeight: number): number {
 }
 const FOLDED_HEIGHT = 46;  // px: the folded card (its bar)
 
-export function ProfileCard({model, view, measured, onCloseMeasured, layout, onLayout, onSettle}: ProfileCardProps) {
+export function ProfileCard({model, view, line, measured, onCloseMeasured, onClose, layout, onLayout,
+                             onSettle}: ProfileCardProps) {
   useModel(model);
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<{w: number; h: number} | null>(null);  // the positioned parent's size
   const [actual, setActual] = useState(0);  // the card's height as drawn
   const [least, setLeast] = useState(LIMITS.cardMin);  // its least height (its content's, measured)
   const [, redraw] = useState(0);
-  const shown = profileShown(model, measured);
+  const shown = profileShown(model, measured, line);
   const low = !!box && isLowMap(box.h);
   // The layout this card follows: in a low map with the page's choices over it
   const own: Layout = low ? {...layout, profile: {
@@ -166,7 +170,7 @@ export function ProfileCard({model, view, measured, onCloseMeasured, layout, onL
               onToggle={() => setFolded(!folded)} />
     {side("l")}
     {side("r")}
-    <ProfileDock model={model} view={view} measured={measured} onCloseMeasured={onCloseMeasured} fill
+    <ProfileDock model={model} view={view} line={line} measured={measured} onCloseMeasured={onCloseMeasured} onClose={onClose} fill
                  folded={folded} onFold={setFolded} onContent={() => redraw((n) => n + 1)} />
   </div>;
 }

@@ -98,7 +98,8 @@ export interface SpotView {
   sort: ViewSort; setSort(s: ViewSort): void;
   /** The spots with a passing line, by the sort of their shown line (best first; equal: the lower number). */
   readonly order: Uint32Array;
-  /** The sectors with a passing line, in the order the tree shows them (by their best spot in `order`). */
+  /** The sectors with a passing line, in the order the tree shows them (by their best spot in `order`; smallest first
+   *  (`desc` false): by their first spot in the reversed direction, their spots so too). */
   readonly sectors: SectorRow[];
   /** "Start here": the picks over every passing line, numbered P1 … in this order. */
   picks(): Pick[];
@@ -151,6 +152,21 @@ export interface SpotView {
   readonly fanMisses: number;
   /** Stop following the model. */
   destroy(): void;
+
+  // --- added in step 3c ---
+  /** Is a line hidden by "Top level only" alone: the chip is on, the line's `top` is 0, and it passes every other
+   *  filter (a link to it turns the chip off: the user's "6. a", view/viewlink.ts). */
+  topOnlyHides(row: number): boolean;
+  /** Is a line of this run one of the user's favourites (while they are known: model.favouritesOn); the canvas's gold
+   *  halo (SpotMap.ts) goes under a spot's shown line that is one. */
+  isFavourite(row: number): boolean;
+
+  // --- added in step 3d (P4: the sort's direction) ---
+  /** The direction of the tree "All spots": true largest first (each key's first direction), false smallest first.
+   *  It orders `sectors` (and the spots inside each) only: `order`, "Best in view", its B numbers and the picks stay
+   *  best first. An unknown value is last in both directions; equal values: the lower number first. */
+  readonly desc: boolean;
+  setDesc(desc: boolean): void;
 }
 
 /** The farthest an anchor may lie from the fit's place of it, m (the planner, 2026-11-16): the fit takes the lowest
@@ -240,6 +256,8 @@ function dense(c: NumberColumn, n: number): Float64Array {
 
 /** Highest first, NaN last. */
 const down = (a: number, b: number): number => a === b ? 0 : a !== a ? (b !== b ? 0 : 1) : b !== b ? -1 : b - a;
+/** Lowest first, NaN last. */
+const up = (a: number, b: number): number => a === b ? 0 : a !== a ? (b !== b ? 0 : 1) : b !== b ? -1 : a - b;
 
 const EMPTY = new Uint32Array(0);
 const NO_VIEW: InView = {spots: EMPTY, best: EMPTY, m: 0, numbered: false, refused: 0, strokes: 0, thin: null};
@@ -254,6 +272,7 @@ class Spots implements SpotView {
   version = 0;
   topOnly = true;
   sort: ViewSort = "hmean";
+  desc = true;
   best: Best = 10;
   order: Uint32Array = EMPTY;
   sectors: SectorRow[] = [];
@@ -421,6 +440,13 @@ class Spots implements SpotView {
     this.notify();
   }
 
+  setDesc(desc: boolean) {
+    if (desc === this.desc) return;
+    this.desc = desc;
+    timed("fal:view:order", () => this.reorder());  // (the tree's order only: `order` comes out the same)
+    this.notify();
+  }
+
   /** Everything that follows from the filters: which lines pass, each spot's shown line, the order, the sectors;
    *  the picks and the lines not beaten when they are asked for. The selection stays on a line that still passes,
    *  "Lines from here" closes. */
@@ -488,11 +514,15 @@ class Spots implements SpotView {
     }
     order.sort((a, b) => down(value[a], value[b]) || a - b);
     this.order = order;
-    // the sectors in the order of their best spot, each with its spots in the order and its passing lines' values
+    // the tree's order: the list's direction (smallest first: an unknown value still last, equal values the lower
+    // number first)
+    const tree = this.desc ? order : order.slice().sort((a, b) => up(value[a], value[b]) || a - b);
+    // the sectors in the order of their first spot in the tree's order, each with its spots in that order and its
+    // passing lines' values
     const heads = (this.model.data.sectors || []).map((s, k): SectorRow & {first: number} =>
       ({n: k, word: s.word, spots: [], lines: 0, hmeanMax: NaN, len: [NaN, NaN], first: -1}));
-    for (let r = 0; r < order.length; r++) {
-      const p = order[r], head = heads[this.sectorAt[p]];
+    for (let r = 0; r < tree.length; r++) {
+      const p = tree[r], head = heads[this.sectorAt[p]];
       if (head.first < 0) head.first = r;
       head.spots.push(p);
       head.lines += passing[p];
@@ -812,6 +842,28 @@ class Spots implements SpotView {
     if (this.fan) { this.closeFan(); return true; }
     if (this.selected) { this.select(null); return true; }
     return false;
+  }
+
+  // --- links ---
+
+  topOnlyHides(row: number): boolean {
+    if (!this.topOnly || !(row >= 0 && row < this.count) || this.top[row] !== 0) return false;
+    // the other filters as pass() reads them, for this one line
+    const m = this.model, f = m.filters, s = m.state, c = m.data.columns;
+    const none = (Object.keys(NO_FILTERS) as (keyof Filters)[])
+      .every((k) => k === "groupMin" || k === "favOnly" || f[k] === NO_FILTERS[k]);
+    let p = c.over[row] ? s.showOver : s.showClean;
+    if (p && !none) {
+      const cursor = new LineCursor(c);
+      cursor.i = row;
+      p = passesFilters(cursor, f, m.data.lift);
+    }
+    if (p && f.favOnly && m.favouritesOn) p = this.favourites.has(row);
+    return p;
+  }
+
+  isFavourite(row: number): boolean {
+    return this.favourites.has(row);
   }
 }
 

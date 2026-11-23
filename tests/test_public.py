@@ -1910,6 +1910,8 @@ def test_signed_in_app_and_shared_map_in_edge(tmp_path, clip_run, account_settin
 
     from jobs import Jobs
     from test_web import APP_STUBS, CSP_STUB, _violations
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import today_page
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -1920,7 +1922,7 @@ def test_signed_in_app_and_shared_map_in_edge(tmp_path, clip_run, account_settin
     stubs.mkdir()
     (stubs / "app_stubs.js").write_text(APP_STUBS, encoding="utf-8")
     (stubs / "app_check.js").write_text(APP_CHECK, encoding="utf-8")
-    (stubs / "csp_stub.js").write_text(CSP_STUB, encoding="utf-8")
+    (stubs / "csp_stub.js").write_text(today_page.SCRIPT + CSP_STUB, encoding="utf-8")  # today's page pinned
     (stubs / "share_check.js").write_text(SHARE_CHECK, encoding="utf-8")
     for name in ("SIGNIN_HTML", "PAGE_HTML"):  # the anonymous, privacy and about pages: count violations
         monkeypatch.setattr(web, name, getattr(web, name).replace(

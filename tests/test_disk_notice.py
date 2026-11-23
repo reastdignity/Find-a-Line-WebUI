@@ -26,6 +26,8 @@ pytest.importorskip("httpx2")
 from test_public import account_settings, clip_run, copy_run, session_of  # noqa: E402,F401
 from test_shell_c import copy_clip  # noqa: E402
 from test_web import CSP_STUB, EDGE, INTROS_SEEN, MAP_HELPERS, _result_in, _server, _violations  # noqa: E402
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import today_page  # noqa: E402  (the pin of today's page)
 
 RUN = "2026-10-20_120000_Disk_00000000000000d5"
 NAME = 'A <b>bold</b> & "quoted" run'  # escaped in the title, the heading and the command's neighbours
@@ -192,7 +194,7 @@ def test_a_search_writes_the_notice(clip_run, tmp_path):
 
 
 # Over http, first in the head: the notice's style each time it is added or changed, and whether it was ever shown
-HTTP_HEAD = CSP_STUB + RECORDER + """
+HTTP_HEAD = today_page.SCRIPT + CSP_STUB + RECORDER + """
 window.NOTICE_SEEN = [];
 new MutationObserver(() => {
   const notice = document.getElementById("disk-notice");

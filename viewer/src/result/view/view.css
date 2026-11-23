@@ -1,4 +1,4 @@
-/* The panels of the result view (SpotList, SpotDetails, FanPanel, SpotChooser, Hint, SpotSummary, ViewFilters):
+/* The panels of the result view (SpotList, SpotDetails, SpotActions, FanPanel, SpotChooser, Hint, SpotSummary, ViewFilters):
    classes vl-*, under the kit's root class .ui (ui/tokens.css). The frame and the map's bar are B2's (v-*,
    mapbar.css); today's pieces reused here keep their classes (r-*, result.css; ac-*, access.css).
    The look is the pilot's mock-up (2026-11-18, "for now": docs/DESIGN.md "The pilot's look"): colours from the tokens
@@ -65,6 +65,11 @@
 .ui .vl-block-head { display: flex; align-items: center; gap: 8px; padding: 0 16px 8px; min-height: 40px; }
 .ui .vl-block-head h3 { margin: 0; font: 600 var(--fs-4)/20px var(--display); letter-spacing: .01em; }
 .ui .vl-sort { display: inline-flex; align-items: center; gap: 8px; }
+/* the tree's direction beside "Sort by" (step 3d's P4): the kit's edged icon button with the "sort" icon (an edge as
+   the select beside it: it is pressed, the heads' mark under it is not), pointing up for smallest first (the tree's
+   heads' mark too); 44 px on a touch screen as every icon button of the view (R2) */
+.ui .vl-dir { flex: none; }
+.ui .vl-asc .u-ic { transform: rotate(180deg); }
 .ui .vl-note { margin: 0; padding: 4px 16px; }
 /* the key of the tight mark under a list */
 .ui .vl-key { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 8px 16px 0; color: var(--ink-2); }
@@ -77,7 +82,11 @@
   column-gap: 4px; align-items: center; padding: 0 8px 0 4px; border-left: 3px solid transparent; }
 .ui .vl-with-acc .vl-main, .ui .vl-cols.vl-with-acc {
   grid-template-columns: 40px 12px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.25fr) 48px minmax(0, .8fr); }
-/* positioned: the hidden names of its values (u-sr) stay inside the row */
+/* positioned: the hidden names of its values (u-sr, absolute, about four a row) hang off their row. Hanging off the
+   phone's sheet body instead (the rows static), every resized frame of a sheet's move cost iOS WebKit work for each of
+   them (gate 2's second check, 2026-11-22: the move jerky on 420 rows; headless WebKit, a frame with a new sheet height:
+   77 ms against 63 ms with the names on their rows or hidden). The scrolling those positioned rows once slowed is
+   cured by the scroller's layer (will-change below). The move stays jerky on a long list: docs/known-bugs.md */
 .ui .vl-main { position: relative; width: 100%; min-height: 36px; border-top: 0; border-right: 0; border-bottom: 0;
   border-radius: 0 var(--r-1) var(--r-1) 0; background: none; color: inherit; font: inherit; font-size: var(--fs-3);
   font-variant-numeric: tabular-nums; text-align: left; cursor: pointer; }
@@ -148,6 +157,10 @@
   font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }
 .ui .vl-spot-count { font: 400 var(--fs-3)/20px var(--font); letter-spacing: 0; color: var(--muted); }
 .ui .vl-spot-title .ac-pair { gap: 4px; }
+/* "Previous spot" / "Next spot" between the star and × (step 3d's P1, the user's pick A: today's place); on a touch
+   screen a gap between their 44 px targets (today's pager's 6 px, R7's step: 8 px) */
+.ui .vl-spots { display: inline-flex; flex: none; }
+@media (pointer: coarse) { .ui .vl-spots { gap: 8px; } }
 /* the four values as tiles (R8 "inset"): the value above its label */
 .ui .vl-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .ui .vl-tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; border-radius: var(--r-2); background: var(--surface-2); }
@@ -194,6 +207,11 @@
 .ui .vl-fan .vl-cols > span { white-space: normal; text-align: right; }
 .ui .vl-fan .vl-cols > span:first-child { text-align: left; }
 .ui .vl-fan .vl-rows { padding: 0; }
+/* a line over trees or buildings: the list's words under the first value (the fan's rows have no swatch column), and
+   the list's 4 px above and below its two lines (`.vl-over > .vl-main`), which the rows' `padding: 0 4px` takes away:
+   the words nearer their own values than the next row's, clear of the keyboard's ring inside the row */
+.ui .vl-fan .vl-over-words { grid-column: 2 / -1; }
+.ui .vl-fan .vl-over > .vl-main { padding-block: 4px; }
 @media (pointer: coarse) { .ui .vl-fan-sort .u-seg button { min-height: 44px; } }
 
 /* ---- the table of spots under a press (raised, over the map) ---- */
@@ -205,6 +223,8 @@
 .ui .vl-choose-title { display: flex; align-items: center; margin: 0; padding: 0 0 4px 4px; color: var(--ink-2); }
 .ui .vl-choose .vl-main, .ui .vl-choose .vl-cols { grid-template-columns: 40px 12px repeat(3, minmax(0, 1fr)); padding: 0 4px; border-left: 0; }
 .ui .vl-choose .vl-main { border-radius: var(--r-1); }
+/* a line over trees or buildings: the list's 4 px above and below its two lines, as in the fan */
+.ui .vl-choose .vl-over > .vl-main { padding-block: 4px; }
 .ui .vl-choose .vl-cols { margin: 0; }
 .ui .vl-choose .vl-rows { padding: 0; }
 
@@ -221,3 +241,179 @@
 .ui .vl-sheet-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; }
 .ui .vl-sheet-row .vl-count { flex: 1; min-width: 0; }
 @media (pointer: coarse) { .ui .v-result .vl-hint .vl-hint-x, .ui .vl-hint-open { width: 44px; height: 44px; } }
+
+/* ---- step 3c: today's features in the accepted mock-up's places (2026-11-20; the pilot's look, no new one) ---- */
+/* the selected line's actions under "Stands for" (SpotActions.tsx): one row that wraps, each button its share */
+.ui .vl-lacts { display: flex; flex-wrap: wrap; gap: 8px; }
+.ui .vl-lacts .u-btn { flex: 1 1 auto; }
+/* "Report this line" below the facts: quiet, at the start of its line */
+.ui .vl-report { align-self: flex-start; color: var(--ink-2); }
+.ui .u-sheet-body > .vl-report { margin-top: 16px; }
+/* a phone's profile dock right under the four values (4 d): rules above and below from the sheet's edge to its edge,
+   its contents on the sheet's 16 px (its x in the column of the hint's and the selection's: polish 10); placed as the
+   mock-up's 4 d (measured there: its rule 12 px under the tiles, 237 px under the sheet's top at half; the chart right
+   under the bar, the words on reading it 4 px under the chart: the user's G-B b at the screenshot gate) */
+.ui .vl-details .vl-dock { margin: -4px -16px 0; padding: 4px 16px 8px; row-gap: 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+  box-shadow: none; max-height: none; overflow: visible; z-index: auto; }
+/* a measured line's dock first in a phone's sheet body takes no stacking level of its own either (today's `.r-dock`
+   z-index 6 is for a dock over the map): with it the dock was drawn over the sheet's head, whose stacking context holds
+   the star's folder picker, and the picker could not be pressed (L's iPhone walk, 2026-11-22) */
+.ui .v-result .u-sheet-body > .r-dock-sheet { z-index: auto; }
+.ui .vl-details .vl-dock .r-hint-under { margin-top: 4px; }
+/* the star's folders open under it towards the left, as wide as their list (today's 280 px, not the menus' 340: they
+   stay inside the details' column and a phone's width); 44 px rows on a touch screen (R2) */
+.ui .v-result .vl-dhead .r-pop, .ui .v-result .vl-sheet-row .r-pop { width: auto; }
+/* (they stand under the head's right end, not under the star: Previous / Next spot stand between the star and ×,
+   step 3d's P1, and a picker ending at the star would run past the column's or the phone's left edge) */
+.ui .v-result .vl-dhead, .ui .v-result .vl-sheet-row { position: relative; }
+.ui .v-result .vl-dhead .r-popwrap, .ui .v-result .vl-sheet-row .r-popwrap { position: static; }
+/* a phone's frame clips without being a scroller: the star's picker takes the focus while the sheet still rises from
+   its low stop, and a focus below the window scrolled the frame (hidden overflow scrolls), the picker then above the
+   screen (the code review of C4's item 5; the same before C4) */
+.ui .c-result-phone.v-result { overflow: clip; }
+@media (pointer: coarse) { .ui .v-result .r-folder { min-height: 44px; } }
+
+/* a row's star: the row button's sibling (24 px on a desktop, 44 px on a touch screen: R2), filled for a favourite;
+   the row's hover and selection fill take the star in; the heads stand over the row's button alone */
+.ui .vl-rows.vl-starred { padding-right: 16px; }
+.ui .vl-cols.vl-starred { margin-right: 40px; }
+.ui .vl-starred > .vl-row { border-radius: 0 var(--r-1) var(--r-1) 0; }
+.ui .vl-starred > .vl-row:hover { background: var(--hover); }
+.ui .vl-starred > .vl-sel, .ui .vl-starred > .vl-sel:hover { background: var(--accent-soft); }
+.ui .vl-star { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0;
+  border-radius: var(--r-2); background: none; color: var(--muted); cursor: pointer; }
+.ui .vl-star:hover { color: var(--ink); }
+.ui .vl-star:focus-visible { box-shadow: var(--focus-in); }
+.ui .vl-star .u-ic { width: 16px; height: 16px; }
+/* in a row of two lines the star's icon stands on the values' line: a pick's second, a line over trees' first */
+.ui .vl-pick > .vl-star { align-self: end; align-items: flex-end; padding-bottom: 4px; }
+.ui .vl-over > .vl-star { align-self: start; align-items: flex-start; padding-top: 4px; }
+/* a pick over trees has three lines (its name, the values, the words): the values' line is the middle one */
+.ui .vl-pick.vl-over > .vl-star { align-self: center; align-items: center; padding: 0; }
+/* a favourite's dash wears the map's gold halo */
+.ui .vl-sw.vl-sw-fav { box-shadow: 0 0 0 3px var(--fav); }
+.ui .vl-list .vl-rows.vl-starred { padding-right: 0; }
+.ui .vl-list .vl-cols.vl-starred { margin-right: 24px; }
+@media (pointer: coarse) {
+  .ui .vl-star { width: 44px; height: 44px; }
+  .ui .vl-cols.vl-starred { margin-right: 60px; }
+  .ui .vl-list .vl-cols.vl-starred { margin-right: 44px; }
+  /* forced by the star's 44 px in a phone's rows (the mock-up's measure: "Mean height" needs 47 px and got 44): the three
+     value columns re-shared, .95 / 1.1 / 1.25 against the pilot's 1 / 1 / 1.25; no right padding */
+  .ui .vl-list .vl-rows.vl-starred .vl-main, .ui .vl-list .vl-cols.vl-starred {
+    grid-template-columns: 40px 12px minmax(0, .95fr) minmax(0, 1.1fr) minmax(0, 1.25fr) minmax(0, .8fr); padding-right: 0; }
+  .ui .vl-list .vl-rows.vl-starred.vl-with-acc .vl-main, .ui .vl-list .vl-cols.vl-starred.vl-with-acc {
+    grid-template-columns: 40px 12px minmax(0, .95fr) minmax(0, 1.1fr) minmax(0, 1.25fr) 48px minmax(0, .8fr); }
+}
+
+/* the list's two help buttons (the kit's "info": 24 px, 44 px on a touch screen), their texts opened in place, plain
+   (R8): "Top level only"'s held to its chip (the two wrap together), the columns' in the heads' first cell */
+.ui .v-result .vl-info { width: 24px; height: 24px; color: var(--ink-2); }
+.ui .v-result .vl-info .u-ic { width: 16px; height: 16px; }
+.ui .v-result .vl-info[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent-ink); }
+@media (pointer: coarse) { .ui .v-result .vl-info { width: 44px; height: 44px; } }
+.ui .vl-chipi { display: inline-flex; align-items: center; gap: 4px; }
+.ui .vl-cols .vl-cols-info { align-self: center; justify-self: start; }
+.ui .vl-helpt { margin: 0; padding: 0 16px 8px; font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); }
+.ui .vl-filters .vl-helpt, .ui .vl-list .vl-helpt { padding-left: 0; padding-right: 0; }
+.ui .vl-helpt > div { margin: 0 0 4px; }
+.ui .vl-helpt dt, .ui .vl-helpt dd { display: inline; margin: 0; }
+.ui .vl-helpt dt, .ui .vl-helpt b { font-weight: 600; color: var(--ink); }
+.ui .vl-helpt dt::after { content: ": "; }
+
+/* the model's note first in the list (a link's, a favourite's failure): a plain line, its action a link in the
+   sentence, today's x at its end */
+.ui .vl-lnote { display: flex; gap: 8px; align-items: flex-start; padding: 12px 8px 12px 16px; border-bottom: 1px solid var(--rule); color: var(--ink); }
+.ui .vl-lnote > .u-ic { flex: none; width: 16px; height: 20px; color: var(--ink-2); }  /* the line's height (polish 16) */
+.ui .vl-lnote-text { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-3); line-height: 20px; }
+.ui .v-result .vl-lnote .vl-lnote-x { width: 24px; height: 24px; }
+.ui .vl-list .vl-lnote { padding: 12px 0; }
+@media (pointer: coarse) { .ui .v-result .vl-lnote .vl-lnote-x { width: 44px; height: 44px; } }
+/* no line passes the filters: the sentence and its "Clear all" in the list's place */
+.ui .vl-none { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 16px; color: var(--ink); }
+.ui .vl-none-text { margin: 0; }
+.ui .vl-list .vl-none { padding: 12px 0; }
+/* a narrow desktop list (a low window: 1024 px gives it 320 px): the row star's room taken from the rows' gaps and
+   edges, so the heads and values stay apart (the second design review's N3, B3's fix with the planner's leave); the
+   default width (372 px) keeps the rows above as they are */
+.ui .c-col-list .vl-body { container: vl-list / inline-size; }
+@container vl-list (max-width: 360px) {
+  .ui .vl-rows { padding-left: 4px; }
+  .ui .vl-rows.vl-starred { padding-right: 0; }
+  .ui .vl-cols { margin-left: 4px; }
+  .ui .vl-cols.vl-starred { margin-right: 24px; }
+  .ui .vl-main, .ui .vl-cols { column-gap: 2px; padding-left: 2px; padding-right: 2px; }
+}
+/* the same list on a touch screen (a tablet held sideways: 1024 px), its star 44 px: the heads keep the star's room
+   (else the rule above beats the touch one: the third code review), and the 20 px more come from the rows' edges,
+   1 px of each gap and the anchors' column at its heading's width; the value columns shared by what they hold (the
+   widest value or heading, measured: 39 / 43 / 53 / 28 px) */
+@media (pointer: coarse) {
+  @container vl-list (max-width: 360px) {
+    .ui .vl-rows.vl-starred { padding-left: 0; }
+    .ui .vl-cols.vl-starred { margin-left: 0; margin-right: 44px; }
+    .ui .vl-starred .vl-main, .ui .vl-cols.vl-starred { column-gap: 1px; padding-left: 0; padding-right: 0;
+      grid-template-columns: 40px 12px minmax(0, 39fr) minmax(0, 43fr) minmax(0, 53fr) minmax(0, 28fr); }
+    .ui .vl-starred.vl-with-acc .vl-main, .ui .vl-cols.vl-starred.vl-with-acc {
+      grid-template-columns: 40px 12px minmax(0, 39fr) minmax(0, 43fr) minmax(0, 53fr) 45px minmax(0, 28fr); }
+  }
+}
+/* a desktop list kept under 300 px (the layout allows 260): the anchors' column left out of the rows, the heads and the
+   columns' help, as today's page below its ACC_MIN of 300 px (LinesTable); the map's legend keeps the access rows; the
+   value columns shared by what they hold (39 / 43 / 53 / 28 px), 1 px gaps, no right padding (C2's parity check: at
+   280 and 260 px the values ran over each other) */
+@container vl-list (max-width: 299px) {
+  .ui .vl-main > .vl-cell-acc, .ui .vl-cols > .vl-cell-acc, .ui .vl-helpt > .vl-help-acc { display: none; }
+  .ui .c-col-list .vl-body .vl-main, .ui .c-col-list .vl-body .vl-cols { column-gap: 1px; padding-right: 0;
+    grid-template-columns: 40px 12px minmax(0, 39fr) minmax(0, 43fr) minmax(0, 53fr) minmax(0, 28fr); }
+}
+
+/* ---- gate 2's answers (the user's iPhone test, 2026-11-22) ---- */
+/* 11 a: a block's column heads stay at the top of the list's scroller (a desktop's list body, a phone's sheet body)
+   while its rows scroll (sticky within its block: the top block, a sector); their ground spans the rows' stars and the
+   block's sides beside them (a layer of the heads' own, so a press there reaches the heads, never a row under them) */
+.ui .vl-topblock > .vl-cols, .ui .vl-sec > .vl-cols { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.ui .vl-topblock > .vl-cols::before, .ui .vl-sec > .vl-cols::before { content: ""; position: absolute; top: 0; bottom: 0;
+  left: -16px; right: -60px; z-index: -1; background: var(--surface); }
+/* a row the keyboard reaches is scrolled clear of its block's heads (they are at most two lines and 44 px on touch) */
+.ui .vl-topblock .vl-main, .ui .vl-sec .vl-main { scroll-margin-top: 64px; }
+/* (a phone's sheet body has 12 px at its top, mapbar.css: the heads stand at its edge, no row seen above them) */
+.ui .v-result .u-sheet-body .vl-topblock > .vl-cols, .ui .v-result .u-sheet-body .vl-sec > .vl-cols { top: -12px; }
+/* 12 a: the tree's heads are buttons that sort it (SortHead): drawn as the heads' words, the sorted one's in ink with
+   its mark; a hover fill; the kit's ring; 44 px high on a touch screen (R2) */
+.ui .vl-cols > span > .vl-head { display: flex; align-items: flex-end; justify-content: flex-end; width: 100%; font: inherit; color: inherit;
+  background: none; border: 0; padding: 2px 0; margin: 0; text-align: right; white-space: normal; cursor: pointer; border-radius: var(--r-1); }
+/* the words and the mark as one inline run before the first word (G2-F6); where the cell is too narrow for the mark
+   and that word together the mark takes a line of its own above it, so no head runs over its neighbour (the code
+   review's round 6: "↓Clearance" ran 6-13 px over the word before it) */
+.ui .vl-cols > span > .vl-head > .vl-head-t { display: block; }
+.ui .vl-head-1 .u-ic { margin-right: 2px; }
+.ui .vl-cols > span > .vl-head:hover { background: var(--hover); }
+@media (pointer: coarse) { .ui .vl-cols > span > .vl-head { min-height: 44px; } }
+/* 13 a: the row whose star opened the folders draws the details' picker in its place: its button keeps the star's
+   size (24 px, 44 px on touch), its folders open under the row's right end */
+.ui .v-result .vl-row > .r-popwrap > .u-ib.vl-star { width: 24px; height: 24px; border-color: transparent; }
+@media (pointer: coarse) { .ui .v-result .vl-row > .r-popwrap > .u-ib.vl-star { width: 44px; height: 44px; } }
+/* the heads' cells take the row's height and their buttons fill them: every head as tall as the tallest (a two-line
+   "Mean height"), never under 24 px on a desktop (R2; the design review's G2-F2) */
+.ui .vl-cols > .vl-hcell { align-self: stretch; display: flex; }
+.ui .vl-cols > .vl-hcell > .vl-head { flex: 1; min-height: 24px; }
+@media (pointer: coarse) { .ui .vl-cols > .vl-hcell > .vl-head { min-height: 44px; } }
+/* the heads' ground reaches the block's edges and no further: a block clips what runs past its sides (not a scroller:
+   the heads stay sticky to the list's), so the list never scrolls sideways (the code review's G2) */
+.ui .vl-topblock, .ui .vl-sec { overflow-x: clip; }
+/* a row's folder picker no wider than its list (less 16 px): right-aligned at the row's end it stays inside the list,
+   so inside the window, at every list width (260 px kept: 340 px of picker ran past the window's left edge) */
+.ui .vl-body, .ui .v-result .u-sheet-body { container-type: inline-size; }
+/* gate 2 (the user's iPhone, 2026-11-22): iOS WebKit scrolled the phone's sheet on the main thread while its body held
+   positioned rows that each held absolute hidden names (about 1 700 of them): 1-3 fps on a spot with 420 tree rows, 20 fps
+   on a few dozen; with a layer of its own it scrolls on WebKit's scrolling thread (the user's variant 5, the rows
+   positioned: fluid). Scoped to the view:
+   today's page shares the kit's .u-sheet-body and scrolls fluid. The layer is also the containing block of what is
+   absolute or fixed inside: nothing fixed lives in the body (the spots' chooser, the notice and the pill's menus stand
+   outside it; a help's bubble is a popover in the top layer). The desktop's list and details columns hold the same
+   rows and scroll on their own thread in Safari on a Mac too: the same layer */
+.ui .v-result .u-sheet-body, .ui .v-result .c-col-body, .ui .v-result .c-col-dbody { will-change: transform; }
+.ui .v-result .vl-row .r-pop { width: min(340px, calc(100cqw - 16px)); }
+/* the anchors' name (no sort head) on the line of the sort heads' words: their buttons keep 2 px under their words */
+.ui .vl-sec > .vl-cols > .vl-cell-acc { padding-bottom: 2px; }

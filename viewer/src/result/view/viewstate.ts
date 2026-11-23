@@ -1,5 +1,6 @@
 // What the result view's panels keep (docs/line-volume/spec-view.md B.2 items 12-13, B.4): in the browser's
-// storage only the list's sort and whether the hint is shown (key "findaline.view.v1"; storage blocked: nothing is
+// storage only the list's sort, its direction (step 3d's P4: an optional field; a value kept before it reads as the
+// key's own first direction) and whether the hint is shown (key "findaline.view.v1"; storage blocked: nothing is
 // kept, the page works); per view, for as long as its run is open, what is unfolded in the panels (the sectors
 // open, their pages, "Why so many?", the filter being edited, the pointer last used). The frame draws the panels
 // again when the window crosses the phone's width (another tree, the same SpotView), so this state hangs on the
@@ -13,21 +14,27 @@ export const SORTS: ViewSort[] = ["hmean", "clr", "len", "hmax", "n"];
 /** Rows of a sector's first page (a selection pages a sector in steps of it), and what "Show more" adds. */
 export const PAGE = 20, MORE = 40;
 
-export interface Kept { sort: ViewSort; hint: boolean }
-const DEFAULTS: Kept = {sort: "hmean", hint: true};
+/** Each key's first direction: largest first (true), as today's list (list.ts SORT_KEYS' `desc`); another key
+ *  chosen starts in it. */
+export const FIRST_DESC: Record<ViewSort, boolean> = {hmean: true, clr: true, len: true, hmax: true, n: true};
 
-/** What a stored text keeps (anything else, or a part that is not known: the default). */
+export interface Kept { sort: ViewSort; hint: boolean; desc: boolean }
+const DEFAULTS: Kept = {sort: "hmean", hint: true, desc: FIRST_DESC.hmean};
+
+/** What a stored text keeps (anything else, or a part that is not known: the default; no direction, or one that is
+ *  not known: the kept key's first direction). */
 export function parseKept(text: string | null | undefined): Kept {
   let found: unknown = null;
   try {
     found = text ? JSON.parse(text) : null;
   } catch { /* not JSON: nothing kept */ }
   const o = found && typeof found === "object" ? found as Record<string, unknown> : {};
-  return {sort: SORTS.includes(o.sort as ViewSort) ? o.sort as ViewSort : DEFAULTS.sort,
-          hint: typeof o.hint === "boolean" ? o.hint : DEFAULTS.hint};
+  const sort = SORTS.includes(o.sort as ViewSort) ? o.sort as ViewSort : DEFAULTS.sort;
+  return {sort, hint: typeof o.hint === "boolean" ? o.hint : DEFAULTS.hint,
+          desc: typeof o.desc === "boolean" ? o.desc : FIRST_DESC[sort]};
 }
 
-/** The kept sort and hint. */
+/** The kept sort, direction and hint. */
 export function kept(): Kept {
   try {
     return parseKept(localStorage.getItem(VIEW_KEY));
@@ -36,10 +43,12 @@ export function kept(): Kept {
   }
 }
 
-/** Keep the sort and the hint. */
+/** Keep the sort, its direction and the hint: the direction only when it is not the key's first (so a value is
+ *  written as before step 3d while the tree is largest first). */
 export function keep(k: Kept) {
   try {
-    localStorage.setItem(VIEW_KEY, JSON.stringify({sort: k.sort, hint: k.hint}));
+    localStorage.setItem(VIEW_KEY, JSON.stringify(k.desc === FIRST_DESC[k.sort] ? {sort: k.sort, hint: k.hint}
+                                                    : {sort: k.sort, hint: k.hint, desc: k.desc}));
   } catch { /* storage blocked: nothing is kept */ }
 }
 
@@ -76,7 +85,8 @@ export interface PanelState {
   pressedBy: string;
   /** The spot whose selection the list has followed (its sector opened and paged). */
   followed: number | null;
-  /** The list's order when it followed (the sort and the lines that pass): another order is followed again. */
+  /** The list's order when it followed (the sort, its direction and the lines that pass): another order is followed
+   *  again. */
   followedOrder: string;
   /** The list still has to scroll to the followed spot's row. */
   scroll: boolean;
@@ -86,6 +96,9 @@ export interface PanelState {
    *  list keeps that row in view, not the spot's "Best in view" row (the planner's decision of 2026-11-18); a
    *  selection's end forgets it. */
   pressed: {id: string; spot: number} | null;
+  /** The next follow of a new order pages the selected spot's sector but does not scroll the list: the direction's
+   *  press keeps its button where it is (the final design review's F4). */
+  still: boolean;
 }
 
 interface Held { state: PanelState; listeners: Set<() => void> }
@@ -96,11 +109,13 @@ function holdOf(view: SpotView): Held {
   if (!h) {
     const k = kept();
     h = {state: {open: new Map(), limit: new Map(), paged: new Map(), fanFrom: null, hint: k.hint, why: false, editing: null,
-                 pressedBy: "", followed: null, followedOrder: "", scroll: false, scrollNew: false, pressed: null},
+                 pressedBy: "", followed: null, followedOrder: "", scroll: false, scrollNew: false, pressed: null, still: false},
          listeners: new Set()};
     held.set(view, h);
-    // the kept sort, once per view and before anything is drawn from its order (the B numbers follow it)
+    // the kept sort and direction, once per view and before anything is drawn from its order (the B numbers follow
+    // the sort, the tree both)
     if (k.sort !== view.sort) view.setSort(k.sort);
+    if (k.desc !== view.desc) view.setDesc(k.desc);
   }
   return h;
 }
@@ -124,19 +139,32 @@ export function watchPanels(view: SpotView, f: () => void): () => void {
   return () => { h.listeners.delete(f); };
 }
 
-/** Sort the list of spots and keep the choice (written only when it changes). */
-export function sortBy(view: SpotView, sort: ViewSort) {
-  const hint = holdOf(view).state.hint;  // first: a view's first use of its panel state gives it the kept sort
+/** Sort the list of spots and keep the choice (written only when it changes): another key starts in its own first
+ *  direction (today's LinesTable). `still`: the list follows a selection into the new order without scrolling (a press
+ *  on a head of the tree: the head stays under the pointer, as the direction button's press). */
+export function sortBy(view: SpotView, sort: ViewSort, still = false) {
+  const state = holdOf(view).state, hint = state.hint;  // first: a view's first use of its panel state gives it the kept sort
   if (sort === view.sort) return;
+  state.still = still && !!view.selected;
   view.setSort(sort);
-  keep({sort, hint});
+  view.setDesc(FIRST_DESC[sort]);
+  keep({sort, hint, desc: view.desc});
+}
+
+/** Reverse the tree's direction ("Largest first" / "Smallest first") and keep it; the list follows a selection into
+ *  the new order without scrolling (`still`: the button stays under the pointer). */
+export function reverse(view: SpotView) {
+  const state = holdOf(view).state, hint = state.hint;  // first: the view's kept sort and direction
+  state.still = !!view.selected;
+  view.setDesc(!view.desc);
+  keep({sort: view.sort, hint, desc: view.desc});
 }
 
 /** Show or hide the hint and keep the choice (written only when it changes). */
 export function showHint(view: SpotView, on: boolean) {
   if (holdOf(view).state.hint === on) return;
   changePanels(view, (s) => { s.hint = on; });
-  keep({sort: view.sort, hint: on});
+  keep({sort: view.sort, hint: on, desc: view.desc});
 }
 
 /** The rows a sector shows: the user's pages ("Show more"), or more while the selected spot's row needs them. */
@@ -171,17 +199,18 @@ export function follow(s: PanelState, view: SpotView): boolean {
     s.paged.clear();
     return false;
   }
-  const order = `${view.sort}|${view.version}`, same = s.followed === sel.spot;
+  const order = `${view.sort}|${view.desc}|${view.version}`, same = s.followed === sel.spot;
   if (same && s.followedOrder === order) return s.scroll;
   const n = view.sectorOf(sel.spot), sector = view.sectors.find((x) => x.n === n);
   if (!same) s.open.set(n, true);
   if (!same && s.pressed?.spot !== sel.spot) s.pressed = null;  // another spot, not by that row's press
   s.followed = sel.spot;
   s.followedOrder = order;
-  s.scroll = true;
+  s.scroll = !(same && s.still);
+  s.still = false;
   s.scrollNew = !same;
   s.paged.clear();
   const mine = s.limit.get(n) ?? PAGE, needed = sector ? pageFor(sector.spots.indexOf(sel.spot), mine) : mine;
   if (needed > mine) s.paged.set(n, needed);
-  return true;
+  return s.scroll;
 }

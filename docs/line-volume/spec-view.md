@@ -206,10 +206,12 @@ and its phone frames). Every count below is of the lines that pass the filters.
    of dashes; another spot: a pale line. A B or P number sits on the longest piece of its line that is on the map with
    the whole shape 2 px clear of the switch, zoom buttons, credits (button and open text), status line, hint and its
    "?", and legend; tried at 0.5, 0.36, 0.64, 0.24, 0.76, 0.14, 0.86 of the piece (then the next piece); the first
-   position at least one box (32 × 23 px) from every earlier number wins, else the farthest; nearer than a quarter
-   box: left out (the better spot keeps its number). No free piece: no number on the map, the row keeps it. Numbers
+   position at least one box (32 × 23 px) from every earlier number wins, else the farthest; nearer than a third of a
+   box: left out (the better spot keeps its number; the user's N1 b, 2026-11-20; a quarter before). No free piece: no
+   number on the map, the row keeps it. Numbers
    are placed best first, measured at every full redraw and placed again (at most twice) when a control changed its
-   size. L numbers: at 82 % of the free piece toward the far end. A1, A2: on the anchors. The legend lists exactly
+   size. The numbers of "Lines from here": at 82 % of the free piece toward the far end, after the B and P numbers,
+   left out by the same rule (N2 a). A1, A2: on the anchors. The legend lists exactly
    the shapes and colours on the map now.
 9. **Presses** (open point 2 "ok"). A number's shape is a target first (its box + 2 px with a mouse, at least 40 ×
    40 px with a finger; of several, the nearest middle): B and P select their spot's bold line, L its line, A opens
@@ -269,8 +271,8 @@ and its phone frames). Every count below is of the lines that pass the filters.
     (B.3), everywhere: squares, counts, picks, list, shown lines.
     The chip is on at every run's start and is not remembered (the planner). "Only clear" stays in More filters
     only, and "How to read the result" is hidden in the view until its text is rewritten for it (the user,
-    2026-11-16: "5. a"). A link to a line that the chip hides also lifts the chip (the user: "6. a"; built with
-    today's features, wave 4).
+    2026-11-16: "5. a"). A link to a line that the chip hides also lifts the chip (the user: "6. a"; built in step
+    3c: `view/viewlink.ts`).
 15. **The tight mark**: as A.2, in rows, the table of spots, "Lines from here" and details; key lines under each list.
 16. **Empty**: "No spots in view. Zoom out or move the map." on the map.
 
@@ -298,8 +300,50 @@ and its phone frames). Every count below is of the lines that pass the filters.
   + and − stand across and the data credits fold behind "Data credits", as on a phone.
 - The legend lists "P1 pick" whenever "Start here" has a pick in view, drawn or not: a stated exception to item 8's
   "exactly the shapes on the map now", because the pick's line is on the map even when its diamond is left out.
+  The legend lists "L" whenever a row of "Lines from here" with an L number has its line in view, drawn or not (the
+  same reason; the planner, round 6).
 - The list's follow on a selection from the map or the table of spots: the "Best in view" row when the spot has one
   there, else the tree's row; a selection made by pressing a row keeps that row in view.
+
+**As built in round 6** (steps 3c and 3d, 2026-11-20 to 2026-11-22; tag `history/view-3c`; the looks are
+docs/DESIGN.md rows 100 to 130, each with its source: the user's words, or the planner's or a review's):
+- **Today's features joined** (the plan's answers 3 to 6, 11, 12; gate 1's 4 a, 4 d, 7 b, 10 a and question 11): the
+  run's actions (Share, Download, Measure, Compare, Copy link, Report; on a phone in the pill without Compare); the
+  profile as a card on the credits' line on a desktop, as a compact dock under the four values on a phone; the
+  search area's outline; a favourite is its spot's shown line with today's gold halo (B-3); Compare's other runs drawn
+  apart in their colours, not counted and not pressable (B-4; P5 b: a known difference); Measure with its tip as the
+  status line's first line on a phone; `#line=` links (`view/viewlink.ts`); the line's star with today's folders in
+  its head, "3D view", "Copy link", "Profile", "Report this line" below the facts; today's "Zoom" gone; "Open spot"
+  hidden (B-5). The hint stays first on a phone (answer 7: item 12's question closed).
+- **Item 3** (a square's value): in its square's middle where its box keeps 2 px clear of the map's controls and the
+  picks' numbers; else at the first clear place of eight inside the square (the sides' middles, then the corners);
+  else it is left out and the square's colour tells its class.
+- **Item 8**: a third of a box, the fan's numbers too (N1 b, N2 a; `tools/view_numbers.py` measured the rules first).
+- **Items 9 and 10 on a phone**: a selected or measured line keeps one end in view by the least pan at the same zoom,
+  never a zoom (the user's G-E a and M2, and "yes" to keeping a pinch's zoom); a selection made at the full stop drops
+  the sheet to half (P3 a), and at full the list keeps the in-view set of the last stop below full.
+- **Item 10**: "Previous spot" / "Next spot" in the spot's head, the tree's spots top to bottom (P1 a, "arrows in the
+  head"). The details state a line over trees as a fact row, without today's "check it on the photo" (P2 b).
+- **Item 13**: a direction button beside "Sort by" ("Largest first" / "Smallest first", the tree only: "Best in view"
+  and the numbers stay best first; P4 a); since gate 2 the tree's heads stick to the list's top and sort it, a second
+  press reversing (11 a, 12 a), and a row's star opens the same folder list as the details' (13 a).
+- **Help on touch** (answer 9): the map's one "i" (both texts on a desktop, three parts on a phone), an "i" on "Top
+  level only" and on the columns; Best's reason at Area inside the map's help.
+- **Words**: every text of gate 1's table as the user picked it (W1 to W14: "Kept while you zoom.", "Zoom in, or set
+  Best to 100.", "Height difference", "Stands for 17 lines found a few metres apart", "5 965 hidden by Top level
+  only", "No line passes the filters. Loosen one, or clear all.", "Tap two points on the map", "Search area"; the
+  desktop header's line count dropped; the link notes moved into the catalogue unchanged); the screenshot gate's G-F a
+  ("Lines: lines this spot stands for") and G-G a (each row's star named with its spot).
+- **Gate 2** (the user's iPhone checks, 2026-11-22): a notice to turn a phone held sideways upright (4 a); no page
+  zoom outside the map (6 b); the layers menu at half drops the sheet (9 a); the 2D map's "Data credits" as the 3D
+  view's pill; a run's store cut while the phone's screen was off loads again once the page is visible; the scrollers
+  on a layer of their own (1-3 fps before on 420 rows); the 3D view's other lines already passed every filter (finding
+  1: kept as is, rechecked); the phone sheet's move with a long list stays jerky (docs/known-bugs.md).
+- **The browser keeps** `findaline.view.v1` ({sort, hint} and an optional `desc`, written only when it differs from
+  the key's first direction; an old value reads as before), the flag `findaline.view` (B.10) and, as today's page,
+  `findaline.lastFolder` (the folder a new favourite goes to).
+- **Not built**: T7 (B.8); Compare's other runs pressable; the level switch as a radio group (docs/roadmap.md, "Line
+  volume round 6: open").
 
 **What the app needs that the mock-up does not have** (the mock-up says "Fake" or "Not here"): loading the run (G-06
 a: `spec-store.md`; the load progress of `RunLoading.tsx` stays); the map's real projection (in-view and squares in
@@ -359,7 +403,8 @@ storage: the list's sort and the hint's state under a new key (try/catch).
 approved by the user (2026-11-17: "1. ok"): "How many of the best in view are drawn" (Best's help), "How much the map
 draws" (the level switch), "Lines" and "Lines · {n}" (the list's panel and rail), "The selected line" and "Line
 details" (the details' panel and rail), "Spot {label}", "Results" (the phone's sheet), "{n} line" / "{n} lines". The
-browser keeps `findaline.view.v1` ({sort, hint}) and the flag `findaline.view` (B.10).
+browser keeps `findaline.view.v1` ({sort, hint}; since round 6 also an optional `desc`) and the flag `findaline.view`
+(B.10); since round 6 the view also reads and writes today's `findaline.lastFolder`.
 
 ### B.5 Files and pairs
 `viewer/src/result/` (`model.ts` for spots, order, filters, the shown line; `ResultMap.ts` the canvas: levels,
@@ -404,11 +449,29 @@ Unit tests for the pure parts (in view, squares, breaks, picks, not beaten, fan 
 `tests/test_viewer.py`; round 4 puts them in new test files beside it.
 Python: sectors and `top` equal `tools/prune_study.py`'s rule on a made-up table. Regression entries: none change
 (the view and new columns only; exports unchanged). Truth check: not asked (no anchor or line rule).
+**As built in step 3d** (round 6): today's checks were listed feature by feature and each given a verdict before the
+default changed. Today's result page in the app (`tests/test_view_parity.py`, seven walks): 139 features, 44 the
+same (a view test shows it), 53 ported (a new test of the view), 29 different by a recorded decision (the user's or
+the planner's, cited in the row), 0 partly and 0 gaps (the gaps P1, P3 and P4 were built, P2 and P5 became known
+differences), 3 untested on both pages, 10 of other lists or not the result page; and 7 checks without a feature.
+The counts are those before gate 2: one of the 29, L6 (the sorted column's name saying the order; recorded as said by
+the direction button's name, as the heads were hidden from screen readers), lost its reason when gate 2's 12 a made
+the heads sort buttons that say their order ("Length, sorted smallest first", asserted by
+`test_view_gaps.py::test_heads_sort_the_tree`), so the view now does what L6 asks; the list was not relabelled.
+The pages around a result (`tests/test_view_parity_pages.py`: the access mark's parts, Download, a run's map.html, a
+share link's page, the public site's people): 71 rows, 16 the same, 7 the same before the page is chosen, 46 ported,
+2 different by decision, 0 gaps. Each ported assertion names its row id of the planner's parity list, kept outside
+the repository (the planner's decision). Today's page is checked through `tools/today_page.py` since the view
+became the default.
 
 ### B.8 Acceptance (targets of gate 1, section 4; the mock-up's numbers are the mock-up's, not the app's)
 - T7 (at most 3 steps from a spot to a line of a chosen direction, phone): press a B number (1), press and hold an
   anchor or A1 (2: the fan has a direction column), press the row (3) (estimate from the behaviour; part E3 counted
   6-8 today). Measured by a Playwright script on BAH, phone 390 and 412.
+  **Walked in round 6** (iPhone 13 and Pixel 7 profiles, real taps): 5 steps on the clip's run, 6-8 from the spot on
+  a stand-in of 15 338 lines (4 without scrolls), plus 2 taps of + before B1 is drawn: **not met**; the sheet's raise
+  and the scroll to the row are the steps beyond the three. The user's T a (2026-11-20): recorded as not met, "fewer
+  steps on a phone" parked in docs/roadmap.md.
 - Lines drawn in the first view: the mock-up draws on BAH (desktop, far) 44 strokes at Area, 622 at Spots, 772 at
   Lines Best 10; MGp 219 / 758 / 878; never more than 5 000 (counted on version 7 by the mock-up's agent). Target
   (the user, 2026-11-16: "3. a", as the accepted mock-up counts): never more than 5 000 thin lines at the Lines
@@ -461,7 +524,11 @@ Round 4 builds 2 and 3. Its plan moves two things: wave 2 also takes the base la
 must avoid the real controls), and each wave ports its own checks of 5; 5 keeps the review on three devices and the
 change of the default. **Built** (2026-11-17, behind the flag): wave 1 (39785f8), wave 2 (70bef24), wave 3
 (d0553d7). Waves 4 and 5 are steps 3c and 3d of `spec.md` section 5; step 3c also takes the design review's list
-(`docs/roadmap.md`).
+(`docs/roadmap.md`). **Built in round 6** (2026-11-20 to 2026-11-22, tag `history/view-3c`): wave 4 by wave A (the seams,
+the link, a square's values, the access mark's parts, the numbers measured) and wave B (B1 the map's features, B2
+the details and the list, B3 the frame and the profile); wave 5 by wave C (C1 and C2 the parity lists and their
+tests, C3 the default's switch with `tools/ui_shots.py` and `tools/ui_walks.py` brought to the view, C4 the gaps P1,
+P3, P4) and gate 2's rounds; `viewer/dist` built and committed with each.
 
 The access mark (built on today's page in round 3) has parts that wait for this view: A1 and A2 carrying the state,
 the column "Far end" of "Lines from here", the three marks in the map's legend, the fifth "Start here" pick "From a
@@ -483,6 +550,13 @@ shows them in this view's frame). They belong to waves 2 and 3 above.
   **As built** (70bef24): `?view=b` sets `localStorage["findaline.view"] = "b"`; the view opens only on a run whose
   store has the view's columns, a head that holds together with them and a grid the fit reaches (`spots.ts`
   `viewOf`); any other run opens in today's page.
+  **As built in round 6** (2026-11-22, on the user's word after gate 2's iPhone checks: "yes"): the view is the
+  default. The flip is the one line `VIEW_DEFAULT = true` in `view/SpotColumns.tsx`; nothing else changed with it.
+  `viewWanted` keeps under `findaline.view` only an answer other than the default, so `?view=today` is remembered
+  ("today") until `?view=b` forgets it; a run the view cannot show still opens today's page. Today's page stays as the
+  fallback and behind `?view=today` (the plan's answer 14); the tests and tools that check it pin it
+  (`tools/today_page.py`). Stored data: the browser's `findaline.view` then keeps "today" for a person who asks for
+  today's page; no migration.
 - **The fit** (the user, 2026-11-17: "8. fit"): no projection library. A run whose grid no polynomial of B.5 (degree
   3 at most) reaches within 0.5 m both ways opens in today's page; the runs measured in B.5 fit within 0.06 m.
 - **Tile lines at quarter zoom steps:** between two whole zoom levels the base map's tiles show thin lines between

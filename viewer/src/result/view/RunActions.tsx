@@ -3,8 +3,9 @@
 // (the run's lines as CSV and GeoJSON, made by the worker from the run's store for each download, where the page can
 // ask for it: mayExport; no run keeps the files since store wave 4).
 
+import type L from "leaflet";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { Button, IconButton } from "../../ui/components";
+import { Button, IconButton, TOUCH, useMedia } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { api, ApiError, canChange, user, type RunListed } from "../../app/api";
 import { t } from "../../i18n";
@@ -12,41 +13,79 @@ import { listOthers, NEARBY_KM, colorOf } from "../../others";
 import type { Line, RunData, RunInfo } from "../../types";
 import { loadOtherRun, loadRunList } from "../load";
 import type { ResultModel } from "../model";
-import type { ResultMap } from "../ResultMap";
 import { LinkField } from "./LineDetails";
 import { Popover, Swatch, useModel } from "./common";
 import { day } from "../../time";
 
+/** What the run's actions need of the map: Measure's mode and its two points, Compare's box of the run's area. */
+export interface RunActionsMap {
+  readonly isMeasuring: boolean;
+  onMeasuring(listener: (measuring: boolean) => void): () => void;
+  startMeasure(done: (a: L.LatLng, b: L.LatLng) => void): void;
+  cancelMeasure(): void;
+  clearMeasure(): void;
+  areaBounds(): L.LatLngBounds;
+}
+
 export interface RunActionsProps {
   model: ResultModel;
-  view?: ResultMap | null;
+  view?: RunActionsMap | null;
   /** A measured line (or null when measuring starts again or fails): the shell shows it in ProfileDock. */
   onMeasured?(line: Line | null): void;
   /** Buttons with icons only (phones). */
   compact?: boolean;
+  /** The icons without a box of their own (the result view's phone: in the top bar's pill). */
+  plain?: boolean;
+  /** Where Measure's tip "Click two points on the map" stands while measuring: under the button (default, today's
+   *  page), beside it before the button (the result view's header), or nowhere (the result view's phone: the status
+   *  line's first line, MapBar's `tip`). */
+  tip?: "below" | "beside" | "none";
+  /** The count of new selections (the result view's frame): a measurement's answer that comes after a new selection
+   *  is dropped (a new selection ends a measured line); today's page gives none. */
+  selections?(): number;
   /** Which actions (default all that can work here). */
   show?: ("measure" | "compare" | "share" | "download")[];
   /** The folder of the runs' folders (default "/runs/"). */
   base?: string;
 }
 
-/** Measure: the next two clicks on the map; the profile between them is computed by the server. */
-function Measure({model, view, onMeasured, compact}: RunActionsProps) {
+/** Measure's tip while measuring, a tap's words on a touch screen (MapBar's too on a phone of the result view). */
+export function useMeasureTip(): string {
+  return useMedia(TOUCH) ? t("ui.result.measure_tip_touch") : t("ui.result.measure_tip");
+}
+
+/** The measurement under way of each run's model (a start or a cancel makes a new one): an answer of an older one is
+ *  dropped, also when the RunActions and the map were drawn anew (the window crossed the phone's width: the model
+ *  stays, and an answer of the measurement under way then is still shown). */
+const measurements = new WeakMap<ResultModel, number>();
+
+/** Measure: the next two clicks on the map; the profile between them is computed by the server. An answer is shown
+ *  only while it is still the latest measurement's and no new line was selected meanwhile (`selections`): a late one
+ *  neither ends a new measurement nor comes back over a new selection (the code review of B3's catch-up). */
+function Measure({model, view, onMeasured, compact, plain, tip = "below", selections}: RunActionsProps) {
   // The map's mode, not a copy: a phone turned round draws another RunActions while measuring goes on
   const [measuring, setMeasuring] = useState(!!view?.isMeasuring);
   const [error, setError] = useState("");
+  const words = useMeasureTip();
   useEffect(() => {
     if (!view) return;
     setMeasuring(view.isMeasuring);
     return view.onMeasuring(setMeasuring);
   }, [view]);
   if (!view || !model.canCompute) return null;
+  const renew = () => { const k = (measurements.get(model) ?? 0) + 1; measurements.set(model, k); return k; };
   const toggle = () => {
-    if (measuring) { view.cancelMeasure(); view.clearMeasure(); return; }
+    if (measuring) { renew(); view.cancelMeasure(); view.clearMeasure(); return; }
     setError("");
+    // a measured line before ends (the frame's, and a link's: its answer still on the way is dropped by openLinked,
+    // as closeMeasured does; the second code review)
+    model.measuredLink = null;
     onMeasured?.(null);
+    const mine = renew(), picked = selections?.();
+    const current = () => measurements.get(model) === mine && selections?.() === picked;
     view.startMeasure((a, b) => {
-      model.measure([a.lat, a.lng], [b.lat, b.lng]).then((l) => onMeasured?.(l), (e) => {
+      model.measure([a.lat, a.lng], [b.lat, b.lng]).then((l) => { if (current()) onMeasured?.(l); }, (e) => {
+        if (!current()) return;
         view.clearMeasure();
         setError("Not computed: " + e.message);
       });
@@ -54,10 +93,11 @@ function Measure({model, view, onMeasured, compact}: RunActionsProps) {
   };
   const label = measuring ? "Cancel measuring" : "Measure";
   return <span class="r-act">
-    {compact ? <IconButton icon="ruler" label={label} on={measuring} onClick={toggle} />
+    {measuring && tip === "beside" && <span class="r-tip r-tip-beside u-small">{words}</span>}
+    {compact ? <IconButton icon="ruler" label={label} on={measuring} plain={plain} onClick={toggle} />
       : <Button icon="ruler" class={measuring ? "r-on" : ""} aria-pressed={measuring} onClick={toggle}>
           {measuring ? "Cancel" : "Measure"}</Button>}
-    {measuring && <span class="r-tip u-small">Click two points on the map</span>}
+    {measuring && tip === "below" && <span class="r-tip u-small">{words}</span>}
     {error && <span class="r-tip r-error u-small" role="alert">{error}
       <button type="button" class="r-note-x" aria-label="Close the message" onClick={() => setError("")}>
         <Icon name="close" /></button></span>}
@@ -122,7 +162,7 @@ const num0 = (v: number) => v.toFixed(0);
 
 /** Share (the public site, the owner's runs): a link that opens the run's map for anyone who has it;
  *  nothing unless the run is the user's own. */
-function Share({model, compact}: RunActionsProps) {
+function Share({model, compact, plain}: RunActionsProps) {
   const runId = model.runId;
   const [run, setRun] = useState<RunListed | null>(null);
   const [url, setUrl] = useState("");
@@ -139,7 +179,7 @@ function Share({model, compact}: RunActionsProps) {
   const stop = () => api.unshare(run.id).then(() => { setUrl(""); setError(""); changed(false); },
                                               (e) => setError(e.message));
   return <Popover label="Share" align="right"
-                  button={(open, toggle) => compact ? <IconButton icon="share" label="Share" expanded={open} onClick={toggle} />
+                  button={(open, toggle) => compact ? <IconButton icon="share" label="Share" expanded={open} plain={plain} onClick={toggle} />
                     : <Button icon="share" aria-expanded={open} onClick={toggle}>Share</Button>}>
     <div class="r-share">
       <b class="u-h4">Share this run</b>
@@ -237,7 +277,7 @@ function startExport(id: string, format: Format) {
 /** Download of a run read from its store: each row asks the worker for the file and waits ("Preparing the
  *  file…" in the pressed row, the other row off, the ring on the button), then the browser saves it; a failure is
  *  a red line under the rows, in a menu that opens again if it was closed (startExport). */
-function Export({model, compact}: RunActionsProps) {
+function Export({model, compact, plain}: RunActionsProps) {
   const id = model.runId;
   const [, setDrawn] = useState(0);
   const self = useRef({id, open: false}).current;  // this Export's menu as its button last drew it
@@ -263,8 +303,8 @@ function Export({model, compact}: RunActionsProps) {
     const mark = busy ? ring : <Icon name="download" />;
     const name = busy ? t("ui.result.export_preparing_label") : "Download";
     return compact
-      ? <button type="button" class={open ? "u-ib u-on" : "u-ib"} aria-label={name} title={name} aria-expanded={open}
-                onClick={toggle}>{mark}</button>
+      ? <button type="button" class={["u-ib", open && "u-on", plain && "u-plain"].filter(Boolean).join(" ")} aria-label={name} title={name}
+                aria-expanded={open} onClick={toggle}>{mark}</button>
       : <Button aria-expanded={open} aria-label={busy ? name : undefined} onClick={toggle}>{mark}Download</Button>;
   };
   // A closed menu takes its failure's line with it

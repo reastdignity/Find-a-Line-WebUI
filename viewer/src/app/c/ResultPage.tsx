@@ -29,9 +29,11 @@ export interface ResultPageProps { id: string; line: string | null; nav: number;
 
 export function ResultPage({id, line, nav = 0, editJob, wide}: Omit<ResultPageProps, "nav"> & {nav?: number}) {
   const back = {label: t("ui.app.home"), onClick: () => go("#home")};
+  // the pill's icon is the kit's "refresh" (the pencil and Measure's ruler read alike at 18 px: the accepted mock-up's
+  // polish 12; also today's page's pill)
   const actions = (compact: boolean) => editJob && (compact
     ? <a class="u-ib u-plain u-round" href={editHash(editJob)} aria-label={t("ui.app.edit_again")} title={t("ui.app.edit_again")}>
-        <Icon name="edit" /></a>
+        <Icon name="refresh" /></a>
     : <Button icon="edit" href={editHash(editJob)}>{t("ui.app.edit_again")}</Button>);
   return <ResultColumns runId={id} line={line} nav={nav} wide={wide} back={back} hashOf={runHash} linkOf={linkOf}
                         view3dOf={view3dOf} actions={actions} ortho={(data) => orthoForApp(data.ortho, data.run.id)} />;

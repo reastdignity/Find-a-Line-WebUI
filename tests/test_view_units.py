@@ -1407,8 +1407,13 @@ def test_frame_in_edge(tmp_path, run):
         words = json.load(f)
     ok, _ = run.passing()
     spots = len(run.order(ok))
-    # the flag: off until it is set in the browser's storage; a run without the view's columns never opens the view
-    assert out["flag"] == {"before": [False, False], "wanted": True, "opens": True, "old": False} and out["after"] is False
+    # the flag: the default (SpotColumns.tsx VIEW_DEFAULT, read by tools/today_page.py) until it is set in the browser's
+    # storage; a run without the view's columns never opens the view
+    import sys
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import today_page
+    on = today_page.view_default()
+    assert out["flag"] == {"before": [on, on], "wanted": True, "opens": True, "old": False} and out["after"] is on
     first = out["first"]
     assert out["drawn"] is True and (first["level"], first["auto"], first["best"]) == ("area", True, 10)
     assert first["m"] == first["spots"] == spots and first["status"] == words["ui.view.map.status_area"]
@@ -1417,17 +1422,20 @@ def test_frame_in_edge(tmp_path, run):
     # the slots hold the page's own panels; in the columns the hint stands beside the status line
     assert first["slots"] == ["the list's slot", "the details' slot"] and first["places"] == [["hint-map", "map"]]
     assert first["result"] is True and first["leaflet"] is True and first["controls"] == [True] * 4
-    assert "Made up" in first["header"] and f"{run.n}lines" in re.sub(r"\s", "", first["header"])
-    assert first["actions"] is False  # the run's actions are not in the view yet
+    assert "Made up" in first["header"] and "line" not in first["header"]  # the run's name and date, no line count (the user's W8)
+    assert first["actions"] is True  # the run's actions in the header (step 3c's frame)
     assert "fal:view:first" in first["measures"] and "fal:view:inview" in first["measures"]
     assert not {"fal:run:group", "fal:run:filter", "fal:run:rows"} & set(first["measures"])
     assert first["bestOff"] is True and first["snap"] == [0.25, 0.5]
 
     def legend(drawn, area=False):
         """The legend lists exactly the shapes and colours the canvas drew (at Area the squares stand for the
-        lines' colours), then the access mark's three states."""
+        lines' colours), then what it draws besides the spots, then the access mark's three states only while an
+        anchor of the selected line is in view (the canvas's `ends`: the user's L b, step 3c)."""
         kinds = ("sq", "P") if area else ("clear", "over", "P", "B", "pale", "A", "L", "here")
-        assert drawn["legend"] == [k for k in kinds if k in drawn["shapes"]] + ["access-2", "access-1", "access-0"], drawn
+        shapes = drawn["shapes"]
+        want = [k for k in kinds if k in shapes] + [k for k in ("fav", "area") if k in shapes]
+        assert drawn["legend"] == want + (["access-2", "access-1", "access-0"] if "ends" in shapes else []), drawn
         assert drawn["ink"] is True and len(set(map(tuple, drawn["boxes"]))) == len(drawn["numbers"])
     # Area: the squares, the picks bold with their P numbers
     drawn, picks = first["drawn"], run.picks(ok)
@@ -1474,14 +1482,21 @@ def test_frame_in_edge(tmp_path, run):
     drawn = zoomed["all"]["drawn"]
     legend(drawn)
     assert drawn["strokes"] == zoomed["m"] and drawn["numbers"] == [] and not {"B", "pale"} & set(drawn["shapes"])
-    # a spot selected: its passing lines on top, A1 and A2 with the access mark on their corners
+    # a spot selected: its passing lines on top, A1 and A2 with the access mark on their corners; the selection opens
+    # the profile's card, whose short foot folds the legend behind "Legend" (the user's 4 a; the legend's rule with a
+    # selection, unfolded: test_shell_c_view_map.py's mouse test)
     drawn = out["selected"]["drawn"]
-    legend(drawn)
+    assert drawn["legend"] == [], drawn["legend"]
+    # the profile closed (no card): the legend unfolded with the selection, rows fixed for this made-up run (not rebuilt
+    # from the canvas's shapes): its lines' colours, the selected line's anchors, the access marks (an anchor in view)
+    open_ = out["selectedOpen"]
+    assert open_["legend"] == ["clear", "over", "A", "access-2", "access-1", "access-0"], open_
     # (its shown line is one of the spots' lines in view and one of its own passing lines: counted once)
     assert out["selected"]["inView"] is True and out["selected"]["passing"] > 1
-    assert drawn["strokes"] == zoomed["m"] + out["selected"]["passing"] - 1 and drawn["numbers"] == ["A1", "A2"]
+    assert drawn["strokes"] == out["selected"]["m"] + out["selected"]["passing"] - 1 and drawn["numbers"] == ["A1", "A2"]
     assert out["selected"]["marks"] == 2
-    # "Lines from here" at its first anchor: the fan's lines with their numbers, the ring; the spot's lines step back
+    # "Lines from here" at its first anchor (the profile closed first: no card): the fan's lines with their numbers,
+    # the ring; the spot's lines step back
     drawn = out["fan"]["drawn"]
     legend(drawn)
     # (opened through the model: the canvas moved the map until every far end was in view, and not again)

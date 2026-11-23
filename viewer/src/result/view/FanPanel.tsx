@@ -2,13 +2,14 @@
 // "Far end"): shown in the details' place while the view's fan is open (SpotView.fan; the canvas opens it at a
 // right click, a press and hold, a press on A1 or A2; the details' two buttons at an anchor). Its sentence ("648
 // lines start within 10 m of this point, to 29 far ends.", and "The best 40 are shown." when there are more far
-// ends than rows), the five sorts (Mean height at the start, Clearance, Length, Height diff. with the smallest
-// first, Direction by bearing; the model sorts, because the L numbers on the map follow the rows, and numbered
+// ends than rows), the five sorts (Mean height at the start, Clearance, Length, Height difference (W4 a) with the
+// smallest first, Direction by bearing; the model sorts, because the L numbers on the map follow the rows, and numbered
 // rows stay first), and a row per far end: the shape it carries on the map (B3, P1, else L1 …), length, mean
 // height, clearance with the tight mark, the height difference from the near end to the far end (signed, 0.1 m),
-// the direction ("SE 141°") and, in a run with the access mark, the far anchor's mark. A row selects its line and
-// closes the fan (SpotView.select); "Close" closes it and keeps the selection. Rows as SpotList's: a list item
-// with one button, one tab stop for the list (the first row), arrows, Home and End.
+// the direction ("SE 141°"), in a run with the access mark the far anchor's mark, and for a line over trees or
+// buildings the list's words on a line of their own under its values (R4.2; no swatch: the rows carry none). A row
+// selects its line and closes the fan (SpotView.select); "Close" closes it and keeps the selection. Rows as
+// SpotList's: a list item with one button, one tab stop for the list (the first row), arrows, Home and End.
 
 import { useEffect, useRef } from "preact/hooks";
 import { Button } from "../../ui/components";
@@ -18,7 +19,7 @@ import type { Fan, FanRow, FanSort, SpotView } from "../spots";
 import { bearing, FAN_HERE } from "../viewgeom";
 import { count, cx, TightIcon, TightKey } from "./common";
 import { Shape } from "./Shape";
-import { Head, metres, rowKeys, tightRow, useHover, useViewPanels, Value, withAccess } from "./SpotList";
+import { Head, metres, OverWords, overRow, rowKeys, tightRow, useHover, useViewPanels, Value, withAccess } from "./SpotList";
 import type { PanelProps } from "./SpotPanels";
 import { clearanceText } from "../../tight";
 
@@ -58,16 +59,15 @@ export function FanHead({view}: {view: SpotView}) {
 function FanLine({p, r, tab}: {p: PanelProps; r: FanRow; tab: boolean}) {
   const {view, map, padding} = p, v = view.values, c = view.model.data.columns, row = r.row;
   const hover = useHover(map, row);
-  const far = accessState(r.near === 1 ? c.access2.at(row) : c.access1.at(row));
+  const far = accessState(r.near === 1 ? c.access2.at(row) : c.access1.at(row)), over = overRow(view, row);
   const press = () => {
     view.select(view.spotOf(row), row);  // selects the line and closes the fan
     map?.reveal(row, padding());
   };
-  return <li class="vl-row">
+  return <li class={cx("vl-row", over && "vl-over")}>
     <button type="button" class="vl-main" tabIndex={tab ? 0 : -1} data-row={row} data-label={r.label} onClick={press}
             {...hover}>
       <Shape text={r.label} />
-      {c.over[row] === 1 && <span class="u-sr">{t("ui.result.legend_over")} </span>}
       <Value name={t("ui.list.col.length")}>{metres(v.len[row])}</Value>
       <Value name={t("ui.list.col.mean")}>{metres(v.hmean[row], 1)}</Value>
       <Value name={t("ui.view.col.clear")} class="vl-clr">
@@ -76,6 +76,7 @@ function FanLine({p, r, tab}: {p: PanelProps; r: FanRow; tab: boolean}) {
       <Value name={t("ui.view.fan.sort.dir")}>{directionText(r.bearing)}</Value>
       {withAccess(view) && <span class="vl-cell-acc">{far === null ? <span class="ac-none" aria-hidden="true">–</span>
         : <AccessMark state={far} label={t("ui.view.fan.far_end_state", {state: accessWord(far)})} />}</span>}
+      {over && <OverWords />}
     </button>
   </li>;
 }
