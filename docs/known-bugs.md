@@ -355,7 +355,11 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   WebKit); `test_tuscany::test_catalogue_source` (`src.SOURCES` with tuscany after tinitaly);
   `test_window_groups::test_a_layer_in_another_crs_fails[1000]` (it read a file in EPSG:32620, as
   `test_netherlands` serves at the same path `/files/other.tif`; read only: GDAL's `/vsicurl/` cache of a worker
-  process keyed on the URL, when a later test's local server gets the same port).
+  process keyed on the URL, when a later test's local server gets the same port). **The last two are found and
+  mended (2026-11-23):** `test_tuscany`'s fails in every process that ran `tests/test_regions.py` before it: that
+  file's fixture `without_regional` took the regional sources out with `monkeypatch.delitem`, whose undo puts each
+  back at the end of the dict for the rest of the process; the fixture now puts the catalogue in its order again, and
+  the file's last test checks it.
 - **`tools/perf_country.py` decodes all 29 columns of a store** (`linestore.read`) though it uses 10: about 350 B a
   line at its peak plus the Arrow table, so a machine smaller than the one that made a very large run may not read it
   back; a column selection in `linestore.read` would cut it.
