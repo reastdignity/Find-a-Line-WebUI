@@ -96,8 +96,10 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   lines kept, as the limits count them), and its result never depends on the number of threads.
 - The square rule (`--same-line-square`, `samelines.py`; off by default): with it off no file of a run, no tile file
   and no hash changes by a byte (`tests/test_same_lines.py` pins the CSV export of two clip searches); with it on, the
-  order of a pair's lines must stay total and the same for every part, tile and thread ("first of a key" and "sum of
-  a key" are all the reducer and `reduce_table` do), a tile's reducer takes only the lines of its core
+  order of a pair's lines must stay total and the same for every part, tile and thread ("first of a key", "sum of
+  a key" and the least and the most of a key's ranged values, each a float32 cast outward at a line's entry, are all
+  the reducer and `reduce_table` do; `samelines.RANGED` over the store's values, `linestore.stored_values`), a tile's
+  reducer takes only the lines of its core
   (`line_coordinates`' test), and the limits count kept lines (`_early_check` through the reducer's check,
   `_check_lines` on the table; a tiled search counts its tiles' kept lines, held until the join: the Gozo coast 503 718
   against 503 651 after it). The option, the side and the lines found go into run.json only when set (`_run_params`,

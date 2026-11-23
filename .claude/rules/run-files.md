@@ -60,7 +60,7 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   text file: `lines.csv`/`lines.geojson` are this text made by `linestore.export` (the command `export`, a download).
 - The store (`linestore.py`, `lines.arrow`/`profiles.arrow`, docs/line-volume/spec-store.md 1.3) is the one schema
   of a run's lines: `linestore.COLUMNS` keeps each value at the decimals data.js printed (the field's `decimals`; the
-  grouping's values float64 unrounded) and the rows that round to -0.0 in `negative_zero`, so `linestore.export`
+  grouping's values float64 unrounded; the square rule's ranges `RANGES` float32 cast outward, store-only) and the rows that round to -0.0 in `negative_zero`, so `linestore.export`
   writes what the run's `lines.csv`/`lines.geojson` held before store wave 4 byte for byte (`tests/test_linestore.py`;
   `tests/regression.py` checked export = `lines.csv` on every entry until wave 4 and pins the export's sha256). A new column of the lines goes into `COLUMNS` and that
   test too; a change of a column's decimals changes the store's. `lines.csv` prints `water_m`/`filled_m` unrounded:
