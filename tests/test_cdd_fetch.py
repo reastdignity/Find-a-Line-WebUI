@@ -150,8 +150,11 @@ class Fake:
         (the body of a 200 that has one; else the headers, from which a client may go on: a redirect, an error),
         not when the handler returns: with those bytes the tool has its answer and may send its next request, which
         reached the fake's other thread before this one had counted itself out (`most` 2 for a tool with one
-        request at a time: CI's Linux runs of 2026-11-17/18, e.g. 44311665737). A second request that arrives while
-        those last bytes are written is therefore not counted."""
+        request at a time: CI's Linux runs of 2026-11-17/18, e.g. 44311665737). So a second request that arrives
+        while those bytes are written (for a 200 the whole body, written at once) is not counted, nor one sent after
+        the headers of a 200 and before its body was read. Only answers made here are counted out so; every other
+        one (a reset, a slow or cut body, a close without an answer) still is when its handler returns (handle), and
+        a test asserting `most` over such an answer would meet the same race."""
         h.send_response(status)
         for name, value in (headers or {}).items():
             h.send_header(name, value)
@@ -320,7 +323,9 @@ class Fake:
                 time.sleep(0.01)
         elif action == "close":  # no answer at all (a plain file's server down)
             h.close_connection = True
-        elif action == "slowreset":  # headers, half the body slowly (the tests' clock runs), then a reset
+        # headers, half the body slowly (the tests' clock runs), then a reset: its own, without Fake.reset's pause
+        # (the headers went out many pieces of 10 ms before it, so the client has them: a broken body either way)
+        elif action == "slowreset":
             self.slow = True
             h.send_response(200)
             h.send_header("Content-Length", str(len(body)))

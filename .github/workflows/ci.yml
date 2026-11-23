@@ -114,12 +114,14 @@ jobs:
       # What the runner is, in the 3D parts: the ring's Edge tests take 75-170 s on some hosted runners and over
       # 1 500 s on others of the same image, with the search before them no slower (docs/known-bugs.md, the runs of
       # 2026-11-23). The CPU, the memory, Edge's version, and what Edge draws WebGL with and how fast
-      # (.github/webgl-report.html, Edge started as the tests start it; twice: the first start is the cold one).
-      # It only prints: it never fails the job
+      # (.github/webgl-report.html, Edge with the tests' flags but their virtual time; twice: the first start is the
+      # cold one). It only prints, and the step's failure never fails the job. Its time counts against the job's
+      # limit, so it is bounded: an Edge that has not ended after 15 s is stopped with its processes (about 40 s at
+      # most for the step, a few seconds on a runner where Edge answers)
       - name: Runner and Edge
         if: startsWith(matrix.part, 'view3d')
         continue-on-error: true
-        timeout-minutes: 3
+        timeout-minutes: 2
         shell: pwsh
         run: |
           Get-CimInstance Win32_Processor | ForEach-Object {
@@ -129,11 +131,19 @@ jobs:
           $edge = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
           "Edge: $((Get-Item $edge).VersionInfo.ProductVersion)"
           $page = ([System.Uri](Join-Path $env:GITHUB_WORKSPACE ".github\webgl-report.html")).AbsoluteUri
+          $out = Join-Path $env:RUNNER_TEMP "webgl-report.txt"
           foreach ($i in 1..2) {
-            $text = & $edge --headless --disable-gpu "--user-data-dir=$env:RUNNER_TEMP\edge-report" --no-first-run `
-              --window-size=1200,800 --dump-dom $page 2>$null | Out-String
-            if ($text -match 'WEBGL-REPORT [^<]*') { $Matches[0].Trim() }
-            else { "WEBGL-REPORT none (Edge printed $($text.Length) characters)" }
+            $run = Start-Process -FilePath $edge -PassThru -NoNewWindow -RedirectStandardOutput $out `
+              -RedirectStandardError "$out.err" -ArgumentList "--headless", "--disable-gpu", "--no-first-run",
+                "--user-data-dir=`"$env:RUNNER_TEMP\edge-report`"", "--window-size=1200,800", "--dump-dom", $page
+            if (-not $run.WaitForExit(15000)) {
+              taskkill /T /F /PID $run.Id 2>&1 | Out-Null
+              "WEBGL-REPORT none (Edge had not ended after 15 s: stopped)"
+            } else {
+              $text = Get-Content -Raw $out
+              if ($text -match 'WEBGL-REPORT [^<]*') { $Matches[0].Trim() }
+              else { "WEBGL-REPORT none (Edge printed $("$text".Length) characters)" }
+            }
           }
           exit 0
 

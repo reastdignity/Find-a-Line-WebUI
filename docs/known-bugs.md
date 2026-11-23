@@ -318,7 +318,9 @@ read by share links, the result view then behind `?view=b`), none fixed:
   right after its headers and part of a body, and Windows drops what a socket received and nobody read yet when the
   reset arrives, so a client reading a moment late met the reset before the headers (on Linux the bytes are read
   first either way; shown with two sockets on both systems). The fake now waits 0.3 s before a reset (`Fake.reset`
-  of `tests/test_cdd_fetch.py`): a pause, not a proof, so a much slower client can still lose.
+  of `tests/test_cdd_fetch.py`): a pause, not a proof, so a much slower client can still lose. The action
+  `slowreset` keeps its own reset without the pause: it sends its half body a piece every 10 ms, so the headers are
+  long read.
 - **Exports:** a real iPhone was not tried (only Playwright's WebKit profile); a worker that stops keeps a file made
   just before on disk until it starts again (the file is never sent after the hour); a failure that comes while
   another menu is open shows only at the menu's next opening; a signed-in user whose session ended while the page
@@ -354,7 +356,11 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   runner image, 20261116, and one more step in the job since). Since 2026-11-23 the fake counts a request out just
   before the bytes that complete its answer go out (`Fake.send`, `Fake.answered`), no longer when its handler
   returns: with a handler made 50 ms slow to return the test failed at `fake.most == 1` 3 times of 3 on the old
-  count and passed 3 of 3 on the new one. What that costs: a second request arriving while those last bytes are written is no longer counted.
+  count and passed 3 of 3 on the new one. What that costs: a second request is no longer counted when it arrives
+  while those bytes are written (for a 200 its whole body), or after a 200's headers and before its body was read;
+  two requests at once are seen only while the fake works on the first. And only the answers of `Fake.send` are
+  counted out so: after a reset, a slow or cut body or a close, a request is counted out when its handler returns,
+  as before, so a later test asserting `most` over such an answer would race as this one did.
 - **The CI's view3d ring job timed out again** (`test_view3d_ring.py::test_ring_drawn_within_its_budget[full-None]`
   and `[full-edges]`, Edge stopped after 1 500 s, on 74de19ae and a86b86e8): the Windows 3D hang seen since
   CI 43618907225, nothing of store wave 4 in its path. Read on 2026-11-23 from the last 60 CI runs: the ring job
@@ -367,7 +373,9 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   (1 500 s, 60 min) were set from the slow kind. Since 2026-11-23 the two 3D jobs print, before their tests, the
   runner's CPU and memory, Edge's version, and what Edge draws WebGL with and how fast (ci.yml's step "Runner and
   Edge", `.github/webgl-report.html`: on the dev PC the Microsoft Basic Render Driver through Direct3D 11, 10 frames
-  in 130 ms): compare that line between a fast and a slow job before anything else.
+  in 130 ms): compare that line between a fast and a slow job before anything else. The step's failure does not
+  fail the job, but its time counts against the job's limit: an Edge that has not ended after 15 s is stopped, so it
+  costs a few seconds, about 40 s at most.
 - **Four tests failed once under round 5's loaded full runs on this PC and pass alone** (none in item 5's path; the
   first two passed 3 of 3 alone on the stack and on `main` a86b86e8): `test_web::test_basic_form_sea_cliffs_fills_the_limit`
   (twice; the limit's box and the map view's read before it differ by about 400 m north to south);
