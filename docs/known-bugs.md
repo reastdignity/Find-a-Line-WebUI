@@ -314,7 +314,11 @@ read by share links, the result view then behind `?view=b`), none fixed:
   reset racing under load); `tests/test_web.py::test_quick_lane` (`sqlite3.OperationalError: disk I/O error` at
   `PRAGMA journal_mode=WAL` while the app shut down, right after the test killed the quick lane's process; also seen
   on `main` alone: "`test_quick_lane` fails at some times" above). Run them alone before calling a failure of one a
-  regression.
+  regression. **The two cdd_fetch tests' cause was found on 2026-11-23** (Windows only): the fake reset the connection
+  right after its headers and part of a body, and Windows drops what a socket received and nobody read yet when the
+  reset arrives, so a client reading a moment late met the reset before the headers (on Linux the bytes are read
+  first either way; shown with two sockets on both systems). The fake now waits 0.3 s before a reset (`Fake.reset`
+  of `tests/test_cdd_fetch.py`): a pause, not a proof, so a much slower client can still lose.
 - **Exports:** a real iPhone was not tried (only Playwright's WebKit profile); a worker that stops keeps a file made
   just before on disk until it starts again (the file is never sent after the hour); a failure that comes while
   another menu is open shows only at the menu's next opening; a signed-in user whose session ended while the page
@@ -344,10 +348,26 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   `test_fetch_resumes_and_records_every_file` on Linux in both runs since 74de19ae (CI 44170732371 and 44243858723:
   the fake's concurrent connections 2, not 1; read only: the fake counts a request as active until its handler
   returns, after the client may already have read the answer and sent the next) and, on 74de19ae,
-  `test_a_file_whose_body_always_breaks_fails_and_the_rest_come` (waits [30, 30, 60, 60] on Windows).
+  `test_a_file_whose_body_always_breaks_fails_and_the_rest_come` (waits [30, 30, 60, 60] on Windows). The Windows
+  one is the reset race of round 4's entry above (the fake's pause, 2026-11-23). The Linux one failed in all four
+  runs of `main` on 2026-11-17/18 and in none of the three jobs of 2026-11-23, with the test unchanged (another
+  runner image, 20261116, and one more step in the job since). Since 2026-11-23 the fake counts a request out just
+  before the bytes that complete its answer go out (`Fake.send`, `Fake.answered`), no longer when its handler
+  returns: with a handler made 50 ms slow to return the test failed at `fake.most == 1` 3 times of 3 on the old
+  count and passed 3 of 3 on the new one. What that costs: a second request arriving while those last bytes are written is no longer counted.
 - **The CI's view3d ring job timed out again** (`test_view3d_ring.py::test_ring_drawn_within_its_budget[full-None]`
   and `[full-edges]`, Edge stopped after 1 500 s, on 74de19ae and a86b86e8): the Windows 3D hang seen since
-  CI 43618907225, nothing of store wave 4 in its path.
+  CI 43618907225, nothing of store wave 4 in its path. Read on 2026-11-23 from the last 60 CI runs: the ring job
+  was red in 7 of the 9 runs of `main` since 2026-11-14 (in 1 of 6 runs of `history/*` tags; no cause known for the
+  difference). `main` b1434458 (57 min, red) and its tag's run (6.7 min, green) started two seconds apart on the
+  same runner image (windows-2025-vs2026 20261116.315.1): the three Edge tests took 523, 1 355 and over 1 500 s
+  against 75, 105 and 166 s, while the fixture's search (no browser) took 37 s in the red job and 49 s in the green
+  one. So on some runners only Edge's WebGL in software is slow, not the machine as a whole (three jobs read; not
+  even within a job: on 263b1268 `[full-edges]` took 327 s while `[full-None]` ran into 1 500 s). ci.yml's limits
+  (1 500 s, 60 min) were set from the slow kind. Since 2026-11-23 the two 3D jobs print, before their tests, the
+  runner's CPU and memory, Edge's version, and what Edge draws WebGL with and how fast (ci.yml's step "Runner and
+  Edge", `.github/webgl-report.html`: on the dev PC the Microsoft Basic Render Driver through Direct3D 11, 10 frames
+  in 130 ms): compare that line between a fast and a slow job before anything else.
 - **Four tests failed once under round 5's loaded full runs on this PC and pass alone** (none in item 5's path; the
   first two passed 3 of 3 alone on the stack and on `main` a86b86e8): `test_web::test_basic_form_sea_cliffs_fills_the_limit`
   (twice; the limit's box and the map view's read before it differ by about 400 m north to south);
