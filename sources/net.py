@@ -625,11 +625,22 @@ def _remote(url: str) -> str:
 # out"; not "Connection was aborted" of Windows). GDAL matches a status as a substring of the
 # list, so no other status may be a part of it (0 is part of none of the others here).
 GDAL_RETRY_CODES = "0,429,500,502,503,504"
+# The longest wait for a connection of GDAL's remote reads (GDAL_HTTP_CONNECTTIMEOUT, "Maximum delay for
+# connection to be established before being aborted", GDAL 3.12's networking options; curl's
+# CURLOPT_CONNECTTIMEOUT: name resolution and the protocol handshakes, "no impact once libcurl has connected",
+# 300 s by default). A slow server that answers keeps GDAL_HTTP_TIMEOUT's 120 s (Hong Kong's 0.36 MB/s).
+# A host that never answers then costs 2 x (4 x 5 s + GDAL's retry pauses of about 2, 4.5 and 10 s) for one
+# failed open: GDAL asks the file's size twice (two GetFileSize, each with GDAL_HTTP_MAX_RETRY attempts after
+# a code 0), 73 s measured (TEST-NET 192.0.2.1, 2026-11-23); without it each attempt waited for the system's
+# own connect timeout: 201 s measured on Windows (21 s an attempt), about 2 min an attempt on Linux by its
+# default SYN retries (an estimate, not measured).
+GDAL_CONNECT_TIMEOUT_S = 5
 
 
 def _gdal_http(serial: bool = False) -> rio.Env:
     """GDAL's settings for reading windows of remote files: our User-Agent, no directory
-    listing, retries of failed requests (GDAL_RETRY_CODES), neighbouring blocks in one request
+    listing, retries of failed requests (GDAL_RETRY_CODES), a connection given up after
+    GDAL_CONNECT_TIMEOUT_S (a slow read is not cut: GDAL_HTTP_TIMEOUT), neighbouring blocks in one request
     (serial: the ranges of a window one after another, each through GDAL's cache of ranges,
     RANGE_CACHE_BYTES, so neighbouring blocks read in a row fetch a shared tile once).
     Blocks are read in the calling thread (GDAL_NUM_THREADS=1, whatever the environment says):
@@ -640,7 +651,7 @@ def _gdal_http(serial: bool = False) -> rio.Env:
     return rio.Env(GDAL_HTTP_USERAGENT=cache.http_headers()["User-Agent"],
                    GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif,.tiff",
                    GDAL_HTTP_MAX_RETRY=str(RETRIES), GDAL_HTTP_RETRY_DELAY="2", GDAL_HTTP_TIMEOUT="120",
-                   GDAL_HTTP_RETRY_CODES=GDAL_RETRY_CODES, GDAL_NUM_THREADS="1",
+                   GDAL_HTTP_CONNECTTIMEOUT=str(GDAL_CONNECT_TIMEOUT_S), GDAL_HTTP_RETRY_CODES=GDAL_RETRY_CODES, GDAL_NUM_THREADS="1",
                    GDAL_HTTP_MULTIRANGE="SERIAL" if serial else "YES", GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES")
 
 
