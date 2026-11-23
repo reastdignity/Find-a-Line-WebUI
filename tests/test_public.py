@@ -4246,8 +4246,8 @@ def test_privacy_page_names_the_exports(run_people):
     the file kept until it is fetched, for one hour at most (jobs.EXPORT_KEEP_SECONDS)."""
     import jobs as jb
     text = run_people["anonymous"].get("/privacy").text
-    assert web.html.escape("deleted runs, exports of a run's lines made (CSV or GeoJSON: the format, not the "
-                           "content), the demo flag") in text
+    assert web.html.escape("runs renamed (not their names) and deleted, exports of a run's lines made (CSV or "
+                           "GeoJSON: the format, not the content), the demo flag") in text
     assert "A file made for a download is kept on the server until it is fetched, for one hour at most." in text
     assert jb.EXPORT_KEEP_SECONDS == 3600 and 0 < jb.EXPORT_SWEEP < jb.EXPORT_KEEP_SECONDS
 
