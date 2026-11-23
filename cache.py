@@ -75,9 +75,10 @@ TTL_DAYS = {
     "live": 730,         # tiles of services that serve the current state (IGN Spain, WMS orthophotos)
     "sheet-index": 180,  # answers of the geoportal.gov.pl sheet index (new surveys)
     # The USA's 1 m DEM: its TNM answers and the list of the bucket's files the index does not list
-    # (sources/layers/tnmbucket.py), for `cache update` (the public site's weekly timer renews them every 28 to 35
-    # days: the user's D3a of 2026-11-22, "every month", and the answer of 2026-11-23); a download row asks them on every start anyway, a country run before a cube's first tile
-    # (sources/renewal.py)
+    # (sources/layers/tnmbucket.py), for `cache update`: the public site's weekly timer renews one it renewed itself
+    # at its fifth run, 35 days later, and one a search cached or a run by hand renewed at its first run after these
+    # 28 days (the user's D3a of 2026-11-22, "every month", and the answer of 2026-11-23); a download row asks them
+    # on every start anyway, a country run before a cube's first tile (sources/renewal.py)
     "usgs-1m-index": 28,
     "osm-theme": 365,    # OSM theme tiles from Overpass (tiles built from an extract follow the extract)
     "osm-extract": 30,   # Geofabrik extracts (daily diffs)

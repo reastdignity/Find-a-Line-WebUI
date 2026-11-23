@@ -909,8 +909,9 @@ server's clock (after the backup), plus a delay of up to 4 hours that systemd fi
 service runs `findaline.py cache update usa` in the worker's container, as the script runs `cache
 migrate`, and that asks only what is older than its interval:
 - the list of the 1 m files USGS's index does not list, and every cached 1 m answer, after 28 days
-  (one request per answer), so each is renewed every 28 to 35 days and a failed run is tried again a
-  week later; Alaska's IfSAR answers after 180 days;
+  (one request per answer): what the timer itself renewed is renewed again at its fifth run, 35 days
+  later, and what a search cached mid-week or a run by hand renewed at the first run after its 28 days
+  (so 28 to 35 days); a failed run is tried again a week later; Alaska's IfSAR answers after 180 days;
 - the USA's tiles of the 10 m DEM (1/3 arc-second) and of the orthophoto after 2 years, and tiles
   recorded as missing (where a service had no data) after 90 days;
 - the blocks of the 1 m DEM whose files changed are read again and the older ones deleted.
