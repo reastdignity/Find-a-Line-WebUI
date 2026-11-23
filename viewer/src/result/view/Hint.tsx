@@ -53,7 +53,7 @@ export function HintLine({view, wide}: {view: SpotView; wide: boolean}) {
   if (!panelState(view).hint) return null;
   return <div class={wide ? "vl-hint" : "vl-hint vl-hint-sheet"} data-map-control={wide ? true : undefined}>
     <span class="vl-hint-text">{hintText(view, wide)}</span>
-    <button type="button" class="u-ib u-plain vl-hint-x" aria-label={t("ui.view.hint.hide")}
+    <button type="button" class="u-ib u-x vl-hint-x" aria-label={t("ui.view.hint.hide")}
             onClick={() => { refocus = ".vl-hint-open"; showHint(view, false); }}><Icon name="close" /></button>
   </div>;
 }

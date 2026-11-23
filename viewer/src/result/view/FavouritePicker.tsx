@@ -7,6 +7,7 @@
 // class on its button (`buttonClass`).
 
 import { useState } from "preact/hooks";
+import { t } from "../../i18n";
 import { Button, IconButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { FOLDER_DEPTH_MAX } from "../../folders";
@@ -42,7 +43,7 @@ export function FavouritePicker({model, line, icon, onOpen, opened = false, butt
   const [busy, setBusy] = useState(false);
   const tree = model.tree, folder = model.folderOf(line), favourite = folder !== undefined;
   const here = favourite ? folder : model.lastFolder;  // highlighted: where it is, or where it would go
-  const where = favourite ? (folder === null ? "Favourites" : tree.path(folder)) : "";
+  const where = favourite ? (folder === null ? t("ui.picker.top") : tree.path(folder)) : "";
 
   const pick = (to: number | null) => {
     setOpen(false);
@@ -65,13 +66,13 @@ export function FavouritePicker({model, line, icon, onOpen, opened = false, butt
   };
   const row = (id: number | null, label: string, depth: number) =>
     <li key={id ?? "top"}>
-      <button type="button" class={cx("r-folder", id === here && "u-on")} aria-current={id === folder ? "true" : undefined}
+      <button type="button" class={cx("u-item r-folder", id === here && "u-on")} aria-current={id === folder ? "true" : undefined}
               style={{paddingLeft: `${8 + 14 * depth}px`}} onClick={() => pick(id)}>
         <Icon name={id === null ? "star" : "folder"} /><span class="u-grow">{label}</span>
         {id === folder && <Icon name="check" />}</button></li>;
 
-  const title = favourite ? `In ${where}` : "Add to favourites", named = favourite ? "Favourite" : "Add to favourites";
-  return <Popover label="Favourite folders" open={open} align={icon ? "right" : "left"}
+  const title = favourite ? t("ui.picker.in", {where}) : t("ui.picker.add"), named = t(favourite ? "ui.picker.favourite" : "ui.picker.add");
+  return <Popover label={t("ui.picker.label")} open={open} align={icon ? "right" : "left"}
                   onOpen={(v) => { setOpen(v); if (!v) setNaming(false); }}
                   button={(on, toggle) => icon
                     ? <IconButton icon="star" label={named} title={title} plain fav={favourite} expanded={on}
@@ -80,21 +81,21 @@ export function FavouritePicker({model, line, icon, onOpen, opened = false, butt
                       <Icon name="star" fav={favourite} />{named}
                       <Icon name="down" /></Button>}>
     {() => <div class="r-picker">
-      <b class="u-h4">{favourite ? "Move to a folder" : "Save to a folder"}</b>
+      <b class="u-h4">{t(favourite ? "ui.picker.move" : "ui.picker.save")}</b>
       <ul class="r-folders" role="list">
-        {row(null, "Favourites (top level)", 0)}
+        {row(null, t("ui.picker.top_level"), 0)}
         {tree.flat().map(({folder: f, depth}) => row(f.id, f.name, depth))}
       </ul>
       {naming
         ? <form class="r-newfolder" onSubmit={(e) => { e.preventDefault(); create(); }}>
-            <input class="u-input" value={name} placeholder="Folder name" aria-label="New folder's name" maxLength={100}
+            <input class="u-input" value={name} placeholder={t("ui.picker.name")} aria-label={t("ui.picker.new_name")} maxLength={100}
                    ref={(el) => el?.focus()} onInput={(e) => setName(e.currentTarget.value)}
                    onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setNaming(false); } }} />
-            <Button kind="primary" type="submit" disabled={!name.trim() || busy}>Create</Button>
+            <Button kind="primary" type="submit" disabled={!name.trim() || busy}>{t("ui.picker.create")}</Button>
           </form>
         : <Button kind="ghost" icon="plus" onClick={() => setNaming(true)}>
-            New folder{here !== null ? ` in ${tree.byId.get(here)?.name}` : ""}</Button>}
-      {favourite && <Button kind="danger" class="r-unfav" onClick={remove}>Remove from favourites</Button>}
+            {here !== null ? t("ui.picker.new_in", {name: tree.byId.get(here)?.name ?? ""}) : t("ui.picker.new")}</Button>}
+      {favourite && <Button kind="danger" class="r-unfav" onClick={remove}>{t("ui.picker.remove")}</Button>}
     </div>}
   </Popover>;
 }

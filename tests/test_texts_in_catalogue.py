@@ -281,6 +281,31 @@ MOVED = {
             "PROCESSED_NOTE: a data credit word for word with sources.credit (tests/test_catalogue.py)",
         "which were resampled and combined onto a working grid (changed).": "PROCESSED_NOTE (as above)"},
     "download.ts": {}, "result/measured.ts": {}, "view3d/decode.ts": {}, "view3d/canopymesh.ts": {},
+    # step 3d G6: the result view's files (line volume's round 6) and what the view borrows of today's page
+    "Profile.tsx": {},
+    "result/view/ProfileDock.tsx": {}, "result/view/ProfileCard.tsx": {}, "result/view/RunActions.tsx": {},
+    "result/view/FavouritePicker.tsx": {}, "result/view/SpotActions.tsx": {}, "result/view/MapBar.tsx": {},
+    "result/view/SpotDetails.tsx": {}, "result/view/ViewFilters.tsx": {}, "result/view/SpotSummary.tsx": {},
+    "result/view/Hint.tsx": {}, "result/view/FanPanel.tsx": {}, "result/view/SpotChooser.tsx": {},
+    "coarser.ts": {}, "layersControl.ts": {}, "app/PlaceMap.ts": {},
+    "result/view/SpotList.tsx": {"${} > li:nth-child(${}) > .vl-main": "a selector", "${} > li:last-child > .vl-main": "a selector"},
+    "result/view/SpotColumns.tsx": {
+        "Find-a-Line: the result view cannot show the run ${} (${}); today's page opens.": "a diagnostic (the console)",
+        "movestart zoomstart": "Leaflet's events", "movestart move zoomstart": "Leaflet's events",
+        "button:not([disabled]), [href], input:not([disabled]), select, [tabindex]:not([tabindex='-1'])": "a selector"},
+    "result/view/common.tsx": {
+        "button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex='-1'])": "a selector"},
+    "result/view/Shape.tsx": {}, "result/view/SpotPanels.tsx": {}, "result/view/RunLoading.tsx": {},
+    "result/view/ResultIntro.tsx": {}, "result/model.ts": {"no line ": "a diagnostic (an error thrown in code)"},
+    # what the view borrows of a file whose other parts are today's page's own (their English: docs/known-bugs.md)
+    "result/view/FilterBar.tsx (MainEditor, MoreFilters)": {},
+    "result/view/ResultSummary.tsx (CoarserNote, WhyBox, AccessLegend, ResultSummary)": {},
+}
+# A part of a file (MOVED's "file (Part, ...)"): its code from each start to the next end ({entry: [(start, end or None)]})
+PARTS = {
+    "result/view/FilterBar.tsx (MainEditor, MoreFilters)": [("export function MainEditor", "export function FilterBar"),
+                                                            ("function Distance", None)],
+    "result/view/ResultSummary.tsx (CoarserNote, WhyBox, AccessLegend, ResultSummary)": [("export function CoarserNote", None)],
 }
 STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')
 LITERAL = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'|`(?:[^`\\]|\\.)*`')
@@ -546,9 +571,21 @@ const fine = [t("ui.app.home"), ".c-a > .b", "(pointer: coarse)", "Escape", "c-a
         "Over your daily limit: ${} of ${}", "MARKUP Map data:", "MARKUP OpenStreetMap", "MARKUP contributors"]
 
 
+def moved_source(name: str) -> str:
+    """A moved file's text, or the parts of it a MOVED entry names (PARTS)."""
+    with open(os.path.join(SRC, name.split(" (")[0]), encoding="utf-8") as f:
+        text = f.read()
+    if name not in PARTS:
+        return text
+    out = []
+    for start, end in PARTS[name]:
+        i = text.index(start)
+        out.append(text[i:text.index(end, i) if end else len(text)])
+    return "\n".join(out)
+
+
 def moved_items(name: str) -> list:
-    with open(os.path.join(SRC, name), encoding="utf-8") as f:
-        return english_in(code_of(f.read()), name.endswith(".tsx"))
+    return english_in(code_of(moved_source(name)), name.split(" (")[0].endswith(".tsx"))
 
 
 @pytest.mark.parametrize("name", sorted(MOVED))
@@ -723,8 +760,7 @@ def test_moved_calls_give_every_value():
     texts = messages.catalogue()
     calls = 0
     for name in MOVED:
-        with open(os.path.join(SRC, name), encoding="utf-8") as f:
-            code = code_of(f.read())
+        code = code_of(moved_source(name))
         for keys, rest in calls_of(code):
             for key in keys:
                 forms = [texts[k] for k in (key, f"{key}_one", f"{key}_other", f"{key}_zero") if k in texts]

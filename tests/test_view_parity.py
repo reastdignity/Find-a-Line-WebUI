@@ -600,11 +600,12 @@ def test_details_and_profile(parity_site):
             page.evaluate("() => { const v = Q.v(); v.select(Array.from(v.order).find((s) => v.passingCount(s) >= 3)); }")
             _sel(page, ".r-card .fal-profile-chart svg", "P3: the card")
             _wait(page, "() => /FABDEM/.test(document.querySelector('.leaflet-control-attribution').textContent)", "P9: the credits")
+            _sel(page, ".r-card .r-facts", "P3: the facts (the profile's title comes one effect after its chart)")
             compact = page.evaluate("""() => ({head: !!document.querySelector('.r-card .fal-profile-head'), title: Q.text('.r-card .fal-profile-title'),
                 facts: Q.text('.r-card .r-facts'), factsTitle: document.querySelector('.r-card .r-facts').getAttribute('title'),
                 legend: Q.shown('.r-card .fal-profile-legend'), scale: Q.shown('.r-card .fal-scale')})""")
-            assert not compact["head"] and compact["title"].startswith("Profile: ") and compact["facts"].startswith("min. clearance "), f"P3: {compact}"
-            assert compact["factsTitle"] == compact["title"] and compact["title"].endswith(compact["facts"].split(" · ")[0]), f"P3: {compact}"
+            assert not compact["head"] and compact["title"].startswith("Profile: ") and compact["facts"].startswith("min. clearance: "), f"P3: {compact}"
+            assert compact["factsTitle"] == compact["title"] and compact["title"].split("min. clearance ")[-1] == compact["facts"].split("; ")[0].split("min. clearance: ")[-1], f"P3: {compact}"
             assert not compact["legend"] and not compact["scale"], f"P3: {compact}"
             _click(page, ".r-card .r-dock-bar .u-chip", "P3")
             _wait(page, "() => Q.shown('.r-card .fal-profile-legend') && Q.shown('.r-card .fal-scale')", "P3: Rigging and layers")
@@ -706,7 +707,7 @@ def test_details_and_profile(parity_site):
                 link: Q.m().measuredLink, note: Q.m().note, selected: !!Q.v().selected, hash: decodeURIComponent(location.hash), lift: Q.m().data.lift || 0})""")
             # the anchors' heights are the stub's ends raised by the run's A-frames (2 m here; today's test ran a run
             # without them: "A1 300.0 m → A2 301.0 m"; today's page shows the same title on this run)
-            title = f"Measured: 80 m, A1 {300 + measured['lift']:.1f} m → A2 {301 + measured['lift']:.1f} m"
+            title = f"Measured: 80 m, from A1 at {300 + measured['lift']:.1f} m to A2 at {301 + measured['lift']:.1f} m"
             assert measured["bar"] == "Measured profile" and measured["title"].startswith(title), f"P13: {measured}"
             assert measured["asked"] == ["49.5000000,19.1000000,49.5004000,19.1005000"], f"P13: {measured}"
             assert measured["link"] == OUTSIDE and measured["note"] is None and measured["selected"] is False, f"P13: {measured}"
@@ -776,7 +777,7 @@ def _card_text(page, which: str) -> dict:
     assert not _meet(summary["card"], summary["scale"]) and not _meet(summary["card"], summary["credits"]), f"P9 ({which}): {summary}"
     page.evaluate("""() => { const h = document.querySelector('.r-card .fal-hover'), b = h.getBoundingClientRect();
         h.dispatchEvent(new MouseEvent('mousemove', {clientX: b.left + b.width * 0.4, clientY: b.top + 5, bubbles: true})); }""")
-    _wait(page, "() => / from A1 /.test(Q.text('.r-card .fal-profile-readout'))", f"P9 ({which}): the cursor's readout")
+    _wait(page, "() => / m from A1;?/.test(Q.text('.r-card .fal-profile-readout'))", f"P9 ({which}): the cursor's readout")
     cursor = page.evaluate(CARD_JS)
     assert cursor["cut"] == [] and cursor["chart"] >= 120, f"P9 ({which}, the cursor's readout): {cursor}"
     page.evaluate("() => document.querySelector('.r-card .fal-hover').dispatchEvent(new MouseEvent('mouseleave', {bubbles: true}))")
@@ -934,7 +935,7 @@ def test_list_and_filters(parity_site):
         assert not any(_meet(editor["x"], b) for row in editor["rows"] for b in row), f"L18 ({kind}): {editor}"
         (num1, unit1), (num2, unit2) = editor["rows"]
         assert (num1[0], num1[2], unit1[2]) == (num2[0], num2[2], unit2[2]), f"L18 ({kind}): {editor}"
-    assert editors["phone"]["x"][2] - editors["phone"]["x"][0] == 40, f"L18 (a touch screen's ×): {editors['phone']}"
+    assert editors["phone"]["x"][2] - editors["phone"]["x"][0] == 44, f"L18 (a touch screen's ×, the kit's close): {editors['phone']}"
 
 
 def test_phone_frame(parity_site):

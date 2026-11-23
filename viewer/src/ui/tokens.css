@@ -36,6 +36,18 @@
   --mark-rim: #ffffff; --mark-leader: rgb(255 255 255 / .65); --accent-tile: rgb(255 255 255 / .18); --scrim: rgb(10 15 12 / .45);
   /* the paper of the 3D view's "Edges" look (view3d/scene.ts reads it) */
   --paper: #eceae4;
+  /* the terrain profile's chart (Profile.tsx draws its curves by classes, profile.css colours them): the terrain's fill
+     and line, the trees' and the water's fills and lines, the labels of the highest point, the trees and the smallest
+     clearance as text at 4.5:1 on the card, the no-fall zone and the A-frames, the safety limit, the athletes' envelope
+     and fall, the athlete's swatch; the same in both themes but the terrain's fill and the labels (step 3d G6) */
+  --r-terrain-fill: #e3d8c3; --r-terrain-line: #8a7656; --r-trees-fill: rgb(76 153 60 / .45); --r-water-fill: rgb(47 111 192 / .45);
+  --r-highest-label: #6a3d9a; --r-trees-label: #3b8632; --r-min-label: #877454; --r-zone: var(--accent); --r-frame: var(--ink-2);
+  --r-trees: #3f8f35; --r-water: #2f6fc0; --r-limit: #d62728; --r-envelope: #6a3d9a; --r-fall-fill: rgb(214 39 40 / .12);
+  --r-athlete: #222222;
+  /* the map's own paper and ink, the same in both themes (its tiles stay light): the marks of the map 1:1 in the
+     result view's legend and list (mapbar.css .v-sh, .v-dash), the pale lines' magenta and the orange of a line over
+     trees or buildings (style.ts COLORS.clean, .over, as the canvas draws them; the profile's webbing); the uncertain shore's two kinds (shore.ts SHORE_COLOURS) */
+  --map-paper: #ffffff; --map-ink: #1b2530; --map-clean: #ff10f0; --map-over: #ff8c00; --shore-surface: #e3912f; --shore-sea: #c43d2f;
   /* Elevation (docs/DESIGN.md "Elevation", row 88): what is raised (--shadow), a control set on a track (the selected
      segment), the phone's sheet rising from the screen's foot, a mark over the 3D view's picture (its drop shadow,
      beside the mark's own dark rim); the last three the same in both themes */
@@ -47,6 +59,11 @@
      rows, a box over the 3D stage), over that, over that; the phones' bottom bar, the sheet over it, a column's
      draggable edge, a page's top and bottom bars over its content (a map's own layers stay inside the map) */
   --z-up: 1; --z-up-2: 2; --z-up-3: 3; --z-nav: 4; --z-sheet: 5; --z-split: 8; --z-bar: 10;
+  /* under what is beside it (a sticky head's own ground, behind its words); a result's phone frame (columns.css, the
+     result view's mapbar.css): its top bar under the sheet (today's page), the sheet, the view's top bar over the
+     sheet (the pill's menus open over the sheet at full); a notice over the whole page (the result view's "turn your
+     phone upright") */
+  --z-below: -1; --z-frame-bar: 6; --z-frame-sheet: 7; --z-phone-bar: 8; --z-notice: 2000;
   /* Over a map (Leaflet's panes 200 to 700, its controls' corners 1000): the result view's boxes under Leaflet's
      controls and a message over them; a popover where the browser has no top layer (the controls' level); over the
      controls; a page's own controls over all of the map's (the coverage page's zoom, legend and status) */
@@ -81,6 +98,7 @@
     --layer-1: #9ec5f4; --layer-2: #6da7ec; --layer-3: #3987e5; --layer-4: #256abf; --layer-5: #184f95;
     --acc-easy: #35b56e; --acc-tell: #f5a233; --acc-hard: #9aa7b5; --acc-easy-sign: #06170d; --acc-tell-sign: #2b1a00; --acc-hard-sign: #0e1318;
     --paper: #4a504c;
+    --r-terrain-fill: #4d4433; --r-highest-label: #a078c9; --r-trees-label: #459c3a; --r-min-label: #9d8662;
     --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 4px 16px rgb(0 0 0 / .40);
     color-scheme: dark;
   }
@@ -97,6 +115,7 @@
   --layer-1: #9ec5f4; --layer-2: #6da7ec; --layer-3: #3987e5; --layer-4: #256abf; --layer-5: #184f95;
   --acc-easy: #35b56e; --acc-tell: #f5a233; --acc-hard: #9aa7b5; --acc-easy-sign: #06170d; --acc-tell-sign: #2b1a00; --acc-hard-sign: #0e1318;
   --paper: #4a504c;
+  --r-terrain-fill: #4d4433; --r-highest-label: #a078c9; --r-trees-label: #459c3a; --r-min-label: #9d8662;
   --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 4px 16px rgb(0 0 0 / .40);
   color-scheme: dark;
 }

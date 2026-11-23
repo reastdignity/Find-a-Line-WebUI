@@ -245,8 +245,8 @@ how a result is organised), built the low-effort part and specified the rest.
   sticky heads that sort, the list's star with folders, the sideways notice, no page zoom outside the map, the layers
   menu at half, the 2D credits pill, the store's retry when a phone's screen went off and the scrollers' layer. What
   it decided and left: docs/DESIGN.md rows 100 to 130, docs/line-volume/spec-view.md B.2 and B.10 ("as built in round
-  6"), docs/known-bugs.md ("Line volume, round 6"), and the list below. Open: 2d, 2e, 2g; the UX task's G6 aligns the
-  view's own closes, links and legend with the control family.
+  6"), docs/known-bugs.md ("Line volume, round 6"), and the list below. Open: 2d, 2e, 2g. The UX task's G6 put the
+  view's own closes, links and legend on the control family (DESIGN.md rows 131 to 136).
 
 ### Line volume round 6: open (2026-11-22)
 From the gates and reviews of round 6, each with its source (the user's answers are in
@@ -258,7 +258,7 @@ From the gates and reviews of round 6, each with its source (the user's answers 
 - **Compare's other runs pressable in the view** (the user's P5 b, "known difference now"; effort medium-high): a
   hit test for other runs' lines on the canvas and a details panel for a line that is no spot of this run (today's
   page opens it with its "Run").
-- **The level switch as a radio group** (the final design check's F6; effort medium-low): Auto, Area, Spots, Lines
+- *Done in step 3d G6 (DESIGN.md row 136).* **The level switch as a radio group** (the final design check's F6; effort medium-low): Auto, Area, Spots, Lines
   are four toggle buttons and four Tab stops; `ui/radios.ts` (`radioKeys`, `radioStop`) would make them one stop with
   arrows (DESIGN.md row 82), the buttons `role=radio` with `aria-checked` (`test_shell_c_view_map.py` reads
   `aria-pressed` and changes with it).

@@ -23,8 +23,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { AccessKey, AccessMark, ACCESS_STATES, accessWord, useAccessHelp } from "../../access";
 import { t } from "../../i18n";
 import { COLORS } from "../../style";
-import { IconButton, type Snap } from "../../ui/components";
+import { CloseButton, IconButton, type Snap } from "../../ui/components";
 import { Icon } from "../../ui/icons";
+import { radioKeys, radioStop } from "../../ui/radios";
 import type { Legend, SpotMap } from "../SpotMap";
 import type { Best, SpotView } from "../spots";
 import { FAN_HERE, type Level, type SquareBy } from "../viewgeom";
@@ -56,25 +57,27 @@ export function statusOf(view: SpotView): {text: string; refused: boolean} {
     : t("ui.view.map.status_lines", {n: v.best.length, m: count(v.m)}), refused: false};
 }
 
-/** The five classes of the squares as texts: whole numbers "1–4", "5–19", "80+"; metres "under 5", "5–12", "40+";
- *  a class no whole number falls into is left out (null). */
-export function classTexts(breaks: number[], whole: boolean): (string | null)[] {
+/** The five classes of the squares as texts: whole numbers "1–4", "5–19", "from 80"; metres "under 5", "5–12",
+ *  "from 40" (R9: words for "+", as the highline layer's legend); a class no whole number falls into is left out
+ *  (null). `ramp`: the last class as a phone's ramp ends ("80 or more": after the bar, "from 80" would read as the start
+ *  of a range). */
+export function classTexts(breaks: number[], whole: boolean, ramp = false): (string | null)[] {
   return [0, 1, 2, 3, 4].map((k) => {
     const from = k === 0 ? (whole ? 1 : 0) : breaks[k - 1], to = k === 4 ? null : whole ? breaks[k] - 1 : breaks[k];
-    if (to === null) return `${from}+`;
+    if (to === null) return t(ramp ? "ui.view.map.class_ramp_end" : "ui.view.map.class_from", {from});
     if (!whole) return k === 0 ? t("ui.view.map.class_under", {to}) : `${from}–${to}`;
     return to < from ? null : from === to ? String(from) : `${from}–${to}`;
   });
 }
 
 function Item({kind, mark, children}: {kind: string; mark: ComponentChildren; children: ComponentChildren}) {
-  return <span class="v-lg" data-kind={kind}>{mark}<span class="v-lg-t">{children}</span></span>;
+  return <span class="v-lg u-legend-item" data-kind={kind}>{mark}<span class="v-lg-t">{children}</span></span>;
 }
 
 /** A favourite's sign in the legend as the map draws it: the line inside its gold band (the map's own colours,
  *  style.ts COLORS; the accepted mock-up's sign, the design review's F5). */
 function FavSign() {
-  return <span class="v-fav" style={{background: COLORS.favourite}} aria-hidden="true"><i style={{background: COLORS.clean}} /></span>;
+  return <span class="v-fav u-legend-sw" style={{background: COLORS.favourite}} aria-hidden="true"><i style={{background: COLORS.clean}} /></span>;
 }
 
 /** A dashed outline's sign in the legend (the search area's, another run's in its colour): the dashes on a chip of
@@ -99,10 +102,10 @@ function LegendItems({view, map, legend, short}: {view: SpotView; map: SpotMap; 
       // a phone: the five classes as one ramp between its lowest and its highest value (the classes' texts are its name)
       ? <span class="v-ramp" data-kind="sq" role="img" aria-label={classTexts(legend.breaks, whole).filter((text) => text !== null).join(", ")}>
         {whole ? 1 : 0}<span class="v-ramp-bar">{[1, 2, 3, 4, 5].map((k) => <i key={k} class={`v-lay v-lay-${k}`} />)}</span>
-        {classTexts(legend.breaks, whole)[4]}</span>
-      : <span class="v-classes" data-kind="sq">
+        {classTexts(legend.breaks, whole, true)[4]}</span>
+      : <span class="v-classes u-legend-items u-legend-classes" data-kind="sq">
         {classTexts(legend.breaks, whole).map((text, k) => text !== null &&
-          <span class="v-lg v-class" key={k}><i class={`v-lay v-lay-${k + 1}`} />{text}</span>)}
+          <span class="v-lg v-class u-legend-item" key={k}><i class={`v-lay u-legend-sw v-lay-${k + 1}`} />{text}</span>)}
       </span>}
   </>;
   const lines = !area && <>
@@ -121,14 +124,14 @@ function LegendItems({view, map, legend, short}: {view: SpotView; map: SpotMap; 
   </>;
   const anchor = on.A && <Item kind="A" mark={<Shape kind="A" text="A1" />}>{word("anchor")}</Item>;
   const access = view.model.hasAccess && on.ends && ACCESS_STATES.map((state) =>
-    <span class="v-lg" data-kind={`access-${state}`} key={state}><AccessMark state={state} />{accessWord(state)}</span>);
+    <span class="v-lg u-legend-item" data-kind={`access-${state}`} key={state}><AccessMark state={state} />{accessWord(state)}</span>);
   // drawn besides the spots (the canvas's `fav`, `area`, `runs`): a favourite's halo, the search area's outline,
   // Compare's other runs (their names)
   const runs = legend.runs;
   const extra = <>
     {on.fav && <Item kind="fav" mark={<FavSign />}>{t("ui.result.legend_favourite")}</Item>}
     {on.area && <Item kind="area" mark={<Dash />}>{word("area")}</Item>}
-    {runs.map((run) => <span class="v-lg" data-kind="run" key={run.id}>
+    {runs.map((run) => <span class="v-lg u-legend-item" data-kind="run" key={run.id}>
       <span class="v-runmark"><Swatch color={run.color} /><Dash color={run.color} /></span><span class="v-lg-t">{run.name}</span></span>)}
   </>;
   if (short) {
@@ -144,7 +147,7 @@ function LegendItems({view, map, legend, short}: {view: SpotView; map: SpotMap; 
   return <>
     {squares}{lines}{numbers}{anchor}{fan}{extra}
     {/* "Anchors" and its three marks on one row (a wrapped legend never parts them: the design review's F4) */}
-    {access && <span class="v-lg-group"><span class="v-lg"><b>{t("ui.access.legend")}</b></span>{access}</span>}
+    {access && <span class="v-lg-group"><span class="v-lg u-legend-item"><b class="u-legend-title">{t("ui.access.legend")}</b></span>{access}</span>}
   </>;
 }
 
@@ -204,7 +207,7 @@ function bestText(area: boolean): string {
 
 /** The help's close (the mock-up's ×): the panel also closes by its own "i" and by Esc. */
 function HelpClose({onClose}: {onClose(): void}) {
-  return <IconButton icon="close" label={t("ui.view.map.help_close")} plain class="v-about-x" onClick={onClose} />;
+  return <CloseButton label={t("ui.view.map.help_close")} class="v-about-x" onClick={onClose} />;
 }
 
 /** The map's help as a desktop shows it: both texts, under the switch. */
@@ -223,7 +226,7 @@ function HelpAll({area, onClose}: {area: boolean; onClose(): void}) {
 function HelpParts({open, onPart, onClose, area, access}: {open: Part; onPart(part: Part): void; onClose(): void; area: boolean;
                                                            access: boolean}) {
   const part = (id: Part, title: string, text: ComponentChildren) => <>
-    <button type="button" class="v-part" data-part={id} aria-expanded={open === id} onClick={() => onPart(id)}>
+    <button type="button" class="u-item v-part" data-part={id} aria-expanded={open === id} onClick={() => onPart(id)}>
       <Icon name={open === id ? "down" : "next"} /><b>{title}</b></button>
     {open === id && <div class="v-part-text">{text}</div>}
   </>;
@@ -384,7 +387,7 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message, tip, sho
   // the legend unfolded or folded (a press on "Legend", the card's short foot): the canvas places its numbers clear of
   // it at once, not at the frame's next rest (no number under the legend meanwhile)
   useLayoutEffect(() => { map?.refresh(); }, [map, !!shown]);
-  const legendBox = shown && <div class={cx("v-legend", !wide && "v-legend-phone")} id="v-legend" role="group" aria-label={t("ui.view.map.legend")} data-map-control
+  const legendBox = shown && <div class={cx("v-legend u-legend-items", !wide && "v-legend-phone")} id="v-legend" role="group" aria-label={t("ui.view.map.legend")} data-map-control
                                   style={compact && !asPanel && room < natural.current
                                     ? {maxHeight: `${Math.max(room, LEGEND_LINE)}px`, ...(wide ? {overflowY: "auto"} : {})} : undefined}>
     <LegendItems view={view} map={map} legend={legend} short={!wide} />
@@ -411,14 +414,15 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message, tip, sho
     <span class="v-status-text">{status.text}</span>
     {!view.auto && <>
       <span class="u-small">{t("ui.view.map.held")}</span>
-      <button type="button" class="r-link v-back-auto" onClick={() => view.setLevel("auto")}>{t("ui.view.map.back_auto")}</button>
+      <button type="button" class="u-link u-inline r-link v-back-auto" onClick={() => view.setLevel("auto")}>{t("ui.view.map.back_auto")}</button>
     </>}
   </div>;
   return <>
     <div class="v-switch">
-      <div class="u-seg v-levels" role="group" aria-label={t("ui.view.map.levels")} title={t("ui.view.map.levels_help")}
-           data-map-control>
-        {LEVELS.map((k) => <button type="button" key={k} data-level={k} aria-pressed={pressed === k}
+      <div class="u-seg v-levels" role="radiogroup" aria-label={t("ui.view.map.levels")} title={t("ui.view.map.levels_help")}
+           data-map-control onKeyDown={radioKeys}>
+        {LEVELS.map((k, i) => <button type="button" key={k} data-level={k} role="radio" aria-checked={pressed === k}
+                                   tabIndex={i === radioStop(LEVELS.length, LEVELS.indexOf(pressed)) ? 0 : -1}
                                    class={cx(pressed === k && "u-on", view.auto && k === view.level && "v-now")}
                                    onClick={() => view.setLevel(k)}>{t(`ui.view.map.level_${k}`)}</button>)}
       </div>

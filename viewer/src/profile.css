@@ -1,27 +1,36 @@
 /* The profile chart's rules (Profile.tsx, classes fal-*), inside .r-profile, shared by the result's dock
    (result/view/ProfileDock.tsx) and the 3D view's card (view3d/profilecard.tsx). The root is .ui. */
 .ui .r-profile, .ui .r-profile .fal-profile { min-width: 0; }
-.ui .r-profile { font-size: 12px; color: var(--ink-2); overflow: hidden; }
+.ui .r-profile { font-size: var(--fs-1); color: var(--ink-2); overflow: hidden; }
 .ui .r-profile .fal-swatch { display: inline-block; width: 14px; height: 3px; vertical-align: middle; }
 .ui .r-profile .fal-profile-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ui .r-profile .fal-profile-title { font-weight: 600; color: var(--ink); }
-.ui .r-profile .fal-profile-legend { display: inline-flex; flex-wrap: wrap; gap: 2px 12px; margin-left: 10px; }
+/* the legend: the kit's (.u-legend-items, .u-legend-item, .u-legend-sw; step 3d G6, Q3 a) at the profile's 12 px with
+   12 px between its items (the kit's 13 px and 16 px elsewhere: the user's F1 a of 2026-11-23, so the 1:1 scale stays
+   on the key's row in a desktop card), beside the head's title 8 px off; its areas' swatches in the chart's colours */
+.ui .r-profile .fal-profile-legend { display: inline-flex; margin-left: 8px; }
+.ui .r-profile .fal-profile-legend.u-legend-items { gap: 4px 12px; }
+.ui .r-profile .fal-profile-legend .u-legend-item { font-size: var(--fs-1); }
+.ui .r-profile .fal-sw-terrain { background: var(--r-terrain-fill); box-shadow: inset 0 0 0 1px var(--r-terrain-line); }
+.ui .r-profile .fal-sw-trees { background: var(--r-trees-fill); }
+.ui .r-profile .fal-sw-water { background: var(--r-water-fill); }
 .ui .r-profile .fal-profile-legend span { white-space: nowrap; }
-.ui .r-profile .fal-profile-head button, .ui .r-profile .fal-key .fal-scale { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); min-height: 26px;
-  padding: 0 8px; cursor: pointer; font-size: 12px; }
-.ui .r-profile .fal-profile-controls { display: none; flex-wrap: wrap; gap: 4px 14px; padding: 4px 0; }
+/* the 1:1 scale: the kit's button (.u-btn), the view's 32 px in the profile's 13 px */
+.ui .r-profile .fal-scale.u-btn { min-height: 32px; padding: 0 12px; font-size: var(--fs-2); }
+.ui .r-profile .fal-profile-controls { display: none; flex-wrap: wrap; gap: 4px 16px; padding: 4px 0; }
 .ui .r-rigging .r-profile .fal-profile-controls, .ui .r-profile .fal-profile-controls:has(.fal-heights) { display: flex; }
 .ui .r-profile .fal-profile-controls:has(.fal-heights) .fal-rigging,
 .ui .r-profile .fal-profile-controls:has(.fal-heights) .fal-layers { display: none; }
 .ui .r-rigging .r-profile .fal-profile-controls .fal-rigging, .ui .r-rigging .r-profile .fal-profile-controls .fal-layers { display: inline; }
-.ui .r-profile .fal-profile-controls label { margin-right: 10px; white-space: nowrap; }
-.ui .r-profile .fal-profile-controls input[type=number] { width: 56px; border: 1px solid var(--line); border-radius: 6px;
-  background: var(--surface); padding: 2px 4px; }
+.ui .r-profile .fal-profile-controls label { margin-right: 8px; white-space: nowrap; }
+.ui .r-profile .fal-layers label { display: inline-flex; align-items: center; gap: 4px; }
+/* a number field: 24 px high on a desktop (R2: 23 px before, step 3d G6 T6), 44 px on a touch screen (below) */
+.ui .r-profile .fal-profile-controls input[type=number] { width: 56px; min-height: 24px; border: 1px solid var(--line);
+  border-radius: var(--r-2); background: var(--surface); padding: 0 4px; }
 /* the profile's controls on a touch screen: a finger's 44 px (R2; the user's "12 a"): the 1:1 scale and the head's
    buttons, the heights' and the rigging's fields, a layer's row (its label is the checkbox's target) */
 @media (pointer: coarse) {
-  .ui .r-profile .fal-profile-head button, .ui .r-profile .fal-key .fal-scale { min-height: 44px; }
-  .ui .r-profile .fal-profile-head .fal-close { min-width: 44px; }  /* the head's ×: 44 x 44 (the design review's F2) */
+  .ui .r-profile .fal-scale.u-btn { min-height: 44px; }  /* the head's close: the kit's, 44 px */
   .ui .r-profile .fal-profile-controls input[type=number] { min-height: 44px; }
   .ui .r-profile .fal-profile-controls label { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; }
 }
@@ -29,14 +38,30 @@
 .ui .r-profile .fal-profile-chart svg { display: block; }
 .ui .r-profile .fal-hover { touch-action: pan-y; }
 .ui .r-profile .fal-profile-readout { min-height: 18px; color: var(--ink); font-variant-numeric: tabular-nums; }
-/* The chart's fixed light colours, for both themes */
-.ui { --r-terrain-fill: #e3d8c3; }
-@media (prefers-color-scheme: dark) { .ui:not([data-theme="light"]) { --r-terrain-fill: #4d4433; } }
-.ui[data-theme="dark"] { --r-terrain-fill: #4d4433; }
-.ui .r-profile svg polygon[fill="#e3d8c3"] { fill: var(--r-terrain-fill); }
-.ui .r-profile svg line[stroke="#eee"] { stroke: var(--rule); }
-.ui .r-profile svg text[fill="#777"] { fill: var(--muted); }
-.ui .r-profile svg text:not([fill]) { fill: var(--ink); }
+/* The chart's colours: tokens (ui/tokens.css, the profile's --r-* and the map's line colours), each curve by its class
+   (Profile.tsx draws no colour: step 3d G6, the scope review's finding 2); its terrain's fill darker in the dark theme */
+.ui .r-profile svg text { fill: var(--ink); }
+.ui .r-profile svg .fal-axis { fill: var(--muted); }
+.ui .r-profile svg .fal-grid { stroke: var(--rule); }
+.ui .r-profile svg .fal-terrain { fill: var(--r-terrain-fill); stroke: var(--r-terrain-line); }
+.ui .r-profile svg .fal-trees { fill: var(--r-trees-fill); }
+.ui .r-profile svg .fal-water { fill: var(--r-water-fill); stroke: var(--r-water); }
+.ui .r-profile svg .fal-fall { fill: var(--r-fall-fill); }
+.ui .r-profile svg .fal-limit { stroke: var(--r-limit); }
+.ui .r-profile svg .fal-envelope { stroke: var(--r-envelope); }
+.ui .r-profile svg .fal-webbing { stroke: var(--map-clean); }
+.ui .r-profile svg .fal-webbing.fal-over { stroke: var(--map-over); }
+.ui .r-profile svg .fal-end { fill: var(--map-clean); }
+.ui .r-profile svg .fal-end.fal-over { fill: var(--map-over); }
+.ui .r-profile svg .fal-mark-min { stroke: var(--r-terrain-line); }
+.ui .r-profile svg .fal-mark-trees { stroke: var(--r-trees); }
+.ui .r-profile svg .fal-mark-highest { stroke: var(--r-envelope); }
+/* the layers' swatches (Profile.tsx LAYERS: fal-sw-<layer>) and the safety limit's in the key */
+.ui .r-profile .fal-sw-webbing { height: 3px; background: var(--map-clean); }
+.ui .r-profile .fal-sw-athlete { height: 2px; background: var(--r-athlete); }
+.ui .r-profile .fal-sw-envelope { height: 0; border-top: 2px dotted var(--r-envelope); }
+.ui .r-profile .fal-sw-fall { height: 8px; background: var(--r-fall-fill); border: 1px solid var(--r-limit); }
+.ui .r-profile .fal-sw-limit { height: 0; border-top: 2px dashed var(--r-limit); }
 .ui .r-profile svg line.fal-cursor { stroke: var(--ink); }
 /* the webbing loaded by the athlete under the cursor: near black on a dark surface otherwise */
 .ui .r-profile svg .fal-loaded { stroke: var(--ink); }
@@ -55,20 +80,16 @@
 .ui .r-profile .fal-compact .fal-readout-text { position: absolute; top: 0; left: 0; right: 0; }
 /* The no-fall zone and the A-frames (a run with the options): the zone's bands and dashed edges, the A-frames, their
    labels, and what the line needs rigged above the chart */
-.ui { --r-zone: var(--accent); --r-frame: var(--ink-2); }
+
 .ui .r-profile svg .fal-zone-band { fill: color-mix(in srgb, var(--r-zone) 12%, transparent); }
 .ui .r-profile svg .fal-zone-edge { stroke: var(--r-zone); }
 .ui .r-profile svg .fal-zone-label { fill: var(--r-zone); font-weight: 600; }
 .ui .r-profile svg .fal-frame polyline { stroke: var(--r-frame); }
 .ui .r-profile svg .fal-frame circle { fill: var(--r-frame); }
 .ui .r-profile svg .fal-frame-label { fill: var(--r-frame); }
-/* The labels of the highest point, the trees and the smallest clearance: the hue of their curve (Profile.tsx PROFILE,
-   which stays the curves' colour), as text at 4.5:1 or more on the card's --surface in each theme */
-.ui { --r-highest-label: #6a3d9a; --r-trees-label: #3b8632; --r-min-label: #877454; }
-@media (prefers-color-scheme: dark) {
-  .ui:not([data-theme="light"]) { --r-highest-label: #a078c9; --r-trees-label: #459c3a; --r-min-label: #9d8662; }
-}
-.ui[data-theme="dark"] { --r-highest-label: #a078c9; --r-trees-label: #459c3a; --r-min-label: #9d8662; }
+/* The labels of the highest point, the trees and the smallest clearance: the hue of their curve (--r-envelope,
+   --r-trees, --r-terrain-line), as text at 4.5:1 or more on the card's --surface in each theme */
+
 .ui .r-profile svg .fal-label-highest { fill: var(--r-highest-label); }
 .ui .r-profile svg .fal-label-trees { fill: var(--r-trees-label); }
 .ui .r-profile svg .fal-label-min { fill: var(--r-min-label); }
@@ -78,6 +99,8 @@
   border-left: 1px dashed var(--r-zone); border-right: 1px dashed var(--r-zone); }
 .ui .r-profile .fal-swatch-frame { vertical-align: middle; }
 .ui .r-profile .fal-swatch-frame polyline { stroke: var(--r-frame); }
+/* (2 px: the card's least height counts this row; 4 px made a found line's card 2 px higher than its set height and the
+   map's free area changed at each step through the lines: tests/test_view_gate2.py) */
 .ui .r-profile .fal-need { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 2px 0; }
 .ui .r-profile .fal-pill { display: inline-block; border-radius: 999px; padding: 1px 8px; font-weight: 600; }
 .ui .r-profile .fal-pill.fal-ok { background: var(--ok-soft); color: var(--ok); }

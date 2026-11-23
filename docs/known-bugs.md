@@ -397,23 +397,12 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
   today's page's 1.6 s; the memory peak 1.07 GB against today's 1.50 GB. Look again if it recurs.
 
 **What the design checks left** (the final design check and gate 2's, 2026-11-22; none breaks a user answer)
-- **R2's leftovers**: the measured profile's two number fields 56 × 23 px on the desktop, and a set filter chip's
-  label button (19-20 px high) and its × (16 × 16 px) on every device: the kit's chip.
-- **R1 and R2 in the filter editor and More filters** (measured by wave A's A4, 2026-11-20, in states
-  `tools/ui_shots.py` does not have, so the final design check did not cover them): on a phone a filter's editor has
-  its × at 40 × 40 px and two number fields at 76 × 40; More filters has its × at 40 × 40, every number field at
-  76 × 40 and every checkbox row 40 px high, and on every device its section heads and the A-frame field's label at
-  11 px. These are today's page's components, borrowed by the view and shared with today's page (`result.css`:
-  `.r-note-x` and `.r-check` 40 px under `(pointer: coarse)`, `.r-num` 40 px, `.r-more-sec > h3, .r-field-lab` 11 px).
-  The table of spots has nothing under a bound. ui_shots states for the editor and More filters would measure them.
-- **Two inside rings without a forced-colours twin**: `mapbar.css` `.v-part:focus-visible` (the map's help parts;
-  its forced outline is cut at its top and right by the help's box) and `view.css` `.vl-star:focus-visible` (DESIGN.md
-  row 81; with the other three of round 6 for the UX task's G6).
+- **R2's leftovers**: a set filter chip's label button (19-20 px high) and its × (16 × 16 px) on every device: the kit's
+  chip (the measured profile's number fields are 24 px high since step 3d G6).
 - **The map's switch, Best and its "i" come after the nine credits links in the Tab order** (the switch stands at the
   map's top, the credits at its foot).
 - **The sector's name scrolls away while its heads stick** (the design review's G2-F3): in a sector of 59 spots the
   rigger loses which sector the heads belong to.
-- **The level switch takes no arrows**: four Tab stops against DESIGN.md row 82; docs/roadmap.md.
 - **Two word patterns and one icon for two steppers**: the spot's ‹ › in the head and the line's ‹ › share an icon
   (told apart by names and places); "Previous spot / Next spot" beside "The line before / The next line". With the
   tree smallest first, a sector's head still says "mean height up to …" while its first row is its smallest.
@@ -453,6 +442,12 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
 - "Lines from A1" pressed with the phone's sheet at full zooms the hidden map out (16.75 to 15.5 on 390 px, 17.25 to
   15.5 on 412); the same before round 6's last fixes.
 - At full the phone pill's own shadow is drawn faintly over the sheet's rounded top edge (cosmetic).
+- **A selection's check can move an end off the map** (seen by step 3d G6, 2026-11-23; round 6's code, not G6's):
+  `endsClear` (SpotColumns.tsx) counts an end that leaves the map as not under a control, and ranks "fewer under"
+  before "fewer outside". At 1024 × 768 with the card open (the map 361 px wide, the coast boxes run), lines 5858 and
+  6308 of `test_selection_check_moves_only_for_a_gain[1024-card]` start with both ends under the shore box and the
+  hint. The check then pans so that one end is still under a control and the other lies off the map: x 441 on main
+  (263b1268), x 409 on G6's tree. The test counts that as a gain (one end fewer under a control).
 - The sideways notice's media query also matches a phone held upright whose page an on-screen keyboard shrinks in
   some Android browsers (not iOS Safari, not Chrome on Android).
 
@@ -557,13 +552,14 @@ as the box (rows of 44 px now) closes: the second tap takes. An earlier note her
 open while the tools are shown, was the test harness's doing (the emulated mouse left over the Advanced tab makes
 Leaflet close the box on a late mouseout; with taps only it opens, on main too: `3c-a/probes-r5`).
 
-The layers' box and the keyboard, Leaflet's own and the same on main (measured on both codes, 2026-11-19; for
-step 3d): Escape does not close the open box; Enter on the layers' button opens it and the focus falls to the
-page (the next Tab reaches the first row); on a touch screen a second tap where the button was lands on the row
-under it and can switch the base map (main: at every size; the branch: on a tablet); on a desktop the Tab order in
-the map is coverage, layers, zoom (their order in the corner). These wait for line volume's round 6
-(`layersControl.ts`). The coverage's 83 outlines, Tab stops before the pin and every control until step 3d, are out
-of the Tab order since (DESIGN.md row 81).
+The layers' box and the keyboard (measured 2026-11-19): mended in step 3d G6 (DESIGN.md row 132): Escape closes the
+box, Enter or Space opens it with the focus on its chosen row, a second tap where the button stood no longer switches
+the base map. Kept by the user's decisions of 2026-11-23: on a desktop the Tab order in the map's corner is coverage,
+layers, zoom, their order on the screen from the top ("a: screen order"; WCAG 2.4.3 asks for that order); the
+tools' 30 px column on a touch tablet ("a: leave, in known-bugs": five buttons one under another leave no room for
+invisible 44 px targets that do not overlap, so 44 px would be visible). The tools have names since G6 (axe
+`link-name`: 0).
+The coverage's 83 outlines are out of the Tab order since DESIGN.md row 81.
 
 The about page's long address ("ARSO's terms of use of its lidar data: http://...", plain text in a credit's notice)
 ran wider than its box on a phone: fixed by group D (DESIGN.md choice 53).
@@ -622,7 +618,8 @@ word's help are written out since step 3d G5 (DESIGN.md choice 92).
 Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept (rows 40 to 49). Left as it is:
 
 - **Inherited from the profile chart** (`Profile.tsx`, `profile.css`: shared with today's result page and line
-  volume's round 6, not changed here): the card's facts joined by " · ", "→" and "Δh" (R9). Its text at 11 px and
+  volume's round 6, not changed here): the card's facts joined by " · ", "→" and "Δh" (R9) were put in words by step 3d
+  G6 (DESIGN.md row 136). Its text at 11 px and
   the controls of "Rigging and layers" under 44 px on a touch screen were mended by line volume's round 6 (the user's
   12 a: the chart's text 12 px, every control of the profile 44 px on touch, on both pages and the 3D card;
   DESIGN.md row 104).
@@ -753,16 +750,9 @@ layer's chart bars only (excepted by name in R2). Known and left:
 - **Inherited and left** (the design review's F10): on the coverage map a selected country stays drawn above its
   regions after its card closes (`flat.ts`); the map's shapes take no keyboard focus (every card is reached from
   the list). The switches take the arrows since step 3d (DESIGN.md row 82).
-- **The layer's map and the keyboard's ring** (the design review's F10, inherited): the kit's ring lies outside the
-  map's box, on a desktop under the side panels and the header (not seen); on a phone its lower edge shows as a line
-  under the sticky map, after a tap too (seen in the tap probe's pictures at the fix round's tip; the same rules as
-  before the round, so presumably as before, not measured on the old build). Drawn inside the box (the fix round's
-  first build) it showed after a press of a finger or a mouse too, so it was taken out: Leaflet focuses its
-  container on a press (`Map.Keyboard` `_onMouseDown`) and the browsers then mark that focus `:focus-visible`.
-  Measured 2026-11-20, a first press on a freshly loaded page: WebKit (iPhone 13) and Chromium (Pixel 7) after a
-  tap, Chromium (1400 x 900) after a click; the search page's map the same, with the kit's ring outside its box. A
-  press after a press on another control was not measured. A ring for the keyboard only needs the press told apart
-  from a key, for the place map of all three pages (`app/PlaceMap.ts`), not for the layer alone.
+- **The layer's map and the keyboard's ring** (the design review's F10, inherited): mended in step 3d G6 for the
+  place map of all three pages and the result view's map (DESIGN.md row 136): an outline 2 px inside the box, only
+  after a key (a press marks the box: `layersControl.ts` `pressMarks`).
 - **`test_layer_page_in_edge`'s cut step** picks the cut cell whose two parts are deepest: with the panels' new widths
   the map in headless Edge's window is 425 x 649 px (360 before) and the first lattice points of the first cut cell
   lay 3 px apart at the shared edge. Its points lie 2 px inside their parts, so another change of the map's size may
@@ -774,11 +764,6 @@ layer's chart bars only (excepted by name in R2). Known and left:
 
 Found by the reviews of G1 and left (DESIGN.md rows 81 to 84 hold what was mended):
 
-- **Forced colours on round 6's inside rings**: the place map's zoom buttons (`result/view/mapbar.css` l.128), the
-  phone's drawing tools (l.181) and the view's rows (`result/view/view.css` l.85) draw their ring inside
-  (`--focus-in`) with no forced-colours `outline-offset: -2px` beside it, so the kit's forced-colours outline falls 2 px
-  outside them, where their bar clips it (the zoom: cut 4 px on three sides, only an edge shows; measured on the
-  desktop and the phone, 10 stops on 5 states). Line volume's round 6's files: for G6.
 - **The layer page on a phone**: with the column scrolled to 500 px a press on the sticky map scrolls it to 222 px
   (Leaflet focuses its container on a press, and the column's `scroll-padding-top` of the map's height brings the
   focused map's top under itself); as on main.
@@ -817,10 +802,9 @@ rows 87 to 91; `tests/test_viewer.py::test_free_css_on_the_scales` and its `OFF_
   elevation tokens does not cover them; tokens for a ring, an inset edge and a mark's rim are the planner's to decide.
   The 3D marks' values differ a little (an edge of 55, 60 and 65 % black; the pin's shadow offset turned against its
   rotation, so that it falls straight down).
-- **Round 6's files and ui.css's shore block** keep their numbers, literal shadows, colours and spacing (`result/view/`,
-  `profile.css`, `Profile.tsx`; the shore's and coarser box's rules): step 3d's G6, which can take the names now in
-  `tokens.css` (`--z-map-box` 800, `--z-map-box-2` 810, `--z-map-top` 1100, `--shadow-up`). Today's result page keeps
-  its own (z 1 to 9, 900 to 1100, its dock's shadow): its page goes.
+- **Today's result page's files** (`result.css`, `columns.css`, `ui/sidepanel.css`) stay outside the scale test (its
+  page goes); the parts the result view borrows were put on the kit in G6 and `columns.css` on the layers' names.
+  Round 6's own files and the shore block are checked since G6 (DESIGN.md rows 134, 135).
 - **The kit's demo pages** (`?ui=kit`, `?ui=kit-search`: the gallery's rules, `.u-stub`, `.ui.s-kit`) keep their own
   type, corners and spacing (developers' pages); their layers are tokens.
 - **The dialogs' scrim** has its value twice, the token and `::backdrop`'s fallback (a browser before Safari 17.4,
@@ -832,18 +816,14 @@ rows 87 to 91; `tests/test_viewer.py::test_free_css_on_the_scales` and its `OFF_
   `--line` border) are two sizes for one level: left by the user's "Leave for now (Recommended)", 2026-11-22 (the
   design review's F4). The access mark's help panel, 28 px higher (13 px type, R7's padding), is cut by 37 px at
   rest in the result view's key on the iPhone (round 6's `.v-over`, 277 px high; 9 px before); it scrolls and reads
-  whole: room for it in `.v-over` is G6's (the design review's F2). The result view's `.v-legend` and the profile's
-  legend (round 6's files) keep their own rules until G6 puts them on `.u-legend-*` (the view's swatches would
-  then gain the inset edge).
+  whole: room for it in `.v-over` was offered to G6 as T3 and left by the user (2026-11-23). The result view's and the
+  profile's legends are on the kit's since G6 (DESIGN.md row 133).
 
 ## Step 3d, group G3 (one control family): known and left (2026-11-22)
 
 G3 put the free screens' text actions, rows, closes, badges and checkboxes on the kit's (DESIGN.md rows 96 to 99;
 `tests/test_controls_kit.py`). Left:
 
-- **Line volume's round 6's own controls** keep theirs until G6: the view's `r-link`, `r-why-link`, `r-note-x`,
-  `vl-*-x`, the profile's "×" and its legend; the view's collapse tab (`result/view/view.css`) keeps its 1 px
-  `--rule` edge, which the kit's tab and the layer page's no longer have.
 - **The kit's rules reach round 6's view and today's result page** where they use the kit's classes: the "More
   filters" count badge is neutral there too (Q8 a: the accent only for the bottom bar's count), "How to read the
   result" (`ui/Intro.tsx`, the kit's text action) takes a label's weight, today's page's tab the kit's look and its ring.
@@ -874,8 +854,7 @@ G5 built the words the user approved on the wording review (DESIGN.md choices 92
 - **Today's result page** keeps its intro (`intro.result.spots` 80 words, `filters` 48, `check` 38: over R10) and its
   "→" (`intro.result.easy_within`, `spots`), and its filter bar's ≥ and ≤ in code (`result/view/FilterBar.tsx`): the
   page goes with line volume's round 6 (the user, 2026-11-19). `tests/test_words.py` names them.
-- **Round 6's files**: the profile's " · " between values, "→", "Δh" and "vertical ×1.6" (`Profile.tsx`), the coarser
-  box's shares of sources joined by " · " (`coarser.ts`, shown in round 6's box): step 3d's G6.
+- **The profile's 1:1 scale** keeps "×1.6" (the user's answer to G6's w-04, 2026-11-23: as the 3D view's "×1").
 - **The images and videos of the coverage map** keep "≤ 1 m" and the stars' character (`coverage/draw/layout.ts`):
   rendered by hand and rarely (the user, 2026-11-19).
 - **The layer's small charts on a phone** show their title on two lines where the word the bare ticks need
@@ -939,3 +918,45 @@ What still shows English from the code:
   credit, `layers.ts` `creditsHtml`: `ui.map.*`, `ui.credits.data`, `ui.credits.notices`), as Leaflet's attribution
   takes HTML; `web.page_text` escapes its texts' &, < and >. No word holds either today; a later word (G5, a language)
   with "&" or "<" needs escaping there.
+
+## Step 3d, group G6 (the themes in round 6's files): known and left (2026-11-23)
+
+G6 put the result view and the place map on the kit's controls, legend, layers, scales and words (DESIGN.md rows 131
+to 136; `tests/test_view_kit.py`). Left:
+
+- **Today's result page follows the shared parts** (the user's G6-Q1 a and G6-Q2 a): its closes, text actions,
+  checkboxes, More filters' heads, the dock's buttons and the profile's words are the view's now; its own components
+  (`FilterBar`'s bar, `LineDetails`, `LinesTable`, `ResultColumns`) keep their English and looks.
+- **The drawing tools on a touch tablet** keep Geoman's 30 px column, and the place map's corner keeps the screen's
+  Tab order: the user's decisions of 2026-11-23, not open items (group A's entry above).
+- **"Data credits" on a phone** (T7): left as it is, the user's decision of 2026-11-23 ("a: leave, in known-bugs"),
+  not an open item. A hit test over the folded
+  pill's 44 px band (`elementFromPoint`, the fix round of 2026-11-23): at the sheet's low stop and at half a press
+  reaches it on 27 px of the 44 on the iPhone (390 x 664) and at 360 px, 35 px on the Pixel: the credits' links of
+  the line above take up to 8 px (round 6 put them over the target on purpose) and the sheet's handle under it 9 px.
+  In `ui_metrics`' other 12 states a pass (`c-view-sector`, `-report`, `-picker` ...) the sheet stands over the pill:
+  none of its band is pressable and none needs to be (hidden). The whole 44 px without moving anything drawn: the
+  target moved above the pill (19 px over it, none under it) and laid over the links. Measured: 43 px of the band on
+  the three phones (its last half pixel lies under the sheet's edge), but at 360 px the link "report a map issue" lies
+  wholly inside it and no press reaches that link; with the target moved but the links kept over it, 43 px where no
+  link lies above, 26 px under a link (and 5 px above it).
+  Either costs a link's press or needs something drawn to move.
+- **The desktop card with "Rigging and layers" open** (the design review's F1, mended by the user's F1 a of
+  2026-11-23: the profile's key at 12 px with 12 px gaps, DESIGN.md row 133): the key and the 1:1 scale on one row
+  again; the card is 358 px in the view and 361 px on today's page against main's 344 and 345 (the kit's 32 px button and the rigging rows' 24 px fields and 20 px
+  boxes). The row fits with 3 px to spare on the card (1 px on today's page, 594 px wide) for a search with the default
+  line model ("safety limit (formula)"; `tests/test_view_kit.py::test_card_key_and_scale_on_one_row`). It still takes
+  two rows, as on main, with the sag model ("safety limit (sag model)": the legend 409 px, 607 of 596) and with the
+  no-fall zone or A-frames (two more items: the legend alone 581 px).
+- `LineDetails.tsx` `ordinal` writes the English ordinal ("76th" percentile) in code, and the view shows it (an
+  anchor's percentile in a line's details): inherited English, unguarded (`LineDetails.tsx` is today's page's file,
+  outside `MOVED`); a catalogue's ordinal needs plural rules per language (i18next's `ordinal`).
+- `CoarserNote` joins the fallbacks' names with " and " in code. Today's page's own English the view never shows:
+  `FilterBar`'s bar (its chips and "Close the filter") and `ResultNote`'s "Close" (`ResultSummary.tsx`); the guard
+  (`tests/test_texts_in_catalogue.py` `MOVED`) covers the parts the view borrows (`MainEditor`, `MoreFilters`,
+  `CoarserNote`, `WhyBox`, `AccessLegend`, `ResultSummary`).
+- **More filters' heads** differ from their labels by weight and grey only (13 px, 600, `--ink-2` over 13 px, 400,
+  `--ink`; the design review's P1): left. No one token mends it: a larger size token (`--fs-3`) would undo T5's
+  "the text's 13 px", and `--ink` would take the grey away as well.
+- **The access help cut in a phone's `.v-over`** (37 px at rest) and the map's switch after the credits in the Tab
+  order: left by the user (T3, T2).

@@ -7,7 +7,8 @@
 // .fal-profile-title, visually hidden), the legend and the 1:1 scale under "Rigging and layers".
 
 import { useEffect, useLayoutEffect, useState } from "preact/hooks";
-import { useMedia } from "../../ui/components";
+import { parts, t } from "../../i18n";
+import { CloseButton, useMedia } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { ProfilePanel } from "../../Profile";
 import type { Line } from "../../types";
@@ -95,25 +96,25 @@ export function ProfileDock({model, view, line, measured, onCloseMeasured, onClo
     setTimeout(() => document.querySelector<HTMLElement>(".r-reprofile")?.focus());
   };
   const ready = measured || (state && state.line === target && state.status === "ready");
-  const fold = onFold && <button type="button" class={cx("r-note-x r-fold", folded && "r-on")}
-                                 aria-label={folded ? "Unfold the profile" : "Fold the profile"}
-                                 title={folded ? "Unfold the profile" : "Fold the profile"} aria-expanded={!folded}
+  // the fold: the kit's plain icon button (not a close: one look for closes, `.u-x`)
+  const fold = onFold && <button type="button" class={cx("u-ib u-plain r-note-x r-fold", folded && "r-on")}
+                                 aria-label={t(folded ? "ui.dock.unfold" : "ui.dock.fold")}
+                                 title={t(folded ? "ui.dock.unfold" : "ui.dock.fold")} aria-expanded={!folded}
                                  onClick={() => onFold(!folded)}><Icon name="down" /></button>;
-  const hint = touch ? "tap or drag along the chart" : "move the mouse along the chart";
+  const hint = t(touch ? "ui.dock.hint_touch" : "ui.dock.hint");
   return <section class={cx("r-dock", rigging && "r-rigging", fill && "r-dock-fill", docked && "r-dock-compact",
-                            onFold && "r-foldable", onFold && folded && "r-folded", cls)} aria-label="Profile">
+                            onFold && "r-foldable", onFold && folded && "r-folded", cls)} aria-label={t("ui.dock.label")}>
     <div class="r-dock-bar">
-      <b>{measured ? "Measured profile" : `Profile · ${num(shown.len)} m`}</b>
+      <b>{measured ? t("ui.dock.measured") : t("ui.dock.bar", {m: num(shown.len)})}</b>
       {tight && ready && title.title && <>
         {(fill || measured) && <span class="u-small r-facts" title={title.title} aria-hidden="true">{title.facts}</span>}
         <span class="u-sr fal-profile-title">{title.title}</span></>}
       {!docked && <span class="u-small r-hint">{hint}</span>}
       <span class="u-grow" />
       {ready && <button type="button" class={cx("u-chip", rigging && "u-on")} aria-expanded={rigging}
-                        onClick={() => setRigging(!rigging)}>Rigging and layers<Icon name="down" /></button>}
+                        onClick={() => setRigging(!rigging)}>{t("ui.dock.rigging")}<Icon name="down" /></button>}
       {fold}
-      {(!ready || onFold || tight) && <button type="button" class="r-note-x" aria-label="Close the profile" onClick={close}>
-        <Icon name="close" /></button>}
+      {(!ready || onFold || tight) && <CloseButton label={t("ui.dock.close")} class="r-note-x" onClick={close} />}
     </div>
     {ready ? <div class="r-profile">
       <ProfilePanel line={shown} measured={!!measured} model={model.data.model} slope={model.data.slope}
@@ -123,8 +124,8 @@ export function ProfileDock({model, view, line, measured, onCloseMeasured, onClo
                     onTitle={tight ? (t, facts) => setTitle((o) => o.title === t && o.facts === facts ? o
                       : {title: t, facts}) : undefined} />
     </div> : state && state.status === "error"
-      ? <p class="r-dock-msg r-error"><Icon name="warn" />No profile: {state.error}</p>
-      : <p class="r-dock-msg" aria-busy="true"><span class="r-spin" />Computing the terrain profile…</p>}
+      ? <p class="r-dock-msg r-error"><Icon name="warn" />{parts("ui.dock.none", {error: state.error ?? ""})}</p>
+      : <p class="r-dock-msg" aria-busy="true"><span class="r-spin" />{t("ui.dock.computing")}</p>}
     {docked && ready && <p class="u-small r-hint r-hint-under">{hint}</p>}
   </section>;
 }

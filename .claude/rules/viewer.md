@@ -15,8 +15,9 @@ catalogue), `browser-tests.md`.
 
 - The words of the files `tests/test_texts_in_catalogue.py` names (`MOVED`) are texts of `locales/en.json` (`t`): its
   guard catches any word put back in their JSX text or text attributes and a phrase in their code, and checks that a
-  call gives each `{{name}}` of its text. Line volume's result-view files (`result/view/*`), today's result page and
-  the kit's demo pages still hold English in code (docs/known-bugs.md, step 3d G4). A sentence with an icon or a link
+  call gives each `{{name}}` of its text. Today's result page's own components (`FilterBar`'s bar, `ResultNote`,
+  `LineDetails`, `LinesTable`, `ResultColumns`) and the kit's demo pages still hold English in code (docs/known-bugs.md, step 3d G4,
+  G6). A sentence with an icon or a link
   inside is one key drawn by `i18n.parts`, and a value that stood as a text node of its own stays one (Chromium places
   a line's glyphs by its text nodes: merged nodes change pixels).
 
@@ -78,6 +79,8 @@ catalogue), `browser-tests.md`.
   counts the sheet at rest only once the credits' corner stands above it. Every move goes into the bar's room, a
   selection's fit through `selectedFit`; no move's padding grows for the controls. While P3's drop runs (a selection
   at full), `bar()` and `free()` count the sheet at half.
+- `Profile.tsx` draws no colour: each curve and swatch has a class that `profile.css` colours from a token (a new curve:
+  a class and a token, both themes).
 - `Profile.tsx` draws at `TEXT_PX` with `LABEL_BOXES` (measured at 12 px): a size change changes both; `labels.ts`'
   defaults stay its Node test's 11 px. `ProfileDock`'s `compact` is the view's phone docks' only; today's page and
   the cards never pass it. `layersControl.ts` holds the maps' layers control: the view never imports

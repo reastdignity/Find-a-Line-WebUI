@@ -5,7 +5,7 @@
 
 import type L from "leaflet";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { Button, IconButton, TOUCH, useMedia } from "../../ui/components";
+import { Button, CloseButton, IconButton, TOUCH, useMedia } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { api, ApiError, canChange, user, type RunListed } from "../../app/api";
 import { t } from "../../i18n";
@@ -87,20 +87,19 @@ function Measure({model, view, onMeasured, compact, plain, tip = "below", select
       model.measure([a.lat, a.lng], [b.lat, b.lng]).then((l) => { if (current()) onMeasured?.(l); }, (e) => {
         if (!current()) return;
         view.clearMeasure();
-        setError("Not computed: " + e.message);
+        setError(t("ui.actions.not_computed", {error: e.message}));
       });
     });
   };
-  const label = measuring ? "Cancel measuring" : "Measure";
+  const label = t(measuring ? "ui.actions.measure_cancel" : "ui.actions.measure");
   return <span class="r-act">
     {measuring && tip === "beside" && <span class="r-tip r-tip-beside u-small">{words}</span>}
     {compact ? <IconButton icon="ruler" label={label} on={measuring} plain={plain} onClick={toggle} />
       : <Button icon="ruler" class={measuring ? "r-on" : ""} aria-pressed={measuring} onClick={toggle}>
-          {measuring ? "Cancel" : "Measure"}</Button>}
+          {t(measuring ? "ui.actions.cancel" : "ui.actions.measure")}</Button>}
     {measuring && tip === "below" && <span class="r-tip u-small">{words}</span>}
     {error && <span class="r-tip r-error u-small" role="alert">{error}
-      <button type="button" class="r-note-x" aria-label="Close the message" onClick={() => setError("")}>
-        <Icon name="close" /></button></span>}
+      <CloseButton label={t("ui.actions.close_message")} class="r-note-x" onClick={() => setError("")} /></span>}
   </span>;
 }
 
@@ -132,27 +131,27 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
                                       () => change(item, "error"));
   };
   const row = (item: OtherItem) => <label class="r-check r-other" key={item.run.id} title={item.run.description}>
-    <input type="checkbox" checked={item.status === "on" || item.status === "loading"} onChange={() => toggle(item)} />
+    <input type="checkbox" class="u-check" checked={item.status === "on" || item.status === "loading"} onChange={() => toggle(item)} />
     <Swatch color={colorOf(item.run.id)} />
-    <span class="u-grow">{item.run.name}<span class="u-small"> · {day(item.run.created)} · {item.km < 1 ? "here"
-      : num0(item.km) + " km"}{item.status === "loading" ? " · loading…" : item.status === "error" ? " · no lines" : ""}</span></span>
+    <span class="u-grow">{item.run.name}<span class="u-small"> · {day(item.run.created)} · {item.km < 1 ? t("ui.actions.here")
+      : num0(item.km) + " km"}{item.status === "loading" ? " · " + t("ui.actions.loading") : item.status === "error" ? " · " + t("ui.actions.no_lines") : ""}</span></span>
   </label>;
-  return <Popover label="Compare with other runs" align="right"
+  return <Popover label={t("ui.actions.compare_label")} align="right"
                   button={(open, toggleOpen) => compact
-                    ? <IconButton icon="compare" label="Compare" expanded={open} onClick={() => { load(); toggleOpen(); }} />
-                    : <Button icon="compare" aria-expanded={open} onClick={() => { load(); toggleOpen(); }}>Compare</Button>}>
+                    ? <IconButton icon="compare" label={t("ui.actions.compare")} expanded={open} onClick={() => { load(); toggleOpen(); }} />
+                    : <Button icon="compare" aria-expanded={open} onClick={() => { load(); toggleOpen(); }}>{t("ui.actions.compare")}</Button>}>
     {() => {
-      if (failed) return <p class="u-small r-error">The list of runs could not be loaded.{" "}
-        <button type="button" class="r-link" onClick={load}>Try again</button></p>;
-      if (!items) return <p class="u-small">Loading the runs…</p>;
-      if (!items.length) return <p class="u-small">No other runs with lines.</p>;
+      if (failed) return <p class="u-small r-error">{t("ui.actions.runs_failed")}{" "}
+        <button type="button" class="u-link u-inline r-link" onClick={load}>{t("ui.actions.try_again")}</button></p>;
+      if (!items) return <p class="u-small">{t("ui.actions.runs_loading")}</p>;
+      if (!items.length) return <p class="u-small">{t("ui.actions.runs_none")}</p>;
       const near = items.filter((i) => i.km <= NEARBY_KM), far = items.filter((i) => i.km > NEARBY_KM);
       return <div class="r-others">
-        <b class="u-h4">Show other runs with this one</b>
-        {near.length ? near.map(row) : <p class="u-small">None within {NEARBY_KM} km.</p>}
+        <b class="u-h4">{t("ui.actions.others")}</b>
+        {near.length ? near.map(row) : <p class="u-small">{t("ui.actions.none_within", {km: NEARBY_KM})}</p>}
         {far.length > 0 && <details open={farOpen ?? far.some((i) => i.status !== "off")}
                                     onToggle={(e) => setFarOpen((e.currentTarget as HTMLDetailsElement).open)}>
-          <summary class="u-small">Farther away ({far.length})</summary>{far.map(row)}</details>}
+          <summary class="u-small r-far"><Icon name="next" class="r-far-mark" />{t("ui.actions.farther", {n: far.length})}</summary>{far.map(row)}</details>}
       </div>;
     }}
   </Popover>;
@@ -178,19 +177,19 @@ function Share({model, compact, plain}: RunActionsProps) {
                                              (e) => setError(e.message));
   const stop = () => api.unshare(run.id).then(() => { setUrl(""); setError(""); changed(false); },
                                               (e) => setError(e.message));
-  return <Popover label="Share" align="right"
-                  button={(open, toggle) => compact ? <IconButton icon="share" label="Share" expanded={open} plain={plain} onClick={toggle} />
-                    : <Button icon="share" aria-expanded={open} onClick={toggle}>Share</Button>}>
+  return <Popover label={t("ui.actions.share")} align="right"
+                  button={(open, toggle) => compact ? <IconButton icon="share" label={t("ui.actions.share")} expanded={open} plain={plain} onClick={toggle} />
+                    : <Button icon="share" aria-expanded={open} onClick={toggle}>{t("ui.actions.share")}</Button>}>
     <div class="r-share">
-      <b class="u-h4">Share this run</b>
-      <p class="u-small">A link opens the run's map for anyone who has it. It is shown once: copy it now.</p>
+      <b class="u-h4">{t("ui.actions.share_title")}</b>
+      <p class="u-small">{t("ui.actions.share_text")}</p>
       {url && <LinkField text={url} />}
       <div class="u-row">
         <Button kind={run.shared ? "default" : "primary"} icon="link" onClick={share}>
-          {run.shared ? "New link" : "Make a link"}</Button>
-        {run.shared && <Button kind="danger" onClick={stop}>Stop sharing</Button>}
+          {t(run.shared ? "ui.actions.new_link" : "ui.actions.make_link")}</Button>
+        {run.shared && <Button kind="danger" onClick={stop}>{t("ui.actions.stop_sharing")}</Button>}
       </div>
-      {run.shared && !url && <p class="u-small">Shared by a link. A new link replaces the old one.</p>}
+      {run.shared && !url && <p class="u-small">{t("ui.actions.shared")}</p>}
       {error && <p class="r-error u-small" role="alert">{error}</p>}
     </div>
   </Popover>;
@@ -203,7 +202,8 @@ function Share({model, compact, plain}: RunActionsProps) {
 export const mayExport = (data: RunData): boolean => canChange && data.fromStore === true;
 
 type Format = "csv" | "geojson";
-const FORMATS: [Format, string, string][] = [["csv", "CSV", "table, every line"], ["geojson", "GeoJSON", "for GIS and map apps"]];
+// a format's name (a name: not translated) and its note's key
+const FORMATS: [Format, string, string][] = [["csv", "CSV", "ui.actions.csv_note"], ["geojson", "GeoJSON", "ui.actions.geojson_note"]];
 // Refusals the server words itself (their texts are the catalogue's, by the answer's code)
 const WORDED = ["quick_waiting", "rate_export", "busy", "export_disk_full"];
 
@@ -301,21 +301,21 @@ function Export({model, compact, plain}: RunActionsProps) {
     self.open = open;
     menu = {id, open, toggle, of: self};
     const mark = busy ? ring : <Icon name="download" />;
-    const name = busy ? t("ui.result.export_preparing_label") : "Download";
+    const name = t(busy ? "ui.result.export_preparing_label" : "ui.actions.download");
     return compact
       ? <button type="button" class={["u-ib", open && "u-on", plain && "u-plain"].filter(Boolean).join(" ")} aria-label={name} title={name}
                 aria-expanded={open} onClick={toggle}>{mark}</button>
-      : <Button aria-expanded={open} aria-label={busy ? name : undefined} onClick={toggle}>{mark}Download</Button>;
+      : <Button aria-expanded={open} aria-label={busy ? name : undefined} onClick={toggle}>{mark}{t("ui.actions.download")}</Button>;
   };
   // A closed menu takes its failure's line with it
-  return <Popover label="Download" align="right" onOpen={(now) => { if (!now && error) setWait(id, {error: ""}); }}
+  return <Popover label={t("ui.actions.download")} align="right" onOpen={(now) => { if (!now && error) setWait(id, {error: ""}); }}
                   button={button}>
     <div class="r-downloads">
-      <b class="u-h4">Download the lines</b>
+      <b class="u-h4">{t("ui.actions.download_title")}</b>
       {FORMATS.map(([format, name, what]) =>
         <button type="button" class="u-btn" key={format} aria-busy={busy === format} disabled={busy !== null && busy !== format}
                 onClick={() => startExport(id, format)}>{busy === format ? ring : <Icon name="download" />}
-          {name} <span class="u-small">{busy === format ? t("ui.result.export_preparing") : what}</span></button>)}
+          {name} <span class="u-small">{busy === format ? t("ui.result.export_preparing") : t(what)}</span></button>)}
       {error && <p class="u-small r-error" role="alert">{error}</p>}
     </div>
   </Popover>;

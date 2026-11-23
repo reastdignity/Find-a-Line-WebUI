@@ -5,10 +5,10 @@
 // (ResultIntro) opens once, from here: the FilterBar is in every layout of a result.
 
 import { useRef, useState } from "preact/hooks";
-import { Button, Chip, Chips, Segmented } from "../../ui/components";
+import { Button, Chip, Chips, CloseButton, Segmented } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { IntroLink, useIntro } from "../../ui/Intro";
-import { t } from "../../i18n";
+import { parts, t } from "../../i18n";
 import { active, liftNeed, NEED_FILTERS, NO_FILTERS, type Filters } from "../../filters";
 import { liftChoices, shortMetres } from "../../endzone";
 import { COLORS } from "../../style";
@@ -49,18 +49,18 @@ export function MainEditor({model, which}: {model: ResultModel; which: Main}) {
   const f = model.filters, r = model.ranges;
   if (which === "len" && r.len) {
     return <>
-      <Limit label="Length from" value={f.lenMin} range={r.len} step={1} kind="min" unit="m"
+      <Limit label={t("ui.filter.len_from")} value={f.lenMin} range={r.len} step={1} kind="min" unit="m"
              onChange={(v) => set(model, {lenMin: v})} />
-      <Limit label="Length to" value={f.lenMax} range={r.len} step={1} kind="max" unit="m"
+      <Limit label={t("ui.filter.len_to")} value={f.lenMax} range={r.len} step={1} kind="max" unit="m"
              onChange={(v) => set(model, {lenMax: v})} />
     </>;
   }
   if (which === "clr" && r.clr) {
-    return <Limit label="Clearance at least" value={f.clrMin} range={r.clr} step={0.1} kind="min" unit="m"
+    return <Limit label={t("ui.filter.clr_min")} value={f.clrMin} range={r.clr} step={0.1} kind="min" unit="m"
                   onChange={(v) => set(model, {clrMin: v})} />;
   }
   if (which === "height" && r.hmax) {
-    return <Limit label="Height above the ground at least" value={f.heightMin} range={r.hmax} step={1} kind="min"
+    return <Limit label={t("ui.filter.height_min")} value={f.heightMin} range={r.hmax} step={1} kind="min"
                   unit="m" onChange={(v) => set(model, {heightMin: v})} />;
   }
   return null;
@@ -108,7 +108,7 @@ export function FilterBar({model, onMore, moreOpen}: FilterBarProps) {
       <Chip add icon="filter" on={more || moreOpen || extra > 0}
             onClick={() => { if (onMore) onMore(); else setMore(!more); }}>
         More filters{extra > 0 && <span class="u-badge">{extra}</span>}</Chip>
-      {anything && <button type="button" class="r-link" onClick={() => {
+      {anything && <button type="button" class="u-link r-link" onClick={() => {
         model.setState({...s, showClean: true, showOver: true});
         model.clearFilters();
         setEditing(null);
@@ -118,8 +118,7 @@ export function FilterBar({model, onMore, moreOpen}: FilterBarProps) {
     {editing && <div class="r-editor" role="group" aria-label="Filter"
                      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeEditor(); } }}>
       <MainEditor model={model} which={editing} />
-      <button type="button" class="r-note-x r-editor-x" aria-label="Close the filter" onClick={closeEditor}>
-        <Icon name="close" /></button></div>}
+      <CloseButton label="Close the filter" class="r-note-x r-editor-x" onClick={closeEditor} /></div>}
     {more && !onMore && <MoreFilters model={model} onClose={() => setMore(false)} />}
   </div>;
 }
@@ -131,7 +130,7 @@ function Distance({value, max, onChange}: {value: number; max: number; onChange(
   const fill = `${Math.max(0, Math.min(100, (shown - 5) / (max - 5) * 100))}%`;
   const id = useRef("r-dist-" + Math.random().toString(36).slice(2)).current;
   return <div class="r-limit r-set">
-    <div class="r-limit-head"><label for={id}>Anchors within</label><b class="r-mono">{shown} m</b></div>
+    <div class="r-limit-head"><label for={id}>{t("ui.filter.within")}</label><b class="r-mono">{shown} m</b></div>
     <input type="range" id={id} class="u-range r-distance" min={5} max={max} step={1} value={shown}
            style={{"--u-fill": fill}}
            onInput={(e) => setDraft(+e.currentTarget.value)}
@@ -163,7 +162,7 @@ function LiftFilter({model}: {model: ResultModel}) {
                onChange={(v) => set(model, {liftMax: Math.abs(+v - r.lift) < 1e-9 ? null : +v})}
                options={choices.map((c, k) => ({value: String(c),
                                                 label: k === choices.length - 1 ? t("ui.filter.lift_axis", {m: shortMetres(c)}) : shortMetres(c)}))} />
-    {r.zone > 0 && <label class="r-check"><input type="checkbox" class="r-lift-nozone" checked={f.liftNoZone}
+    {r.zone > 0 && <label class="r-check"><input type="checkbox" class="u-check r-lift-nozone" checked={f.liftNoZone}
                                                  onChange={(e) => set(model, {liftNoZone: e.currentTarget.checked})} />
       {t("ui.filter.lift_no_zone")}</label>}
     <div class="u-small r-lift-count">{t("ui.filter.lift_count", {shown: model.liftCount(max, f.liftNoZone),
@@ -192,89 +191,88 @@ export function MoreFilters({model, onClose, grouping = true}: MoreFiltersProps)
                                                  onChange={(v) => set(model, {[key]: v} as Partial<Filters>)} />;
   const maxDistance = Math.max(100, Math.round(3 * model.data.distance));
   const terrain = model.data.terrain;  // the percentiles' reference (each run's lines against its own area)
-  return <section class="r-more" aria-label="More filters">
-    <div class="r-more-head"><b class="u-h4">Filters</b>
+  return <section class="r-more" aria-label={t("ui.filter.more")}>
+    <div class="r-more-head"><b class="u-h4">{t("ui.filter.title")}</b>
       <span class="u-grow" />
       <Button kind="ghost" onClick={() => { model.setState({...s, showClean: true, showOver: true}); model.clearFilters(); }}>
-        Clear all</Button>
-      {onClose && <button type="button" class="r-note-x" aria-label="Close the filters" onClick={onClose}>
-        <Icon name="close" /></button>}
+        {t("ui.filter.clear_all")}</Button>
+      {onClose && <CloseButton label={t("ui.filter.close")} class="r-note-x" onClick={onClose} />}
     </div>
 
     <div class="r-more-sec">
-      <h3>Lines shown</h3>
+      <h3>{t("ui.filter.shown")}</h3>
       {model.nOver > 0 && <>
-        <label class="r-check"><input type="checkbox" checked={s.showClean}
+        <label class="r-check"><input type="checkbox" class="u-check" checked={s.showClean}
                                       onChange={(e) => model.setState({...s, showClean: e.currentTarget.checked})} />
-          <Swatch color={COLORS.clean} /> Clear lines ({model.nClean})</label>
-        <label class="r-check"><input type="checkbox" checked={s.showOver}
+          <Swatch color={COLORS.clean} /> {t("ui.filter.clear_lines", {n: model.nClean})}</label>
+        <label class="r-check"><input type="checkbox" class="u-check" checked={s.showOver}
                                       onChange={(e) => model.setState({...s, showOver: e.currentTarget.checked})} />
-          <Swatch color={COLORS.over} /> Over trees or buildings ({model.nOver})</label>
+          <Swatch color={COLORS.over} /> {t("ui.filter.over_lines", {n: model.nOver})}</label>
       </>}
-      {r.favourites && <label class="r-check"><input type="checkbox" class="r-fav-only" checked={f.favOnly}
+      {r.favourites && <label class="r-check"><input type="checkbox" class="u-check r-fav-only" checked={f.favOnly}
                                                      onChange={(e) => set(model, {favOnly: e.currentTarget.checked})} />
-        Only favourite lines</label>}
-      {r.water && <label class="r-check r-select">Water
+        {t("ui.filter.fav_only")}</label>}
+      {r.water && <label class="r-check r-select">{t("ui.filter.water")}
         <select class="u-input" value={f.water}
                 onChange={(e) => set(model, {water: e.currentTarget.value as Filters["water"]})}>
-          <option value="all">all lines</option>
-          <option value="water">only over water</option>
-          <option value="land">only over land</option>
+          <option value="all">{t("ui.filter.water_all")}</option>
+          <option value="water">{t("ui.filter.water_only")}</option>
+          <option value="land">{t("ui.filter.land_only")}</option>
         </select></label>}
-      {r.filled && <label class="r-check"><input type="checkbox" checked={f.hideFilled}
+      {r.filled && <label class="r-check"><input type="checkbox" class="u-check" checked={f.hideFilled}
                                                  onChange={(e) => set(model, {hideFilled: e.currentTarget.checked})} />
-        Hide lines over filled gaps in the data</label>}
+        {t("ui.filter.hide_filled")}</label>}
     </div>
 
     <div class="r-more-sec">
-      <h3>Length and clearance</h3>
-      {limit("Length from", "lenMin", r.len, 1, "min")}
-      {limit("Length to", "lenMax", r.len, 1, "max")}
-      {limit("Clearance at least", "clrMin", r.clr, 0.1, "min")}
-      {limit("Clearance over trees at least", "clrNMin", r.clrN, 0.1, "min")}
+      <h3>{t("ui.filter.sec_len")}</h3>
+      {limit(t("ui.filter.len_from"), "lenMin", r.len, 1, "min")}
+      {limit(t("ui.filter.len_to"), "lenMax", r.len, 1, "max")}
+      {limit(t("ui.filter.clr_min"), "clrMin", r.clr, 0.1, "min")}
+      {limit(t("ui.filter.clrn_min"), "clrNMin", r.clrN, 0.1, "min")}
     </div>
 
     <div class="r-more-sec">
-      <h3>Anchors</h3>
-      {limit("Height difference at most", "dhMax", r.dh, 0.5, "max")}
-      {limit("Lower anchor at least", "elevMin", r.elev, 1, "min", "m a.s.l.")}
-      {limit("Upper anchor at most", "elevMax", r.elevHigh, 1, "max", "m a.s.l.")}
+      <h3>{t("ui.filter.sec_anchors")}</h3>
+      {limit(t("ui.filter.dh_max"), "dhMax", r.dh, 0.5, "max")}
+      {limit(t("ui.filter.elev_min"), "elevMin", r.elev, 1, "min", t("ui.filter.asl"))}
+      {limit(t("ui.filter.elev_max"), "elevMax", r.elevHigh, 1, "max", t("ui.filter.asl"))}
       {terrain && <div class="u-small r-terrain">
-        Terrain of the search area: {num(terrain.quantiles[0])}–{num(terrain.quantiles[100])} m, mean {num(terrain.mean)} m
-        {model.others.size > 0 && <><br />Other runs: against their own areas</>}</div>}
+        {parts("ui.filter.terrain", {low: num(terrain.quantiles[0]), high: num(terrain.quantiles[100]), mean: num(terrain.mean)})}
+        {model.others.size > 0 && <><br />{t("ui.filter.terrain_others")}</>}</div>}
       {model.data.terrain_sources && <div class="u-small r-terrain r-shares">
         {t("ui.coarse.shares", {shares: sharesText(model.data.terrain_sources)})}</div>}
-      {limit("Lower anchor's percentile at least", "pctMin", r.pct, 1, "min", "%")}
-      {limit("Upper anchor's percentile at most", "pctMax", r.pct, 1, "max", "%")}
-      {limit("Angle to the wall at most", "angleMax", r.angle, 1, "max", "°")}
-      {limit("One anchor prominent at least", "promMin", r.prom, 0.5, "min")}
-      {limit("Both anchors prominent at least", "promBothMin", r.prom, 0.5, "min")}
-      {limit("Drop below both anchors at least", "dropMin", r.drop, 1, "min")}
+      {limit(t("ui.filter.pct_min"), "pctMin", r.pct, 1, "min", "%")}
+      {limit(t("ui.filter.pct_max"), "pctMax", r.pct, 1, "max", "%")}
+      {limit(t("ui.filter.angle_max"), "angleMax", r.angle, 1, "max", "°")}
+      {limit(t("ui.filter.prom_min"), "promMin", r.prom, 0.5, "min")}
+      {limit(t("ui.filter.prom_both_min"), "promBothMin", r.prom, 0.5, "min")}
+      {limit(t("ui.filter.drop_min"), "dropMin", r.drop, 1, "min")}
     </div>
 
     {r.lift && <LiftFilter model={model} />}
 
     {(r.hmax || r.hmean || r.highPct) && <div class="r-more-sec">
-      <h3>Height above the ground</h3>
-      {limit("Highest point at least", "heightMin", r.hmax, 1, "min")}
-      {limit("Mean height at least", "meanMin", r.hmean, 1, "min")}
-      {limit(`${r.highAbove} m or more above the ground, at least`, "highPctMin", r.highPct, 1, "min",
-             "% of the line")}
+      <h3>{t("ui.filter.sec_height")}</h3>
+      {limit(t("ui.filter.high_min"), "heightMin", r.hmax, 1, "min")}
+      {limit(t("ui.filter.mean_min"), "meanMin", r.hmean, 1, "min")}
+      {limit(t("ui.filter.high_pct_min", {m: r.highAbove}), "highPctMin", r.highPct, 1, "min",
+             t("ui.filter.of_line"))}
     </div>}
 
     {grouping && <div class="r-more-sec">
-      <h3>Grouping</h3>
-      <label class="r-check"><input type="checkbox" class="r-group" checked={s.group}
+      <h3>{t("ui.filter.sec_group")}</h3>
+      <label class="r-check"><input type="checkbox" class="u-check r-group" checked={s.group}
                                     onChange={(e) => model.setState({...s, group: e.currentTarget.checked})} />
-        Group similar lines into spots</label>
+        {t("ui.filter.group")}</label>
       {s.group && <>
         <Distance value={s.distance} max={maxDistance} onChange={(distance) => model.setState({...s, distance})} />
-        <div class="r-field-lab">Show per spot</div>
+        <div class="r-field-lab">{t("ui.filter.per_spot")}</div>
         {/* four choices in two rows: in one they do not fit the list's column */}
-        <div class="r-by"><Segmented label="Show per spot" value={s.by} onChange={(by) => model.setState({...s, by})}
-          options={[{value: BY_MEAN, label: t("ui.filter.by_mean")}, {value: "clearance", label: "Most clearance"},
-                    {value: "longest", label: "Longest"}, {value: "height", label: t("ui.filter.by_height")}]} /></div>
-        {limit("Lines in a spot at least", "groupMin", r.group, 1, "min", "")}
+        <div class="r-by"><Segmented label={t("ui.filter.per_spot")} value={s.by} onChange={(by) => model.setState({...s, by})}
+          options={[{value: BY_MEAN, label: t("ui.filter.by_mean")}, {value: "clearance", label: t("ui.filter.by_clearance")},
+                    {value: "longest", label: t("ui.filter.by_longest")}, {value: "height", label: t("ui.filter.by_height")}]} /></div>
+        {limit(t("ui.filter.group_min"), "groupMin", r.group, 1, "min", "")}
       </>}
     </div>}
   </section>;

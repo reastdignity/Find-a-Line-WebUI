@@ -871,7 +871,7 @@ export class ResultModel {
       this.notify();
       return id;
     } catch (e: any) {
-      this.setNote({text: "The folder was not made: " + e.message});
+      this.setNote({text: t("ui.model.folder_failed", {error: e.message})});
       return null;
     }
   }
@@ -887,7 +887,7 @@ export class ResultModel {
     this.notify();
     return this.api.moveFavourite(this.runOf(l), lineCoords(l), folder).catch((e) => {
       this.inFolder.set(key, before);
-      this.setNote({text: "The favourite was not moved: " + e.message});
+      this.setNote({text: t("ui.model.move_failed", {error: e.message})});
     });
   }
 
@@ -908,7 +908,7 @@ export class ResultModel {
     this.afterFavourite();
     return this.api.saveFavourite(this.runOf(l), l, on, on ? folder : undefined).catch((e) => {
       flip(!on);
-      this.note = {text: "The favourite was not saved: " + e.message};
+      this.note = {text: t("ui.model.save_failed", {error: e.message})};
       this.afterFavourite();
     });
   }
@@ -1037,10 +1037,10 @@ export class ResultModel {
    * maps of areas keep a profile only for the line saved for each group). */
   async profile(l: Line): Promise<Profile> {
     if (l.prof) return l.prof;
-    if (l.run) throw new Error("lines of other runs come without profiles");
+    if (l.run) throw new Error(t("ui.model.profile_other_run"));
     const key = lineCoords(l), known = this.computed.get(key);
     if (known) { l.prof = known; return known; }
-    if (!this.canCompute) throw new Error("no profile saved for this line, and this page cannot compute one");
+    if (!this.canCompute) throw new Error(t("ui.model.profile_not_saved"));
     const p = await this.api.profile(this.runId, key);
     this.computed.set(key, p);
     l.prof = p;
@@ -1050,7 +1050,7 @@ export class ResultModel {
 
   /** The profile between two points (lat, lon) as a line (anchors on the ground), computed by the server. */
   async measure(a: [number, number], b: [number, number]): Promise<Line> {
-    if (!this.canCompute) throw new Error("this page cannot compute profiles");
+    if (!this.canCompute) throw new Error(t("ui.model.profile_no_compute"));
     const key = [a[0], a[1], b[0], b[1]].map((v) => v.toFixed(7)).join(",");
     return measuredLine(a, b, await this.api.profile(this.runId, key), this.data.terrain);
   }

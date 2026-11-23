@@ -45,7 +45,7 @@ export async function copy(text: string): Promise<boolean> {
 export function LinkField({text}: {text: string}) {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => { ref.current?.focus(); ref.current?.select(); }, [text]);
-  return <label class="r-linkfield"><span class="u-small">Copy this link:</span>
+  return <label class="r-linkfield"><span class="u-small">{t("ui.linkfield.copy")}</span>
     <input ref={ref} class="u-input" readOnly value={text} onFocus={(e) => e.currentTarget.select()} /></label>;
 }
 
@@ -212,7 +212,7 @@ export function LineDetails({model, linkOf, view3dOf, onZoom, onStep, part = "al
         <i key={i} class={i === at ? "r-on" : ""} />)}</span>}
       <span class="u-grow"><b>{at + 1} of {size}</b> similar lines
         {at === 0 ? ` · ${t(`ui.details.first_${by}`)}`
-          : <> · <button type="button" class="r-link" onClick={() => variant(0)}>back to the first</button></>}</span>
+          : <> · <button type="button" class="u-link u-inline r-link" onClick={() => variant(0)}>back to the first</button></>}</span>
       <IconButton icon="next" label="Next line of the spot" plain disabled={at >= size - 1}
                   onClick={(e) => variant(at + 1, e)} />
     </div>}

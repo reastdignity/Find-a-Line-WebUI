@@ -1,6 +1,7 @@
 """tools/ui_walks.py's walks of the result view (step 3d): each is today's result walk done in the view ("page":
 "view", named by "mirrors"), and today's walks pin today's page (tools/today_page.py), so the two count the same task
 on one tree whatever SpotColumns.tsx VIEW_DEFAULT is. The pure parts; the walks are run by hand (C3's summary)."""
+import json
 import os
 import re
 import sys
@@ -47,7 +48,11 @@ def test_the_view_has_what_its_walks_press():
                   "FavouritePicker.tsx", "SpotColumns.tsx")
     for cls in ("vl-rows", "vl-main", "vl-dhead", "vl-sort", "r-filters", "r-fav", "r-newfolder"):
         assert re.search(rf'["\s]{cls}["\s]', src), cls
-    assert "Favourite folders" in src and "New folder's name" in src and "Add to favourites" in src
+    # The names it presses, texts of the catalogue since step 3d's G6 (the sources call them by key).
+    texts = json.load(open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8"))
+    for key, name in (("ui.picker.label", "Favourite folders"), ("ui.picker.new_name", "New folder's name"),
+                      ("ui.picker.add", "Add to favourites")):
+        assert f'"{key}"' in src and texts[key] == name, key
     assert "VR4" == list(uw.VIEW_WALKS)[-1]  # it saves a favourite, as R4: last of its run
 
 

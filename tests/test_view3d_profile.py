@@ -466,7 +466,7 @@ def test_view3d_card_text_whole(clip_data, tmp_path, monkeypatch):
                     found[(kind, which, "summary")] = page.evaluate(CARD_CUT)
                     page.evaluate("""() => { const h = document.querySelector('.v3-card .fal-hover'), r = h.getBoundingClientRect();
                         h.dispatchEvent(new MouseEvent('mousemove', {clientX: r.left + r.width * 0.4, clientY: r.top + 5, bubbles: true})); }""")
-                    page.wait_for_function("() => / from A1 /.test(document.querySelector('.v3-card .fal-profile-readout').textContent)",
+                    page.wait_for_function("() => / m from A1;?/.test(document.querySelector('.v3-card .fal-profile-readout').textContent)",
                                            timeout=30000)
                     found[(kind, which, "cursor")] = page.evaluate(CARD_CUT)
                     # "Rigging and layers" open: the controls above the chart, the box higher than the card's limit

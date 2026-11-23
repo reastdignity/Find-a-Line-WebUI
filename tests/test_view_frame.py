@@ -470,7 +470,7 @@ def test_new_selection_ends_a_measured_line(site, how, device):
             page.evaluate("() => T.frames()")
             off = page.evaluate(MEASURED_NOW)
             assert (off["line"], off["link"], off["points"], off["docks"]) == (False, None, 0, 1 if phone else 0), off
-            assert len(off["titles"]) == 1 and off["titles"][0].startswith("Profile · "), off  # the selected line's
+            assert len(off["titles"]) == 1 and off["titles"][0].startswith("Profile: "), off  # the selected line's
             assert page.errors == []
         finally:
             browser.close()
@@ -536,7 +536,7 @@ def test_late_measure_answer_is_dropped(site, after):
         assert (got["measuring"], got["points"], got["frameMeasured"]) == (True, 1, False), got
     else:
         assert got["selected"] is not None and (got["points"], got["frameMeasured"]) == (0, False), got
-        assert len(got["titles"]) == 1 and got["titles"][0].startswith("Profile · "), got
+        assert len(got["titles"]) == 1 and got["titles"][0].startswith("Profile: "), got
 
 
 def test_phone_measured_line_kept_in_sight_with_a_selection(site):
@@ -1209,7 +1209,10 @@ SELECTIONS = r"""async ([run, start, n]) => {
     // an end clear: in the bar's room (BAR) and under no control (fix round 5: one anchor in view)
     const clear = (e) => { const pad = (""" + BAR + r""")(), size = m.getSize();
       return e.filter(([x, y]) => x >= 0 && x <= size.x && y >= pad.top && y <= size.y - pad.bottom && U8.under([[x, y]]) === 0).length; };
-    const rec = () => { if (fit) return; fit = U8.ends(row).map((q) => q.slice()); fit.under = U8.under(fit); fit.clear = clear(fit); };
+    // the counts with the product's points (latLngToContainerPoint: whole px), as its check counts them, at the fit and
+    // after the check alike: the canvas's fractional points disagree with it where an end lies on a box's edge (G6: two
+    // rows at 1024 x 768); the shift is read on the canvas's points
+    const rec = () => { if (fit) return; fit = U8.ends(row).map((q) => q.slice()); const ends = U8.lineEnds(model.lineAt(row)); fit.under = U8.under(ends); fit.clear = clear(ends); };
     m.on('moveend', rec);
     location.hash = '#run=' + run + '&line=' + encodeURIComponent(model.lineLink(model.lineAt(row)));
     let k = 0;
@@ -1217,7 +1220,7 @@ SELECTIONS = r"""async ([run, start, n]) => {
     await frame(); await frame();
     m.off('moveend', rec);
     const now = U8.ends(row), shift = fit ? Math.max(...now.map((q, i) => Math.hypot(q[0] - fit[i][0], q[1] - fit[i][1]))) : null;
-    out.push({row, fitUnder: fit ? fit.under : null, under: U8.under(now), fitClear: fit ? fit.clear : null, clear: clear(now),
+    out.push({row, fitUnder: fit ? fit.under : null, under: U8.under(U8.lineEnds(model.lineAt(row))), fitClear: fit ? fit.clear : null, clear: clear(U8.lineEnds(model.lineAt(row))),
               shift: shift === null ? null : Math.round(shift * 10) / 10});
   }
   return out; }"""
@@ -2593,7 +2596,7 @@ def test_phone_dock_compact(site, device):
     assert line["need"] is True, line  # BIG's first line has a need row
     for got in (line, measured):
         assert got["head"] is False and got["sr"].strip() and got["under"] is True and got["need"] in (True, None), got
-        assert got["close"] and got["close"][1:] == [44, 44] and got["bar"][-1] == "button.r-note-x", got
+        assert got["close"] and got["close"][1:] == [44, 44] and got["bar"][-1] == "button.u-ib.u-x.r-note-x", got
         assert got["bar"][0] == "b." and "button.u-chip" in got["bar"] and "span.u-small.r-hint" not in got["bar"], got
         assert got["chartTop"] < got["height"], got  # the chart's top on the screen at half
     assert line["close"][0] == line["selRight"] and line["facts"] is None, line  # polish 10; the tiles hold the facts

@@ -14,7 +14,7 @@
 .ui .v-result .c-col-right { border-left-color: var(--rule); }
 .ui .v-result .c-rail:hover { background: var(--hover); }
 .ui .v-result .c-rail-text, .ui .v-result .c-rail-auto { font: 500 var(--fs-1) var(--font); letter-spacing: 0; text-transform: none; }
-.ui .v-result .u-split-tab { width: 24px; border-radius: var(--r-2); border-color: var(--rule); background: var(--surface); box-shadow: var(--shadow); }
+/* the collapse tab: the kit's (ui.css .u-split-tab: raised, no edge, its keyboard ring; step 3d G6, A12 and C8) */
 .ui .v-result .c-col-head { padding: 16px 16px 12px; gap: 8px; border-bottom-color: var(--rule); }
 .ui .v-result .c-col-body { padding: 0; }
 .ui .v-result .c-col-dbody { padding: 16px; gap: 16px; }
@@ -26,7 +26,9 @@
    pills); a chip that is on in the soft accent ---- */
 .ui .v-result .u-btn { min-height: 32px; padding: 0 12px; border-color: var(--line); font-size: var(--fs-3); }
 .ui .v-result .u-btn:hover, .ui .v-result .u-btn.u-ghost:hover { background: var(--hover); }
-.ui .v-result .u-ib { width: 32px; height: 32px; border-color: var(--line); }
+/* (a close keeps the kit's look: .u-ib.u-x, 24 px, 44 px on touch; :where keeps the rule's weight as it was, so
+   a button's own size rule still wins as before: the info and shore-help icons' 24 px) */
+.ui .v-result .u-ib:where(:not(.u-x)) { width: 32px; height: 32px; border-color: var(--line); }
 .ui .v-result .u-ib:hover { background: var(--hover); }
 .ui .v-result .u-ib.u-plain { border-color: transparent; background: transparent; }
 .ui .v-result .u-ib.u-plain:hover { background: var(--hover); }
@@ -43,16 +45,19 @@
 .ui .v-result .r-filters { gap: 8px; }
 .ui .v-result .r-editor { border-radius: var(--r-2); padding: 12px; gap: 12px; }
 .ui .v-result .r-why { border-radius: var(--r-2); }
-.ui .v-result .r-link { font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
 /* the access mark's key as the kit's "info" icon (access.tsx useAccessHelp's `icon`) */
 .ui .v-result .ac-info { width: 24px; height: 24px; border-radius: var(--r-2); color: var(--ink-2); }
 /* the key opened: the kit's on-state, as the other toggles (also over the raised look on the map) */
 .ui .v-result .ac-hint.ac-info.u-plain[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent-ink); }
 .ui .v-result .ac-info .u-ic { width: 16px; height: 16px; }
+/* the key's "?" where a caller gives no icon (useAccessHelp without icon: none in the view today): the info button's
+   sizes, so it never falls back to the kit's 18 px (DESIGN.md row 14; step 3d G6) */
+.ui .v-result .ac-hint:not(.ac-info) { width: 24px; height: 24px; }
+@media (pointer: coarse) { .ui .v-result .ac-hint:not(.ac-info) { width: 44px; height: 44px; } }
 @media (pointer: coarse) {
   .ui .v-result .u-btn, .ui .v-result .u-chip, .ui .v-result .r-sort, .ui .v-result .v-select { min-height: 44px; }
   .ui .v-result .u-chip { font-size: var(--fs-3); }
-  .ui .v-result .u-ib, .ui .v-result .ac-info { width: 44px; height: 44px; }
+  .ui .v-result .u-ib:where(:not(.u-x)), .ui .v-result .ac-info { width: 44px; height: 44px; }
 }
 
 /* ---- the list: head, blocks parted by rules (no boxes) ---- */
@@ -92,6 +97,7 @@
   font-variant-numeric: tabular-nums; text-align: left; cursor: pointer; }
 .ui .vl-main:hover { background: var(--hover); }
 .ui .vl-main:focus-visible { box-shadow: var(--focus-in); }  /* inside: the list clips what is outside a row */
+@media (forced-colors: active) { .ui .vl-main:focus-visible { outline-offset: -2px; } }
 .ui .vl-sel > .vl-main { background: var(--accent-soft); border-left-color: var(--accent); }
 /* the column heads: sentence case in the text's font, the sorted one in the ink with the sort icon */
 .ui .vl-cols { margin: 0 8px; align-items: end; padding-bottom: 4px; font-size: var(--fs-1); line-height: 16px; font-weight: 500; color: var(--muted); }
@@ -143,12 +149,10 @@
 .ui .vl-sec-name { display: block; font-weight: 600; }
 .ui .vl-meta { display: block; font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); }
 .ui .vl-meta2 { display: block; font-size: var(--fs-2); line-height: 18px; color: var(--muted); }
-.ui .vl-sec-map { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--line);
-  border-radius: var(--r-2); background: var(--surface); color: var(--ink-2); cursor: pointer; padding: 0; }
-.ui .vl-sec-map:hover { background: var(--hover); }
+/* a sector's map: the kit's edged icon button (.u-ib, the view's 32 px, 44 px on a touch screen) */
+.ui .vl-sec-map { color: var(--ink-2); }
 .ui .vl-sec-map .u-ic { width: 16px; height: 16px; }
 .ui .vl-more { margin: 8px 16px; }
-@media (pointer: coarse) { .ui .vl-sec-map { width: 44px; height: 44px; } }
 
 /* ---- details of the selected spot ---- */
 .ui .vl-details { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
@@ -215,7 +219,7 @@
 @media (pointer: coarse) { .ui .vl-fan-sort .u-seg button { min-height: 44px; } }
 
 /* ---- the table of spots under a press (raised, over the map) ---- */
-.ui .vl-choose { position: fixed; z-index: 1100; width: min(320px, calc(100vw - 24px)); padding: 8px; display: flex; flex-direction: column;
+.ui .vl-choose { position: fixed; z-index: var(--z-map-top); width: min(320px, calc(100vw - 24px)); padding: 8px; display: flex; flex-direction: column;
   gap: 4px; }  /* raised: the one rule at the top of mapbar.css */
 .ui .vl-choose-new { visibility: hidden; }  /* until it is measured and placed */
 .ui .vl-choose.vl-choose-dock { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); width: auto; max-height: 55vh;
@@ -231,7 +235,6 @@
 /* ---- the hint: on a desktop a raised box over the map beside the status line (mapbar.css), on a phone the sheet's
    first line, plain; its button on the map while it is hidden ---- */
 .ui .vl-hint { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 12px; font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); }
-.ui .v-result .vl-hint .vl-hint-x { width: 24px; height: 24px; }
 .ui .vl-hint-open { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; flex: none;
   color: var(--ink-2); cursor: pointer; }
 .ui .vl-hint-open:hover { background: var(--hover); }
@@ -240,7 +243,7 @@
 .ui .vl-hint-sheet .vl-hint-text { flex: 1; min-width: 0; }
 .ui .vl-sheet-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; }
 .ui .vl-sheet-row .vl-count { flex: 1; min-width: 0; }
-@media (pointer: coarse) { .ui .v-result .vl-hint .vl-hint-x, .ui .vl-hint-open { width: 44px; height: 44px; } }
+@media (pointer: coarse) { .ui .vl-hint-open { width: 44px; height: 44px; } }
 
 /* ---- step 3c: today's features in the accepted mock-up's places (2026-11-20; the pilot's look, no new one) ---- */
 /* the selected line's actions under "Stands for" (SpotActions.tsx): one row that wraps, each button its share */
@@ -280,10 +283,11 @@
 .ui .vl-starred > .vl-row { border-radius: 0 var(--r-1) var(--r-1) 0; }
 .ui .vl-starred > .vl-row:hover { background: var(--hover); }
 .ui .vl-starred > .vl-sel, .ui .vl-starred > .vl-sel:hover { background: var(--accent-soft); }
-.ui .vl-star { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0;
-  border-radius: var(--r-2); background: none; color: var(--muted); cursor: pointer; }
-.ui .vl-star:hover { color: var(--ink); }
+/* the kit's plain icon button (.u-ib.u-plain) at the rows' 24 px (44 px on touch: below) */
+.ui .v-result .u-ib.vl-star { width: 24px; height: 24px; color: var(--muted); }
+.ui .v-result .vl-star:hover { color: var(--ink); }
 .ui .vl-star:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .ui .vl-star:focus-visible { outline-offset: -2px; } }
 .ui .vl-star .u-ic { width: 16px; height: 16px; }
 /* in a row of two lines the star's icon stands on the values' line: a pick's second, a line over trees' first */
 .ui .vl-pick > .vl-star { align-self: end; align-items: flex-end; padding-bottom: 4px; }
@@ -295,7 +299,7 @@
 .ui .vl-list .vl-rows.vl-starred { padding-right: 0; }
 .ui .vl-list .vl-cols.vl-starred { margin-right: 24px; }
 @media (pointer: coarse) {
-  .ui .vl-star { width: 44px; height: 44px; }
+  .ui .v-result .u-ib.vl-star { width: 44px; height: 44px; }
   .ui .vl-cols.vl-starred { margin-right: 60px; }
   .ui .vl-list .vl-cols.vl-starred { margin-right: 44px; }
   /* forced by the star's 44 px in a phone's rows (the mock-up's measure: "Mean height" needs 47 px and got 44): the three
@@ -326,9 +330,7 @@
 .ui .vl-lnote { display: flex; gap: 8px; align-items: flex-start; padding: 12px 8px 12px 16px; border-bottom: 1px solid var(--rule); color: var(--ink); }
 .ui .vl-lnote > .u-ic { flex: none; width: 16px; height: 20px; color: var(--ink-2); }  /* the line's height (polish 16) */
 .ui .vl-lnote-text { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-3); line-height: 20px; }
-.ui .v-result .vl-lnote .vl-lnote-x { width: 24px; height: 24px; }
 .ui .vl-list .vl-lnote { padding: 12px 0; }
-@media (pointer: coarse) { .ui .v-result .vl-lnote .vl-lnote-x { width: 44px; height: 44px; } }
 /* no line passes the filters: the sentence and its "Clear all" in the list's place */
 .ui .vl-none { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 16px; color: var(--ink); }
 .ui .vl-none-text { margin: 0; }
@@ -372,9 +374,9 @@
 /* 11 a: a block's column heads stay at the top of the list's scroller (a desktop's list body, a phone's sheet body)
    while its rows scroll (sticky within its block: the top block, a sector); their ground spans the rows' stars and the
    block's sides beside them (a layer of the heads' own, so a press there reaches the heads, never a row under them) */
-.ui .vl-topblock > .vl-cols, .ui .vl-sec > .vl-cols { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.ui .vl-topblock > .vl-cols, .ui .vl-sec > .vl-cols { position: sticky; top: 0; z-index: var(--z-up); background: var(--surface); }
 .ui .vl-topblock > .vl-cols::before, .ui .vl-sec > .vl-cols::before { content: ""; position: absolute; top: 0; bottom: 0;
-  left: -16px; right: -60px; z-index: -1; background: var(--surface); }
+  left: -16px; right: -60px; z-index: var(--z-below); background: var(--surface); }
 /* a row the keyboard reaches is scrolled clear of its block's heads (they are at most two lines and 44 px on touch) */
 .ui .vl-topblock .vl-main, .ui .vl-sec .vl-main { scroll-margin-top: 64px; }
 /* (a phone's sheet body has 12 px at its top, mapbar.css: the heads stand at its edge, no row seen above them) */

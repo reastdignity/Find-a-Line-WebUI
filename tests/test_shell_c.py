@@ -582,7 +582,7 @@ def test_shell_c_link_outside_the_run(data, tmp_path):
     with _server(data) as port:
         r = _edge(port, page + "?ui=c" + link, tmp_path / "edge-outside")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
-    assert r["bar"] == "Measured profile" and r["title"].startswith("Measured: 80 m, A1 300.0 m → A2 301.0 m"), r
+    assert r["bar"] == "Measured profile" and r["title"].startswith("Measured: 80 m, from A1 at 300.0 m to A2 at 301.0 m"), r
     assert r["asked"] == ["49.5000000,19.1000000,49.5004000,19.1005000"], r
     assert r["link"] == OUTSIDE and r["note"] is None and r["selected"] is False, r
     assert r["hash"] == f"#run={SMALL}&line={OUTSIDE}", r
@@ -1245,8 +1245,8 @@ def test_shell_c_layout(data, tmp_path):
     assert card["credits"] == {"toggle": True, "credits": False}, r  # folded while the card is shown
     assert r["creditsOpen"] == {"toggle": True, "credits": True} and r["creditsFolded"] == card["credits"], r
     compact = r["compact"]
-    assert not compact["head"] and compact["title"].startswith("Profile: ") and compact["facts"].startswith("min. clearance "), r
-    assert compact["factsTitle"] == compact["title"] and compact["title"].endswith(compact["facts"].split(" · ")[0]), r
+    assert not compact["head"] and compact["title"].startswith("Profile: ") and compact["facts"].startswith("min. clearance: "), r
+    assert compact["factsTitle"] == compact["title"] and compact["title"].split("min. clearance ")[-1] == compact["facts"].split("; ")[0].split("min. clearance: ")[-1], r
     # the readout wraps (the user's "8 b", 2026-11-17: no ellipsis; was one cut line)
     assert not compact["legend"] and not compact["scale"] and compact["footer"] == "normal", r
     rig = r["rigging"]
@@ -1707,7 +1707,7 @@ def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
         count, name, sort = r[f"{kind}_sorted"]
         assert count == 0 and sort == "hmean", r
         assert name.startswith("Mean height") and name.endswith(", sorted largest first"), r
-    assert r["phone_editor"]["x"][2] - r["phone_editor"]["x"][0] == 40, r  # a touch screen's ×
+    assert r["phone_editor"]["x"][2] - r["phone_editor"]["x"][0] == 44, r  # a touch screen's × (the kit's close: R2)
     assert r["ascending"][0] == 0 and r["ascending"][1].endswith(", sorted smallest first"), r
     # the credits run under the scale's corner in every one of these layouts: the scale right above them
     for name in ("desktop_corners", "zoom_out", "zoom_in", "phone_corners", "narrow", "widened"):
@@ -2475,7 +2475,7 @@ def test_shell_c_sheet_shadow_and_card_text(data, tmp_path):
                 r[f"{which}_summary"] = page.evaluate(CARD_JS)
                 page.evaluate("""() => { const h = document.querySelector('.r-card .fal-hover'), b = h.getBoundingClientRect();
                     h.dispatchEvent(new MouseEvent('mousemove', {clientX: b.left + b.width * 0.4, clientY: b.top + 5, bubbles: true})); }""")
-                page.wait_for_function("() => / from A1 /.test(document.querySelector('.r-card .fal-profile-readout').textContent)",
+                page.wait_for_function("() => / m from A1;?/.test(document.querySelector('.r-card .fal-profile-readout').textContent)",
                                        timeout=30000)
                 r[f"{which}_cursor"] = page.evaluate(CARD_JS)
                 page.evaluate("() => document.querySelector('.r-card .fal-hover').dispatchEvent(new MouseEvent('mouseleave', {bubbles: true}))")

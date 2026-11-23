@@ -9,6 +9,16 @@ import { useEffect } from "preact/hooks";
 type Box = RefObject<HTMLElement | null> | (() => HTMLElement | null);
 const element = (box: Box) => typeof box === "function" ? box() : box.current;
 
+/** The bottom corners of a map as its frame placed the controls (the user's Q18 a: one rule, read from where the scale
+ *  stands, never a corner taken for it): the attribution's corner, and the scale's when it stands in another one (a
+ *  phone's frame puts the scale in the attribution's corner, over the credits: then null, it goes with that corner). */
+function cornersOf(map: HTMLElement): {attribution: HTMLElement | null; scale: HTMLElement | null} {
+  const of = (control: string) => map.querySelector(`.leaflet-bottom > ${control}`)?.parentElement as HTMLElement | null ?? null;
+  const attribution = of(".leaflet-control-attribution") ?? map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
+  const scale = of(".leaflet-control-scale");
+  return {attribution, scale: scale && scale !== attribution ? scale : null};
+}
+
 /** How high the credits of the bottom-right `corner` reach above its foot where they run under the scale's corner
  *  (on a phone they wrap over the whole width), else 0. The credits (the attribution control) are the corner's
  *  lowest control; other controls may stand above them there (the search's map puts its buttons in it). */
@@ -23,8 +33,7 @@ function creditsUnder(corner: HTMLElement | null, scale: HTMLElement | null): nu
 /** Raises the corners `bottom` px (0: Leaflet's own place), the scale above the attribution: when raised, and in
  *  Leaflet's own place where the attribution reaches under it. */
 function place(map: HTMLElement, bottom: number) {
-  const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
-  const scale = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left");
+  const {attribution, scale} = cornersOf(map);
   if (attribution) attribution.style.bottom = bottom ? `${bottom}px` : "";
   const above = bottom ? bottom + (attribution?.offsetHeight ?? 0) : creditsUnder(attribution, scale);
   if (scale) scale.style.bottom = above ? `${above}px` : "";
@@ -38,7 +47,7 @@ export function keepScaleAboveAttribution(map: HTMLElement) {
   if (typeof ResizeObserver !== "function") return;
   const observer = new ResizeObserver(update);
   observer.observe(map);
-  const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
+  const {attribution} = cornersOf(map);
   if (attribution) observer.observe(attribution);
   observeScale(observer, map);
 }
@@ -46,7 +55,7 @@ export function keepScaleAboveAttribution(map: HTMLElement) {
 /** The scale's corner observed too: the scale's width follows the zoom, and with it whether the credits run under it
  *  (its `style.bottom`, which this module sets, does not change its size: no loop). */
 function observeScale(observer: ResizeObserver, map: HTMLElement) {
-  const scale = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left");
+  const scale = map.querySelector<HTMLElement>(".leaflet-bottom > .leaflet-control-scale")?.parentElement;
   if (scale) observer.observe(scale);
 }
 
@@ -64,7 +73,7 @@ export function useCornersAboveSheet(root: Box, mapBox: Box, on: boolean) {
     observer.observe(sheet);
     observer.observe(map);
     // the attribution grows when its data credits unfold, and the scale above it moves up
-    const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
+    const {attribution} = cornersOf(map);
     if (attribution) observer.observe(attribution);
     observeScale(observer, map);
     return () => { observer.disconnect(); place(map, 0); };
@@ -83,8 +92,7 @@ export function useCornersAboveCard(mapBox: Box, cardBox: Box, on: boolean, onCr
   useEffect(() => {
     const map = element(mapBox), holder = element(cardBox);
     if (!on || !map || !holder) return;
-    const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
-    const scale = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left");
+    const {attribution, scale} = cornersOf(map);
     let card: HTMLElement | null = null;
     const update = () => {
       const now = holder.matches(".r-card") ? holder : holder.querySelector<HTMLElement>(":scope > .r-card");

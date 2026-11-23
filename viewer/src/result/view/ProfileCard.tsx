@@ -12,6 +12,7 @@
 // useCornersAboveCard).
 
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import { t } from "../../i18n";
 import { Splitter } from "../../ui/components";
 import type { Line } from "../../types";
 import type { ResultModel } from "../model";
@@ -154,7 +155,7 @@ export function ProfileCard({model, view, line, measured, onCloseMeasured, onClo
   const width = mapW - l - r, widthMin = cardWidthMin(mapW), widthMax = mapW - 2 * LIMITS.inset;
   const side = (edge: "l" | "r") => box && <Splitter
     orientation="vertical" class={`r-card-side r-card-${edge}`} grow={edge === "l" ? -1 : 1}
-    label={`Width of the profile, ${edge === "l" ? "left" : "right"} edge`}
+    label={t(edge === "l" ? "ui.pcard.width_left" : "ui.pcard.width_right")}
     value={width} min={Math.min(widthMin, width)} max={Math.max(widthMax, width)}
     onChange={(w) => emit(moveCardEdge(latest.current, edge, edge === "l" ? mapW - r - w : mapW - l - w, [l, r], mapW),
                           false)}
@@ -162,7 +163,7 @@ export function ProfileCard({model, view, line, measured, onCloseMeasured, onClo
 
   return <div ref={ref} class={cx("r-card", folded && "r-card-folded")}
               style={{left: `${l}px`, right: `${r}px`, height: folded ? undefined : `${height}px`}}>
-    <Splitter orientation="horizontal" class="r-card-top" label="Height of the profile" grow={-1}
+    <Splitter orientation="horizontal" class="r-card-top" label={t("ui.pcard.height")} grow={-1}
               value={actual || (folded ? 0 : height)} min={least} max={Math.max(least, cardMaxHeight(mapH))}
               onStart={() => { if (folded) emit(unfold({}), true); }}
               onChange={(h) => emit(unfold({h}), false)} onCommit={commit}

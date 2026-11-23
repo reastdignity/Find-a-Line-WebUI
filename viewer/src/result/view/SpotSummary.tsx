@@ -43,7 +43,7 @@ export function SpotSummary({view, headline = true}: {view: SpotView; headline?:
     {known && <>
       <p class="u-small r-found-line"><span class="r-found" title={t("ui.result.found_title", {m: square})}>
         {t("ui.result.found", {n: count(found as number)})}</span>{" "}
-        <button type="button" class="r-link r-why-link" aria-expanded={ui.why} aria-controls="r-why"
+        <button type="button" class="u-link u-inline r-link r-why-link" aria-expanded={ui.why} aria-controls="r-why"
                 onClick={() => setWhy(!ui.why)}>{t("ui.result.why")}</button></p>
       {ui.why && <WhyBox model={model} found={found as number} onClose={() => setWhy(false)} />}
     </>}

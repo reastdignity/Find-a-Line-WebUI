@@ -7,29 +7,34 @@
 .ui .r-mono { font: 500 13px var(--mono); color: var(--accent); }
 .ui .r-muted { color: var(--muted); font-size: 12.5px; }
 .ui .r-error { color: var(--bad); }
-.ui .r-link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font-size: 13px; }
-.ui .r-link:hover { text-decoration: underline; }
+/* r-link, r-note-x: hooks of tests and ui_shots beside the kit's text action (.u-link) and close (.u-ib.u-x): no look of
+   their own (step 3d G6; DESIGN.md rows 96, 97) */
+
 .ui .r-check { display: flex; align-items: center; gap: 8px; min-height: 30px; cursor: pointer; }
-.ui .r-check input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; flex: none; }
+.ui .r-check input[type=checkbox] { margin: 0; flex: none; }
+.ui .r-check input[type=checkbox]:not(.u-check) { width: 16px; height: 16px; accent-color: var(--accent); }  /* today's list's own */
 .ui .r-select { justify-content: space-between; }
 .ui .r-select .u-input { width: auto; min-height: 32px; }
 .ui .r-eyebrow { font: 500 11.5px/1.4 var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
-.ui .r-note-x { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: none;
-  border: 0; border-radius: 50%; background: none; color: var(--ink-2); cursor: pointer; padding: 0; }
-.ui .r-note-x:hover { background: var(--surface-2); }
+.ui .r-note-x { flex: none; }
 .ui .r-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent);
   animation: r-spin .8s linear infinite; flex: none; }
 @keyframes r-spin { to { transform: rotate(360deg); } }
-@media (pointer: coarse) { .ui .r-check { min-height: 40px; } .ui .r-note-x { width: 40px; height: 40px; } }
+@media (pointer: coarse) { .ui .r-check { min-height: 44px; } }
 
 /* Popover (Compare, Share, Download) */
 .ui .r-popwrap { position: relative; display: inline-flex; }
-.ui .r-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 1100; width: min(340px, calc(100vw - 24px));
+.ui .r-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: var(--z-map-top); width: min(340px, calc(100vw - 24px));
   max-height: min(420px, 70vh); overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .ui .r-pop-right { left: auto; right: 0; }
 .ui .r-pop:focus { outline: none; }  /* the panel itself takes the focus only while it loads */
 .ui .r-others, .ui .r-share, .ui .r-downloads { display: flex; flex-direction: column; gap: 8px; }
 .ui .r-other .u-grow { overflow: hidden; text-overflow: ellipsis; }
+/* "Farther away": its disclosure the icon set's arrow, turned while open (R9: not the browser's triangle; step 3d G6, T4) */
+.ui .r-others summary.r-far { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; list-style: none; cursor: pointer; }
+.ui .r-others summary.r-far::-webkit-details-marker { display: none; }
+.ui .r-far .r-far-mark { width: 12px; height: 12px; stroke-width: 2.2; }
+.ui .r-others details[open] > summary.r-far .r-far-mark { transform: rotate(90deg); }
 .ui .r-downloads .u-btn { justify-content: flex-start; }
 .ui .r-downloads .u-small { margin-left: auto; }
 /* An export (RunActions Download): the ring in the icon's place (18px with its margin), the pressed row while its
@@ -45,7 +50,7 @@
 .ui .r-summary-count { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 /* A run made with the square rule: "… found. Why so many?" and its box (ResultSummary's WhyBox) */
 .ui .r-found-line { margin: -4px 0 0; color: var(--muted); }
-.ui .r-why-link { font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
+/* .r-why-link: a hook beside the kit's .u-link.u-inline (its look the kit's: step 3d G6) */
 .ui .r-why { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 10px 12px; border: 1px solid var(--rule);
   border-radius: 10px; background: var(--surface-2); }
 .ui .r-why-head { display: flex; align-items: center; gap: 8px; font: 600 16px/1.2 var(--display); margin-right: -4px; }
@@ -59,7 +64,7 @@
 .ui .r-why-row { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .ui .r-why-row > i { width: 10px; height: 10px; border-radius: 2px; flex: none; }
 .ui .r-why-show { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); white-space: nowrap; }
-.ui .r-why-show input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.ui .r-why-show input { margin: 0; }
 @media (pointer: coarse) { .ui .r-why-row { min-height: 40px; } }
 /* The mark of a tight line (tight.ts): a ring with "!" before the clearance, its key and the details' line */
 .ui .r-tight { display: inline-block; position: relative; width: 13px; height: 13px; margin-right: 3px; flex: none;
@@ -108,10 +113,12 @@
   background: var(--surface); }
 .ui .r-more-head { display: flex; align-items: center; gap: 8px; }
 .ui .r-more-sec { display: flex; flex-direction: column; gap: 8px; }
-.ui .r-more-sec > h3, .ui .r-field-lab { margin: 0; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+/* a section's head and a field's label: the kit's label (13 px in the text's font, sentence case by its words), not
+   capitals in monospace (R1; step 3d G6, T5) */
+.ui .r-more-sec > h3, .ui .r-field-lab { margin: 0; font: 600 var(--fs-2)/18px var(--font); color: var(--ink-2); }
 .ui .r-by .u-seg { display: grid; grid-template-columns: 1fr 1fr; }  /* "Show per spot": four choices in two rows */
 .ui .r-terrain { margin-top: 4px; }  /* the area's terrain: apart from the slider above, with the percentiles below */
-@media (pointer: coarse) { .ui .r-num { min-height: 40px; font-size: 16px; } }
+@media (pointer: coarse) { .ui .r-num { min-height: 44px; font-size: 16px; } }
 
 /* The list of lines */
 .ui .r-table { display: flex; flex-direction: column; min-height: 0; }
@@ -212,7 +219,7 @@
 .ui .r-dock-msg { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; color: var(--ink-2); }
 .ui .r-dock { min-width: 0; }
 /* the profile's bar's close and fold on a touch screen: a finger's 44 px (R2; the user's "12 a"), on both pages */
-@media (pointer: coarse) { .ui .r-dock .r-note-x { width: 44px; height: 44px; } }
+
 /* A compact dock outside a card (ProfileDock `compact`: the result view's phone docks, the mock-up's 4 d): the title,
    "Rigging and layers" and the × on one line, the × at its end (in the column of the other closes: polish 10), a
    measured line's facts on a row of their own under it; the words on reading the chart under the chart (polish 13) */
@@ -221,6 +228,9 @@
 .ui .r-dock-compact .r-hint-under { margin: 0; }
 
 /* The profile in a card (ProfileDock's fill mode and fold button: ProfileCard) */
+/* the profile's fold: the kit's plain icon button at the close's size beside it (24 px, 44 px on a touch screen) */
+.ui .r-dock .r-dock-bar .u-ib.r-fold { width: 24px; height: 24px; }
+@media (pointer: coarse) { .ui .r-dock .r-dock-bar .u-ib.r-fold { width: 44px; height: 44px; } }
 .ui .r-fold .u-ic { transition: transform .15s; }
 .ui .r-fold.r-on .u-ic { transform: rotate(180deg); }  /* folded: ▴ unfolds */
 .ui .r-foldable .fal-close { display: none; }  /* the × stays in the bar */
@@ -313,10 +323,12 @@
 /* The favourite button's folders (FavouritePicker) */
 .ui .r-picker { display: flex; flex-direction: column; gap: 8px; width: 280px; max-width: calc(100vw - 32px); }
 .ui .r-folders { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; }
-.ui .r-folder { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 4px 8px; border: 0;
-  border-radius: 8px; background: none; color: var(--ink); text-align: left; cursor: pointer; }
-.ui .r-folder:hover { background: var(--surface-2); }
+.ui .r-folder { width: 100%; min-height: 34px; padding: 4px 8px; }  /* the kit's row (.u-item): its size here */
 .ui .r-folder.u-on { background: var(--accent-soft); }
+/* the keyboard's ring inside the row: the list's scroller (.r-folders) clips one outside (row 81; step 3d G6, the
+   design review's F3), with its forced-colours twin */
+.ui .u-item.r-folder:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .ui .u-item.r-folder:focus-visible { outline-offset: -2px; } }
 .ui .r-folder span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .r-newfolder { display: flex; gap: 6px; }
 .ui .r-newfolder .u-input { flex: 1; min-width: 0; }

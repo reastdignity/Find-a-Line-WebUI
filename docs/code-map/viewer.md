@@ -57,7 +57,8 @@ shore's (each fallback's km² in view, `ui.coarse.help`; `addCoarser`, whose `fi
 `coarserControl`, with the shore's classes `.u-shore-ctl` and `.u-coarse-ctl`: docs/DESIGN.md row 105), the shares
 under More filters (`FilterBar`)), `layersControl.ts` the maps' layers control (Leaflet's `L.Control.Layers` with the
 kit's "layers" icon, `options.afterUpdate` after every redraw of its rows, an opened box fitted above the map's
-credits), used by the place map (`app/PlaceMap.ts`) and the result view's frame (`result/view/SpotColumns.tsx`); a
+credits; a disclosure for the keyboard, its rows the kit's boxes `.u-check`/`.u-radio`, a finger's second tap guarded
+for `OPEN_GUARD_MS`; `pressMarks`: the map's own ring only after a key: docs/DESIGN.md rows 132, 136), used by the place map (`app/PlaceMap.ts`) and the result view's frame (`result/view/SpotColumns.tsx`); a
 module of its own so that the result view's bundles (map.html's `viewer.js` too) take it without `PlaceMap.ts`'
 Leaflet-Geoman; bundled by esbuild into `dist/` (committed);
 copied to `runs/_viewer/` by every run. The app (`app/app.tsx`: the app's one interface, C (`app/c`); B and D were
@@ -213,8 +214,9 @@ header that scrolls away; a row too for a country covered only in some regions),
 by `node build.mjs --media`, never in dist); `app/coverageLayer.ts` the place map's *Data coverage* (a box of its own with a button on a desktop, a row of the layers' box on a phone: `place`; on while its group is on the map, remembered but for the map's own removal); `app/PlaceMap.ts` the app's place map (the search page, the OSM page, the highline layer's page) with two arrangements of its controls by the media query `PHONE` (a desktop or tablet: zoom, layers and the coverage's box at one corner; a phone: zoom across at the top left, the layers' button at the top right, its box closed, the drawing tools in a row beside the zoom), their look from `result/view/mapbar.css` (`.c-placemap`); tests `tests/test_shell_c_search_page.py`; `translator.ts`
 the `translator` of both catalogues (coverage.js carries the app's too: `ui/components.tsx` imports `ui/Hint.tsx`,
 which reads `i18n.ts`); `i18n.ts` the app's `t`, `label` and `parts` (a text with an icon, a link or a value as a part
-of its own; the words of the files `tests/test_texts_in_catalogue.py` names come from `locales/en.json`, while line
-volume's result-view files, today's result page and the kit's demo pages still hold English in code: known-bugs.md);
+of its own; the words of the files `tests/test_texts_in_catalogue.py` names come from `locales/en.json`, the result
+view's files and the parts of today's page it borrows among them since step 3d G6, while today's result page's own
+components and the kit's demo pages still hold English in code: known-bugs.md);
 `ui/fonts.css` Barlow Condensed (woff2 of
 weights 500-700, latin and latin-ext, flat hashed files in dist: `install_viewer` copies dist file by file)
 

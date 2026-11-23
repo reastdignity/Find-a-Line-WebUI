@@ -130,9 +130,9 @@ def test_one_checkbox():
     an outline 2 px off the box, which WebKit draws); the coverage box's drawn tick takes the same look (the accent's
     fill and the kit's check mark)."""
     ui = _css("ui/ui.css")
-    box = _rule(ui, ".ui .u-check")
+    box = _rule(ui, ".ui .u-check, .ui .u-radio")  # the radio its round twin (step 3d G6, Q4 a)
     assert "width: 20px" in box and "height: 20px" in box and "accent-color: var(--accent)" in box
-    ring = _rule(ui, ".ui .u-check:focus-visible")
+    ring = _rule(ui, ".ui .u-check:focus-visible, .ui .u-radio:focus-visible")
     assert "outline: 2px solid var(--accent)" in ring and "outline-offset: 2px" in ring and "box-shadow: none" in ring
     for rel, text in _free((".tsx",)).items():
         for tag in re.findall(r'<input\b[^>]*type="checkbox"[^>]*>', text):
