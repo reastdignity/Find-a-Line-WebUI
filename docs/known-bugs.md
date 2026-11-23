@@ -42,17 +42,6 @@ Found at gate 2 of line volume round 6. The shipped mitigation: the rows positio
 for new requests (some servers answer it with the whole file or an error). Batch 5's new kinds avoid it (`sheet`:
 bytes 0-7; `zipfile`: the first KB without a Range). Found 2026-11-15 by agents AU and IT; not changed.
 
-## A GDAL read of a host that never answers still takes over a minute (`check_source`: minutes)
-
-When basisdata.nl stopped answering TCP (2026-11-15), `tools/check_source.py` on a Caribbean Netherlands source
-waited more than 10 min before failing; the probe gave up at its 120 s. Found by agent NL. Since 2026-11-23
-`net._gdal_http` gives up a connection after `net.GDAL_CONNECT_TIMEOUT_S` (5 s): one failed open of an address that
-never answers took 73 s (TEST-NET 192.0.2.1, Windows, 2026-11-23), 201 s before. Not the 30-40 s aimed at: GDAL asks the
-file's size twice when it opens a file, each time with `GDAL_HTTP_MAX_RETRY` 3 attempts after a code 0 and its
-pauses of about 2, 4.5 and 10 s, so 2 x (4 x 5 s + 16.5 s); a shorter bound needs fewer retries or shorter pauses
-(for every host and every answer, 429 and 503 too) and was left to the user. Each block of a dead host pays it
-again. `tools/check_source.py`'s own GDAL settings have no connect timeout yet (not this change's file).
-
 ## `tests/regression.py --update` cannot add a new entry without "expected", nor one without lines
 
 A new entry in `tests/regression.json` without an `"expected"` object crashes `--update` with a `KeyError`

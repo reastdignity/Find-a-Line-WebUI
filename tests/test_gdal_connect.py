@@ -1,14 +1,17 @@
-"""GDAL's remote reads give up a connection that never comes after net.GDAL_CONNECT_TIMEOUT_S
-(GDAL_HTTP_CONNECTTIMEOUT in net._gdal_http) and never cut a slow answer of a server that answers.
+"""Remote reads give up a connection that never comes after net.CONNECT_TIMEOUT_S (GDAL_HTTP_CONNECTTIMEOUT in
+net._gdal_http; requests' connect timeout in ranges.get_range) and never cut a slow answer of a server that
+answers; opening a file is retried net.OPEN_RETRIES times, the reads after it net.RETRIES (net.gdal_open); a
+download stops asking a host it could not connect to (net.UnreachableHosts, net.connect_failed).
 
 Offline: the address that never answers is TEST-NET-1 (192.0.2.1, RFC 5737: reserved for documentation, never
 routed, so no host receives anything); where the system answers "unreachable" at once (no route, a firewall
-that rejects), the test asserts only the error and the upper bound. The slow server is a socket server of this
-module on 127.0.0.1 (tests/http_server.py writes an answer at once).
+that rejects), the tests assert the error and the upper bound only. A refused connection is a closed local port.
+The slow server is a socket server of this module on 127.0.0.1 (tests/http_server.py writes an answer at once).
 """
 
 import contextlib
 import os
+import socket
 import sys
 import threading
 import time
@@ -18,61 +21,246 @@ import numpy as np
 import pytest
 import rasterio as rio
 import rasterio.cache
+import requests
+import urllib3.exceptions
 from affine import Affine
 from rasterio.transform import from_origin
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-from http_server import _ranges  # noqa: E402
+import grid as gd  # noqa: E402
+import sources as src  # noqa: E402
+from http_server import Answer, _ranges  # noqa: E402
 from sources import net  # noqa: E402
-from sources.readers import windows  # noqa: E402
+from sources.layers.fileblocks import FileBlocks  # noqa: E402
+from sources.readers import ranges, windows  # noqa: E402
 
 CRS = "EPSG:2180"
-CONNECT_S = 1  # the connect timeout of these tests (the app's: net.GDAL_CONNECT_TIMEOUT_S)
+CONNECT_S = 1  # the connect timeout of these tests (the app's: net.CONNECT_TIMEOUT_S)
 PAUSE_S = 1.5  # each answer of the slow server: half its body, this pause, the rest (longer than CONNECT_S)
+DEAD = "http://192.0.2.1/never/M_DEAD2023.TIF"
 
 
 def test_the_settings():
-    """The connect timeout is set for every remote read of _gdal_http; the read timeout stays 120 s."""
+    """The connect timeout is set for every remote read of _gdal_http, the read timeout stays 120 s; an open inside
+    gdal_open is retried once, and the options are back to RETRIES after it (rasterio's environments nest)."""
     with net._gdal_http():
         options = rio.env.getenv()
-    assert options["GDAL_HTTP_CONNECTTIMEOUT"] == str(net.GDAL_CONNECT_TIMEOUT_S) == "5"
-    assert options["GDAL_HTTP_TIMEOUT"] == "120" and options["GDAL_HTTP_MAX_RETRY"] == str(net.RETRIES)
+        with net.gdal_open():
+            opening = rio.env.getenv()
+        after = rio.env.getenv()
+    assert options["GDAL_HTTP_CONNECTTIMEOUT"] == str(net.CONNECT_TIMEOUT_S) == "5"
+    assert options["GDAL_HTTP_TIMEOUT"] == "120" and options["GDAL_HTTP_MAX_RETRY"] == str(net.RETRIES) == "3"
+    assert opening["GDAL_HTTP_MAX_RETRY"] == str(net.OPEN_RETRIES) == "1" and after == options
 
 
 @pytest.fixture
-def no_retries(monkeypatch):
-    """CONNECT_S as the connect timeout and no retries inside GDAL (the attempts and pauses of the app's settings
-    are counted in net.GDAL_CONNECT_TIMEOUT_S's comment), no proxy between, no pause between our attempts."""
-    monkeypatch.setattr(net, "GDAL_CONNECT_TIMEOUT_S", CONNECT_S)
+def short(monkeypatch):
+    """CONNECT_S as the connect timeout, GDAL's pause between attempts 0.1 s (its attempts as the app's: the open
+    OPEN_RETRIES + 1, a read RETRIES + 1), no pause between our attempts, no proxy between."""
+    monkeypatch.setattr(net, "CONNECT_TIMEOUT_S", CONNECT_S)
     original = windows._gdal_http
 
     @contextlib.contextmanager
-    def single(serial=False):
-        with original(serial), rio.Env(GDAL_HTTP_MAX_RETRY="0"):
+    def quick(serial=False):
+        with original(serial), rio.Env(GDAL_HTTP_RETRY_DELAY="0.1"):
             yield
-    monkeypatch.setattr(windows, "_gdal_http", single)
+    monkeypatch.setattr(windows, "_gdal_http", quick)
     monkeypatch.setattr(net, "_sleep", lambda attempt: None)
     for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost,192.0.2.1")
+    return quick
 
 
-def test_an_address_that_never_answers(no_retries, tmp_path):
-    """A block of a file at an address that never answers fails as the readers' other failed reads do (RuntimeError
-    "Could not read ..."), within the attempts' connect timeouts: GDAL asks the file's size twice when it opens
-    it, each one attempt here. Where the connection timed out, it waited about CONNECT_S per attempt."""
-    url = "http://192.0.2.1/never/M_DEAD2023.TIF"
-    rasterio.cache.invalidate(url)
+def test_an_address_that_never_answers(short, tmp_path):
+    """A block of a file at an address that never answers fails within the open's attempts' connect timeouts (GDAL
+    asks the file's size twice when it opens it, each OPEN_RETRIES + 1 attempts: 4 x CONNECT_S), as net.Unreachable
+    (a RuntimeError "Could not read ...", what the readers raise). Where it timed out, it waited for them."""
+    rasterio.cache.invalidate(DEAD)
     start = time.monotonic()
-    with pytest.raises(RuntimeError, match="Could not read dead") as error:
-        windows._read_block([("dead", url, 2023)], CRS, Affine(0.5, 0, 0, 0, -0.5, 0), (20, 20),
+    with pytest.raises(net.Unreachable, match="Could not read dead") as error:
+        windows._read_block([("dead", DEAD, 2023)], CRS, Affine(0.5, 0, 0, 0, -0.5, 0), (20, 20),
                             str(tmp_path / "dead.tif"), "dead")
     seconds = time.monotonic() - start
-    assert seconds < 2 * CONNECT_S + 3, (seconds, str(error.value))
+    assert seconds < 4 * CONNECT_S + 3, (seconds, str(error.value))
     if "timed out" in str(error.value).lower():
-        assert seconds >= CONNECT_S * 0.9, (seconds, str(error.value))
+        assert seconds >= 4 * CONNECT_S * 0.9, (seconds, str(error.value))
     assert not os.path.exists(tmp_path / "dead.tif")
+
+
+def test_a_ranged_open_of_an_address_that_never_answers(short, monkeypatch):
+    """Our own range requests (ranges.open_remote: the islands' reader) give up the connection after CONNECT_S, not
+    after the read timeout of 120 s, and the first request (opening the file) makes OPEN_RETRIES + 1 attempts, each
+    in its turn: net.Unreachable within 2 x CONNECT_S."""
+    turns = []
+    monkeypatch.setattr(net, "rate_turn", lambda url, share=1.0: turns.append(url))
+    start = time.monotonic()
+    with pytest.raises(net.Unreachable):
+        with ranges.open_remote(DEAD, tiff_only=True):
+            pass
+    seconds = time.monotonic() - start
+    assert turns == [DEAD] * (net.OPEN_RETRIES + 1) and seconds < 2 * CONNECT_S + 2, seconds
+
+
+@pytest.fixture(scope="module")
+def small_file(tmp_path_factory):
+    """600 x 600 px of float32 in 256 px tiles: GDAL's open reads its header in its first 16 KB, its tiles lie
+    beyond."""
+    path = tmp_path_factory.mktemp("small") / "S_TEST2023.TIF"
+    rows, cols = np.mgrid[0:600, 0:600]
+    with rio.open(path, "w", driver="GTiff", width=600, height=600, count=1, dtype="float32", crs=CRS,
+                  transform=from_origin(2000.0, 4000.0, 0.5, 0.5), tiled=True, blockxsize=256, blockysize=256,
+                  compress="deflate", nodata=-9999.0) as dst:
+        noise = np.random.default_rng(1).normal(0, 0.05, (600, 600))  # tiles of their own size, beyond 16 KB
+        dst.write((100 + rows * 0.3 + cols * 0.1 + noise).astype(np.float32), 1)
+    return path
+
+
+def test_the_open_once_again_the_reads_three_times(short, http_server, small_file, tmp_path):
+    """Opening a file is retried once (net.gdal_open): a header answered 503 every time fails the open after two
+    requests. The reads after it are retried three times again: the block's first two data ranges answered 503 are
+    asked again and the block is the file's."""
+    body = small_file.read_bytes()
+    busy = {"/open/": lambda r: True, "/read/": lambda r: int(r.split("=")[1].split("-")[0]) >= 16384}
+    failed = {path: 0 for path in busy}
+
+    def route(path):
+        def answer(request):
+            asked = request.headers.get("range")
+            if asked and busy[path](asked) and (path == "/open/" or failed[path] < 2):
+                failed[path] += 1
+                return Answer(503, b"busy", {"Content-Type": "text/plain"})
+            return Answer(200, body, {"Content-Type": "image/tiff"})
+        return answer
+    for path in busy:
+        http_server.route(path, route(path))
+    transform = Affine(0.5, 0, 2000.0 + 50, 0, -0.5, 4000.0 - 50)
+    with pytest.raises(RuntimeError, match="Could not read open"):
+        windows._read_block([("open", http_server.url("/open/S.tif"), 2023)], CRS, transform, (200, 200),
+                            str(tmp_path / "open.tif"), "open")
+    assert failed["/open/"] == net.OPEN_RETRIES + 1
+    windows._read_block([("read", http_server.url("/read/S.tif"), 2023)], CRS, transform, (200, 200),
+                        str(tmp_path / "read.tif"), "read")
+    windows._read_block([("local", str(small_file), 2023)], CRS, transform, (200, 200), str(tmp_path / "local.tif"),
+                        "local")
+    with rio.open(tmp_path / "read.tif") as a, rio.open(tmp_path / "local.tif") as b:
+        assert np.array_equal(a.read(1), b.read(1), equal_nan=True)
+    assert failed["/read/"] == 2
+
+
+GDAL_TEXTS = [  # curl's texts as GDAL passes them on (measured on this module's addresses, Windows and Linux)
+    ("CURL error: Connection timed out after 5012 milliseconds", True),
+    ("CURL error: Failed to connect to 192.0.2.1 port 80 after 21032 ms: Could not connect to server", True),
+    ("CURL error: Failed to connect to 127.0.0.1 port 9 after 2040 ms: Couldn't connect to server", True),
+    ("CURL error: Could not resolve host: basisdata.invalid", True),
+    ("CURL error: Couldn't resolve host name", True),   # curl's general text of the same error
+    ("CURL error: Operation timed out after 120000 milliseconds with 5 out of 10 bytes received", False),
+    ("HTTP response code: 503", False),
+    ("CURL error: Recv failure: Connection was reset", False),
+    ("Read failed. See previous exception for details.", False),
+]
+
+
+@pytest.mark.parametrize("text, expected", GDAL_TEXTS)
+def test_gdal_connect_failures(text, expected):
+    """net.GDAL_CONNECT_FAILURES, a case each: no connection made trips; a read timeout, a status, a reset, a short
+    answer or an unclear text never."""
+    assert net.connect_failed(rio.errors.RasterioIOError(text)) is expected
+    assert net.connect_failed(RuntimeError(f"Could not read terrain x: {text}")) is expected
+
+
+def _pool_error(reason):
+    return requests.exceptions.ConnectionError(urllib3.exceptions.MaxRetryError(None, "/x", reason))
+
+
+@pytest.mark.parametrize("error, expected", [
+    (requests.exceptions.ConnectTimeout("connect timeout"), True),
+    (_pool_error(urllib3.exceptions.NewConnectionError(None, "refused")), True),
+    (_pool_error(urllib3.exceptions.NameResolutionError("x.invalid", None, OSError("not found"))), True),
+    (_pool_error(urllib3.exceptions.ConnectTimeoutError(None, "connect timeout")), True),
+    (requests.exceptions.ReadTimeout("read timeout"), False),
+    (requests.exceptions.ConnectionError(urllib3.exceptions.ProtocolError("Connection aborted.")), False),
+    (_pool_error(urllib3.exceptions.ProtocolError("Connection aborted.")), False),
+    (requests.exceptions.ChunkedEncodingError("cut short"), False),
+    (RuntimeError("HTTP 503 for bytes 0-65535: busy"), False),
+    (None, False),
+])
+def test_requests_connect_failures(error, expected):
+    """requests' errors: only a connect timeout or a connection that could not be made (refused, no route, the name
+    not found) trips; a read timeout, a connection aborted after it was made, a short answer, a status never."""
+    assert net.connect_failed(error) is expected
+
+
+def _closed_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def test_a_refused_connection_trips(monkeypatch):
+    """A real refused connection (a closed local port), through GDAL and through our own range requests: the errors
+    say no connection was made (connect_failed)."""
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setattr(net, "_sleep", lambda attempt: None)
+    url = f"http://127.0.0.1:{_closed_port()}/x/M_TEST2023.TIF"
+    with net._gdal_http(), rio.Env(GDAL_HTTP_MAX_RETRY="0"), pytest.raises(rio.errors.RasterioIOError) as error:
+        rio.open(net._remote(url))
+    assert net.connect_failed(error.value), str(error.value)
+    with pytest.raises(net.Unreachable):
+        ranges.get_range(url, 0, 99, attempts=1)
+
+
+def _dead_layer(url):
+    """A layer of the islands' kind (our own ranges, a LOCAL_CS forced) whose file is at url: 8 blocks of 100 m."""
+    layer = FileBlocks("AHN dead", "test/dead/1", CRS, 0.5, 100, url, extent=(2000.0, 3800.0, 2400.0, 4000.0),
+                       force_crs=True, ranged=True)
+    grid = gd.Grid(left=2001.0, top=3999.0, res=2.0, height=99, width=199, crs=CRS)
+    assert len(layer.tiles(grid)) == 8
+    return layer, grid
+
+
+def _download(layer, grid, cache_dir):
+    """download_layers of the layer's 8 blocks, every task's error collected (on_error: the pool goes on)."""
+    errors = []
+    src.download_layers([(layer, "terrain")], grid, cache_dir, on_error=lambda layer, tiles, e: errors.append(e),
+                        reencode_cached=False)
+    return errors
+
+
+def test_a_download_stops_asking_a_dead_host(short, tmp_path, monkeypatch):
+    """8 blocks of an address that never answers, its host at one slot (basisdata.nl's): the first block's open
+    fails (net.Unreachable), the other 7 fail at once with the same error and send nothing, so the download takes
+    about one failed open (at most 1.5 times it) and the attempts of one block. The next download asks again."""
+    monkeypatch.setattr(net, "HOST_SLOTS_OF", dict(net.HOST_SLOTS_OF, **{"192.0.2.1": 1}))
+    attempts = []
+    monkeypatch.setattr(net, "rate_turn", lambda url, share=1.0: attempts.append(url))  # each attempt takes one
+    start = time.monotonic()
+    with pytest.raises(net.Unreachable):
+        with ranges.open_remote(DEAD):
+            pass
+    one = time.monotonic() - start
+    layer, grid = _dead_layer(DEAD)
+    for k in (1, 2):
+        attempts.clear()
+        start = time.monotonic()
+        errors = _download(layer, grid, str(tmp_path / f"cache{k}"))
+        seconds = time.monotonic() - start
+        assert len(errors) == 8 and all(isinstance(e, net.Unreachable) for e in errors)
+        assert len({str(e) for e in errors}) == 1 and "Could not read AHN dead" in str(errors[0])
+        assert attempts == [DEAD] * (net.OPEN_RETRIES + 1), attempts
+        assert seconds <= 1.5 * one + 0.5, (seconds, one)
+
+
+def test_a_busy_host_trips_nothing(short, http_server, tmp_path, monkeypatch):
+    """A host that answers 503 is no dead host: each of the 8 blocks asks it (its open's attempts) and fails with
+    its own RuntimeError, never net.Unreachable."""
+    monkeypatch.setattr(net, "HOST_SLOTS_OF", dict(net.HOST_SLOTS_OF, **{"127.0.0.1": 1}))
+    http_server.route("/busy/", lambda request: Answer(503, b"busy", {"Content-Type": "text/plain"}))
+    layer, grid = _dead_layer(http_server.url("/busy/M_BUSY2023.TIF"))
+    errors = _download(layer, grid, str(tmp_path / "cache"))
+    assert len(errors) == 8 and not any(isinstance(e, net.Unreachable) for e in errors)
+    assert len(http_server.requests("/busy/")) == 8 * (net.OPEN_RETRIES + 1)
 
 
 @pytest.fixture
@@ -130,9 +318,9 @@ def slow_server(tmp_path):
     httpd.server_close()
 
 
-def test_a_slow_answer_is_read_whole(no_retries, slow_server, tmp_path):
+def test_a_slow_answer_is_read_whole(short, slow_server, tmp_path):
     """A server whose every answer takes longer than the connect timeout (PAUSE_S in the middle of its body) is read
-    to the end, without a retry (none allowed here): the block equals a local read's."""
+    to the end: the block equals a local read's, and no answer was asked twice."""
     url, path, answers = slow_server
     rasterio.cache.invalidate(url)
     transform = Affine(0.5, 0, 1000.0 + 100, 0, -0.5, 2000.0 - 20)  # over both tiles

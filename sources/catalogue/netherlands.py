@@ -83,10 +83,12 @@ NL_ORTHO = OrthoService("PDOK aerial photo (Beeldmateriaal Nederland)", None, ""
 # own CRS (EPSG:10641 Saba DPnet, 10745 Sint Eustatius DPnet long, 10759 Bonaire DPnet, PROJ 9.8; checked at The
 # Quill and Mount Scenery), so the layers force it (FileBlocks(force_crs=True)). The addresses (dated 2025-03-19)
 # answer 307 to Hetzner's object storage. basisdata.nl blocked a development network's address on 2026-11-15 after
-# parallel window reads (confirmed a block on 2026-11-23): one connection and 54 requests a minute (sources/net.py,
-# HOST_SLOTS_OF and HOST_RATES_OF) until Het Waterschapshuis answers. The DTM has pinholes under forest (at The Quill 43 % of 0.5 m pixels
-# valid, 81 % at 1 m, 97 % at 2 m; Saba's summit 54 % at 1 m): the 2 m working grid averages them away, what
-# stays is filled from europe.
+# parallel window reads (confirmed a block on 2026-11-23): one connection per data folder and 54 requests a minute
+# (sources/net.py, HOST_SLOTS_OF and HOST_RATES_OF) until Het Waterschapshuis answers, every request in its turn: the
+# layers read through our own range requests (FileBlocks(ranged=True), the user's decision of 2026-11-24), each
+# range one request to basisdata.nl (and its redirect one to the object storage), one connection to each. The DTM
+# has pinholes under forest (at The Quill 43 % of 0.5 m pixels valid, 81 % at 1 m, 97 % at 2 m; Saba's summit 54 %
+# at 1 m): the 2 m working grid averages them away, what stays is filled from europe.
 BQ_FILES = "https://basisdata.nl/hwh-ortho/Caribisch_NL/LiDAR/caribisch"
 BQ_DATAROOM = "https://www.beeldmateriaal.nl/dataroom-caribisch-nederland"
 BQ_CREDIT = Credit("AHN Caribisch Nederland 2023-2024 DTM / DSM 0.5 m (Het Waterschapshuis / Beeldmateriaal)",
@@ -113,13 +115,14 @@ class Island:
                      f"&tilecol={{x}}&format=image/png", base_max_zoom=21)
 
     def layer(self, kind: str) -> FileBlocks:
-        """Its DTM or DSM in blocks of 1 km (2000 x 2000 px) on the file's own pixels, its CRS forced."""
+        """Its DTM or DSM in blocks of 1 km (2000 x 2000 px) on the file's own pixels, its CRS forced, read through
+        our own range requests (every one in basisdata.nl's turn)."""
         prefix, part = ("M", "02a_DTM_50cm") if kind == "dtm" else ("R", "03a_DSM_50cm")
         what = "terrain" if kind == "dtm" else "trees, buildings"
         return FileBlocks(f"AHN {self.name} 2023 {kind.upper()} 0.5 m ({what})",
                           f"caribbean_nl/ahn-{kind}-2023/{self.key}", self.crs, 0.5, 1000,
                           f"{BQ_FILES}/{self.folder}/{part}/{prefix}_{self.key.upper()}2023.TIF", extent=self.extent,
-                          year=2023, bytes_per_tile=6e6, force_crs=True)
+                          year=2023, bytes_per_tile=6e6, force_crs=True, ranged=True)
 
 
 # Areas: ISO 3166-2:NL's special municipalities (NL-BQ1 Bonaire, NL-BQ2 Saba, NL-BQ3 Sint Eustatius), as Natural

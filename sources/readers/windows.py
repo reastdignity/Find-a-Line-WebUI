@@ -220,8 +220,9 @@ def _read_file(url: str, crs: str, transform: Affine, shape: Tuple[int, int], na
     """The values of one file on a block's pixels (_values_on). Raises WrongCrs when the file is in
     another CRS (with force_crs, a file naming only a local CRS is taken in crs; with warp, a file in another
     real CRS is warped: _wrong_crs), Incomplete when GDAL signalled an error while opening or reading it: values
-    it could not fetch come back as nodata or zeros without an exception (net.gdal_errors)."""
-    with net.gdal_errors() as errors:
+    it could not fetch come back as nodata or zeros without an exception (net.gdal_errors). The open is retried
+    net.OPEN_RETRIES times (net.gdal_open), the reads after it as _gdal_http says."""
+    with net.gdal_errors() as errors, net.gdal_open():
         src = rio.open(_remote(url))
     with src:
         if _wrong_crs(src, crs, force_crs, warp):
@@ -250,10 +251,13 @@ def _read_ranged(url: str, crs: str, transform: Affine, shape: Tuple[int, int], 
         problem = file.error or ("; ".join(dict.fromkeys(errors)) if errors else None)
     except ranges.Missing:
         return None
+    except net.Unreachable as e:  # no connection to the host (the open's first range: get_range)
+        raise net.Unreachable(f"Could not read {what} {name}: {e}") from e
     except (rio.errors.RasterioIOError, ranges.NotTiff) as e:
         raise RuntimeError(f"Could not read {what} {name}: {cache.clean_error(e)}")
     if problem:
-        raise RuntimeError(f"Could not read {what} {name} completely: {cache.clean_error(problem)}")
+        kind = net.Unreachable if isinstance(file.error, net.Unreachable) else RuntimeError
+        raise kind(f"Could not read {what} {name} completely: {cache.clean_error(problem)}")
     return values
 
 
@@ -318,7 +322,10 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
                             values = None
                             break  # listed, but not (or no longer) there
                         counted.outcome = "http_5xx" if re.search(r"\b5\d\d\b", str(e)) else "other"
-                        raise RuntimeError(f"Could not read {what} {name}: {cache.clean_error(e)}")
+                        # No connection could be made (GDAL's own retries done): the download's other blocks
+                        # of the host fail at once (net.UnreachableHosts)
+                        kind = net.Unreachable if net.connect_failed(e) else RuntimeError
+                        raise kind(f"Could not read {what} {name}: {cache.clean_error(e)}")
                     except Incomplete as e:
                         _forget(url)
                         counted.outcome = "connection"

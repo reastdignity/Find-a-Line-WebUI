@@ -485,7 +485,8 @@ def test_estonia_whole_file_for_a_range_never_read(http_server, tmp_path, monkey
     with pytest.raises(RuntimeError, match="whole file"):
         src.SOURCES["estonia"].nmt.download_tile((516, 5235), str(path))
     assert not path.exists() and sum(read) == 0
-    assert len(http_server.requests("/index.php")) == src.net.RETRIES
+    # the file's first request: opening it, OPEN_RETRIES + 1 attempts (the user's decision of 2026-11-24)
+    assert len(http_server.requests("/index.php")) == src.net.OPEN_RETRIES + 1
 
 
 @pytest.mark.parametrize("every", [False, True])
