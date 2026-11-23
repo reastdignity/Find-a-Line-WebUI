@@ -576,10 +576,12 @@ the process, which would skip the whole layer: a pass names that a failure). A p
 over both: `Reporter.next_plan`; a pass asks each layer's `to_download` for its counts and hands the first plan's
 answers to `download_layers(listed=)`, so the source's own layers are asked once (a stand-in's ask again before
 their download, hours later), and asks about the files by folder, `run_pass` setting `sources.layer.EXISTING` for
-the pass and giving it back: docs/performance.md, "The check of cached tiles"; the first pass of a start, and
-only it, asks the index of each plan's layers that renew again before the listing, `_renew`: `sources/renewal.py`,
-the state's `renewal` the row's text while it runs and `renewed` what it did, kept by the start's later passes
-(`Reporter`), a failure of it never a stop), inside
+the pass and giving it back: docs/performance.md, "The check of cached tiles"; every pass of a start asks the
+index of each plan's layers that renew again before the listing until the start's renewal went through (`_renew`:
+`sources/renewal.py` with the start's time, the state's `renewal_since` set by pass 1, as `since`, so a later pass
+asks only the answers the start has not yet asked successfully; the state's `renewal` the row's text while it runs
+and `renewed` the start's totals, `passes`, `asked`, `open`, `through`, carried by `Reporter` to the start's later
+passes; a failure of it never a stop), inside
 its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
 planning (Denmark's key, an unknown outline) is a `Stop` with its text; the window layers' groups are
 `country.PREFETCH_GROUP_M` times the finest native resolution of the plan's grouped layers (`_group_m`: a group's

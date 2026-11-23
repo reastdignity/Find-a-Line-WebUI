@@ -69,7 +69,8 @@ the rest of the start, `("down", url)` in `asked`). So a stop anywhere leaves a 
 (`test_a_stop_anywhere_leaves_the_change_pending_or_done`). Returns `Renewal` (answers asked, changed, failed, left,
 skipped; the list made, kept or failed; departed files by why: indexed, carried, gone, relisted, zoneless; moved
 files; blocks to read again; requests, bytes and seconds by part) and tells its progress through `say` (`_Ticker`
-every `PROGRESS_SECONDS` while the list is made). Callers: `tools/area_download.py` `_renew` (the first pass of a start), `country._renew` (before a
+every `PROGRESS_SECONDS` while the list is made). Callers: `tools/area_download.py` `_renew` (the passes of a start until its renewal went through, `since` the
+start's time), `country._renew` (after "Start?", before a
 cube's first tile), `update.py` `_list_check`; never a search; never imported by the web process
 (`tests/test_usa_renewal.py`).
 

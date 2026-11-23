@@ -33,10 +33,10 @@ OPR); any other layer is left alone, without a request:
 Nothing fails the caller: it lists and downloads as before with what the index holds then. What it did is returned
 (Renewal: answers asked, changed, failed; the list made, kept or failed and why files left it; requests, bytes,
 seconds) and told through `say` while it runs (the parts of the listing and the answers as counts, every
-PROGRESS_SECONDS), so a listing of minutes never looks like a hang. The callers: tools/area_download.py (the first
-pass of every start of a row), country.py (before a cube's first tile), update.py (`cache update`: the list as a
-check of its own, the answers after cache.TTL_DAYS["usgs-1m-index"]). A search never renews. The web process never
-imports this module.
+PROGRESS_SECONDS), so a listing of minutes never looks like a hang. The callers: tools/area_download.py (the passes
+of every start of a row until its renewal went through, `since` the start's time), country.py (after its "Start?"
+question, before a cube's first tile), update.py (`cache update`: the list as a check of its own, the answers after
+cache.TTL_DAYS["usgs-1m-index"]). A search never renews. The web process never imports this module.
 """
 
 import contextlib
@@ -74,7 +74,7 @@ class Renewal:
     changed: int = 0   # of those, whose listed files changed
     failed: int = 0    # answers whose request failed, or not confirmed, or whose blocks could not be deleted (kept)
     left: int = 0      # answers not asked after FAILED_IN_A_ROW failures in a row (the cached ones kept)
-    skipped: int = 0   # answers another renewal asked meanwhile
+    skipped: int = 0   # answers asked since the renewal's `since` (another renewal, an earlier pass of the start)
     list: str = ""
     departed: int = 0  # files of the list before that the new listing lacked, of which:
     indexed: int = 0   # the index lists them now (carried: those of them kept until their answers hold them)
@@ -94,7 +94,7 @@ class Renewal:
         if self.failed or self.left:
             parts.append(f"{self.failed + self.left:,} kept as cached (failed)")
         if self.skipped:
-            parts.append(f"{self.skipped:,} asked by another process meanwhile")
+            parts.append(f"{self.skipped:,} asked already since the renewal began")
         if self.list:
             parts.append(f"the list of unlisted files {self.list}")
         if self.departed:
@@ -477,16 +477,20 @@ def _settle_carried(layer, cache_dir: str, say: Say, result: Renewal, asked: Set
                                f"until they are)" if result.failed + result.left > failed else ""))
 
 
-def renew(layers: Iterable, grid, cache_dir: str, say: Say = print, asked: Optional[Set[tuple]] = None) -> Renewal:
+def renew(layers: Iterable, grid, cache_dir: str, say: Say = print, asked: Optional[Set[tuple]] = None,
+          since: Optional[str] = None) -> Renewal:
     """Bring the index of an area up to date for the layers that renew (the module's docstring); the others are
     left alone. asked: the (top, prefix, tile) of the answers a caller's renewal asked already (several plans of one
-    start share it). Returns what it did; nothing raises for a failed request."""
+    start share it). since (cache.now_iso's form; now unless given): an answer checked at or after it is not asked
+    (CachedIndex.ask_again), so a download row's later passes of one start, given the start's time
+    (tools/area_download.py), ask only the answers that start has not yet asked successfully. Returns what it did;
+    nothing raises for a failed request."""
     result = Renewal()
     layers = renewing(layers)
     if not layers:
         return result
     asked = set() if asked is None else asked
-    since = cache.now_iso()
+    since = since or cache.now_iso()
     listings = {id(layer): (layer.index.listing, getattr(layer.index.listing, "requests", 0),
                             getattr(layer.index.listing, "bytes", 0)) for layer in layers}
     started = time.monotonic()

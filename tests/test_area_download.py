@@ -308,7 +308,7 @@ def test_the_row_shows_the_renewal_while_it_runs(setup, monkeypatch):
         renews = True
     seen = []
 
-    def renew(layers, grid, cache_dir, say, asked):
+    def renew(layers, grid, cache_dir, say, asked, since=None):
         say("  the index of fake terrain: 1 of 2 answers, 0 changed, 0 failed")
         deadline = time.monotonic() + 60   # until the beat wrote it (a loaded machine: several beats), not a guess
         while not ad.read_state(area.state_dir, "land").get("renewal") and time.monotonic() < deadline:
@@ -321,14 +321,16 @@ def test_the_row_shows_the_renewal_while_it_runs(setup, monkeypatch):
     assert ad.run_pass(area, 1) == ad.EXIT_DONE
     assert seen == ["the index of fake terrain: 1 of 2 answers, 0 changed, 0 failed"]
     state = ad.read_state(area.state_dir, "land")
-    assert state["renewal"] == "" and state["renewed"]["text"].startswith("2 index answers asked again")
+    assert state["renewal"] == "" and state["renewed"]["text"].startswith(
+        "this start: 2 index answers asked in 1 pass, the renewal went through; this pass: 2 index answers asked again")
 
 
 def test_a_restarted_row_asks_the_index_again(tmp_path, monkeypatch, http_server):
-    """Every start of a row (its first pass) asks the USA's index again before the listing, and the list of the
-    bucket's unlisted files (older than 28 days: none yet), on the stand-in TNM index and bucket: a finished row
-    started again after the index gained a project fetches the new blocks and deletes the older ones; a later pass
-    of the same start (after a failure, a memory restart) does not ask again (wave A of the USA, part A-2)."""
+    """Every start of a row asks the USA's index again before the listing, and the list of the bucket's unlisted
+    files (older than 28 days: none yet), on the stand-in TNM index and bucket: a finished row started again after
+    the index gained a project fetches the new blocks and deletes the older ones; a later pass of the same start
+    (after a failure, a memory restart) whose renewal went through in pass 1 asks nothing again, neither an answer
+    nor the bucket (wave A of the USA, part A-2; fix round 2a)."""
     import requests
     from sources.layers import tnmbucket as tb
     from test_sources import _tile_1m
@@ -355,16 +357,97 @@ def test_a_restarted_row_asks_the_index_again(tmp_path, monkeypatch, http_server
     assert state["renewed"]["renewals"][0]["list"] == "made" and state["renewed"]["renewals"][0]["requests"]["answers"]
 
     _tile_1m(tnm, files, "CO_New_2025", 1025, published="2026-01-01")
-    _settle(str(data / "cache"))
     tnm.asked.clear()
-    assert ad.run_pass(area, 2) == ad.EXIT_DONE     # a later pass of the same start
+    bucket = sum(1 for r in http_server.log if r.path == "/")
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE     # a later pass of the same start: its renewal went through
     assert tnm.tile_requests() == {} and sorted(os.listdir(folder)) == first
-    assert ad.read_state(area.state_dir, "utah")["renewed"] == state["renewed"]   # what the start's renewal did
+    assert sum(1 for r in http_server.log if r.path == "/") == bucket   # the list looked at once in the start
+    renewed = ad.read_state(area.state_dir, "utah")["renewed"]
+    assert (renewed["passes"], renewed["asked"], renewed["open"], renewed["through"]) == \
+        (2, state["renewed"]["asked"], 0, True)
+    _settle(str(data / "cache"))
     assert ad.run_pass(area, 1) == ad.EXIT_DONE     # the row started again
     after = sorted(os.listdir(folder))
     assert len(after) == 4 and all(n.startswith("2025_") for n in after) and not set(after) & set(first)
     assert "the list of unlisted files kept" in ad.read_state(area.state_dir, "utah")["renewed"]["text"]
     tb.forget_unlisted()
+
+
+def test_the_passes_of_a_start_renew_until_it_went_through(tmp_path, monkeypatch):
+    """The user's answer of 2026-11-23, "Until one renewal went through": a later pass of a start asks exactly the
+    answers that start has not yet asked successfully (those that failed; those a killed pass never reached), none
+    twice; once all are asked, later passes of the start ask nothing; a new start asks every answer again. The
+    state's "renewed" says what the start asked in all and what is still open."""
+    import requests
+    from sources.indexes.cached import index_tiles
+    from sources.layers import tnmbucket as tb
+    from sources.layers.tnm import TNM_API
+    from test_sources import _tile_1m
+    from test_usa_renewal import Tnm, _grid, _layer, _settle
+
+    class Flaky(Tnm):
+        """The stand-in TNM index with tiles that do not answer (down) and a kill at the n-th tile request."""
+        def __init__(self):
+            super().__init__()
+            self.down, self.kill_at, self.count = set(), None, 0
+
+        def get(self, url, params=None, **kwargs):
+            if str(url).startswith(TNM_API) and params:
+                self.count += 1
+                if self.kill_at == self.count:
+                    raise KeyboardInterrupt()
+                if params["bbox"] in self.down:
+                    raise requests.ConnectionError("the service does not answer")
+            return super().get(url, params=params, **kwargs)
+    monkeypatch.setenv(tb.RENEW_ENV, "off")
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    tnm, files = Flaky(), tmp_path / "files"
+    monkeypatch.setattr(requests, "get", tnm.get)
+    _tile_1m(tnm, files, "CO_Full_2013", 1013)
+    data, state_dir = tmp_path / "data", tmp_path / "state"
+    (data / "cache").mkdir(parents=True)
+    state_dir.mkdir()
+    cache_dir, grid = str(data / "cache"), _grid(460000, 4410000, 30000)
+    tiles = index_tiles(grid)
+    box = {t: f"{t[1]},{t[0]},{t[1] + 0.25},{t[0] + 0.25}" for t in tiles}
+    assert len(tiles) == 4
+    for t in tiles:                                   # the answers cached before this start
+        _layer().index.answers(cache_dir, *t)
+    _settle(cache_dir)
+    area = ad.Area("utah", "osm:Utah", "usa", 1.0, str(data), str(state_dir), min_free_gb=0)
+    monkeypatch.setattr(ad, "plan_of", lambda _: SimpleNamespace(layers=[_layer()], grid=grid,
+                                                                 paths=SimpleNamespace(cache=cache_dir)))
+
+    def renewed():
+        r = ad.read_state(area.state_dir, "utah")["renewed"]
+        return r["passes"], r["asked"], r["open"], r["through"]
+
+    tnm.down = {box[tiles[1]], box[tiles[2]]}         # pass 1: two tiles do not answer
+    tnm.asked.clear()
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert sorted(tnm.tile_requests()) == sorted([box[tiles[0]], box[tiles[3]]]) and renewed() == (1, 2, 2, False)
+    assert "2 still to ask by the next pass" in ad.read_state(area.state_dir, "utah")["renewed"]["text"]
+    tnm.down, tnm.asked = set(), []
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE       # asks only those two
+    assert tnm.tile_requests() == {box[tiles[1]]: 1, box[tiles[2]]: 1} and renewed() == (2, 4, 0, True)
+    for number in (3, 4):                             # went through: nothing more in this start
+        tnm.asked.clear()
+        assert ad.run_pass(area, number) == ad.EXIT_DONE
+        assert tnm.tile_requests() == {} and renewed() == (number, 4, 0, True)
+
+    _settle(cache_dir)                                # a new start, killed at its third answer
+    tnm.asked, tnm.count, tnm.kill_at = [], 0, 3
+    with pytest.raises(KeyboardInterrupt):
+        ad.run_pass(area, 1)
+    assert sorted(tnm.tile_requests()) == sorted([box[tiles[0]], box[tiles[1]]])
+    tnm.asked, tnm.kill_at = [], None
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE       # the rest, not the two asked before the kill
+    assert tnm.tile_requests() == {box[tiles[2]]: 1, box[tiles[3]]: 1} and renewed()[2:] == (0, True)
+
+    _settle(cache_dir)                                # a new start: every answer again
+    tnm.asked.clear()
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert tnm.tile_requests() == {box[t]: 1 for t in tiles} and renewed() == (1, 4, 0, True)
 
 
 def test_many_failures_in_a_row_end_the_pass(setup, monkeypatch):
