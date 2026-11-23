@@ -263,14 +263,18 @@ def _main_output(monkeypatch, capsys, tmp_path, **options) -> str:
 
 
 def test_the_last_lines(monkeypatch, capsys, tmp_path):
-    """A search ends with the command that opens its run, once: also with --html (store U10: accepted for one
-    release, it says it is no longer used and writes nothing) and with --no-html (the app opens such a run too)."""
+    """A search ends with the command that opens its run, once: also with --no-html (the app opens such a run too).
+    --html (accepted for one release by store U10) is gone: the command line refuses it as any unknown option."""
+    import subprocess
     out = _main_output(monkeypatch, capsys, tmp_path)
     assert out.count("findaline.py view 2026-11-17_run") == 1 and "View it: findaline.py view 2026-11-17_run\n" in out
-    out = _main_output(monkeypatch, capsys, tmp_path, html=str(tmp_path / "latest.html"))
-    assert out.count("findaline.py view 2026-11-17_run") == 1, out
-    assert "--html is no longer used: maps open through the app.\nView it: findaline.py view 2026-11-17_run" in out
-    assert not (tmp_path / "latest.html").exists()
+    assert "no longer used" not in out
+    refused = subprocess.run([sys.executable, os.path.join(REPO, "findaline.py"), "--lat", "50.1", "--lon", "19.7",
+                              "--html", str(tmp_path / "latest.html"), "--no-plot", "--yes",
+                              "--data-dir", str(tmp_path / "data")],
+                             capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert refused.returncode == 2 and "unrecognized arguments: --html" in refused.stderr, refused.stderr
+    assert not (tmp_path / "latest.html").exists() and not (tmp_path / "data" / "runs").exists()
     out = _main_output(monkeypatch, capsys, tmp_path, no_html=True)
     assert out.count("View it: findaline.py view 2026-11-17_run") == 1, out
 

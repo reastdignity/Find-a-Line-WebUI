@@ -392,8 +392,6 @@ class CliOptions(BaseModel):
     data_dir: Optional[str] = field(None, "folder holding cache/ (downloaded data), runs/ (saved runs) and "
                                           "work/ (working grids)", "output",
                                     default_text="FINDALINE_DATA, else the folder of the script")
-    html: Optional[str] = field(None, "no longer used (kept for one release): a run opens through the app, and the "
-                                      "search prints the command that opens it (findaline.py view)", "output")
     all_lines: bool = field(False, "list every line instead of one line per group", "output")
     no_plot: bool = field(False, "do not open the matplotlib map", "output")
     yes: bool = field(False, "do not ask for confirmation before long runs", "output", flags=["-y"])

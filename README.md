@@ -423,7 +423,6 @@ The web service publishes its ports on the host's loopback only: the site's (`12
 | `--group-by` | `clearance` | Line shown for each group: `clearance` (largest), `longest` or `height` (highest above the terrain) |
 | `--all-lines` | | List every line instead of one line per group |
 | `--name` | place name from OpenStreetMap | Name of the run |
-| `--html` | | No longer used (kept for one release): a run opens through the app, and the search prints the command that opens it (`findaline.py view <run>`) |
 | `--ortho` | `auto` | Orthophoto tiles for offline use of the map: `auto` asks when they would take more than 30 min (`--yes` downloads them), `always`, or `never` (the map loads them online) |
 | `--no-html` / `--no-plot` | | Skip the interactive map page (the lines are saved all the same: `findaline.py export`) / the matplotlib window |
 | `-y`, `--yes` | | Do not ask for confirmation before long runs |

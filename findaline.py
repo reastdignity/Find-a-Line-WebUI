@@ -128,11 +128,9 @@ def main(params: pm.SearchParams, options: pm.CliOptions, paths: search.Paths):
         sys.exit(str(e))
 
     # A run opens through the app (docs/line-volume/spec-store.md 1.2: no page of the latest run, no index.html
-    # since store wave 4); --html is accepted for one release (store U10) and only says so
+    # since store wave 4; --html, kept for one release by store U10, is gone since line volume's round 7)
     # (a data folder given by --data-dir is named too: `view` would look in the default one)
     view = f"findaline.py view {result.meta['id']}" + (f' --data-dir "{paths.data}"' if options.data_dir else "")
-    if options.html:  # the command once, on the line below
-        print("--html is no longer used: maps open through the app.")
     print(f"View it: {view}")
     if not options.no_plot:
         mp.mapify(shown, plan.area)
