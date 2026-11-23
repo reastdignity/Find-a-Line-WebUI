@@ -12,7 +12,7 @@
 
 /* The header (as c.css's .c-subtop of C's focused pages) */
 .ui .c-result-top { flex: none; display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 16px; background: var(--surface);
-  border-bottom: 1px solid var(--rule); position: relative; z-index: 10; min-width: 0; }
+  border-bottom: 1px solid var(--rule); position: relative; z-index: var(--z-bar); min-width: 0; }
 .ui .c-run-title { display: flex; flex-direction: column; min-width: 0; }
 .ui .c-run-name { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .c-result-top .c-back { flex: none; }
@@ -39,7 +39,7 @@
 /* Phones: the map, the top bar over it and the sheet */
 .ui .c-result-phone { position: relative; overflow: hidden; }
 .ui .c-result-phone .c-col-map { position: absolute; inset: 0; }
-.ui .c-phone-top { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 6; display: flex; gap: 8px; align-items: flex-start; }
+.ui .c-phone-top { position: absolute; top: 10px; left: 10px; right: 10px; z-index: var(--z-frame-bar); display: flex; gap: 8px; align-items: flex-start; }
 .ui .c-phone-top .r-actions { flex-wrap: nowrap; gap: 6px; }
 .ui .c-phone-top .r-actions .u-ib { box-shadow: var(--shadow); }
 .ui .c-pill { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 4px; border-radius: 999px;
@@ -48,6 +48,6 @@
 .ui .c-pill-alone { padding-left: 16px; }
 .ui .c-pill a, .ui .c-pill .u-ib { color: var(--ink-2); }
 .ui .c-pill-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-.ui .c-result-phone .u-sheet { z-index: 7; }
+.ui .c-result-phone .u-sheet { z-index: var(--z-frame-sheet); }
 .ui .c-result-phone .u-sheet-body { display: flex; flex-direction: column; gap: 10px; }
 .ui .c-result-phone .leaflet-top { top: 60px; }

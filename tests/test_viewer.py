@@ -2224,7 +2224,7 @@ console.log(JSON.stringify({{
     assert found["every"] == [0, 0, 0.4, 0.15] and found["first"] == [0, 0, 0.4, 0] and found["none"] == [0, 0, 0, 0]
     assert found["has"] == [True, False, False]
     assert found["warns"] == [True, False, True, False] and found["limit"] == search.FALLBACK_WARN_SHARE
-    assert found["shares"] == "65 % Own (1 m) · 5 % Next · 20 % Coarse (5 m) · 10 % Coarser (10 m)"
+    assert found["shares"] == "65 % Own (1 m); 5 % Next; 20 % Coarse (5 m); 10 % Coarser (10 m)"
     assert found["pct"] == ["97.6", "100", "2.4", "0"]
     assert found["km2"] == ["0.40", "0.019", "under 0.001"]
 
@@ -3607,12 +3607,12 @@ def test_admin_and_doc_pages_css():
 
 # ---- The free CSS on the scales and the tokens (step 3d, group G2; docs/DESIGN.md rows 87 to 91) -------------------
 
-# Not free: line volume's round 6 and today's result page (everything under result/ by folder, so a file round 6 adds
-# there passes; profile.css by name) and today's side panels; in ui/ui.css the shore's and the coarser terrain's block
-# (round 6 edits it), by its rules' selectors. The kit's demo pages (?ui=kit, ?ui=kit-search: developers' pages) keep
-# their own sizes and spacing; their layers and colours are checked.
-NOT_FREE_CSS = ("result/", "profile.css", "ui/sidepanel.css")
-NOT_FREE_RULES = (".u-shore", ".u-coarse")  # a rule left out only when each of its selectors names one of these
+# Not free: today's result page's own files (its page goes: result.css, columns.css, ui/sidepanel.css; the result view
+# borrows parts of them, put on the kit in their components: step 3d G6). Line volume's round 6's files (result/view's
+# own, profile.css) and ui.css's shore and coarser block are checked since G6. The kit's demo pages (?ui=kit,
+# ?ui=kit-search: developers' pages) keep their own sizes and spacing; their layers and colours are checked.
+NOT_FREE_CSS = ("result/view/result.css", "result/view/columns.css", "ui/sidepanel.css")
+NOT_FREE_RULES: tuple = ()  # a rule left out only when each of its selectors names one of these
 DEMO_RULES = (".u-gal-", ".u-stub", ".ui.s-kit")
 RADIUS_KEPT = {"0", "0px", "50%", "999px", "inherit"}  # none, round and full, written out (R6)
 # What is off a scale or the tokens on purpose: (file under viewer/src, the rule's selector, kind, the value; the
@@ -3679,6 +3679,26 @@ OFF_THE_SCALES = {
     ("ui/pages.css", ".ui .p-microsoft", "colour", ""): "Microsoft's button guidelines",
     ("ui/pages.css", ".ui .p-microsoft:hover", "colour", ""): "Microsoft's button guidelines",
     ("coverage/page/page.css", "body.cov-body", "colour", ""): "the page's --bg outside .ui (test_neutrals_copies_in_step)",
+    # the result view and the profile (line volume's round 6; checked since step 3d G6)
+    ("result/view/mapbar.css", ".ui .v-result .v-map .leaflet-control-attribution, .ui .v-result .v-map .leaflet-control-scale",
+     "font", "10px"): "a map's credits and scale: R1's floor for them",
+    ("result/view/mapbar.css", ".ui .v-result .v-map.v-compact .u-credits-toggle, .ui .v-result .v-map.c-card-on .u-credits-toggle",
+     "space", "3px"): "the credits' pill inside their 14 px line (row 130)",
+    ("result/view/mapbar.css", ".ui .v-result .v-map.v-compact .u-credits-toggle, .ui .v-result .v-map.c-card-on .u-credits-toggle",
+     "space", "6px"): "the same pill",
+    ("result/view/view.css", ".ui .c-col-list .vl-body .vl-main, .ui .c-col-list .vl-body .vl-cols", "space", "1px"):
+        "a list under 300 px: its columns' gaps as measured (row 109)",
+    ("result/view/view.css", ".ui .vl-starred .vl-main, .ui .vl-cols.vl-starred", "space", "1px"): "the same on touch (row 109)",
+    ("result/view/view.css", ".ui .vl-main, .ui .vl-cols", "space", "2px"): "a list under 360 px (row 109)",
+    ("result/view/view.css", ".ui .vl-caret", "space", "2px"): "the 16 px icon on the middle of a 20 px line",
+    ("result/view/view.css", ".ui .vl-cols > span > .vl-head", "space", "2px"): "a head's words 2 px above its foot (row 126)",
+    ("result/view/view.css", ".ui .vl-head-1 .u-ic", "space", "2px"): "the sort mark against its word (row 126)",
+    ("result/view/view.css", ".ui .vl-sec > .vl-cols > .vl-cell-acc", "space", "2px"): "on the line of the heads' words",
+    ("result/view/view.css", ".ui .vl-sw.vl-sw-fav", "shadow", ""): "a favourite's dash in the map's gold halo, a drawing",
+    ("result/view/view.css", ".ui .vl-tile.vl-is-tight", "shadow", ""): "the tight tile's 1 px edge (the pilot's look)",
+    ("profile.css", ".ui .r-profile .fal-pill", "space", "1px"): "a pill 20 px high, as the status chips",
+    ("profile.css", ".ui .r-profile .fal-need", "space", "2px"): "the need row in the card's least height (4 px moved a card at each line)",
+    ("profile.css", ".ui .r-profile .fal-sw-terrain", "shadow", ""): "the terrain swatch's edge in the chart's terrain line",
 }
 
 
@@ -3716,7 +3736,7 @@ def _off_the_scales() -> dict:
                 if ui_metrics.CSS_COLOUR.search(value):
                     off(rel, rule, "colour")
                 continue
-            if prop == "z-index" and not re.fullmatch(r"var\(--z-[\w-]+\)", value):
+            if prop == "z-index" and value != "auto" and not re.fullmatch(r"var\(--z-[\w-]+\)", value):
                 off(rel, rule, "z", value)
             if prop == "box-shadow" and value != "none" and not all(
                     re.fullmatch(r"var\(--[\w-]+\)", layer) for layer in ui_metrics._split_top(value, ",")):
@@ -3825,7 +3845,7 @@ def test_profile_label_contrast():
     the card's --surface in both themes, each from its own colour per theme, while the curves keep Profile.tsx's
     PROFILE colours (report defect 4: 2.26:1 and 3.96:1 in the dark theme, 4.04:1 and 4.37:1 in the light one)."""
     path = os.path.join(VIEWER, "src", "profile.css")
-    blocks = _css_blocks(path)
+    blocks = _css_blocks(TOKENS_CSS)  # the labels' colours are tokens since step 3d G6 (DESIGN.md row 135)
     dark = _dark_blocks(blocks)
     names = ("--r-highest-label", "--r-trees-label", "--r-min-label")
     assert len(dark) == 2 and all(d[n] == dark[0][n] for d in dark for n in names)
