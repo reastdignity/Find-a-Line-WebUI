@@ -59,7 +59,7 @@ import cache
 import osm
 
 from . import net
-from .indexes.cached import INDEX_MARGIN_DEG, CachedIndex, DroppedFiles, index_tiles
+from .indexes.cached import CachedIndex, DroppedFiles, index_tiles
 
 # How long a renewal waits for another process making the list (a listing takes about 8 minutes at 4 requests at a
 # time, 33 one at a time): after that it goes on with the list there is
@@ -80,7 +80,9 @@ class Renewal:
     a day old, or the wait for another process ended), "failed", or "" (no layer with a list, or the list off)."""
     asked: int = 0     # answers asked and written
     changed: int = 0   # of those, whose listed files changed
-    failed: int = 0    # answers whose request failed or whose drop was not confirmed (the cached ones kept)
+    failed: int = 0    # answers whose request failed (the cached ones kept; asked again by a later pass)
+    kept: int = 0      # answers the drop rule refused (DroppedFiles: the cached ones kept): asked, as the user decided
+    kept_tiles: List[tuple] = field(default_factory=list)  # their (top, prefix, lat, lon): later passes skip them
     left: int = 0      # answers not asked after FAILED_IN_A_ROW failures in a row (the cached ones kept)
     skipped: int = 0   # answers asked since the renewal's `since` (another renewal, an earlier pass of the start)
     list: str = ""
@@ -97,6 +99,8 @@ class Renewal:
     def text(self) -> str:
         """The renewal in a line."""
         parts = [f"{self.asked:,} index answers asked again, {self.changed:,} changed"]
+        if self.kept:
+            parts.append(f"{self.kept:,} answers kept: the index dropped files that still exist")
         if self.failed or self.left:
             parts.append(f"{self.failed + self.left:,} kept as cached (failed)")
         if self.skipped:
@@ -111,7 +115,8 @@ class Renewal:
             f"{sum(self.bytes.values()) / 1e6:.1f} MB, {total:.0f} s)"
 
     def as_dict(self) -> Dict:
-        return {"asked": self.asked, "changed": self.changed, "failed": self.failed, "left": self.left,
+        return {"asked": self.asked, "changed": self.changed, "failed": self.failed, "kept": self.kept,
+                "kept_tiles": [list(t) for t in self.kept_tiles], "left": self.left,
                 "skipped": self.skipped, "list": self.list, "departed": self.departed, "indexed": self.indexed,
                 "carried": self.carried, "gone": self.gone, "relisted": self.relisted, "zoneless": self.zoneless,
                 "requests": dict(self.requests), "bytes": dict(self.bytes), "seconds": dict(self.seconds)}
@@ -153,14 +158,6 @@ class _Ticker:
                          f"{b['headers'].used:,} header reads so far")
 
 
-def _tiles_of(item: Dict) -> List[Tuple[float, float]]:
-    """The 0.25° index tiles a file's extent reaches (its WGS84 box grown by INDEX_MARGIN_DEG, as the list's)."""
-    from rasterio.warp import transform_bounds
-    west, south, east, north = transform_bounds(item["crs"], "EPSG:4326", *item["extent"], densify_pts=21)
-    m = INDEX_MARGIN_DEG
-    return osm.tiles(west - m, south - m, east + m, north + m)
-
-
 def _tiles_met(item: Dict) -> List[Tuple[float, float]]:
     """The 0.25° index tiles a file's own extent meets (its WGS84 box, no margin): those whose answer holds it, the
     TNM API answering a tile by its own box (every product of the 413 real pages of 2026-11-22 whose box met a
@@ -173,9 +170,9 @@ def _tiles_met(item: Dict) -> List[Tuple[float, float]]:
 
 def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since: str, asked: Set[tuple],
                  result: Renewal, say: Say, what: str):
-    """The answers of these tiles asked again (those not asked by this renewal yet), counted into result. Any failure of
-    one tile but a KeyboardInterrupt (a request, a dropped file not confirmed, a locked database) is that tile's: its
-    cached answer stays, one line. After FAILED_IN_A_ROW requests in a row that did not reach the service (a
+    """The answers of these tiles asked again (those not asked by this renewal yet), counted into result. Any fault of
+    one tile but a KeyboardInterrupt (a request, a locked database) is that tile's failure, and a drop the rule
+    refused (DroppedFiles) is "kept" (asked: the user's answer of 2026-11-24): its cached answer stays, one line. After FAILED_IN_A_ROW requests in a row that did not reach the service (a
     requests.RequestException; not DroppedFiles, not a fault of this machine: those neither add to the streak nor
     end it) the API counts as down for the rest of the start (("down", its URL) in asked): this and every
     later call for it count their tiles as left at once, one line each."""
@@ -196,12 +193,16 @@ def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since:
         asked.add((index.top, index.prefix, (lat, lon)))
         try:
             changed = index.ask_again(cache_dir, lat, lon, since)
+        except DroppedFiles as e:  # the drop rule refused it: asked (the user's answer of 2026-11-24), not failed
+            result.kept += 1
+            result.kept_tiles.append((index.top, index.prefix, lat, lon))
+            print(f"{layer.description}: {e}", flush=True)
+            continue
         except Exception as e:  # noqa: BLE001 (one tile's fault: the rest of the grid is still asked)
             result.failed += 1
-            # Only the service not answering counts toward its being down: a fault of this machine (a block open in
-            # another process, a locked database, the tile's lock) or answers that disagree (DroppedFiles: it did
-            # answer, twice) neither adds to the streak nor ends it
-            if isinstance(e, requests.RequestException) and not isinstance(e, DroppedFiles):
+            # Only the service not answering counts toward its being down: a fault of this machine (a locked
+            # database, the tile's lock) neither adds to the streak nor ends it
+            if isinstance(e, requests.RequestException):
                 in_a_row += 1
             if isinstance(e, requests.RequestException):
                 own, own_type = 0, None
@@ -324,8 +325,7 @@ def _make_list(layer, cache_dir: str, path: str, tmp: str, say: Say, result: Ren
     index = layer.index
     top = index.top
     tb.forget_unlisted()  # the list on disk now, not this process's memo of it
-    old_tiles = tb.list_tiles(cache_dir, top)  # the list in use until now (a snapshot: it stays as it is)
-    old = {item["url"]: item for items in old_tiles.values() for item in items}
+    old = tb.list_items(cache_dir, top)  # the list in use until now (a snapshot: it stays as it is)
     bucket = index.bucket or tb.BUCKET
     started = time.monotonic()
     found: Dict = {}

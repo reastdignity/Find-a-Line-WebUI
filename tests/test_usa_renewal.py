@@ -283,7 +283,7 @@ def test_a_fault_of_one_tile_is_that_tiles(http_server, tmp_path, monkeypatch, r
         return real(self, cache_dir, lat, lon, *args)
     monkeypatch.setattr(CachedIndex, "ask_again", ask_again)
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert (done.failed, done.asked, done.left) == (len(faults), len(tiles) - len(faults), 0)
+    assert (done.failed, done.kept, done.asked, done.left) == (len(faults) - 1, 1, len(tiles) - len(faults), 0)
     monkeypatch.setattr(CachedIndex, "ask_again", lambda *a: (_ for _ in ()).throw(KeyboardInterrupt()))
     with pytest.raises(KeyboardInterrupt):
         renewal.renew([_layer()], grid, cache_dir, lambda text: None)
@@ -405,7 +405,8 @@ def test_a_bad_answer_never_replaces_a_good_one(http_server, tmp_path, monkeypat
     if fault == "short" or times == 1 and fault != "error":
         assert (done.asked, done.failed) == (len(answers), 0)    # asked once more: complete
     else:
-        assert done.failed == len(answers) == 1 and done.asked == 0
+        assert done.failed + done.kept == len(answers) == 1 and done.asked == 0
+        assert done.kept == (fault != "error")                     # a refused drop is kept, an error body failed
     for t, text in answers.items():
         assert sorted(json.loads(text)["sheets"], key=str) == sorted(
             json.loads(open(_layer().index.index_path(cache_dir, *t), encoding="utf-8").read())["sheets"], key=str)
@@ -459,7 +460,7 @@ def test_the_check_of_dropped_files(http_server, tmp_path, monkeypatch, renewing
     monkeypatch.setattr(tb, "file_gone", lambda url: checked.append(url))   # None: not known
     tnm.fault, tnm.times, tnm.url = "dropped", 2, newer
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert (done.failed, checked) == (1, [newer]) and open(path, encoding="utf-8").read() == text
+    assert (done.kept, checked) == (1, [newer]) and open(path, encoding="utf-8").read() == text
     assert "at its URL failed" in capsys.readouterr().out
     monkeypatch.setattr(cached_module, "CHECK_GONE_MAX", 1)
     checked.clear()
@@ -467,7 +468,7 @@ def test_the_check_of_dropped_files(http_server, tmp_path, monkeypatch, renewing
     tnm.fault, tnm.times = "empty", 2                                   # two dropped, more than 1: the first checked
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
     first = min(p["downloadURL"] for p in tnm.products)
-    assert (done.failed, checked) == (1, [first]) and open(path, encoding="utf-8").read() == text
+    assert (done.kept, checked) == (1, [first]) and open(path, encoding="utf-8").read() == text
     _settle(cache_dir)
     tnm.fault, tnm.times = "empty", 2
     layer = _layer()
@@ -526,7 +527,7 @@ def test_a_file_the_index_delists_and_the_bucket_keeps(tmp_path, monkeypatch, re
     tnm.products = [p for p in tnm.products if p["downloadURL"] != u1]          # delisted; the file stays
     _settle(cache_dir)
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert (done.asked, done.failed) == (0, 1)
+    assert (done.asked, done.failed, done.kept) == (0, 0, 1)
     state["list"] = [tile_item(u1, 13, "2026-02-12T17:17:41.000Z")]            # the next listing finds it
     _age(cache_dir, tb.unlisted_path(cache_dir), 29)
     _settle(cache_dir)
@@ -633,13 +634,19 @@ def test_what_a_layer_found_is_forgotten_after_a_raise(tmp_path, monkeypatch, re
     _change(tnm, state, u1, u2, cache_dir, "answer")
     layer = _layer()
     layer.index._listed[("before",)] = ["found before the list"]
-    monkeypatch.setattr(renewal, "_settle_carried", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("locked")))
-    with pytest.raises(RuntimeError):
-        renewal.renew_list(layer, cache_dir, lambda text: None)
+    with monkeypatch.context() as m:
+        m.setattr(renewal, "_settle_carried", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("locked")))
+        with pytest.raises(RuntimeError):
+            renewal.renew_list(layer, cache_dir, lambda text: None)
     assert layer.index._listed == {}
+    # renew's own finally: the list renewed (kept now) without a raise, a Ctrl+C during the answers
     layer.index._listed[("before",)] = ["found before the answers"]
-    monkeypatch.setattr(renewal, "_ask_answers", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("locked")))
-    with pytest.raises(RuntimeError):
+    monkeypatch.setattr(renewal, "_settle_carried", lambda *a, **k: None)
+    monkeypatch.setattr(renewal, "_ask_answers", lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()))
+    real = renewal.renew_list
+    monkeypatch.setattr(renewal, "renew_list", lambda layer, *a, **k: (real(layer, *a, **k),
+                                                                       layer.index._listed.update({("x",): []}))[0])
+    with pytest.raises(KeyboardInterrupt):
         renewal.renew([layer], grid, cache_dir, lambda text: None)
     assert layer.index._listed == {}
 
@@ -1102,7 +1109,7 @@ def test_a_carried_file_stays_while_its_answers_fail(tmp_path, monkeypatch, rene
 def test_only_the_answers_lacking_a_carried_file_are_asked(tmp_path, monkeypatch, renewing):
     """Of the cached answers a file the index lists now reaches, only those lacking its URL are asked again (the
     list's renewal alone, as `cache update` runs it)."""
-    from sources.renewal import _tiles_of
+    from sources.renewal import _tiles_met
     tnm, files = Tnm(), tmp_path / "files"
     monkeypatch.setattr(requests, "get", tnm.get)
     _tile_1m(tnm, files, "CO_Bee_2020", 1001)
@@ -1111,7 +1118,7 @@ def test_only_the_answers_lacking_a_carried_file_are_asked(tmp_path, monkeypatch
     _fake_listing(monkeypatch, state, tnm)
     cache_dir, layer = str(tmp_path / "cache"), _layer()
     renewal.renew_list(layer, cache_dir, lambda text: None)
-    tiles = _tiles_of(state["list"][0])
+    tiles = _tiles_met(state["list"][0])
     assert len(tiles) == 4
     layer.index.answers(cache_dir, *tiles[0])                           # cached before the index listed U1
     layer.index.answers(cache_dir, *tiles[1])

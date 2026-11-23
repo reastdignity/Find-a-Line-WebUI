@@ -719,17 +719,6 @@ def carried_urls(cache_dir: str, top: str = TOP) -> List[str]:
     return [url for url in carried if isinstance(url, str)]
 
 
-def list_tiles(cache_dir: str, top: str = TOP) -> Dict[Tuple[int, int], List[Dict]]:
-    """The list in use now by index tile (unlisted_in_tile's map; the object stays as it is when the list is renewed:
-    a snapshot)."""
-    return _tiles(cache_dir, top)
-
-
-def tile_key(lat: float, lon: float) -> Tuple[int, int]:
-    """The key of a 0.25° index tile in list_tiles' map."""
-    return round(lat / osm.TILE_DEG), round(lon / osm.TILE_DEG)
-
-
 def list_status(cache_dir: str, top: str = TOP) -> str:
     """The list in one line, for `cache status`: its age and files, or the shipped copy in use, and a failed try."""
     path = unlisted_path(cache_dir, top)

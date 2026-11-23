@@ -171,7 +171,8 @@ class CachedIndex(Index):
 
     confirms_drops (the indexes of layers that renew, tnm.TnmBlocks: set per instance): an answer that replaces a
     cached one is checked for dropped files (_fetch): file names (the URL's last part: a file the index lists at
-    another URL is the same file) the cached answer holds that neither the fresh answer nor the tile's extra versions
+    another URL is the same file; also for Alaska's IfSAR, which has no list: the uniqueness of its names rests on
+    the 8 recorded items, the 1 m DEM's on 126,767 names at as many URLs) the cached answer holds that neither the fresh answer nor the tile's extra versions
     (the bucket's unlisted files) hold. Nothing dropped: it is written (an empty answer as
     such is never refused: most tiles hold nothing). Something dropped: asked once more; a second answer that drops
     nothing is written. Else, with check_gone (the 1 m DEM's: tnmbucket.file_gone, a small request per file), it is
@@ -255,13 +256,12 @@ class CachedIndex(Index):
                                + ": the cached answer is kept")
         return again
 
-    def fresh_answer(self, cache_dir: str, lat: float, lon: float) -> Tuple[Optional[List[Dict]], Dict]:
-        """The cached versions of a tile (None without them) and the index's answer now (_fetch), asked under the
-        tile's lock and not written (store writes it): ComposedBlocks.update_tile, where a refused drop raises."""
+    def fresh_answer(self, cache_dir: str, lat: float, lon: float) -> Dict:
+        """The index's answer for a tile now (_fetch, the cached answer read for the drop rule), asked under the tile's
+        lock and not written (store writes it): ComposedBlocks.update_tile, where a refused drop raises."""
         path = self.index_path(cache_dir, lat, lon)
         with tile_lock(cache_dir, path):
-            old = self._cached_sheets(path)
-            return old, self._fetch(cache_dir, lat, lon, old)
+            return self._fetch(cache_dir, lat, lon, self._cached_sheets(path))
 
     def store(self, cache_dir: str, lat: float, lon: float, answer: Dict):
         """An answer (fresh_answer's) written in place of the cached one, under the tile's lock."""
@@ -310,13 +310,6 @@ class CachedIndex(Index):
         """Versions a tile holds besides its cached answer (none here; tnm.UnlistedIndex: the bucket's unlisted
         files), merged in when an answer is read."""
         return []
-
-    def cached_items(self, cache_dir: str, lat: float, lon: float) -> Optional[List[Dict]]:
-        """What answers() gives for a tile whose answer is cached, nothing asked; None without a cached answer."""
-        sheets = self._cached_sheets(self.index_path(cache_dir, lat, lon))
-        if sheets is None:
-            return None
-        return merge_items(sheets, self.extra(cache_dir, lat, lon))
 
     def tiles(self, grid: Grid) -> Optional[list]:
         key = (grid.crs, tuple(grid.bounds), grid.res, self.update)

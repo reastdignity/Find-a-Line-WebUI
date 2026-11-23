@@ -435,8 +435,7 @@ class ComposedBlocks(Versions):
         order its key holds (block_key): read again, and their older files deleted (prune: only once the new one is
         there). The answer is asked through fresh_answer and store, so a refused drop fails the tile
         (DroppedFiles: `cache update` counts it) instead of being read from the cache as a search does."""
-        old, answer = index.fresh_answer(cache_dir, lat, lon)
-        index.store(cache_dir, lat, lon, answer)
+        index.store(cache_dir, lat, lon, index.fresh_answer(cache_dir, lat, lon))
         todo = []
         for path in self._cached_paths(cache_dir):
             block = self._block_of(path)

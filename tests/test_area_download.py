@@ -392,6 +392,71 @@ def test_a_restarted_row_asks_the_index_again(tmp_path, monkeypatch, http_server
     tb.forget_unlisted()
 
 
+def test_a_refused_answer_counts_as_asked(tmp_path, monkeypatch):
+    """The user's answer of 2026-11-24: an index answer the drop rule refused (a file the index dropped still exists:
+    the cached answer kept) counts as asked: a start with one goes through in pass 1, says "1 answers kept", and its
+    later passes do not ask that tile again, also when the start is still open for a failed one; a new start asks it
+    again."""
+    import requests
+    from sources.indexes.cached import index_tiles
+    from sources.layers import tnmbucket as tb
+    from sources.layers.tnm import TNM_API
+    from test_sources import _tile_1m
+    from test_usa_renewal import Response, Tnm, _grid, _layer, _settle
+
+    class Refusing(Tnm):
+        """The stand-in TNM index dropping the file from the answers of the tiles in `refuse` (the file stays) and not
+        answering those in `down`."""
+        def __init__(self):
+            super().__init__()
+            self.refuse, self.down = set(), set()
+
+        def get(self, url, params=None, **kwargs):
+            if str(url).startswith(TNM_API) and params and params["bbox"] in self.down:
+                raise requests.ConnectionError("the service does not answer")
+            response = super().get(url, params=params, **kwargs)
+            if str(url).startswith(TNM_API) and params and params["bbox"] in self.refuse:
+                return Response({"total": 0, "items": []})
+            return response
+    monkeypatch.setenv(tb.RENEW_ENV, "off")
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    tnm, files = Refusing(), tmp_path / "files"
+    monkeypatch.setattr(requests, "get", tnm.get)
+    _tile_1m(tnm, files, "CO_Full_2013", 1013)
+    data, state_dir = tmp_path / "data", tmp_path / "state"
+    (data / "cache").mkdir(parents=True)
+    state_dir.mkdir()
+    cache_dir, grid = str(data / "cache"), _grid(460000, 4410000, 30000)
+    tiles = index_tiles(grid)
+    box = {t: f"{t[1]},{t[0]},{t[1] + 0.25},{t[0] + 0.25}" for t in tiles}
+    for t in tiles:
+        _layer().index.answers(cache_dir, *t)
+    _settle(cache_dir)
+    area = ad.Area("utah", "osm:Utah", "usa", 1.0, str(data), str(state_dir), min_free_gb=0)
+    monkeypatch.setattr(ad, "plan_of", lambda _: SimpleNamespace(layers=[_layer()], grid=grid,
+                                                                 paths=SimpleNamespace(cache=cache_dir)))
+
+    def renewed():
+        r = ad.read_state(area.state_dir, "utah")["renewed"]
+        return r["kept"], r["open"], r["through"]
+
+    tnm.refuse = {box[tiles[1]]}
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert renewed() == (1, 0, True)
+    assert "1 answers kept: the index dropped files that still exist" in ad.read_state(area.state_dir, "utah")[
+        "renewed"]["text"]
+    tnm.asked.clear()
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE and tnm.tile_requests() == {}
+
+    _settle(cache_dir)                                # a new start: the refused tile asked again, another one fails
+    tnm.down, tnm.asked = {box[tiles[2]]}, []
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert box[tiles[1]] in tnm.tile_requests() and renewed() == (1, 1, False)
+    tnm.down, tnm.asked = set(), []
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE       # only the failed one: the refused tile counts as asked
+    assert tnm.tile_requests() == {box[tiles[2]]: 1} and renewed() == (1, 0, True)
+
+
 def test_the_passes_of_a_start_renew_until_it_went_through(tmp_path, monkeypatch):
     """The user's answer of 2026-11-23, "Until one renewal went through": a later pass of a start asks exactly the
     answers that start has not yet asked successfully (those that failed; those a killed pass never reached), none

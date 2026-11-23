@@ -10,10 +10,13 @@ days or weeks, so it survives what happens in that time, and can be followed.
 - Every start of a row (a finished row started again too) asks the index of the layers that renew again before it
   lists (sources/renewal.py: the USA's 1 m DEM with the list of the bucket's unlisted files, Alaska's IfSAR), so a
   file published since is downloaded. The passes of one start renew until the start's renewal went through (the
-  user's answer of 2026-11-23): each index answer under the row asked successfully once and the list looked at once
-  (made, kept, or failed with its day's record). The start's time (the state's "renewal_since", set by pass 1) is
-  handed to each pass's renewal as `since`, so a later pass asks only the answers this start has not yet asked
-  successfully (failed, left after the service was found down, never reached because a pass died), none twice; once
+  user's answer of 2026-11-23): each index answer under the row asked once, successfully or refused by the drop
+  rule (its cached answer kept: counted as asked, the user's answer of 2026-11-24; the state's "renewed" says how
+  many were kept; the next start asks them again), and the list looked at once, whatever the outcome (made, kept, or
+  failed with its day's record: a start never looks at it again). The start's time (the state's "renewal_since",
+  set by pass 1) is handed to each pass's renewal as `since`, so a later pass asks only the answers this start has
+  not yet asked (failed, left after the service was found down, never reached because a pass died; the refused
+  ones, whose cached answer was not written, are skipped by their tiles in "renewed"), none twice; once
   the start's renewal went through, a later pass of it does not call the renewal at all (no request, no lookup, no
   list made in a start's later weeks). Pass 1 writes the state as it begins, so a later pass never takes an older
   start's time. The "down" mark is a pass's own: the next pass may try again.
@@ -551,6 +554,7 @@ def _renew(plans: Sequence, cache_dir: str, reporter: Reporter, number: int = 1)
     before = reporter.state.get("renewed") if since else None
     if before and before.get("since") != since:  # what another start did
         before = None
+    kept_tiles = [list(t) for t in (before or {}).get("kept_tiles", [])]  # [top, prefix, lat, lon]: refused, asked
     if before and before.get("through"):  # the start's renewal went through in an earlier pass: nothing more
         print(f"The index was renewed by an earlier pass of this start: {before.get('text', '')[:200]}", flush=True)
         return
@@ -560,7 +564,7 @@ def _renew(plans: Sequence, cache_dir: str, reporter: Reporter, number: int = 1)
             reporter.state["renewal_since"] = since
             reporter.state.pop("renewed", None)
         reporter.write()
-    asked: set = set()
+    asked: set = {(top, prefix, (lat, lon)) for top, prefix, lat, lon in kept_tiles}
 
     def say(text: str):
         print(text, flush=True)
@@ -573,6 +577,7 @@ def _renew(plans: Sequence, cache_dir: str, reporter: Reporter, number: int = 1)
                 renewed = renewal.renew(plan.layers, plan.grid, cache_dir, say, asked, since)
                 done.append(renewed.text())
                 counts.append(renewed.as_dict())
+                kept_tiles += [list(t) for t in renewed.kept_tiles]
     except Exception as e:  # noqa: BLE001 (a fault of the renewal never stops the download)
         print(f"The index could not be renewed ({type(e).__name__}: {cache.clean_error(e)}); the tiles are listed "
               f"from the answers there are", flush=True)
@@ -582,9 +587,11 @@ def _renew(plans: Sequence, cache_dir: str, reporter: Reporter, number: int = 1)
     # the start asked so far, a killed pass's asks included (they are checked since then too)
     total = sum(c["asked"] + c["skipped"] for c in counts) if counts else (before or {}).get("asked", 0)
     still = sum(c["failed"] + c["left"] for c in counts)
+    kept = len(kept_tiles)
     passes = number
     through = not faulted and not still
     summary = (f"this start: {total:,} index answers asked in {passes} pass{'es' if passes > 1 else ''}, "
+               + (f"{kept:,} answers kept: the index dropped files that still exist, " if kept else "")
                + ("the renewal went through" if through else
                   f"{still:,} still to ask by the next pass" if not faulted else "the next pass tries again"))
     with reporter.lock:
@@ -592,7 +599,7 @@ def _renew(plans: Sequence, cache_dir: str, reporter: Reporter, number: int = 1)
         # the start's totals, this pass's line and its counts by part (requests, bytes, seconds; why files left the
         # list)
         reporter.state["renewed"] = {"at": _now(), "since": since, "passes": passes, "asked": total, "open": still,
-                                     "through": through, "text": f"{summary}; this pass: " + "; ".join(done),
+                                     "kept": kept, "kept_tiles": kept_tiles, "through": through, "text": f"{summary}; this pass: " + "; ".join(done),
                                      "renewals": counts}
 
 
