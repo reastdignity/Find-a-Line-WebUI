@@ -757,8 +757,9 @@ USA_RENEWAL=findaline-usa-renewal
 # place of the interval (systemd.time(7)): every Wednesday at 04:15 of the server's clock, after the backup (03:30 and
 # up to 30 minutes), then a delay of up to 4 hours that systemd fixes per machine (FixedRandomDelay), so the
 # installations do not ask at the same minute and one server keeps its hour. `cache update usa` asks only what is
-# older than 28 days (the user's D3a, "every month", and W3): the list and each answer are renewed every 28 to 35 days,
-# a failed run is tried again a week later. A weekday, so a failure's message reaches the operator on a working day.
+# older than 28 days (the user's D3a, "every month", and W3): what the timer renewed is renewed again at its fifth run,
+# 35 days later, what a search cached or a run by hand renewed at the first run after its 28 days; a failed run is
+# tried again a week later. A weekday, so a failure's message reaches the operator on a working day.
 # A server's own schedule is a drop-in (`systemctl edit`), which update leaves alone.
 USA_RENEWAL_CALENDAR='Wed *-*-* 04:15'
 # The bound of one run: the listing about 10 minutes, a wait for another process's listing 45 at most, then one
@@ -821,6 +822,7 @@ EOF
     if [ "$CHANGED" = 1 ]; then systemctl daemon-reload; fi
     if [ "$first" = 1 ]; then
         if ! systemctl enable -q --now "$USA_RENEWAL.timer"; then
+            rm -f "$marker"   # also one of before (a timer file removed by hand): the next run tries again
             todo "$USA_RENEWAL.timer could not be enabled (journalctl -u $USA_RENEWAL.timer): sudo $DEPLOY/vps.sh update, later"
             return 0
         fi
@@ -828,6 +830,9 @@ EOF
         date -u '+%Y-%m-%dT%H:%M:%SZ' > "$marker"
     fi
     if systemctl is-enabled -q "$USA_RENEWAL.timer"; then
+        # Enabled but stopped (its service was masked at an elapse, then unmasked): started again
+        systemctl is-active -q "$USA_RENEWAL.timer" || systemctl start "$USA_RENEWAL.timer" \
+            || todo "$USA_RENEWAL.timer could not be started (journalctl -u $USA_RENEWAL.timer): sudo $DEPLOY/vps.sh update, later"
         note "$(systemctl list-timers "$USA_RENEWAL.timer" --no-legend | awk '{print "next renewal:", $1, $2, $3}')"
     else
         note "$USA_RENEWAL.timer is off (sudo systemctl enable --now $USA_RENEWAL.timer turns it on)"
@@ -838,17 +843,22 @@ EOF
 # until a run succeeds: the next week, or a start by hand)
 # shellcheck disable=SC2015  # "A && ok || bad": ok never fails
 check_usa_renewal() {
-    case $(systemctl is-enabled "$USA_RENEWAL.timer" 2>/dev/null) in
-        enabled) systemctl is-active -q "$USA_RENEWAL.timer" && ok "$USA_RENEWAL.timer" \
-                     || bad "$USA_RENEWAL.timer is enabled but not active: sudo systemctl start $USA_RENEWAL.timer (section 13)" ;;
-        disabled) if [ -f "$MONITORING_DIR/usa-renewal.enabled" ]; then
-                      note "$USA_RENEWAL.timer: turned off (section 13)"
-                  else
-                      bad "$USA_RENEWAL.timer was installed but never enabled: sudo deploy/vps.sh update (section 13)"
-                  fi ;;
-        masked) note "$USA_RENEWAL.timer: masked by the operator (section 13)" ;;
-        *) bad "$USA_RENEWAL.timer is not installed: sudo deploy/vps.sh update (section 13)" ;;
-    esac
+    # The service masked by the operator: the timer stops at its next elapse, the operator's choice (a note)
+    if [ "$(systemctl is-enabled "$USA_RENEWAL.service" 2>/dev/null)" = masked ]; then
+        note "$USA_RENEWAL.service: masked by the operator (section 13)"
+    else
+        case $(systemctl is-enabled "$USA_RENEWAL.timer" 2>/dev/null) in
+            enabled) systemctl is-active -q "$USA_RENEWAL.timer" && ok "$USA_RENEWAL.timer" \
+                         || bad "$USA_RENEWAL.timer is enabled but not active: sudo systemctl start $USA_RENEWAL.timer (section 13)" ;;
+            disabled) if [ -f "$MONITORING_DIR/usa-renewal.enabled" ]; then
+                          note "$USA_RENEWAL.timer: turned off (section 13)"
+                      else
+                          bad "$USA_RENEWAL.timer was installed but never enabled: sudo deploy/vps.sh update (section 13)"
+                      fi ;;
+            masked) note "$USA_RENEWAL.timer: masked by the operator (section 13)" ;;
+            *) bad "$USA_RENEWAL.timer is not installed: sudo deploy/vps.sh update (section 13)" ;;
+        esac
+    fi
     if systemctl is-failed -q "$USA_RENEWAL.service"; then
         bad "$USA_RENEWAL.service: its last run failed: journalctl -u $USA_RENEWAL.service -n 30 (section 13)"
     fi
