@@ -44,7 +44,9 @@ EDGES = (0.005, 0.05, 0.5, 5.0)  # the histogram's upper edges (metres) after "e
 BINS = ("0", "<= 5 mm", "<= 5 cm", "<= 0.5 m", "<= 5 m", "> 5 m")
 BELOW = (0.0, 10.0)        # default thresholds of the low values (metres)
 MAX_MEMORY_GB = 1.0
-BYTES_PER_PX = 40          # a pixel of a band in flight: two windows as float64, their masks and the differences
+# A pixel of a band in flight: two windows, their masks, the differences as float64 (measured: 42.9 B a pixel for a
+# pair's band of 250 833 px, tracemalloc, 2026-11-23)
+BYTES_PER_PX = 43
 PROGRESS_SECONDS = 30.0
 
 

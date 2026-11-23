@@ -1828,6 +1828,18 @@ def test_wallonia_averaged_cut(tmp_path, monkeypatch):
     for name in ("dtm", "dsm"):
         result = mt.verify("wallonia", str(work), str(out), inputs=str(inputs))[name]
         assert result["ok"] and result["points_compared"] == mt.POINTS * 3, result["problems"]
+        # Besides the random pixels, the blocks where a mean can go wrong, found from the inputs: partly valid ones
+        # (the region's first and last columns on odd half-metres in tiles 0_0 and 2_0, the holes in 0_0) and those
+        # on the seam (tile 1_0 only)
+        edges = {s["tile"]: s for s in result["samples"]}
+        assert set(edges) == {"0_0", "1_0", "2_0"}
+        for key, s in edges.items():
+            assert (s["partial_found"] > 0) == (key != "1_0"), key
+            assert s["partial_chosen"] == min(mt.EDGE_BLOCKS, s["partial_found"]), key
+            assert (s["seam_found"] > 0) == (key == "1_0") and s["seam_chosen"] == min(mt.EDGE_BLOCKS,
+                                                                                       s["seam_found"]), key
+        saved = json.loads((out / "wallonia" / name / "1m" / "verify.json").read_text(encoding="utf-8"))
+        assert saved["samples"] == result["samples"]
     # The averaged indexes (with their two new keys) pass the client's check and the publish tool's verify, and the
     # catalogue's layer reads the means back from the folder as a local mirror
     import mirror_publish as mp
@@ -1856,6 +1868,9 @@ def test_wallonia_averaged_cut(tmp_path, monkeypatch):
     assert all(text.startswith(sentence + ";") and "EPSG:3812" in text and "-9999" in text
                for text in mp.PUBLISHABLE["wallonia"]["changes"].values())
     assert sorted(mp.PUBLISHABLE["wallonia"]["changes"]) == ["dsm/1m", "dtm/1m"]
+    # The card's heading and its not-endorsed sentence are the approved row's
+    row = mp.PUBLISHABLE["wallonia"]
+    assert card.startswith(f"# {row['title']}\n") and card.rstrip().endswith(row["not_endorsed"])
 
 
 def test_wallonia_seam_must_agree(tmp_path, monkeypatch):
@@ -1869,15 +1884,34 @@ def test_wallonia_seam_must_agree(tmp_path, monkeypatch):
     assert mt.final_state(str(out), mt.dataset("wallonia"), mt.dataset("wallonia").products[0]) is None
 
 
-@pytest.mark.parametrize("kind", ["pixel", "shift"])
+def _divided_by_four():
+    """An averaged product's assemble that divides each block's sum by average² whatever its valid count: wrong only
+    in the partly valid blocks (the region's edges, the holes)."""
+    real = mt.assemble
+
+    def assemble(key, product, footprints, handles):
+        fine = real(key, mt.replace(product, res=mt.input_res(product), average=1), footprints,
+                    handles).astype(np.float64)
+        a = product.average
+        blocks = fine.reshape(fine.shape[0] // a, a, fine.shape[1] // a, a)
+        total, count = np.nansum(blocks, axis=(1, 3)), np.isfinite(blocks).sum(axis=(1, 3))
+        return np.where(count > 0, total / (a * a), np.nan).astype(np.float32)
+    return assemble
+
+
+@pytest.mark.parametrize("kind", ["pixel", "shift", "edges"])
 def test_averaged_verify_finds_a_change(tmp_path, monkeypatch, kind):
     """verify of an averaged product: one output pixel 2 cm higher (its tile's sha256 updated) is found by the
     re-assembly; a shift made in assemble (so equal in the cut and in verify's re-assembly) by the pixels read
-    straight from the inputs, each the mean of its block's 0.5 m pixels computed apart."""
+    straight from the inputs, each the mean of its block's 0.5 m pixels computed apart; and so is a mean wrong only
+    in the partly valid blocks (divided by 4 whatever the valid count), which random pixels would almost never meet:
+    verify compares such blocks on purpose."""
     inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
     _wallonia_fetch(inputs, tmp_path)
     if kind == "shift":
         monkeypatch.setattr(mt, "assemble", _buggy("shift"))
+    if kind == "edges":
+        monkeypatch.setattr(mt, "assemble", _divided_by_four())
     mt.cut("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")
     folder = out / "wallonia" / "dtm" / "1m"
     if kind == "pixel":
@@ -1936,6 +1970,150 @@ def test_averaged_assemble_is_exact(tmp_path):
     assert mt._workers(wallonia, 8, 24.0)[0] == 8
     with pytest.raises(ValueError, match=r"too little for one tile of 1 m \(0\.86 GB"):
         mt._workers(wallonia, 8, 0.6)
+
+
+def test_averaged_mean_in_float64(tmp_path):
+    """The mean of an averaged product is taken in float64, then stored as float32: on 0.5 m values of millimetres
+    with holes, every block of the tile assemble returns is the float64 mean of its valid pixels cast to float32,
+    bit for bit (a mean in float32 differs in about a quarter of such blocks)."""
+    rng = np.random.default_rng(7)
+    values = (500 + rng.random((200, 240)) * 2000).round(3).astype(np.float32)
+    values[rng.random(values.shape) < 0.2] = -9999.0
+    path = _tif(tmp_path / "half.tif", values, 2000.0, 2100.0, res=0.5, crs="EPSG:3812", nodata=-9999.0)
+    product = _product([mt.Placed("half.tif")], res=1.0, crs="EPSG:3812", origin=(0.0, 0.0), average=2)
+    with rio.open(path) as h:
+        tile = mt.assemble((1, 1), product, [("half.tif", mt.footprint(str(path), product))], {str(path): h})
+    fine = np.where(values == -9999.0, np.nan, values.astype(np.float64)).reshape(100, 2, 120, 2)
+    count = np.isfinite(fine).sum(axis=(1, 3))
+    with np.errstate(invalid="ignore"):
+        want = (np.nansum(fine, axis=(1, 3)) / count).astype(np.float32)
+    got = tile[1900:2000, 0:120]
+    assert np.array_equal(got, want, equal_nan=True) and (count == 0).any() and ((count > 0) & (count < 4)).any()
+    float32 = (np.nansum(fine.astype(np.float32), axis=(1, 3), dtype=np.float32) / count).astype(np.float32)
+    assert np.sum(float32 != want) > 1000  # the test can tell the two apart
+
+
+# The dataset "pa" of the bit-for-bit proof (local, 2026-11-23): two placed 5 m rasters ("first", -9999 and -999),
+# a terrain and a surface product. Its tiles, indexes and card as the base commit 083af314's tool cut them, before
+# Product.average: each tile's file sha256 and the sha256 of its decoded values (NaN as -1e30), the index's sha256
+# without "created", the same with each tile's sha256 replaced by whether it has data, and the card's
+PA_TILES = {
+    "dtm/0_0": ("fe517ecee5f8cd8d12da484ed410c0f1345bcb069ba5fc284536279dd8ca9f55",
+                "bee428c548acf43a13221e23e54adf21a23d75f89948b19317d80ce6620ad359"),
+    "dtm/0_1": ("39f83b35a50640d3e2ea007ab056f7821073f399d7192a1753e04a0cefe7bf30",
+                "064d46b3c5253037320edd5e98d73266246ea4b6a62eb251513c6e621680147d"),
+    "dtm/1_0": ("5705028d5a9a7628c35691319374c919f9645877f10b8c477d390c1acc1786a5",
+                "54a928896b406ec9cd20391e0649386cd65e9ed721d09da0c5117d519bb2add8"),
+    "dtm/1_1": ("057d250b2d20f1d20f2f0078dd49de59058801612bb24332e714057096bbb187",
+                "47d138919c0840a98db11e0bb49fecd5f9358a3d0e7ad58f595ed04347d10a10"),
+    "dsm/0_0": ("ae8a18a0628235a2498b931145f7fc8313ca796065c542abd0a4021d15eede2f",
+                "98cde57aac26f6c69ebe5db2c125dbf9c022df902320911c5a093a7bdaffdd6d"),
+    "dsm/1_0": ("72e67d2cbf6f20a285978eae2ea61a4aac2446b6e136805d4d73e5103fb10cd8",
+                "fd17ae3187d1fa4fa60aed0142e039559ed816651e7f32c00ca97d4753f4e01e")}
+PA_INDEXES = {"dtm": ("e6de2da8042a235b2256f953f39178d32e15ebd6250f7806f235dc9546988449",
+                      "c2680f7d248fe4e96f11d3bfe8d3c43a5a404497e08b3d9e89aa12dd62ec89f6"),
+              "dsm": ("ae0c83b4c18196d2cf2769f41a2a77b2297b1b2ebcde641b48e4ba458c6fa0c3",
+                      "13de10a197569c34bb4ab5938ac6ed23aa9f2b53cd7f2c3cc25f5585951839de")}
+PA_CARD = "9c4388b5535bf23b6b4de24ae56da831e44b7a767ac8d724d645aa832b2ee9eb"
+
+
+def _proof_heights(shape, seed):
+    rng = np.random.default_rng(seed)
+    return (300 + np.cumsum(rng.normal(0, 0.3, shape), axis=1) + rng.normal(0, 0.05, shape)).astype(np.float32)
+
+
+def test_products_without_a_factor_as_the_base_cut_them(tmp_path, monkeypatch):
+    """Products of before (average 1) are cut as the tool of before Product.average cut them: the dataset "pa"'s
+    decoded tile values, its indexes' content and its card equal the base commit's (pinned above); on Windows, where
+    the pins were taken, every tile file and index byte for byte too (another platform's GDAL may encode the same
+    values into other bytes)."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    a, b = _proof_heights((500, 450), 1), _proof_heights((400, 500), 2)
+    a[:30] = -9999.0
+    b[50:60] = -999.0
+    _tif(inputs / "a.tif", a, 2.5, 2502.5, nodata=-9999.0)
+    _tif(inputs / "b.tif", b, 1502.5, 2002.5)
+    _dataset(monkeypatch, "pa", _product([mt.Placed("a.tif"), mt.Placed("b.tif")], nodata=(-999.0,)),
+             _product([mt.Placed("b.tif")], "dsm", sea=0.0, floor=-1.0))
+    mt.cut("pa", str(work), str(out), inputs=str(inputs), threads=4)
+    for name in ("dtm", "dsm"):
+        folder = out / "pa" / name / "5m"
+        index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+        index.pop("created")
+        exact = hashlib.sha256(json.dumps(index).encode()).hexdigest()
+        shape_only = dict(index, tiles={k: v is not None for k, v in index["tiles"].items()})
+        assert hashlib.sha256(json.dumps(shape_only).encode()).hexdigest() == PA_INDEXES[name][1], name
+        assert sorted(f"{name}/{k}" for k, v in index["tiles"].items() if v) == sorted(
+            k for k in PA_TILES if k.startswith(name + "/"))
+        for key, sha in index["tiles"].items():
+            if sha is None:
+                continue
+            path = folder / src.grid_tile_name(*map(int, key.split("_")))
+            with rio.open(path) as t:
+                values = t.read(1)
+            decoded = np.where(np.isnan(values), np.float32(-1e30), values).astype(np.float32).tobytes()
+            assert hashlib.sha256(decoded).hexdigest() == PA_TILES[f"{name}/{key}"][1], key
+            if os.name == "nt":
+                assert hashlib.sha256(path.read_bytes()).hexdigest() == PA_TILES[f"{name}/{key}"][0], key
+        if os.name == "nt":
+            assert exact == PA_INDEXES[name][0], name
+    assert hashlib.sha256((out / "pa" / "README.md").read_bytes()).hexdigest() == PA_CARD
+
+
+def _two_rows(inputs):
+    """An averaged product over two rows and two columns of tiles: 0.5 m inputs from x 1500.5 to 2100.5 and y 1400 to
+    2600 (tiles 0_0, 1_0, 0_1, 1_1), with holes."""
+    values = _heights((2400, 1200), 11).astype(np.float32)
+    values[100:140, 300:301] = -9999.0
+    _tif(inputs / "two.tif", values, 1500.5, 2600.0, res=0.5, crs="EPSG:3812", nodata=-9999.0)
+    return _product([mt.Placed("two.tif")], res=1.0, crs="EPSG:3812", origin=(0.0, 0.0), nodata=(-9999.0,),
+                    average=2)
+
+
+def test_averaged_cut_restarts(tmp_path, monkeypatch):
+    """An averaged cut stopped after a row of tiles and one staged tile's bytes spoiled: the next run keeps the good
+    tiles of its journal, cuts the spoiled one and the rest again, and ends with the index and tiles of a cut in one
+    go; verify passes. The footprint cache knows the factor (a state of the same file at average 1 is no state)."""
+    inputs = tmp_path / "in"
+    product = _two_rows(inputs)
+    _dataset(monkeypatch, "rs", product)
+    ds = mt.dataset("rs")
+    assert mt.cut("rs", str(tmp_path / "w1"), str(tmp_path / "m1"), inputs=str(inputs)) == {"dtm": "cut"}
+    whole, _ = _tiles(tmp_path / "m1", ds)
+    work, out = tmp_path / "w2", tmp_path / "m2"
+    assert mt.cut("rs", str(work), str(out), inputs=str(inputs), rows_limit=1) == {"dtm": "stopped"}
+    staging = work / "staging" / "rs" / "dtm" / "1m"
+    staged = sorted(staging.rglob("*.tif"))
+    assert len(staged) == 2  # the top row: tiles 0_1 and 1_1
+    data = bytearray(staged[0].read_bytes())
+    data[-1] ^= 0xFF
+    staged[0].write_bytes(bytes(data))
+    assert mt.cut("rs", str(work), str(out), inputs=str(inputs)) == {"dtm": "cut"}
+    again, index = _tiles(out, ds)
+    assert set(again) == set(whole) == {"0_0", "1_0", "0_1", "1_1"} and index["average"] == 2
+    for key in whole:
+        assert np.array_equal(again[key], whole[key], equal_nan=True), key
+    assert mt.verify("rs", str(work), str(out), inputs=str(inputs))["dtm"]["ok"]
+    raster = mt.resolve(product, str(work), str(inputs)).rasters[0]
+    assert mt.State._stamp(raster, product) == mt.State._stamp(raster, mt.replace(product, average=1)) + ":x2"
+
+
+def test_averaged_tiled_copy_at_the_input_pixel(tmp_path, monkeypatch):
+    """Whether a raster of full-width strips gets a tiled copy is decided on the inputs' pixel: a row of 2 km tiles
+    at 0.5 m is 4000 rows, twice the rows at 1 m. Strips 3000 px wide under a 0.4 GB bound (GDAL's cache 64 MB): one
+    row of 0.5 m tiles (48 MB) does not fit in half of it, one of 1 m tiles (24 MB) would; extract makes the copy."""
+    inputs, work = tmp_path / "in", tmp_path / "work"
+    _tif(inputs / "wide.tif", _heights((40, 3000), 12), 1000.0, 2100.0, res=0.5, crs="EPSG:3812", strips=True)
+    product = _product([mt.Placed("wide.tif")], res=1.0, crs="EPSG:3812", origin=(0.0, 0.0), average=2)
+    cache_bytes = mt._budget(0.4)[0]
+    assert mt.tile_px(0.5) * 3000 * 4 > cache_bytes // 2 >= mt.tile_px(1.0) * 3000 * 4
+    raster = mt.resolve(product, str(work), str(inputs)).rasters[0]
+    assert mt.readable(raster, str(work), product.res, 0.4) == raster.path  # at 1 m it would read the strips
+    _dataset(monkeypatch, "tc", product)
+    mt.extract("tc", str(work), str(inputs), max_memory_gb=0.4)
+    copies = list((work / "tiled").glob("wide-*.tif"))
+    assert len(copies) == 1
+    assert mt.readable(raster, str(work), mt.input_res(product), 0.4) == str(copies[0])
 
 
 def test_products_of_before_keep_their_rule():
