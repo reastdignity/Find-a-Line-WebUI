@@ -581,8 +581,10 @@ the pass and giving it back: docs/performance.md, "The check of cached tiles"; e
 index of each plan's layers that renew again before the listing until the start's renewal went through (`_renew`:
 `sources/renewal.py` with the start's time, the state's `renewal_since` set by pass 1, as `since`, so a later pass
 asks only the answers the start has not yet asked successfully; the state's `renewal` the row's text while it runs
-and `renewed` the start's totals, `passes`, `asked`, `open`, `through`, carried by `Reporter` to the start's later
-passes; a failure of it never a stop), inside
+and `renewed` the start's totals, `passes` (the pass's number), `asked` (this pass's asked and skipped), `open`,
+`through`, carried by `Reporter` to the start's later passes, which once it went through do not call the renewal;
+pass 1 writes the state as it begins, so no later pass takes an older start's time; a failure of it never a stop),
+inside
 its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
 planning (Denmark's key, an unknown outline) is a `Stop` with its text; the window layers' groups are
 `country.PREFETCH_GROUP_M` times the finest native resolution of the plan's grouped layers (`_group_m`: a group's
