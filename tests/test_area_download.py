@@ -280,6 +280,56 @@ def test_index_out_of_reach_is_no_success(setup):
     assert "could not be reached" in state["message"] and state["stage"] != "done"
 
 
+def test_a_row_without_tnm_data_is_not_renewed(setup):
+    """A source whose layers do not renew (sources/renewal.py: only the TNM datasets do): the first pass of a start
+    asks nothing more than before and notes no renewal."""
+    area = setup(FakeLayer(3))
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    state = ad.read_state(area.state_dir, "land")
+    assert "renewed" not in state and not state.get("renewal")
+
+
+def test_a_restarted_row_asks_the_index_again(tmp_path, monkeypatch, http_server):
+    """Every start of a row (its first pass) asks the USA's index again before the listing, and the list of the
+    bucket's unlisted files (older than 28 days: none yet), on the stand-in TNM index and bucket: a finished row
+    started again after the index gained a project fetches the new blocks and deletes the older ones; a later pass
+    of the same start (after a failure, a memory restart) does not ask again (wave A of the USA, part A-2)."""
+    import requests
+    from sources.layers import tnmbucket as tb
+    from test_sources import _tile_1m
+    from test_usa_renewal import FAR, Tnm, _bucket, _grid, _layer, _settle
+    monkeypatch.setenv(tb.RENEW_ENV, "")
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    monkeypatch.setattr(tb, "MAX_UNLISTED_SHARE", 1.0)
+    tb.forget_unlisted()
+    tnm, files = Tnm(), tmp_path / "files"
+    monkeypatch.setattr(requests, "get", tnm.get)
+    _tile_1m(tnm, files, "CO_Full_2013", 1013)
+    _bucket(http_server, tnm, [FAR])
+    data, state_dir = tmp_path / "data", tmp_path / "state"
+    (data / "cache").mkdir(parents=True)
+    state_dir.mkdir()
+    area = ad.Area("utah", "osm:Utah", "usa", 1.0, str(data), str(state_dir), min_free_gb=0)
+    monkeypatch.setattr(ad, "plan_of", lambda _: SimpleNamespace(
+        layers=[_layer(http_server.base)], grid=_grid(), paths=SimpleNamespace(cache=str(data / "cache"))))
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    folder = data / "cache" / "usa" / "test1m" / "epsg26913" / "47_442"
+    first = sorted(os.listdir(folder))
+    state = ad.read_state(area.state_dir, "utah")
+    assert len(first) == 4 and state["renewal"] == "" and "the list of unlisted files made" in state["renewed"]["text"]
+
+    _tile_1m(tnm, files, "CO_New_2025", 1025, published="2026-01-01")
+    _settle(str(data / "cache"))
+    tnm.asked.clear()
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE     # a later pass of the same start
+    assert tnm.tile_requests() == {} and sorted(os.listdir(folder)) == first
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE     # the row started again
+    after = sorted(os.listdir(folder))
+    assert len(after) == 4 and all(n.startswith("2025_") for n in after) and not set(after) & set(first)
+    assert "the list of unlisted files kept" in ad.read_state(area.state_dir, "utah")["renewed"]["text"]
+    tb.forget_unlisted()
+
+
 def test_many_failures_in_a_row_end_the_pass(setup, monkeypatch):
     """A share or a service that went away: no tile can be written, so the rest is not tried tile by tile."""
     monkeypatch.setattr(ad, "FAILURES_IN_A_ROW", 3)

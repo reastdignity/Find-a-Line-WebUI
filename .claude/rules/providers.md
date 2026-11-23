@@ -71,7 +71,9 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   answer is read (the cached answer never rewritten; a file in both once, by its URL; both through `tnm.tile_item`,
   so a block's key does not depend on which listing named a file). Where none is cached the shipped
   `sources/catalogue/usa_unlisted_1m.json` is read: remade by `tools/usa_unlisted.py` before a release, never by hand;
-  the tests keep it off (`FINDALINE_USA_UNLISTED_SHIPPED=off`, conftest). Texts printed to the console stay in cp1250
+  the tests keep it off (`FINDALINE_USA_UNLISTED_SHIPPED=off`, conftest). `sources/renewal.py` makes the list (over 28
+  days old) and asks the answers again at a row's start and a cube's first tile; a test that lets it list serves the
+  bucket itself (`FINDALINE_USA_UNLISTED_RENEW=off` in conftest). Texts printed to the console stay in cp1250
   (a Windows console):
   "1/3 arc-second", not ″, in names, descriptions and notes.
 - **Saarland and British Columbia** (batch 4): LVGL's DGM1 and DOM1 hold patches at 0 m whose rims fall from the

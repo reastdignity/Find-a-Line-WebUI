@@ -254,6 +254,22 @@ def test_resume(env, full):
     _assert_same_cube(_cube(data), full["reference"])
 
 
+def test_only_a_cubes_first_start_renews(env, monkeypatch):
+    """The index is asked again (country._renew, sources/renewal.py) before the cube's first tile only: a run that
+    resumes does not renew (one cube, one state of the data), --redo starts the cube anew and does."""
+    import country
+    calls = []
+    monkeypatch.setattr(country, "_renew", lambda c, plans, folder, state, say: calls.append(sorted(plans)))
+    data = _data_dir(env, "renewal")
+    run = ["run", ID, "--data-dir", data, "--processes", "0", "--bands", "S", "--yes"]
+    assert _country(*run, "--max-tiles", "1") == 0
+    assert calls == [["C", "M", "S"]]
+    assert _country(*run, "--max-tiles", "1") == 0
+    assert len(calls) == 1
+    assert _country(*run, "--max-tiles", "0", "--redo") == 0
+    assert len(calls) == 2
+
+
 def test_two_processes(env, full):
     """Two worker processes: the same cube, each with its log."""
     data = _data_dir(env, "two")

@@ -16,7 +16,8 @@ in count mode (search.count_tile) into a countcube.TileCounter, the counts saved
 (countcube.save_tile). A tile is the unit of work and of resuming: the manifest (manifest.sqlite,
 one row per band and tile) says which are pending, running, done or failed; `run` starts worker
 processes that claim tiles from it one at a time, so an interrupted run goes on where it stopped,
-and the results never depend on the number of processes or on resuming.
+and the results never depend on the number of processes or on resuming. Before a cube's first tile
+(and only then) the index of the layers that renew is asked again (_renew, sources/renewal.py).
 
 Data (all under <data>/countries/<id>/, nothing else of the data folder changes but the cache and
 the tiles' work folders <data>/work/country-<id>/<band>-<name>/):
@@ -849,6 +850,12 @@ class Manifest:
             return self.db.execute("SELECT * FROM tiles WHERE band = ? ORDER BY rowid", (band,)).fetchall()
         finally:
             self.db.row_factory = None
+
+    def started(self) -> bool:
+        """Whether a tile of the cube was ever claimed (any band: done, failed or running, or pending after an
+        attempt): the count of the cube has begun, and a run goes on with the data of its start (_renew)."""
+        return self.db.execute("SELECT 1 FROM tiles WHERE status != 'pending' OR attempts > 0 LIMIT 1").fetchone() \
+            is not None
 
     def counts(self) -> Dict[str, Dict[str, int]]:
         """Tiles per band and status."""
@@ -1753,6 +1760,40 @@ def _requeue_border_tiles(manifest: Manifest, country: Country, plans: Dict, ban
     return total
 
 
+def _renew(country: Country, plans: Dict, folder: str, state: Dict, say):
+    """The index of the country asked again before the cube's first tile (sources/renewal.py; the user's choice of
+    2026-11-22: `country run` renews, D3b: on every start): the layers of the bands' plans that renew and of the
+    source's fall-backs (Alaska's IfSAR under `alaska`: its blocks are read by the tiles themselves). A count that
+    resumes never renews: one cube, one state of the data (a counted cube is renewed by --redo, which starts it
+    anew). The time and the counts go into country.json as a note ("index_renewed"); the config hash and the tiles'
+    meta do not change, so cubes counted before keep theirs. Nothing of it stops the run."""
+    import sources as src
+    from sources import renewal
+    source = src.SOURCES.get(country.source)
+    fallbacks = []
+    if source is not None:
+        for fid in (source.fallback, *(getattr(source, "more_fallbacks", ()) or ()), source.instead_without_data):
+            other = src.SOURCES.get(fid or "")
+            if other is not None:
+                fallbacks += [other.nmt, other.nmpt]
+    first = next(iter(plans.values()))
+    if not renewal.renewing([layer for plan in plans.values() for layer in plan.layers] + fallbacks):
+        return
+    asked: set = set()
+    done = []
+    try:
+        for plan in plans.values():
+            if renewal.renewing(plan.layers):
+                done.append(renewal.renew(plan.layers, plan.grid, plan.paths.cache, say, asked))
+        if renewal.renewing(fallbacks):
+            done.append(renewal.renew(fallbacks, first.grid, first.paths.cache, say, asked))
+    except Exception as e:  # noqa: BLE001 (a fault of the renewal never stops the count)
+        say(f"WARNING: the index could not be renewed ({type(e).__name__}: {cache.clean_error(e)}): the tiles read "
+            f"the answers there are")
+    state["index_renewed"] = {"at": _now(), "renewals": [r.as_dict() for r in done]}
+    _write_json(os.path.join(folder, "country.json"), state)
+
+
 def _check_reach(country: Country):
     """The run's one start check (docs/mirror-hosting/spec.md C.3), in the main process before the band plans:
     the country's own source must answer (the project's data server: choose.source_unreachable), or the run
@@ -1801,6 +1842,8 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
                 largest = max(largest, max(t.grid.width * t.grid.height for t in tiles))
                 disk = max(disk, max(t.grid.width * t.grid.height for t in tiles)
                            * _disk_bytes(plans[band.name], across=not country.study))
+        if not manifest.started():
+            _renew(country, plans, folder, state, say)
         stale = manifest.release_running()
         if stale:
             say(f"{stale} tiles of an interrupted run are pending again")

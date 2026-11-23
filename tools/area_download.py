@@ -7,6 +7,9 @@ days or weeks, so it survives what happens in that time, and can be followed.
   that could not be reached is remembered as None by sources.indexes.cached.CachedIndex.tiles, which would skip the
   whole layer) ends with it. A pass that did not finish is followed by another after RETRY_SECONDS, and what is
   cached stays: restarting costs the listing only.
+- The first pass of every start of a row (a finished row started again too) asks the index of the layers that renew
+  again before it lists (sources/renewal.py: the USA's 1 m DEM with the list of the bucket's unlisted files, Alaska's
+  IfSAR), so a file published since is downloaded; the passes after it in the same start do not.
 - A pass downloads the source's layers and, where the catalogue names one (Source.instead_without_data: alaska and
   alaska_ifsar), the stand-in's too. The window layers' groups hold the same pixels whatever the files' resolution
   (country.PREFETCH_GROUP_M at 1 m, half that for 0.5 m files), and a pass over --max-memory-gb (a quarter of the
@@ -518,6 +521,35 @@ def _planned(area: Area) -> List:
         raise Stop(f"the download could not be planned: {cache.clean_error(e)}") from e
 
 
+def _renew(plans: Sequence, cache_dir: str, reporter: Reporter):
+    """The index of the area asked again before the listing (sources/renewal.py; the user's D3b of 2026-11-22: on
+    every start of a row, so a file the service published since is downloaded): each plan's layers that renew (the
+    TNM datasets: the USA's 1 m DEM with its list of unlisted files, Alaska's IfSAR for the stand-in), the others
+    untouched. What it says goes to the log and, as the row's text while it runs, to the state ("renewal"); what it
+    did into the state ("renewed"). Nothing of it stops the pass: it lists from the answers there are then."""
+    from sources import renewal
+    if not any(renewal.renewing(plan.layers) for plan in plans):
+        return
+    asked: set = set()
+
+    def say(text: str):
+        print(text, flush=True)
+        with reporter.lock:
+            reporter.state["renewal"] = " ".join(text.split())[:160]
+    done = []
+    try:
+        for plan in plans:
+            if renewal.renewing(plan.layers):
+                done.append(renewal.renew(plan.layers, plan.grid, cache_dir, say, asked).text())
+    except Exception as e:  # noqa: BLE001 (a fault of the renewal never stops the download)
+        print(f"The index could not be renewed ({type(e).__name__}: {cache.clean_error(e)}); the tiles are listed "
+              f"from the answers there are", flush=True)
+        done.append(f"failed: {cache.clean_error(e)[:200]}")
+    with reporter.lock:
+        reporter.state["renewal"] = ""
+        reporter.state["renewed"] = {"at": _now(), "text": "; ".join(done)}
+
+
 def run_pass(area: Area, number: int) -> int:
     """One pass over everything still missing: EXIT_DONE, EXIT_FAILED, EXIT_STOPPED, EXIT_RESTART or EXIT_NOTHING.
 
@@ -554,6 +586,8 @@ def _one_pass(area: Area, number: int) -> int:
             plans = _planned(area)
             reporter.plans = plans
             labels = _labels(area, plans)
+            if number == 1:   # every start of the row (a pass after a failure or a memory restart: not again)
+                _renew(plans, cache_dir, reporter)
             rows = []
             for plan, plan_labels in zip(plans, labels):
                 grid = plan.grid
@@ -891,7 +925,8 @@ def summary(state: Dict, history: Sequence[Tuple[float, float, float]], now: flo
             "index_done": state.get("index_done"), "index_total": state.get("index_total"), "stale": stale,
             "updated": updated, "pass": state.get("pass"), "source": state.get("source", ""),
             "restarts": state.get("restarts", 0), "memory_gb": state.get("memory_gb"),
-            "memory_peak_gb": state.get("memory_peak_gb"), "missing": state.get("tiles_missing", 0)}
+            "memory_peak_gb": state.get("memory_peak_gb"), "missing": state.get("tiles_missing", 0),
+            "renewal": state.get("renewal", "")}
 
 
 def duration(seconds: Optional[float]) -> str:

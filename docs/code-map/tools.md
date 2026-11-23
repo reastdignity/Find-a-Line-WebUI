@@ -576,7 +576,10 @@ the process, which would skip the whole layer: a pass names that a failure). A p
 over both: `Reporter.next_plan`; a pass asks each layer's `to_download` for its counts and hands the first plan's
 answers to `download_layers(listed=)`, so the source's own layers are asked once (a stand-in's ask again before
 their download, hours later), and asks about the files by folder, `run_pass` setting `sources.layer.EXISTING` for
-the pass and giving it back: docs/performance.md, "The check of cached tiles"), inside its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
+the pass and giving it back: docs/performance.md, "The check of cached tiles"; the first pass of a start, and
+only it, asks the index of each plan's layers that renew again before the listing, `_renew`: `sources/renewal.py`,
+the state's `renewal` the row's text while it runs and `renewed` what it did, a failure of it never a stop), inside
+its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
 planning (Denmark's key, an unknown outline) is a `Stop` with its text; the window layers' groups are
 `country.PREFETCH_GROUP_M` times the finest native resolution of the plan's grouped layers (`_group_m`: a group's
 window is read on the files' own pixels, whatever the grid's; Luxembourg's and Scotland's 0.5 m float64 files at the
@@ -608,7 +611,8 @@ outline in the state folder, never in `countries/` (`country._partition` would t
 outline); `status [--watch S]`, `stop <name>`, `<state>/status.html` (one page for every area of the folder, from
 disk), `<name>.state.json`, `.history.csv`, `.log`. On a network share: the data folder local (SQLite's WAL does not
 work over a share) and the tile folders symbolic links to it; `tui --settings <file>` the window below;
-`tests/test_area_download.py`
+`tests/test_area_download.py`; the window's Start says which rows ask USGS's index again (`area_rows.renews`) and
+a row in a renewal shows its text (`state_text`)
 
 The queue (`run --queue <key>`, `Area.queue`; the window passes the source of a row whose source has parts): the
 areas of one key download one at a time, in the order their supervisors were started. Before each pass a supervisor

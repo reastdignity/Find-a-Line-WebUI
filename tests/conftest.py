@@ -19,6 +19,9 @@ for _name in ("PYTHONIOENCODING", "PYTHONUTF8"):
 os.environ["FINDALINE_MIRROR_URL"] = "off"  # no test asks the project's data server (a test may set a local one)
 # No test merges the shipped list of the USA's unlisted 1 m files (real URLs) into its answers; its own tests set it
 os.environ["FINDALINE_USA_UNLISTED_SHIPPED"] = "off"
+# No renewal (sources/renewal.py) lists USGS's bucket and index (the real addresses): a test that wants the list made
+# sets "" and serves both itself
+os.environ["FINDALINE_USA_UNLISTED_RENEW"] = "off"
 
 
 @pytest.fixture

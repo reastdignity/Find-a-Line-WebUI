@@ -47,7 +47,7 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   (INEGI's JSON per sheet) is skipped by `update.py` and by record_answers' generic test (`tests/test_parts.py`
   `ANSWER_CASES` leave out "sheets" and "projects" cases): each brings its own update path and test.
 - The USA's 1 m DEM: TNM answers plus the bucket's files they lack (`tnmbucket.py`), merged on read
-  (`tnm.UnlistedIndex`; one item maker); its shipped list only by `tools/usa_unlisted.py` (providers.md).
+  (`tnm.UnlistedIndex`); shipped list only by `tools/usa_unlisted.py`. Only `renewal.py` renews (no search).
 - The cache's tile encoding: `sources.layer._write_tile`'s profile (LERC_ZSTD within `MAX_Z_ERROR`), `old_encoding`
   (what counts as written before it), `Download.fetch` (a provider's one-band float file is written through it after
   its sha256 check; integer files, NASADEM and the water mask, as they came), the mirror's tiles (`tools/sk_tiles.py`

@@ -284,6 +284,18 @@ def slow_note(row: Row) -> Optional[str]:
             f"nothing of it is done before all of it. Its {group.called} are rows of their own.")
 
 
+def renews(row: Row) -> bool:
+    """Whether a row's start asks its index again before listing (sources/renewal.py: the layers of its source, or of
+    its stand-in, that renew; tools/area_download.py's first pass)."""
+    import sources as src
+    from sources.renewal import renewing
+    source = src.SOURCES.get(row.source)
+    if source is None:
+        return False
+    stand_in = src.SOURCES.get(source.instead_without_data or "")
+    return bool(renewing([source.nmt, source.nmpt] + ([stand_in.nmt, stand_in.nmpt] if stand_in else [])))
+
+
 def _country_of(title: str) -> Tuple[str, str]:
     """An extra row's country and label from its title: "United States: Utah" is in the United States as Utah, a
     known country's (or territory's) title the whole country (or the territory), any other title its own country."""
