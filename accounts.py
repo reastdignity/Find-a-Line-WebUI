@@ -154,8 +154,13 @@ class Accounts:
         db = self._db()
         try:
             cache.migrate(db, MIGRATIONS)
-            if settings.signup == "open":  # no one waits once sign-ups are open (blocked accounts stay blocked)
+            # No one waits once sign-ups are open (blocked accounts stay blocked); the ids go to the
+            # audit log (web.create_app), so which accounts the switch approved stays known
+            self.approved_at_start: List[int] = []
+            if settings.signup == "open":
                 with db:
+                    self.approved_at_start = [row[0] for row in db.execute(
+                        "SELECT id FROM users WHERE status = 'pending' ORDER BY id").fetchall()]
                     db.execute("UPDATE users SET status = 'approved' WHERE status = 'pending'")
         finally:
             db.close()

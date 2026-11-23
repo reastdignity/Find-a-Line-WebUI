@@ -968,6 +968,9 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         if audit is not None:
             audit.log(action, user.id if user else None, None if target is None else str(target), detail)
 
+    for approved in (users.approved_at_start if users else []):  # FINDALINE_SIGNUP=open approved them (accounts.py)
+        record("user_status", None, approved, {"status": "approved", "was": "pending", "signup": "open"})
+
     refusals: Dict[tuple, list] = {}  # (user id, kind) -> [start of its window, refusals not recorded]
     refusals_lock = threading.Lock()
 

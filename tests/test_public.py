@@ -479,7 +479,12 @@ def test_signup_modes_and_login_rate(tmp_path, settings, account_settings, provi
     db = sqlite3.connect(tmp_path / "open" / "accounts.sqlite")
     assert dict(db.execute("SELECT subject, status FROM users").fetchall()) == {
         "1": "approved", "3": "approved", "4": "approved", "5": "blocked"}
+    import audit
+    dave = db.execute("SELECT id FROM users WHERE subject = '4'").fetchone()[0]
     db.close()
+    rows = [(e["user_id"], e["target"], e["detail"]) for e in audit.Audit(str(tmp_path / "open")).entries()
+            if e["action"] == "user_status"]
+    assert rows == [(None, str(dave), {"status": "approved", "was": "pending", "signup": "open"})]
     closed = account_settings.model_copy(update={"signup": "closed"})
     with TestClient(_public_app(tmp_path / "closed", settings, closed, providers), base_url=URL) as client:
         answer = sign_in(client, providers, {"id": 3, "login": "carol"})
