@@ -278,7 +278,7 @@ def test_the_count_guard_heals_after_a_real_shrink(http_server, tmp_path, monkey
     record = tb.refused_path(cache_dir)
     t0 = datetime(2026, 11, 23, 8, 0, tzinfo=timezone.utc)
     clock = [t0]
-    monkeypatch.setattr(tb, "_clock", lambda: clock[0])
+    monkeypatch.setattr(tb, "_utc_now", lambda: clock[0])
     run = lambda: tb.make_unlisted(cache_dir, bucket=http_server.base, api=http_server.url(API_PATH),  # noqa: E731
                                    regions=[(-125.0, 24.0, -66.0, 50.0)], log=lambda text: None)
     with pytest.raises(IndexUnavailable, match="listed 4 1 m files, the list before 100"):

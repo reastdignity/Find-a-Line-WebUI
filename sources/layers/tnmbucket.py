@@ -452,7 +452,7 @@ def refused_path(cache_dir: str, top: str = TOP) -> str:
     return os.path.join(cache_dir, top, "sheet-index", "bucket1m", "refused.json")
 
 
-def _clock() -> datetime:
+def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -479,7 +479,7 @@ def _refused_again(cache_dir: str, count: int) -> Optional[Dict]:
     listing (a record that agrees keeps its time; another, or none, is written now, atomically)."""
     record = _read_refused(cache_dir)
     if record is not None and _agrees(count, record):
-        if (_clock() - record["at"]).total_seconds() >= REFUSED_RECORD_DAYS * 86400:
+        if (_utc_now() - record["at"]).total_seconds() >= REFUSED_RECORD_DAYS * 86400:
             return record
         return None
     path = refused_path(cache_dir)
@@ -487,7 +487,7 @@ def _refused_again(cache_dir: str, count: int) -> Optional[Dict]:
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"listed": count, "at": _clock().isoformat(timespec="seconds")}, f)
+            json.dump({"listed": count, "at": _utc_now().isoformat(timespec="seconds")}, f)
         os.replace(tmp, path)
     except OSError as e:
         with contextlib.suppress(OSError):
