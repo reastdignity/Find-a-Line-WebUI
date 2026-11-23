@@ -471,13 +471,14 @@ def test_secret_files(tmp_path):
 
 
 def test_usa_renewal_step():
-    """The USA's 1 m index every month (the user's D3a; docs/deployment.md, section 13): the interval in one place
-    (USA_RENEWAL_CALENDAR, the timer's only OnCalendar), the units installed in setup and update after the start and
-    before the monitoring (Telegraf lists the timer for D1, and a timer it lists unloaded fires the alert), `check`
-    looking at the timer."""
+    """The USA's 1 m index every week, what is older than 28 days (the user's answer of 2026-11-23; docs/deployment.md,
+    section 13): a weekly calendar in one place (USA_RENEWAL_CALENDAR, the timer's only OnCalendar), the units
+    installed in setup and update after the start and before the monitoring (Telegraf lists the timer for D1, and a
+    timer it lists unloaded fires the alert), `check` running check_usa_renewal."""
     vps = _read("vps.sh")
-    assert re.findall(r"^USA_RENEWAL_CALENDAR='([^']*)'$", vps, re.M) == ["*-*-01 04:00"]
-    assert vps.count("*-*-01 04:00") == 1   # the calendar nowhere else
+    calendars = re.findall(r"^USA_RENEWAL_CALENDAR='([^']*)'$", vps, re.M)
+    assert len(calendars) == 1 and re.fullmatch(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \*-\*-\* \d\d:\d\d", calendars[0])
+    assert vps.count(calendars[0]) == 1   # the calendar nowhere else
     body = vps[vps.index("\nusa_renewal() {"):]
     body = body[:body.index("\n}")]
     assert re.findall(r"^OnCalendar=.*$", body, re.M) == ["OnCalendar=$USA_RENEWAL_CALENDAR"]
@@ -488,32 +489,82 @@ def test_usa_renewal_step():
         assert steps.index("start\n") < steps.index("usa_renewal\n") < steps.index(f"{before}\n"), function
         assert steps.index("usa_renewal\n") < steps.index("monitoring"), function
     check = vps[vps.index("\ncheck() {"):]
-    assert 'systemctl is-enabled "$USA_RENEWAL.timer"' in check[:check.index("\n}")]
+    assert "\n    check_usa_renewal\n" in check[:check.index("\n}")]
     assert re.search(r"^USA_RENEWAL=findaline-usa-renewal$", vps, re.M)
     with open(os.path.join(DEPLOY, "monitoring", "telegraf.conf"), encoding="utf-8") as f:
         assert "findaline-usa-renewal.timer" in re.findall(r'^  pattern = "(.*)"$', f.read(), re.M)[1].split()
 
 
-def _usa_renewal(tmp_path, runs, notify=False):
-    """usa_renewal run `runs` times (a list of shell lines run before each) with the real put, its units in
-    tmp_path/units, systemctl a stand-in that logs its calls and keeps the timer's enabled state in a file; returns
-    the outputs and systemctl's calls of each run."""
-    units = tmp_path / "units"
+def test_usa_renewal_weekly_and_28_days(tmp_path):
+    """A weekly timer with `cache update usa`'s 28 days: the list and an answer checked by one run are not due at the
+    next four weekly runs (7 to 28 days less the run's minutes: not more than 28) and due at the fifth (35), so each
+    is renewed between day 28 and day 35, never later (a run on the 1st of every month renewed nothing in three
+    Marches of four: February has 28 days)."""
+    import cache
+    import update
+    from sources.layers import tnmbucket as tb
+
+    cache_dir = str(tmp_path / "cache")
+    answer = os.path.join(cache_dir, "usa", "sheet-index", "dem1m", "N40.50_W112.00.json")
+    os.makedirs(os.path.dirname(answer))
+    with open(answer, "w", encoding="utf-8") as f:
+        f.write('{"sheets": []}')
+    cache.record(cache_dir, answer, url="https://tnmaccess.nationalmap.gov/api/v1/products")
+    os.makedirs(os.path.dirname(tb.unlisted_path(cache_dir)))
+    with open(tb.unlisted_path(cache_dir), "w", encoding="utf-8") as f:
+        f.write("{}")
+    cache.record(cache_dir, tb.unlisted_path(cache_dir), url=tb.BUCKET)
+    due = {}
+    for week in range(1, 7):
+        age = week * 7 * 86400 - 10 * 60   # the next trigger, a run of 10 minutes after the one before
+        db = cache._connect(cache_dir, "usa")
+        with db:
+            db.execute("UPDATE files SET checked_at = ?", (cache.now_iso(age),))
+        db.close()
+        paths = {c.path for c in update.checks(cache_dir, "usa")}
+        due[week * 7] = (cache.relative(cache_dir, answer) in paths, cache.relative(cache_dir, tb.unlisted_path(cache_dir)) in paths)
+    assert due == {7: (False, False), 14: (False, False), 21: (False, False), 28: (False, False),
+                   35: (True, True), 42: (True, True)}
+
+
+def _renewal(tmp_path, runs, call="usa_renewal", notify=False):
+    """`call` (usa_renewal by default) run once per item of `runs` (shell lines run before it) with the real put, its
+    units in tmp_path/units and the script's state in tmp_path/state; systemctl a stand-in that logs its calls and
+    keeps the timer's state in files (enabled, active, masked, failed: the service's last run). Returns the folder of
+    the units and, per run, its output and systemctl's calls."""
+    units, state = tmp_path / "units", tmp_path / "state"
     units.mkdir(parents=True, exist_ok=True)
     if notify:
         (units / "notify-failure@.service").write_text("[Service]\nType=oneshot\nExecStart=/usr/bin/true %i\n")
+    standin = '''
+LOG=$3
+systemctl() {
+    echo "$*" >> "$LOG"
+    local s
+    case $1 in
+        enable) touch "$UNITS/enabled" "$UNITS/active" ;;
+        disable) rm -f "$UNITS/enabled" "$UNITS/active" ;;
+        is-enabled)
+            if [ -f "$UNITS/masked" ]; then s=masked; elif [ -f "$UNITS/enabled" ]; then s=enabled
+            elif [ -f "$UNITS/findaline-usa-renewal.timer" ]; then s=disabled; else return 1; fi
+            [ "$2" = -q ] || echo "$s"
+            [ "$s" = enabled ] ;;
+        is-active) [ -f "$UNITS/active" ] ;;
+        is-failed) [ -f "$UNITS/failed" ] ;;
+        *) return 0 ;;
+    esac
+}
+'''
     results = []
     for k, before in enumerate(runs):
         log = tmp_path / f"systemctl.{k}"
         script = tmp_path / "run.sh"
         script.write_text('source "$1"\nREPO=/srv/find-a-line-webui\nUNITS=$2\nNOTIFY_FAILURE=$UNITS/notify-failure@.service\n'
-                          'LOG=$3\nsystemctl() {\n    echo "$*" >> "$LOG"\n    case $1 in\n'
-                          '        enable) touch "$UNITS/enabled" ;;\n        disable) rm -f "$UNITS/enabled" ;;\n'
-                          '        is-enabled) [ -f "$UNITS/enabled" ] ;;\n        *) return 0 ;;\n    esac\n}\n'
-                          + before + "\nusa_renewal\n", newline="\n")
+                          'MONITORING_DIR=$4\n' + standin + before + f"\n{call}\necho done\n", newline="\n")
         result = subprocess.run([_bash(), script.as_posix(), os.path.join(DEPLOY, "vps.sh").replace("\\", "/"),
-                                 units.as_posix(), log.as_posix()], capture_output=True, text=True, timeout=60)
-        assert result.returncode == 0, result.stderr
+                                 units.as_posix(), log.as_posix(), state.as_posix()],
+                                capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0 and result.stdout.endswith("done\n"), result.stdout + result.stderr
         results.append((result.stdout + result.stderr, log.read_text().splitlines() if log.exists() else []))
     return units, results
 
@@ -522,17 +573,16 @@ def _usa_renewal(tmp_path, runs, notify=False):
 def test_usa_renewal_units(tmp_path):
     """The service runs `cache update usa` in the worker's container as cache_migrate does (compose exec -T), bounded
     inside the container (timeout: a killed client leaves its process running there) and by systemd a little longer;
-    the timer once a month with a random delay fixed per machine and Persistent (a month missed while the server was
-    off is caught up once). A second run changes nothing, a timer the operator turned off stays off, OnFailure= only
-    when the host has notify-failure@.service."""
-    units, results = _usa_renewal(tmp_path, ["", "", "systemctl disable --now findaline-usa-renewal.timer", ""])
-    (first, calls1), (second, calls2), (off, calls3), _ = results
+    the timer once a week with a random delay fixed per machine and Persistent (a week missed while the server was off
+    is caught up once). A second run changes nothing; OnFailure= only when the host has notify-failure@.service."""
+    units, results = _renewal(tmp_path, ["", ""])
+    (first, calls1), (second, calls2) = results
     assert "wrote" in first and calls1[0] == "daemon-reload" and "enable -q --now findaline-usa-renewal.timer" in calls1
     assert "no notify-failure@.service" in first
     assert "wrote" not in second and not [c for c in calls2 if c.startswith(("daemon-reload", "enable"))]
-    assert "is off" in off and not [c for c in calls3 if c.startswith("enable")]
     service, timer = _unit_file(units / "findaline-usa-renewal.service"), _unit_file(units / "findaline-usa-renewal.timer")
     assert "OnFailure" not in service["Unit"] and service["Unit"]["After"] == "network-online.target docker.service"
+    assert "28 days" in service["Unit"]["Description"] and "every week" in timer["Unit"]["Description"]
     assert service["Service"]["Type"] == "oneshot"
     start = service["Service"]["ExecStart"]
     repo = "/srv/find-a-line-webui"
@@ -540,7 +590,8 @@ def test_usa_renewal_units(tmp_path):
               f"timeout 6h sh -c '")
     assert start.startswith(prefix) and start.endswith("'"), start
     assert service["Service"]["TimeoutStartSec"] == "6h 10min"
-    assert dict(timer["Timer"]) == {"OnCalendar": "*-*-01 04:00", "RandomizedDelaySec": "4h",
+    calendar = re.search(r"^USA_RENEWAL_CALENDAR='([^']*)'$", _read("vps.sh"), re.M).group(1)
+    assert dict(timer["Timer"]) == {"OnCalendar": calendar, "RandomizedDelaySec": "4h",
                                     "FixedRandomDelay": "true", "Persistent": "true"}
     assert timer["Install"]["WantedBy"] == "timers.target"
     # The command inside the container: no folder of the USA, one line and success without the app; with it the app's
@@ -559,14 +610,71 @@ def test_usa_renewal_units(tmp_path):
     update = subprocess.run([_bash(), "-c", script], capture_output=True, text=True, timeout=30, env=env)
     assert (update.returncode, update.stdout) == (1, "python findaline.py cache update usa\n")
     # notify-failure@.service on the host: the failed run reported (section 11)
-    units, results = _usa_renewal(tmp_path / "with", [""], notify=True)
+    units, results = _renewal(tmp_path / "with", [""], notify=True)
     assert _unit_file(units / "findaline-usa-renewal.service")["Unit"]["OnFailure"] == "notify-failure@%N.service"
     assert "no notify-failure@.service" not in results[0][0]
-    # A first install whose enable fails: the timer taken away and listed, the next run installs and enables it
-    failing = 'systemctl() { echo "$*" >> "$LOG"; [ "$1" != enable ]; }'
-    units, results = _usa_renewal(tmp_path / "failing", [failing, ""])
-    assert "could not be enabled" in results[0][0] and "enable -q --now findaline-usa-renewal.timer" in results[1][1]
-    assert (units / "findaline-usa-renewal.timer").exists() and (units / "enabled").exists()
+
+
+@pytest.mark.skipif(_bash() is None, reason="no bash")
+def test_usa_renewal_install_states(tmp_path):
+    """"First install" is the marker usa-renewal.enabled, written after a successful enable: a first install that
+    stopped before it (its file written, the enable failed or never ran) is enabled by the next run; a timer file
+    removed by hand is written and enabled again; a timer the operator disabled stays off; a masked one is left alone
+    (no write onto the /dev/null link) and setup or update goes on."""
+    disable = "systemctl disable --now findaline-usa-renewal.timer"
+    units, results = _renewal(tmp_path / "a", ["", disable, "", f"rm {(tmp_path / 'a' / 'units').as_posix()}/findaline-usa-renewal.timer"])
+    assert (tmp_path / "a" / "state" / "usa-renewal.enabled").exists()
+    assert "is off" in results[2][0] and not [c for c in results[2][1] if c.startswith("enable")]
+    assert "enable -q --now findaline-usa-renewal.timer" in results[3][1] and (units / "enabled").exists()
+    # The enable fails at the first install: listed, no marker; the next run enables it
+    failing = 'systemctl() { echo "$*" >> "$LOG"; [ "$1" != enable ] && [ "$1" != is-enabled ]; }'
+    units, results = _renewal(tmp_path / "b", [failing])
+    assert "could not be enabled" in results[0][0] and not (tmp_path / "b" / "state" / "usa-renewal.enabled").exists()
+    units, results = _renewal(tmp_path / "b", [""])
+    assert "enable -q --now findaline-usa-renewal.timer" in results[0][1]
+    assert (tmp_path / "b" / "state" / "usa-renewal.enabled").exists() and (units / "enabled").exists()
+    # A run that stopped after writing the timer, before the enable (its file there, no marker)
+    stopped = tmp_path / "c" / "units"
+    stopped.mkdir(parents=True)
+    (stopped / "findaline-usa-renewal.timer").write_text("[Timer]\nOnCalendar=weekly\n")
+    units, results = _renewal(tmp_path / "c", [""])
+    assert "enable -q --now findaline-usa-renewal.timer" in results[0][1]
+    # Masked (the stand-in's link test): a note, nothing written, the script goes on
+    masked = 'is_masked() { [ "$1" = "$UNITS/findaline-usa-renewal.timer" ]; }'
+    units, results = _renewal(tmp_path / "d", [masked])
+    assert "is masked: left alone" in results[0][0] and not results[0][1]
+    assert not (units / "findaline-usa-renewal.timer").exists() and not (units / "findaline-usa-renewal.service").exists()
+    if sys.platform != "win32":   # a real link to /dev/null, as `systemctl mask` makes it
+        real = tmp_path / "e" / "units"
+        real.mkdir(parents=True)
+        os.symlink("/dev/null", real / "findaline-usa-renewal.timer")
+        units, results = _renewal(tmp_path / "e", [""])
+        assert "is masked: left alone" in results[0][0] and os.readlink(real / "findaline-usa-renewal.timer") == "/dev/null"
+
+
+@pytest.mark.skipif(_bash() is None, reason="no bash")
+def test_check_usa_renewal(tmp_path):
+    """check's lines for the renewal, each outcome with its text: enabled and active (ok), enabled and not active
+    (FAIL), disabled after its first install (a note) and before it (FAIL), masked (a note), missing (FAIL); a last run
+    that failed (FAIL, with the journal's command) beside any of them."""
+    timer = "touch $UNITS/findaline-usa-renewal.timer"
+    marker = "mkdir -p $MONITORING_DIR && touch $MONITORING_DIR/usa-renewal.enabled"
+    cases = {
+        "enabled, active": (f"{timer}; touch $UNITS/enabled $UNITS/active", "ok: findaline-usa-renewal.timer", 0),
+        "enabled, not active": (f"{timer}; touch $UNITS/enabled", "FAIL: findaline-usa-renewal.timer is enabled but not active", 1),
+        "disabled": (f"{timer}; {marker}", "findaline-usa-renewal.timer: turned off (section 13)", 0),
+        "never enabled": (timer, "FAIL: findaline-usa-renewal.timer was installed but never enabled", 1),
+        "masked": ("touch $UNITS/masked", "findaline-usa-renewal.timer: masked by the operator", 0),
+        "missing": ("", "FAIL: findaline-usa-renewal.timer is not installed", 1),
+        "failed run": (f"{timer}; touch $UNITS/enabled $UNITS/active $UNITS/failed",
+                       "FAIL: findaline-usa-renewal.service: its last run failed: journalctl -u findaline-usa-renewal.service", 1),
+    }
+    for k, (name, (before, text, failed)) in enumerate(cases.items()):
+        _, results = _renewal(tmp_path / str(k), [before], call='check_usa_renewal; echo "FAILED=$FAILED"')
+        out = results[0][0]
+        assert text in out and f"FAILED={failed}" in out, (name, out)
+        if name != "failed run":
+            assert "last run failed" not in out, (name, out)
 
 
 def _unit_file(path):
