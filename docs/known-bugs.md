@@ -442,6 +442,12 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
 - "Lines from A1" pressed with the phone's sheet at full zooms the hidden map out (16.75 to 15.5 on 390 px, 17.25 to
   15.5 on 412); the same before round 6's last fixes.
 - At full the phone pill's own shadow is drawn faintly over the sheet's rounded top edge (cosmetic).
+- **A selection's check can move an end off the map** (seen by step 3d G6, 2026-11-23; round 6's code, not G6's):
+  `endsClear` (SpotColumns.tsx) counts an end that leaves the map as not under a control, and ranks "fewer under"
+  before "fewer outside". At 1024 × 768 with the card open (the map 361 px wide, the coast boxes run), lines 5858 and
+  6308 of `test_selection_check_moves_only_for_a_gain[1024-card]` start with both ends under the shore box and the
+  hint. The check then pans so that one end is still under a control and the other lies off the map: x 441 on main
+  (263b1268), x 409 on G6's tree. The test counts that as a gain (one end fewer under a control).
 - The sideways notice's media query also matches a phone held upright whose page an on-screen keyboard shrinks in
   some Android browsers (not iOS Safari, not Chrome on Android).
 

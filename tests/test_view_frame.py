@@ -1209,7 +1209,9 @@ SELECTIONS = r"""async ([run, start, n]) => {
     // an end clear: in the bar's room (BAR) and under no control (fix round 5: one anchor in view)
     const clear = (e) => { const pad = (""" + BAR + r""")(), size = m.getSize();
       return e.filter(([x, y]) => x >= 0 && x <= size.x && y >= pad.top && y <= size.y - pad.bottom && U8.under([[x, y]]) === 0).length; };
-    const rec = () => { if (fit) return; fit = U8.ends(row).map((q) => q.slice()); fit.under = U8.under(fit); fit.clear = clear(fit); };
+    // the fit's count with the product's points (latLngToContainerPoint: whole px), as its check counts them: the
+    // canvas's fractional points disagree with it where an end lies on a box's edge (G6: two rows at 1024 x 768)
+    const rec = () => { if (fit) return; fit = U8.ends(row).map((q) => q.slice()); fit.under = U8.under(U8.lineEnds(model.lineAt(row))); fit.clear = clear(fit); };
     m.on('moveend', rec);
     location.hash = '#run=' + run + '&line=' + encodeURIComponent(model.lineLink(model.lineAt(row)));
     let k = 0;
