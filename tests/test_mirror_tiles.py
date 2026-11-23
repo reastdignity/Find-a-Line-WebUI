@@ -1828,12 +1828,31 @@ def test_wallonia_averaged_cut(tmp_path, monkeypatch):
     for name in ("dtm", "dsm"):
         result = mt.verify("wallonia", str(work), str(out), inputs=str(inputs))[name]
         assert result["ok"] and result["points_compared"] == mt.POINTS * 3, result["problems"]
+    # The averaged indexes (with their two new keys) pass the client's check and the publish tool's verify, and the
+    # catalogue's layer reads the means back from the folder as a local mirror
+    import mirror_publish as mp
+    from sources.readers import tilebases
+    for name in ("dtm", "dsm"):
+        index = json.loads((out / "wallonia" / name / "1m" / "index.json").read_text(encoding="utf-8"))
+        tiles, extent = tilebases._checked_index(index)
+        assert tiles == index["tiles"] and extent is not None and index["block"] == tilebases.BLOCK
+    faults, files = mp.read_master(str(out / "wallonia"), "<folder>")
+    assert faults == [] and {"dtm/1m/index.json", "dsm/1m/index.json"} <= set(files)
+    monkeypatch.setattr(net, "_get", lambda *a, **k: pytest.fail("no network with a mirror"))
+    monkeypatch.setenv(src.MIRROR_ENV, str(out))
+    layer = src.SOURCES["wallonia"].nmt
+    grid = gd.make_grid((1500.0, 1400.0, 3500.0, 1650.0), 1.0, "EPSG:3812", src.SOURCES["wallonia"].grid_origin)
+    cache_dir = str(tmp_path / "cache")
+    layer.download(grid, cache_dir, None, "test")
+    mosaic = src.build_mosaic(layer.files(grid, cache_dir), grid, str(tmp_path / "m.npy"), "test")
+    truth, in_a, in_b = made["MNT"]
+    want = _wallonia_expected(truth, in_a | in_b)
+    _close(mosaic, np.concatenate([want["0_0"][350:600, 1500:], want["1_0"][350:600, :1500]], axis=1))
     card = mt.card_text(ds, str(out))
     sentence = "each 1 m pixel is the mean of the valid 0.5 m pixels of its 2 x 2 block"
     assert card.count(sentence) == 2 and card.count("made no data (on the 0.5 m pixels, before the mean)") == 2
     assert "## `dtm/1m`" in card and "## `dsm/1m`" in card and "values -9999" in card
     assert "Source : Service public de Wallonie (SPW) - Relief de la Wallonie - Modèle Numérique de Terrain" in card
-    import mirror_publish as mp
     assert all(text.startswith(sentence + ";") and "EPSG:3812" in text and "-9999" in text
                for text in mp.PUBLISHABLE["wallonia"]["changes"].values())
     assert sorted(mp.PUBLISHABLE["wallonia"]["changes"]) == ["dsm/1m", "dtm/1m"]
