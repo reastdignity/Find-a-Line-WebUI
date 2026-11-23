@@ -1001,15 +1001,23 @@ def test_the_tool_against_a_stand_in(http_server, tmp_path, monkeypatch, capsys)
     assert '"files": 4' in printed and "left out (1): USGS_1m_x99y999_AL_25Co_B1_2017.tif" in printed
     assert "dated by their upload (0 files): -" in printed
     assert len(tb.read_list(out)[0]) == 4
-    # --cached --allow-drop: a cache's own list (with its row) made in spite of a drop of the index's count
+    # --cached --allow-drop: a cache's own list (with its row) made in spite of a drop of the index's count, through
+    # the renewal's list step (the second review's D4): a file of the list before the bucket no longer holds leaves it
+    monkeypatch.setenv(tb.RENEW_ENV, "")
+    tb.forget_unlisted()
     cache_dir = str(tmp_path / "cache")
-    tb.write_list(tb.unlisted_path(cache_dir), {"made_at": "x", "listed": 100, "left_out": []}, [], "b", "a", "d")
+    listed_now = tb.read_list(out)[0][0]
+    before = dict(listed_now, url=listed_now["url"].replace("/TIFF/", "/TIFF/old_"))
+    tb.write_list(tb.unlisted_path(cache_dir), {"made_at": "x", "listed": 100, "left_out": []}, [before], "b", "a",
+                  "d")
     args = ["--cache", cache_dir, "--cached", "--bucket", http_server.base, "--api", http_server.url(API_PATH)]
-    with pytest.raises(IndexUnavailable, match="the list before 100"):
-        usa_unlisted.main(args)
-    assert usa_unlisted.main(args + ["--allow-drop"]) == 0
+    assert usa_unlisted.main(args) == 1                                         # refused: the list before stays
+    assert "the list before 100" in tb.read_failed(cache_dir)["error"] and tb.previous_listed(cache_dir) == 100
+    assert usa_unlisted.main(args + ["--allow-drop"]) == 0                     # the failure record cleared first
     assert tb.previous_listed(cache_dir) == 4 and cache.info(cache_dir, tb.unlisted_path(cache_dir)) is not None
-    assert not os.path.exists(tb.refused_path(cache_dir))
+    assert not os.path.exists(tb.refused_path(cache_dir)) and tb.read_failed(cache_dir) is None
+    assert '"departed": 1' in capsys.readouterr().out                           # the renewal's step decided it
+    tb.forget_unlisted()
 
 
 # 5. The shipped copy
