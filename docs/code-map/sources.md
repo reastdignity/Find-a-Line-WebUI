@@ -471,9 +471,10 @@ working CRS, `ON_BOXES` region boxes inside Canada's; fallback and `instead_with
 world`; `AREA_NAMES` gains the batch's areas (`de-hb-bhv` and `pt-30-ps`/`-de`/`-se` are codes of ours, `hk` the
 map's own). `belgium` (new, 2026-11-23): `wallonia` (SPW's MNT and MNS 2021-2022 as mirror `GridTiles` at 1 m,
 `wallonia/dtm/1m` and `wallonia/dsm/1m`, EPSG:3812, origin (0, 0), each layer its own record's credit; region
-be-wal, its box the region's rectangle, so `belgium` comes after France, the Netherlands, Germany and Luxembourg in
-FAMILIES, before `world`; neighbours `luxembourg` and `netherlands`, each declaring it last; orthophoto SPW's
-ORTHO_LAST WMS); `AREA_NAMES["be-wal"]` "Wallonie".
+be-wal, `bbox` the region's rectangle (`WALLONIA_BOX`), offline `WALLONIA_OFFLINE`, a staircase inside the
+region's outline that keeps off its neighbours' land; `belgium` after Luxembourg in FAMILIES, before `world`;
+neighbours `luxembourg`, `north_rhine_westphalia` (whose `border_boxes` hold the Eifel west of 6.20 E) and
+`netherlands`, each declaring it last; orthophoto SPW's ORTHO_LAST WMS); `AREA_NAMES["be-wal"]` "Wallonie".
 
 ## `sources/choose.py`, `mosaic.py`, `filling.py`
 

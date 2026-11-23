@@ -1254,7 +1254,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   coastal DTM at Fair Head and Rio de Janeiro's 5 m DTM), Mexico (INEGI's 5 m lidar DTM/DSM), Tuscany (all sheets,
   credited per owner: MATTM's are CC BY-SA), Cyprus (the 2019 tiles reprojected by DLS: resampled twice), Estonia,
   Madeira (own mirror copy) and Valle d'Aosta (own copy of the one 9.85 GB ASC, the DSM later by hand). Batch 6:
-  Wallonia and Hong Kong as own copies at their native 0.5 m. Mails drafted (local/mail-drafts.md 27-30): DAERA, IPP,
+  Wallonia (0.5 m averaged to 1 m since 2026-11-22) and Hong Kong (0.5 m) as own copies. Mails drafted (local/mail-drafts.md 27-30): DAERA, IPP,
   Valle d'Aosta, DLS.
 - **Wave 1, done 2026-11-15** (in main as one commit, its commits under tag `history/new-sources-5-w1`; R66-R73;
   every existing regression entry unchanged):
@@ -1423,6 +1423,13 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     of 750 × 600 m over a static table of the index (`tools/hong_kong_sheets.py`: 3 253 terrain and 3 310 surface
     sheets; 57 sheets have a surface model and no terrain); heights above HKPD, lowered by 1.30 m on the grid (the
     decisions below). R91 Lion Rock (8 lines in 3 spots).
+  - *Wallonia* (`wallonia`, built 2026-11-23): SPW's Relief de la Wallonie MNT and MNS 2021-2022 (lidar, 0.5 m,
+    heights in the DNG), CC BY 4.0, credited with the records' "Source :" sentences; the ten province ZIPs fetched by
+    `tools/cdd_fetch.py` on the user's server, cut on the PC by `tools/mirror_tiles.py` at 1 m only, the mean of the
+    valid 0.5 m pixels of each 2 x 2 block (`Product.average`; the user, 2026-11-22), published with the row of U95
+    (docs/mirror-hosting/spec.md); orthophoto SPW's ORTHO_LAST (CC BY 4.0); neighbours Luxembourg, North
+    Rhine-Westphalia (with a border box of the Eifel) and the Netherlands. The cut, the publish, `check_source` and
+    R94 (the Rochers de Freyr) wait: docs/new-sources-6/spec.md, section 2.
   - *Ontario* (`ontario`): to the user's question "Ontario - can we check if it is better data?" wave 0 measured the
     province's data against `canada`'s HRDEM mosaic: the same lidar on land to 1-3 cm, at twice the resolution and on
     the surveys' own grid (canada's EPSG:3979 reads lengths 1.8-2.6 % long), more of the small walls (Rattlesnake
@@ -1467,8 +1474,10 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     server plan: "server fetches and cut all", "hosted mirror", "i will delete them by hand"): fetched by
     `tools/cdd_fetch.py` and cut by `tools/mirror_tiles.py` on the user's home server, all their data under the
     folder of the script; this PC and the site read them only through the hosted mirror; the tools delete no fetched
-    file; the code reaches the server from GitHub (main and a push first, each on the user's word). Their catalogue
-    entries are not built (spec).
+    file; the code reaches the server from GitHub (main and a push first, each on the user's word). Wallonia since:
+    the server only fetched (all ten ZIPs, 2026-11-20); the cut and the publish run on the PC that holds the master
+    (2026-11-21), at 1 m only, the mean of 2 x 2 (2026-11-22: "lets change, and cut it to 1m resolution", "1 m
+    only"); its catalogue entry and publishing row are built (spec, section 2). Portugal's catalogue entry is not.
   - On five open questions (2026-11-16: "1. a) and add it to repo anyway; 15+TB free", "2. a", "3. a", "4. a",
     "5. a"): the user copies `tools/cdd_fetch.py` to the server by hand (it is in the repository as well; the server
     folder has more than 15 TB free, so nothing is deleted for space); *Bremerhaven's surface model shifted half a
@@ -1491,12 +1500,19 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   - The VPS's Geofabrik extracts: a suggestion to leave kanto, chubu and ontario out as British Columbia's
     (docs/deployment.md, section 9), waiting for the user's word.
   - LEAP 2009 (Ontario) is in CGVD28 beside CGVD2013 data: its offset is not measured.
+  - Wallonia has no border fill from or to France (its longest border: 1 889 km² of strip within 5 km, Givet and the
+    Meuse valley) nor Rhineland-Palatinate (184 km²): both declare six neighbours, the most of the country cube's
+    partner index (`countcube.PARTNERS`), and neighbours are declared both ways, so their gaps there take 30 m data
+    (the user, 2026-11-23: "Leave it, note in roadmap"). Two ways out, neither chosen: Wallonia in place of one of
+    their six (pinned results near that border change, and the country cube is counted again), or a study of a
+    seventh neighbour or a one-way declaration (the cube's cost measured first).
 - **Waiting** (mails drafted in the user's private `local/mail-drafts.md`, sent by the user): 16 TLBG (Thuringia), 29
   Valle d'Aosta (the DSM as one file), 32 SPW Wallonia (a notice), 33 CEDD Hong Kong (a re-tiled copy), 34 NSW
   Spatial Services (a re-tiled copy, the licence, bulk download), 35 ELVIS (bulk download), 36 DGT Portugal (a
   whole-country copy), 37 AIGID (Shizuoka's file formats), 38 Landesamt GeoInformation Bremen (DOM1: licence and
   address). Italy's national lidar (PST): the user tries the portal first. Saint Vincent: a manual download, not
-  made yet. Portugal and Wallonia: the fetch and the cut on the user's server.
+  made yet. Portugal: the fetch and the cut on the user's server. Wallonia: fetched there, cut and published from
+  the PC (spec, section 2).
 
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.

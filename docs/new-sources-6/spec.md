@@ -148,16 +148,20 @@ starts again; each size must equal the list's.
    with the approved wording.
 2. Catalogue `sources/catalogue/belgium.py`: the source `wallonia` (country "be", region be-wal, Nominatim's
    "Wallonie"), mirror `GridTiles` at `wallonia/dtm/1m` and `wallonia/dsm/1m`, default resolution 1 m, each layer its
-   record's credit; offline box (49.49, 50.82, 2.83, 6.41), `belgium` after France, the Netherlands, Germany and
-   Luxembourg in FAMILIES; orthophoto SPW's ORTHO_LAST as its WMS
+   record's credit; `bbox` the region's rectangle (49.49, 50.82, 2.83, 6.41: the neighbours' fill and the area
+   download over all of Wallonia), offline a staircase of 38 boxes inside the region's outline, so French and
+   Flemish places keep their choice of before offline; `belgium` after Luxembourg in FAMILIES (Arlon and Martelange
+   stay in Luxembourg's box offline); orthophoto SPW's ORTHO_LAST as its WMS (checked live on 2026-11-23: the
+   capabilities and a JPEG of Freyr)
    (https://geoservices.wallonie.be/arcgis/services/IMAGERIE/ORTHO_LAST/MapServer/WMSServer, layer 0, EPSG:4326),
    credit "Source : Service public de Wallonie (SPW) - Orthophotos - Vues aériennes les plus récentes (2025-09-20)
    https://geodata.wallonie.be/id/dfc9f3a2-adff-4b7f-ab77-8a890c4cabbb"; sample the Rochers de Freyr (50.218, 4.894).
    Neighbours by `tools/border_study.py boxes` (2026-11-23): every candidate touches, each direction at 100 % but
    Wallonia's grid towards North Rhine-Westphalia (71 %: its boxes stop at 6.20 E between 50.32 and 50.75 N; a
-   border box (50.38, 50.75, 6.00, 6.20) gives 99.8 %). Declared both ways: `luxembourg` and `netherlands` (each
-   lists it last); not `france` and `rhineland_palatinate` (six each, the cap), nor `north_rhine_westphalia` until its
-   border box is decided.
+   border box (50.38, 50.75, 6.00, 6.20) gives 99.8 %). Declared both ways (each lists it last): `luxembourg`,
+   `north_rhine_westphalia` with that border box (the user, 2026-11-23: "Add NRW") and `netherlands`; not `france`
+   and `rhineland_palatinate` (six each, the cap; the user, 2026-11-23: "Leave it, note in roadmap": docs/roadmap.md,
+   batch 6).
 3. The coverage area be-wal (Natural Earth's five Walloon provinces, `tools/coverage_shapes.py` `MERGED`), README's
    rows, `tools/raster_overlap.py` (the seams and low values of the inputs, for G1 and G2), the tests.
 
