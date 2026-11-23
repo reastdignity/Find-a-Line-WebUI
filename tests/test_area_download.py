@@ -289,6 +289,29 @@ def test_a_row_without_tnm_data_is_not_renewed(setup):
     assert "renewed" not in state and not state.get("renewal")
 
 
+def test_the_row_shows_the_renewal_while_it_runs(setup, monkeypatch):
+    """What the renewal says goes into the state while it runs (the window's row text: "renewal"), the beat writing
+    it; afterwards "renewal" is empty and "renewed" says what it did."""
+    from sources import renewal
+
+    class Renewing(FakeLayer):
+        renews = True
+    seen = []
+
+    def renew(layers, grid, cache_dir, say, asked):
+        say("  the index of fake terrain: 1 of 2 answers, 0 changed, 0 failed")
+        time.sleep(0.4)
+        seen.append(ad.read_state(area.state_dir, "land").get("renewal"))
+        return renewal.Renewal(asked=2)
+    monkeypatch.setattr(ad, "STATE_SECONDS", 0.05)
+    monkeypatch.setattr(renewal, "renew", renew)
+    area = setup(Renewing(2))
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert seen == ["the index of fake terrain: 1 of 2 answers, 0 changed, 0 failed"]
+    state = ad.read_state(area.state_dir, "land")
+    assert state["renewal"] == "" and state["renewed"]["text"].startswith("2 index answers asked again")
+
+
 def test_a_restarted_row_asks_the_index_again(tmp_path, monkeypatch, http_server):
     """Every start of a row (its first pass) asks the USA's index again before the listing, and the list of the
     bucket's unlisted files (older than 28 days: none yet), on the stand-in TNM index and bucket: a finished row

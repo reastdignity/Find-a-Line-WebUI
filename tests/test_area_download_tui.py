@@ -503,6 +503,13 @@ def test_a_row_of_the_usa_says_its_index_is_asked_again(settings):
     _drive(app, body)
     assert sorted(started) == [("czechia", "cache"), ("utah", "cache")]
     assert not ar.renews(ROWS[1]) and ar.renews(ROWS[5])
+    long = "the index of 3DEP 1 m DEM (terrain): 120 of 509 answers, 2 changed, 0 failed; " * 2
+    _state(settings, "utah", "listing", renewal=long[:160])
+    app, _ = _app(settings)
+
+    async def row(pilot):
+        assert _text(app, "utah").startswith("listing, the index of 3DEP 1 m DEM (terrain): 120 of 509 answers")
+    _drive(app, row)
     renewing = ad.summary({"stage": "listing", "renewal": "asking the index of 3DEP 1 m DEM again: 120 of 509 answers",
                            "index_done": 3, "index_total": 509}, [], 0.0)
     assert tui.state_text({**renewing, "stale": False}) == \

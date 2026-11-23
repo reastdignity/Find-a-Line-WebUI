@@ -298,17 +298,38 @@ def test_the_wait_for_another_listing_ends(http_server, tmp_path, monkeypatch, r
     """While another process holds the list's lock past LIST_LOCK_WAIT_S, the renewal goes on with the list there is:
     one line, no listing."""
     tnm, files, cache_dir = _start(tmp_path, monkeypatch, http_server)
-    monkeypatch.setattr(renewal, "LIST_LOCK_WAIT_S", 0.3)
+    monkeypatch.setattr(renewal, "LIST_LOCK_WAIT_S", 1.0)
     lock = FileLock(os.path.join(cache_dir, cache.LOCKS, "renewal", "usa-bucket1m.lock"))
     os.makedirs(os.path.dirname(lock.lock_file), exist_ok=True)
-    said = []
+    said, when = [], []
+    started = time.monotonic()
+
+    def say(text):
+        said.append(text)
+        when.append(time.monotonic() - started)
     with lock:
         done = threading.Thread(target=lambda: said.append(
-            renewal.renew([_layer(http_server.base)], _grid(), cache_dir, said.append)))
+            renewal.renew([_layer(http_server.base)], _grid(), cache_dir, say)))
         done.start()
         done.join()
-    assert said[-1].list == "kept" and any("Another process is making the list" in s for s in said[:-1])
-    assert _bucket_requests(http_server) == 0
+    assert said[-1].list == "kept" and _bucket_requests(http_server) == 0
+    assert "waiting for it (at most" in said[0] and "(waited" in said[1]
+    assert when[0] < 0.5 <= when[1]  # said before the wait, and after it
+
+
+def test_the_catalogues_layer_lists_usgs_itself(tmp_path, monkeypatch, renewing):
+    """The catalogue's 1 m layer makes its list from USGS's own bucket, index, dataset and boxes (what the tool and
+    the shipped copy use); the list made, nothing else asked here."""
+    asked = {}
+
+    def make(cache_dir, **kwargs):
+        asked.update(kwargs)
+        raise tb.IndexUnavailable("not asked in a test")
+    monkeypatch.setattr(tb, "make_unlisted", make)
+    done = renewal.renew_list(src.SOURCES["usa"].nmt, str(tmp_path / "cache"), lambda text: None, force=True)
+    assert done.list == "failed"
+    assert (asked["bucket"], asked["api"], asked["dataset"], asked["regions"]) == (tb.BUCKET, tb.TNM_API, tb.DATASET,
+                                                                                   tb.REGIONS)
 
 
 # 4. Progress

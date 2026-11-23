@@ -153,7 +153,7 @@ def _ask(layer, cache_dir: str, tiles: List[Tuple[float, float]], since: str, as
         was = before.get((lat, lon)) if before is not None else index.cached_items(cache_dir, lat, lon)
         try:
             changed = index.ask_again(cache_dir, lat, lon, since)
-        except (requests.RequestException, OSError, ValueError) as e:
+        except (requests.RequestException, OSError, ValueError, RuntimeError) as e:  # RuntimeError: the tile's lock
             result.failed += 1
             in_a_row += 1
             print(f"{layer.description}: the index answer of {osm.tile_name(lat, lon)} could not be asked again "
@@ -208,6 +208,7 @@ def renew_list(layer, cache_dir: str, say: Say = print, result: Optional[Renewal
         return result
     age = tb.unlisted_age_days(cache_dir, top)
     if age <= tb.LIST_MAX_AGE_DAYS and not force:
+        tb.forget_unlisted()  # made by another process minutes ago: read it, not this process's memo
         result.list = "kept"
         say(f"The list of the 1 m files the TNM index does not list is {age:.0f} days old: kept (made again after "
             f"{tb.LIST_MAX_AGE_DAYS:g} days)")
@@ -221,7 +222,12 @@ def renew_list(layer, cache_dir: str, say: Say = print, result: Optional[Renewal
         return result
     lock = FileLock(f"{net._locks(cache_dir, 'renewal')}/{top}-bucket1m.lock")
     try:
-        lock.acquire(timeout=LIST_LOCK_WAIT_S)
+        try:
+            lock.acquire(blocking=False)
+        except Timeout:  # said at once: a row waiting minutes for another's listing must not look hung
+            say(f"Another process is making the list of the 1 m files the TNM index does not list: waiting for it "
+                f"(at most {LIST_LOCK_WAIT_S // 60} min)")
+            lock.acquire(timeout=LIST_LOCK_WAIT_S)
     except Timeout:
         result.list = "kept"
         say(f"Another process is making the list of the 1 m files the TNM index does not list (waited "
