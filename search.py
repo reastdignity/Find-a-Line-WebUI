@@ -1537,7 +1537,8 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
     (Plan.square; not with a sink, the count mode) the evaluated parts go to a reducer that keeps one
     line per pair of anchor squares (samelines.BestPerSquarePair: the lines of this grid's core only), so
     the found lines are never held; `check` then gets the kept lines so far, and the table returned
-    has the column samelines.COLUMN (the found lines each line stands for). With Data.partner
+    has the column samelines.COLUMN (the found lines each line stands for) and the ranges of their values
+    (samelines.RANGED; an empty table too, in the same places). With Data.partner
     (the count mode across a border) the pairs also start from the partner anchors (the first-anchor
     mask: the core's anchors and the partners), and find_valid_lines' partner marks the partners and
     the country's anchors outside the core: a partner pairs only with the country's anchors in the
@@ -1608,9 +1609,10 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
         counts = reducer.counts()
         lines = reducer.table()
         if ends and sh.END_VALUES[0] not in lines.columns:  # no line at all: the empty table's columns, in order
-            count = lines.columns.pop(samelines.COLUMN)
+            for name in samelines.counted_columns(lines):  # the count and the ranges after the A-frame heights
+                lines.columns.pop(name)
             end_values(lines)
-            lines.columns[samelines.COLUMN] = count
+            samelines.stands_alone(lines)  # with the A-frame heights' ranges
         if counts["found"]:
             plan.emit("info", f"Square rule: {counts['kept']} of {counts['found']} lines kept, one per pair of "
                               f"{plan.square:g} m anchor squares")

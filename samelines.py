@@ -10,11 +10,21 @@ squares without order.
 
 BestPerSquarePair is the sink of step 3 (linesearch.find_valid_lines(sink=), search._pair_search): it
 takes the evaluated parts and keeps per key the first line of a fixed order (the module's ORDER below),
-with the number of found lines the key had (COLUMN, "stands_for": the kept line among them). The
-dropped lines are never held beyond their own part. "The first of a key" and "the sum of a key" are
-commutative and associative, so the parts, the tiles and the threads may come in any order and give the
-same lines; reduce_table does the same on a tiled search's join, where a key may hold a line of each of
-two tiles (a line belongs to the tile of its first anchor, its key to neither).
+with the number of found lines the key had (COLUMN, "stands_for": the kept line among them) and the
+ranges of their values (RANGED: the least, "<value>_lo", and the most, "<value>_hi", of each over the
+key's found lines). The dropped lines are never held beyond their own part. "The first of a key", "the
+sum of a key" and "the least and the most of a key" are commutative and associative, so the parts, the
+tiles and the threads may come in any order and give the same lines; reduce_table does the same on a
+tiled search's join, where a key may hold a line of each of two tiles (a line belongs to the tile of its
+first anchor, its key to neither).
+
+The ranges (docs: the store's specification, section 3) are of the values as a run without the rule
+stores them (linestore.stored_values: the mean height and the A-frame heights rounded to 2 decimals, the
+others as they are), so a filter that passes a found line passes its kept line's range; each enters as
+float32 cast outward (lo the largest float32 not above the value, hi the smallest not below it; a zero
+always +0.0), once, when its line enters the reducer: the least and the most of float32 values are exact,
+so every order gives the same bits. NaN is skipped (np.fmin, np.fmax); a key whose every value is NaN
+has NaN. The A-frame heights' ranges only in a search that has them.
 
 The order of the lines of a key: a line that needs neither the no-fall zone nor A-frames (lift_no_zone
 0), then one that needs no A-frames (lift_needed 0), then the highest mean height above the terrain, then
@@ -37,6 +47,48 @@ MERGE_ROWS = 1 << 20       # reduced parts are merged into the kept lines once t
 CHECK_ROWS = 1 << 16       # with a check: the rows that wait (or an eighth of the kept lines, if more) before
                            # the check is asked whether the rows held would be refused (then merged at once)
 _KEYS = ("_ka", "_kb", "_xa", "_ya", "_xb", "_yb")  # the helper columns of a part and of the kept lines
+# The values whose ranges the kept lines carry (the LineTable's names; linestore.RANGE_VALUES' columns), in the
+# order of their columns: "<value>_lo", "<value>_hi" (float32) each, after COLUMN; the last two (helpers.END_VALUES)
+# only in a search with the no-fall zone or A-frames
+RANGED = ("length", "clearance", "height_max", "height_mean", *sh.END_VALUES)
+
+
+def range_columns(value: str):
+    """The columns of a value's range: ("<value>_lo", "<value>_hi")."""
+    return value + "_lo", value + "_hi"
+
+
+def outward(values: np.ndarray):
+    """(lo, hi) of float64 values as float32: lo the largest float32 not above each value, hi the smallest not
+    below it (one float32 step apart at most; equal where float32 holds the value), a zero +0.0 in both; NaN stays
+    NaN, a value beyond float32's range gives its largest finite float32 and an infinity."""
+    values = np.asarray(values, dtype=np.float64)
+    zero = np.float32(0.0)
+    with np.errstate(over="ignore", invalid="ignore"):  # beyond float32: an infinity, stepped back to the largest
+        near = values.astype(np.float32)
+        wide = near.astype(np.float64)
+        lo = np.where(wide > values, np.nextafter(near, np.float32(-np.inf)), near) + zero  # + 0: -0.0 as +0.0
+        hi = np.where(wide < values, np.nextafter(near, np.float32(np.inf)), near) + zero
+    return lo, hi
+
+
+def stands_alone(table: sh.LineTable) -> sh.LineTable:
+    """Each line of a table as it enters the reducer (in place; returns it): COLUMN 1 and its ranges of its own
+    values (RANGED, the A-frame heights where the table has them; linestore.stored_values, cast outward)."""
+    import linestore  # pyarrow: only where the reducer runs (the search imports the store anyway)
+    c = table.columns
+    c[COLUMN] = np.ones(len(table), dtype=np.int64)
+    for value in RANGED:
+        if value not in c and value in sh.END_VALUES:  # a search without the no-fall zone and A-frames
+            continue
+        c.update(zip(range_columns(value), outward(linestore.stored_values(value, c[value]))))
+    return table
+
+
+def counted_columns(table: sh.LineTable):
+    """The names of COLUMN and of the range columns a table has, in its order."""
+    names = {COLUMN, *(name for value in RANGED for name in range_columns(value))}
+    return [name for name in table.columns if name in names]
 
 
 def side(square: float, resolution: float) -> float:
@@ -68,7 +120,8 @@ def _keyed(table: sh.LineTable, x1: np.ndarray, y1: np.ndarray, x2: np.ndarray, 
 
 def _reduce(table: sh.LineTable) -> sh.LineTable:
     """One row per key of a table with the helper columns and COLUMN (in place; returns it): the first
-    by the module's order, its COLUMN the sum of the key's; the rows left in the order of the keys."""
+    by the module's order, its COLUMN the sum of the key's, its ranges (where the table has them) the least
+    of the key's lo and the most of its hi; the rows left in the order of the keys."""
     c = table.columns
     ranks = [c["_yb"], c["_xb"], c["_ya"], c["_xa"], -c["length"], -c["height_mean"]]
     if sh.END_VALUES[0] in c:  # with the no-fall zone or A-frames: the least rigging first
@@ -82,8 +135,15 @@ def _reduce(table: sh.LineTable) -> sh.LineTable:
     del ka, kb
     starts = np.flatnonzero(new)
     count = np.add.reduceat(c[COLUMN][index], starts) if len(index) else c[COLUMN]
+    ranges = {}
+    for value in RANGED:
+        lo, hi = range_columns(value)
+        if lo in c:  # a table of before, or without the A-frame heights: none
+            ranges[lo] = np.fmin.reduceat(c[lo][index], starts) if len(index) else c[lo]
+            ranges[hi] = np.fmax.reduceat(c[hi][index], starts) if len(index) else c[hi]
     table.reorder(index[starts])
     table.columns[COLUMN] = count
+    table.columns.update(ranges)
     return table
 
 
@@ -122,7 +182,7 @@ class BestPerSquarePair:
                 if not len(part):
                     return
         self.found += len(part)
-        part.columns[COLUMN] = np.ones(len(part), dtype=np.int64)
+        stands_alone(part)
         self.waiting.append(_reduce(part))
         self.rows_waiting += len(part)
         kept = len(self.kept) if self.kept is not None else 0
@@ -149,12 +209,11 @@ class BestPerSquarePair:
 
     def table(self) -> sh.LineTable:
         """The kept lines, one per key, in the order of the keys (the same for every order of the parts),
-        with COLUMN; an empty table when no line came. The reducer is empty afterwards."""
+        with COLUMN and the ranges; an empty table when no line came (with COLUMN and the ranges of a search
+        without the A-frame heights: search._pair_search adds theirs). The reducer is empty afterwards."""
         self._merge()
         if self.kept is None:
-            table = sh.LineTable.empty()
-            table.columns[COLUMN] = np.zeros(0, dtype=np.int64)
-            return table
+            return stands_alone(sh.LineTable.empty())
         table, self.kept = self.kept, None
         for name in _KEYS:
             table.columns.pop(name)
@@ -170,7 +229,8 @@ class BestPerSquarePair:
 def reduce_table(table: sh.LineTable, side: float) -> sh.LineTable:
     """One line per key of a table of kept lines with coordinates ("a1_xy", "a2_xy": after
     mapping.coordify) and COLUMN, in place: the join of a tiled search's tiles. The lines left stand as
-    one grid's: in the order of the keys, then the longest first (a stable sort, as the pair search's)."""
+    one grid's: in the order of the keys, then the longest first (a stable sort, as the pair search's),
+    with the ranges of one grid where the table has them (a table without them stays without)."""
     if not len(table):
         return table
     c = table.columns

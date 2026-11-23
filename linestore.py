@@ -21,11 +21,15 @@ beyond uint32 is uint64: the store never refuses a run's values. The schema meta
 {"format": FORMAT, "head": the head of data.js without the lines (mapping.map_head), "negative_zero":
 {column: [rows]}}; a reader refuses a higher format. A run saved since view B1 (2026-11-16) also has the result
 view's columns after them (VIEW: `spot`, `top`, `by_spot`, mapping.view_columns at saving) and their keys in the
-head (VIEW_HEAD: `sectors`, `box`, `lengths`); the format stays 1 (a reader takes columns by name).
+head (VIEW_HEAD: `sectors`, `box`, `lengths`); the format stays 1 (a reader takes columns by name). A run made
+with the square rule since 2026-11-23 also has the ranges of its kept lines' copies after stands_for (RANGES:
+float32 lo and hi of six values, cast outward, null where every copy lacks the value; store-only, as the view's
+columns: no head's "ends" names them and no export holds them).
 
 write(run_path, lines, head, view) writes both files and gives the block run.json keeps as "store";
 read(run_path) gives the lines back as a helpers.LineTable (with the profiles as dicts of
-helpers.line_profile, the view's columns by their names) and the head; export(run_path, fmt, out) writes lines.csv or lines.geojson from the
+helpers.line_profile, the view's columns by their names; read(run_path, columns=[...]) only the columns
+named) and the head; export(run_path, fmt, out) writes lines.csv or lines.geojson from the
 store through mapping.group_lines and runs.save_results, the bytes the run's own files hold.
 
 Plain numpy and pyarrow at import: runs (Python's round() of a column, runs.round_floats) only inside
@@ -54,12 +58,24 @@ MEDIA_TYPE = "application/vnd.apache.arrow.file"  # of both files (web.py serves
 END_COLUMNS = ("lift_needed", "lift_no_zone")  # runs.END_COLUMNS = helpers.END_VALUES (tests/test_linestore.py)
 STANDS_FOR = "stands_for"  # runs.STANDS_FOR = samelines.COLUMN
 ACCESS = ("access1", "access2")  # runs.ACCESS: the access mark at each anchor (--access)
+# The ranges of a kept line's copies (the square rule: samelines.RANGED, the least and the most of each value over
+# the found lines its stands_for counts): (the store's name of the value, the LineTable's column); the range columns
+# are "<name>_lo", "<name>_hi" in the store and "<column>_lo", "<column>_hi" in the LineTable, float32 cast outward
+RANGE_VALUES = (("len", "length"), ("clr", "clearance"), ("hmax", "height_max"), ("hmean", "height_mean"),
+                ("lift_needed", "lift_needed"), ("lift_no_zone", "lift_no_zone"))
+RANGE_COLUMNS = tuple((f"{name}_{end}", f"{column}_{end}") for name, column in RANGE_VALUES for end in ("lo", "hi"))
+# The range columns lines.arrow holds (the store's names), of those the lines have: all twelve, or the seven
+# today's filters read (len_lo, len_hi, clr_hi, hmax_hi, hmean_hi, lift_needed_lo, lift_no_zone_lo): the user's
+# choice at the ranges' mock-up changes this one line
+RANGES = tuple(name for name, _ in RANGE_COLUMNS)
 
 # The columns of lines.arrow in their order: (name, the LineTable's column and its index in a pair or None,
 # decimals: None for float64 as it is, "bool" for 0/1 uint8, "count" for uint32, "mark" for a small code as
-# uint8, an int for an integer of that many decimals; whether a missing value is a null). Those of END_COLUMNS
-# only with the no-fall zone or the A-frames, ACCESS only with the access mark (0 hard access, 1 cannot tell,
-# 2 can walk), STANDS_FOR only with the square rule (the LineTable has them then).
+# uint8, "float32" for a float32 as it is, an int for an integer of that many decimals; whether a missing value
+# is a null). Those of END_COLUMNS only with the no-fall zone or the A-frames, ACCESS only with the access mark (0
+# hard access, 1 cannot tell, 2 can walk), STANDS_FOR and the ranges (RANGE_COLUMNS, only those of RANGES) only
+# with the square rule (the LineTable has them then). The ranges are store-only, as the view's columns: no head's
+# "ends" names them, no export holds them.
 COLUMNS = [
     ("lat1", "anchor1", 0, 7, False), ("lon1", "anchor1", 1, 7, False),
     ("lat2", "anchor2", 0, 7, False), ("lon2", "anchor2", 1, 7, False),
@@ -78,7 +94,9 @@ COLUMNS = [
     *[(name, name, None, 2, False) for name in END_COLUMNS],
     *[(name, name, None, "mark", False) for name in ACCESS],
     (STANDS_FOR, STANDS_FOR, None, "count", False),
+    *[(name, column, None, "float32", True) for name, column in RANGE_COLUMNS],
 ]
+OPTIONAL = {*END_COLUMNS, *ACCESS, STANDS_FOR, *(column for _, column in RANGE_COLUMNS)}  # columns a run may lack
 # The result view's columns after them (view B1, from 2026-11-16: mapping.view_columns at saving, not columns of the
 # LineTable), each never missing: the spot's number, the top-level flag (0 / 1), the rows in the view's order
 VIEW = (("spot", pa.uint32()), ("top", pa.uint8()), ("by_spot", pa.uint32()))
@@ -101,13 +119,31 @@ def _narrowest(values: np.ndarray) -> pa.DataType:
                 and hi <= np.iinfo(kind.to_pandas_dtype()).max)
 
 
+def _rounded(values: np.ndarray, decimals: int) -> np.ndarray:
+    """round(value, decimals) of each (runs.round_floats): the double a reader of a scaled column gets back."""
+    import runs as rn
+    return rn.round_floats(values, decimals)
+
+
+def stored_values(column: str, values: np.ndarray) -> np.ndarray:
+    """The float64 values read() gives back for the LineTable's column `column` written as `values`: as they are
+    for a column the store keeps unrounded (decimals None), round(value, decimals) of each for a scaled one (the
+    same function as write's, so bit for bit, -0.0 and NaN included). The square rule's ranges are taken over these
+    (samelines), so that a range holds what a run without the rule stores."""
+    decimals = {c: d for _, c, index, d, _ in COLUMNS if index is None}[column]
+    if decimals is None:
+        return np.asarray(values, dtype=np.float64)
+    if not isinstance(decimals, int) or isinstance(decimals, bool):
+        raise ValueError(f"the store keeps the column {column} as {decimals}, not as a number of decimals")
+    return _rounded(values, decimals)
+
+
 def _scaled(name: str, values: np.ndarray, decimals: int, nullable: bool) -> Tuple[pa.Array, List[int], bool]:
     """A column's values as integers of value x 10^decimals (round() of each: runs.round_floats), the rows
     whose value rounds to -0.0, and True; or, when no integer holds them exactly (NaN where a value never
     misses, an infinity, beyond 2^53 once scaled, an anchor beyond int32), round(value, decimals) as float64
     (what data.js shows), no rows and False."""
-    import runs as rn
-    rounded = rn.round_floats(values, decimals)
+    rounded = _rounded(values, decimals)
     missing = np.isnan(rounded)
     scaled = np.where(missing, 0.0, rounded) * 10.0 ** decimals
     # Beyond 2^53 an integer is no longer exact as a double (nor its quotient by 10^decimals)
@@ -149,13 +185,21 @@ def lines_table(lines, head: Dict, view: Optional[Dict[str, np.ndarray]] = None)
     fields, arrays, negative_zero = [], [], {}
     for name, column, index, decimals, nullable in COLUMNS:
         if column not in lines.columns:
-            if column in END_COLUMNS or column in ACCESS or column == STANDS_FOR:
+            if column in OPTIONAL:
                 continue
             raise ValueError(f"the lines have no column {column}")
+        if decimals == "float32" and name not in RANGES:  # a range the store does not keep
+            continue
         values = _field_values(lines, column, index)
         metadata = None
         if decimals is None:
             array = pa.array(np.ascontiguousarray(values, dtype=np.float64), type=pa.float64())
+        elif decimals == "float32":  # as it is (the ranges: cast outward by the reducer), null for NaN
+            if np.asarray(values).dtype != np.float32:  # a float64 cast here would round inward as often as out
+                raise ValueError(f"the column {column} is not float32")
+            values = np.ascontiguousarray(values)
+            missing = np.isnan(values)
+            array = pa.array(values, type=pa.float32(), mask=missing if missing.any() else None)
         elif decimals == "bool":
             array = pa.array(np.asarray(values, dtype=bool).astype(np.uint8), type=pa.uint8())
         elif decimals == "mark":  # a code of 0..255 (the access mark's 0, 1, 2)
@@ -416,6 +460,8 @@ def _decoded(array: pa.ChunkedArray, decimals, negative_zero: List[int]) -> np.n
         return array.to_numpy(zero_copy_only=False).astype(np.int64)
     if decimals == "mark":  # uint8, as the search's column (its text: the integer)
         return array.to_numpy(zero_copy_only=False).astype(np.uint8)
+    if decimals == "float32":  # the ranges: float32 as stored, NaN for a null
+        return array.fill_null(np.nan).to_numpy(zero_copy_only=False).astype(np.float32, copy=True)
     values = array.fill_null(0).to_numpy(zero_copy_only=False).astype(np.float64) / 10.0 ** decimals
     if array.null_count:
         values[array.is_null().to_numpy(zero_copy_only=False)] = np.nan
@@ -473,35 +519,43 @@ def _profile_dicts(table: pa.Table) -> Dict[int, Dict]:
     return out
 
 
-def read(run_path: str, profiles: bool = True):
+def read(run_path: str, profiles: bool = True, columns: Optional[List[str]] = None):
     """(helpers.LineTable, head) of a run's store: the columns write took, the decoded values (NaN for a
-    null, -0.0 where it was), the result view's columns (VIEW, as their types) by their names when the store
-    has them (not a store saved before view B1), the profiles as dicts of helpers.line_profile (profiles=False:
-    none)."""
+    null, -0.0 where it was), the square rule's ranges (float32, NaN for a null) and the result view's columns
+    (VIEW, as their types) by their names when the store has them (not a store saved before view B1), the
+    profiles as dicts of helpers.line_profile (profiles=False: none). columns: only these of the LineTable's
+    names are decoded and returned (a pair such as "anchor1" whole); a name the store lacks is left out, as a
+    column the run does not have; a name no store knows raises ValueError. The head as without it."""
     import helpers as sh
+    wanted = None
+    if columns is not None:
+        wanted = set(columns)
+        unknown = wanted - {column for _, column, *_ in COLUMNS} - {name for name, _ in VIEW}
+        if unknown:
+            raise ValueError(f"no column of a store: {', '.join(sorted(unknown))}")
     table, meta = _read_file(os.path.join(run_path, LINES_FILE))
     zeros = meta.get("negative_zero") or {}
-    columns: Dict[str, np.ndarray] = {}
+    decoded: Dict[str, np.ndarray] = {}
     pairs: Dict[str, List[np.ndarray]] = {}
     for name, column, index, decimals, _ in COLUMNS:
-        if name not in table.schema.names:
+        if name not in table.schema.names or (wanted is not None and column not in wanted):
             continue
         field = table.schema.field(name)
-        if decimals not in (None, "bool", "count", "mark"):  # float64 as it is where no integer held the values
+        if decimals not in (None, "bool", "count", "mark", "float32"):  # float64 as it is where no integer held them
             places = (field.metadata or {}).get(b"decimals")
             decimals = int(places) if places is not None else None
         values = _decoded(table.column(name), decimals, zeros.get(name) or [])
         if index is None:
-            columns[column] = values
+            decoded[column] = values
         else:
             pairs.setdefault(column, [None, None])[index] = values
     for column, (first, second) in pairs.items():
-        columns[column] = np.column_stack([first, second])
+        decoded[column] = np.column_stack([first, second])
     for name, kind in VIEW:
-        if name in table.schema.names:
-            columns[name] = table.column(name).combine_chunks().to_numpy(zero_copy_only=False).astype(
+        if name in table.schema.names and (wanted is None or name in wanted):
+            decoded[name] = table.column(name).combine_chunks().to_numpy(zero_copy_only=False).astype(
                 kind.to_pandas_dtype())
-    lines = sh.LineTable(columns)
+    lines = sh.LineTable(decoded)
     if profiles:
         table, _ = _read_file(os.path.join(run_path, PROFILES_FILE))
         lines.profiles = _profile_dicts(table)

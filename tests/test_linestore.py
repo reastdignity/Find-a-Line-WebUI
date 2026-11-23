@@ -16,6 +16,7 @@ import helpers as sh
 import linestore
 import mapping as mp
 import runs as rn
+import samelines
 from test_units import HARD_FLOATS, _batch_profiles, _fake_lines
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -44,12 +45,16 @@ def _assert_read_back(lines, back):
     round(value, decimals) (runs.round_floats: what data.js shows) bit for bit, -0.0 and NaN included, in the
     integer form and in the float64 form of a column no integer holds alike."""
     for name, column, index, decimals, _ in linestore.COLUMNS:
-        if column not in lines.columns:
+        if column not in lines.columns or (decimals == "float32" and name not in linestore.RANGES):
             assert column not in back.columns, name
             continue
         got = _values(back, column, index)
         want = _values(lines, column, index)
-        if decimals == "bool":
+        if decimals == "float32":  # the square rule's ranges: float32 bit for bit, NaN for a null
+            assert got.dtype == want.dtype == np.float32, name
+            same = (got.view(np.uint32) == want.view(np.uint32)) | (np.isnan(got) & np.isnan(want))
+            assert same.all(), (name, np.flatnonzero(~same)[:5])
+        elif decimals == "bool":
             assert got.dtype == bool and np.array_equal(got, want), name
         elif decimals == "count":
             assert np.array_equal(got, want), name
@@ -63,11 +68,12 @@ def _assert_read_back(lines, back):
             assert same.all(), (name, np.flatnonzero(~same)[:5], got[~same][:5], want[~same][:5])
 
 
-def _hard_lines(n: int, ends: bool, square: bool, rng, access: bool = False) -> sh.LineTable:
+def _hard_lines(n: int, ends: bool, square: bool, rng, access: bool = False, ranges: bool = False) -> sh.LineTable:
     """n lines of _fake_lines with the hard floats in every column (those an integer of the column's decimals
     holds in the scaled ones, NaN only where a value may miss: clrN, hmean, highPct, angles, prom, drop),
     water and filled metres at 0.1 m as the search saves them, the A-frame heights (ends), the square
-    rule's count (square) and the access mark's two uint8 columns (access)."""
+    rule's count (square), the access mark's two uint8 columns (access) and the square rule's ranges (ranges:
+    float32 of the hard floats, NaN and the infinities too; the A-frame heights' with ends)."""
     lines = _fake_lines(n)
     for name in sh.PIXEL_COLUMNS:  # gone before saving (LineTable.without_pixels)
         lines.columns.pop(name)
@@ -98,6 +104,15 @@ def _hard_lines(n: int, ends: bool, square: bool, rng, access: bool = False) -> 
     if access:
         for name in rn.ACCESS:
             lines.columns[name] = rng.integers(0, 3, n).astype(np.uint8)
+    if ranges:
+        with np.errstate(over="ignore"):
+            hard32 = np.concatenate([np.array(HARD_FLOATS).astype(np.float32), [np.nan, -0.0]]).astype(np.float32)
+        for shift, (_, column) in enumerate(linestore.RANGE_COLUMNS):
+            if column.rsplit("_", 1)[0] in rn.END_COLUMNS and not ends:
+                continue
+            values = (rng.random(n) * 300).astype(np.float32)
+            values[:len(hard32)] = np.roll(hard32, shift)
+            lines.columns[column] = values
     return lines
 
 
@@ -172,7 +187,7 @@ def test_store_round_trip(tmp_path, ends, square, by, access):
     "findaline")."""
     rng = np.random.default_rng(5)
     n = 50_000
-    lines = _hard_lines(n, ends, square, rng, access)
+    lines = _hard_lines(n, ends, square, rng, access, ranges=square)  # the ranges: never in an export
     lines.profiles = _profiles(n, rng)
     meta = _meta(lines, ends, square, by, access)
     folder = tmp_path / "run"
@@ -194,6 +209,12 @@ def test_store_round_trip(tmp_path, ends, square, by, access):
         {name for name, column, *_ in SCALED if column in lines.columns}  # -0.0 in every integer column
     _exports_match(tmp_path, folder, lines, meta)
     assert linestore.read(str(folder), profiles=False)[0].profiles == {}
+    ranged = [column for _, column in linestore.RANGE_COLUMNS if column in lines.columns]
+    assert len(ranged) == (12 if square and ends else 8 if square else 0)
+    assert set(ranged) <= set(back.columns)
+    exported = b"".join((tmp_path / f"exported-{name}").read_bytes() for name in linestore.EXPORTS.values())
+    for name, column in linestore.RANGE_COLUMNS:  # store-only, as the view's columns
+        assert name.encode() not in exported and column.encode() not in exported, name
 
 
 def _clip_run(tmp_path, monkeypatch, elevation: str, surface=None, radius: float = 290):
@@ -310,6 +331,75 @@ def test_store_access_mark_kind(tmp_path):
         linestore.lines_table(lines, {})
 
 
+def test_stored_values_are_what_read_gives(tmp_path):
+    """linestore.stored_values (the values the square rule's ranges are taken over) is, for every column the store
+    keeps as one number per line, bit for bit what read gives back of a store written with those values: the
+    hard floats (halves, -0.0, NaN, the long ones), in the integer and in the float64 form alike; a column the store
+    keeps otherwise (a flag, a count) or none of its own is refused."""
+    rng = np.random.default_rng(12)
+    lines = _hard_lines(5000, True, False, rng)
+    lines.columns["elev_a2"] = lines.columns["elev_a2"].copy()
+    lines.columns["elev_a2"][7] = np.inf  # e2 float64 of round(value, 2): no integer holds it
+    linestore.write(str(tmp_path), lines, {})
+    back, _ = linestore.read(str(tmp_path), profiles=False)
+    numbers = [(column, decimals) for _, column, index, decimals, _ in linestore.COLUMNS
+               if index is None and (decimals is None or isinstance(decimals, int))]
+    assert {"length", "clearance", "height_max", "height_mean", *rn.END_COLUMNS, "elev_a2"} <= {c for c, _ in numbers}
+    for column, _ in numbers:
+        got = linestore.stored_values(column, lines.columns[column])
+        want = back.columns[column]
+        assert got.dtype == np.float64 and got.view(np.int64).tobytes() == want.view(np.int64).tobytes(), column
+    with pytest.raises(ValueError):
+        linestore.stored_values("over_obstacles", lines.columns["over_obstacles"])
+    with pytest.raises(KeyError):
+        linestore.stored_values("anchor1", lines.columns["anchor1"])
+
+
+def test_store_keeps_the_ranges_of_RANGES(tmp_path, monkeypatch):
+    """Which of the twelve ranges lines.arrow holds is linestore.RANGES (the user's twelve or seven): the seven
+    alone are written and read back, the others are not in the file; a range column that is not float32 is refused
+    (a float64 cast there would round inward)."""
+    seven = ("len_lo", "len_hi", "clr_hi", "hmax_hi", "hmean_hi", "lift_needed_lo", "lift_no_zone_lo")
+    monkeypatch.setattr(linestore, "RANGES", seven)
+    rng = np.random.default_rng(13)
+    lines = _hard_lines(300, True, True, rng, ranges=True)
+    linestore.write(str(tmp_path), lines, {})
+    schema = pa.ipc.open_file(pa.OSFile(str(tmp_path / linestore.LINES_FILE), "rb")).schema
+    assert [name for name in schema.names if name.endswith(("_lo", "_hi"))] == [
+        name for name, _ in linestore.RANGE_COLUMNS if name in seven]
+    back, _ = linestore.read(str(tmp_path))
+    _assert_read_back(lines, back)
+    assert {column for name, column in linestore.RANGE_COLUMNS if name not in seven}.isdisjoint(back.columns)
+    lines.columns["length_lo"] = lines.columns["length_lo"].astype(np.float64)
+    with pytest.raises(ValueError, match="not float32"):
+        linestore.lines_table(lines, {})
+
+
+def test_read_of_chosen_columns(tmp_path):
+    """linestore.read(columns=[...]) (A4): only the LineTable's columns named, each bit for bit the full read's (a pair
+    such as anchor1 whole, a range, a view column); a name the store lacks is left out as an optional column; a name
+    no store knows raises; the head and the profiles as without it."""
+    rng = np.random.default_rng(14)
+    lines = _hard_lines(2000, False, True, rng, ranges=True)
+    lines.profiles = {k: p for k, p in _profiles(2000, rng).items() if k < 50}
+    view = {"spot": np.arange(2000), "top": np.zeros(2000), "by_spot": np.arange(2000)[::-1].copy()}
+    linestore.write(str(tmp_path), lines, {"run": {"id": "x"}}, view)
+    full, head = linestore.read(str(tmp_path))
+    names = ["length", "anchor1", "height_mean", "clearance_hi", "by_spot", "lift_needed", "access1"]
+    chosen, chosen_head = linestore.read(str(tmp_path), columns=names)
+    assert chosen_head == head and chosen.profiles == full.profiles
+    # lift_needed and access1: not in this store (no end columns, no access mark)
+    assert set(chosen.columns) == {"anchor1", "length", "height_mean", "clearance_hi", "by_spot"}
+    for name, values in chosen.columns.items():
+        assert values.dtype == full.columns[name].dtype and values.tobytes() == full.columns[name].tobytes(), name
+    alone, _ = linestore.read(str(tmp_path), profiles=False, columns=["a1_xy"])
+    assert set(alone.columns) == {"a1_xy"} and alone.profiles == {} and len(alone) == 2000
+    with pytest.raises(ValueError, match="no column of a store: nothing"):
+        linestore.read(str(tmp_path), columns=["length", "nothing"])
+    with pytest.raises(ValueError):
+        linestore.read(str(tmp_path), columns=["len"])  # the store's name, not the LineTable's
+
+
 def test_store_written_whole_or_not_at_all(tmp_path, monkeypatch):
     """linestore.write writes under temporary names and gives both files their names only when both are whole:
     a failure between the two files (profiles.arrow's table) leaves neither name, nor a temporary file."""
@@ -403,18 +493,34 @@ def test_store_schema(tmp_path):
                                                          for p in lines.profiles.values())
     assert profiles.column("w").null_count == sum(sh.profile_dict(p)["w"] is None for p in lines.profiles.values())
 
-    # With the end columns and the square rule; profiles without a surface model or an end zone
+    # With the end columns and the square rule (its count and its ranges); profiles without a surface model or an
+    # end zone
     lines.columns["lift_needed"], lines.columns["lift_no_zone"] = np.zeros(40), np.full(40, 2.5)
     lines.columns[rn.STANDS_FOR] = np.arange(1, 41, dtype=np.int64)
+    for k, (_, column) in enumerate(linestore.RANGE_COLUMNS):
+        lines.columns[column] = np.full(40, k + 0.5, dtype=np.float32)
+        lines.columns[column][k] = np.nan  # a null
     batch = _batch_profiles(40, rng)
     batch.s = None
     lines.profiles = {k: batch[k] for k in range(0, 40, 2)}
     folder = tmp_path / "options"
     folder.mkdir()
-    linestore.write(str(folder), lines, {})
+    linestore.write(str(folder), lines, {}, {"spot": np.arange(40), "top": np.zeros(40), "by_spot": np.arange(40)})
     schema = pa.ipc.open_file(pa.OSFile(str(folder / linestore.LINES_FILE), "rb")).schema
-    assert schema.names[-3:] == [*rn.END_COLUMNS, rn.STANDS_FOR] and schema.field(rn.STANDS_FOR).type == pa.uint32()
+    assert schema.names[-3:] == [name for name, _ in linestore.VIEW]  # the view's columns after the ranges
+    schema = pa.schema([schema.field(name) for name in schema.names[:-3]])
+    assert linestore.RANGES == ("len_lo", "len_hi", "clr_lo", "clr_hi", "hmax_lo", "hmax_hi", "hmean_lo", "hmean_hi",
+                                "lift_needed_lo", "lift_needed_hi", "lift_no_zone_lo", "lift_no_zone_hi")
+    assert schema.names[-15:] == [*rn.END_COLUMNS, rn.STANDS_FOR, *linestore.RANGES]  # after the count, in this order
+    assert schema.field(rn.STANDS_FOR).type == pa.uint32()
     assert schema.field("lift_needed").type == pa.int8() and schema.field("lift_no_zone").type == pa.int16()
+    for k, name in enumerate(linestore.RANGES):
+        field = schema.field(name)
+        assert field.type == pa.float32() and field.nullable and not field.metadata, name
+    ranges = pa.ipc.open_file(pa.OSFile(str(folder / linestore.LINES_FILE), "rb")).read_all()
+    assert [ranges.column(name).null_count for name in linestore.RANGES] == [1] * 12
+    assert [linestore.RANGE_COLUMNS[k][1] for k in range(12)] == [
+        name for value in samelines.RANGED for name in samelines.range_columns(value)]  # the reducer's columns
     with pa.OSFile(str(folder / linestore.PROFILES_FILE), "rb") as f:
         profiles = pa.ipc.open_file(f).read_all()
     assert "s" not in profiles.schema.names  # absent without a surface model; zone and lift null where absent

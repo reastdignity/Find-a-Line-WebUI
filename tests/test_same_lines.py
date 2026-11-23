@@ -102,6 +102,83 @@ def _rows(table: sh.LineTable) -> list:
             for k in range(len(table))]
 
 
+# The ranges (samelines.RANGED): of the values as a run without the rule stores them, the mean height and the A-frame
+# heights at 2 decimals by Python's round() (the store's rounding, written plainly here), the others as they are
+RANGE_DECIMALS = {"height_mean": 2, "lift_needed": 2, "lift_no_zone": 2}
+
+
+def _range_names(table: sh.LineTable) -> list:
+    return [name for name in table.columns if name.endswith(("_lo", "_hi"))]
+
+
+def _range_reference(ends, table: sh.LineTable, side: float, core=None) -> dict:
+    """The ranges written plainly: {pair of squares: {value: (least, most)}} of a table's lines given by their
+    anchors (_ends), over the stored values (RANGE_DECIMALS by round()), NaN skipped (NaN when every one is)."""
+    values = [v for v in samelines.RANGED if v in table.columns]
+    columns = {v: table.columns[v].tolist() for v in values}
+    out = {}
+    for k, (xa, ya, xb, yb) in enumerate(ends):
+        if core is not None and not (core[0] <= xa < core[2] and core[1] <= ya < core[3]):
+            continue
+        squares = sorted([(xa // side, ya // side), (xb // side, yb // side)])
+        ranges = out.setdefault((squares[0], squares[1]), {v: [] for v in values})
+        for v in values:
+            value = columns[v][k]
+            if value == value:  # NaN skipped
+                ranges[v].append(round(value, RANGE_DECIMALS[v]) if v in RANGE_DECIMALS else value)
+    return {key: {v: (min(seen), max(seen)) if seen else (float("nan"), float("nan")) for v, seen in r.items()}
+            for key, r in out.items()}
+
+
+def _assert_outward(lo, hi, least: float, most: float, where):
+    """lo the largest float32 not above least, hi the smallest not below most (an infinity as it is); NaN for
+    NaN; a zero +0.0."""
+    for got, want, down in ((lo, least, True), (hi, most, False)):
+        assert isinstance(got, np.float32), where
+        if want != want:
+            assert got != got, where
+            continue
+        g = float(got)
+        with np.errstate(over="ignore"):  # the step beyond float32's largest value: an infinity
+            up, down_step = float(np.nextafter(got, np.float32(np.inf))), float(np.nextafter(got, np.float32(-np.inf)))
+        if abs(want) == float("inf"):
+            assert g == want, where
+        elif down:
+            assert g <= want < up, (where, got, want)
+        else:
+            assert down_step < want <= g, (where, got, want)
+        assert g != 0 or not np.signbit(got), where
+
+
+def _xy_ends(table: sh.LineTable) -> list:
+    """_ends of a table with coordinates (a1_xy, a2_xy: after mapping.coordify)."""
+    c = table.columns
+    return [(a, b, x, y) if (a, b) <= (x, y) else (x, y, a, b)
+            for (a, b), (x, y) in zip(c["a1_xy"].tolist(), c["a2_xy"].tolist())]
+
+
+def _assert_ranges(grid, kept: sh.LineTable, expected: dict, side: float, ends: bool):
+    """Each kept line's range columns: the outward float32 of its pair's least and most (expected:
+    _range_reference); the A-frame heights' only with them; float32 each, in the order of samelines.RANGED,
+    right after COLUMN. grid: of the pixels a1, a2 (None: the table's coordinates)."""
+    values = [v for v in samelines.RANGED if ends or v not in sh.END_VALUES]
+    assert _range_names(kept) == [name for v in values for name in samelines.range_columns(v)]
+    assert all(kept.columns[name].dtype == np.float32 for name in _range_names(kept))
+    assert list(kept.columns).index(COLUMN) == list(kept.columns).index(_range_names(kept)[0]) - 1
+    anchors = _xy_ends(kept) if grid is None else _ends(grid, kept.columns["a1"], kept.columns["a2"])
+    assert len(anchors) == len(expected)
+    for k, (xa, ya, xb, yb) in enumerate(anchors):
+        squares = sorted([(xa // side, ya // side), (xb // side, yb // side)])
+        for v in values:
+            lo, hi = (kept.columns[name][k] for name in samelines.range_columns(v))
+            _assert_outward(lo, hi, *expected[(squares[0], squares[1])][v], (k, v))
+
+
+def _bits(table: sh.LineTable) -> dict:
+    """The range columns' bits (NaN and the sign of zero as they are)."""
+    return {name: table.columns[name].view(np.uint32).tobytes() for name in _range_names(table)}
+
+
 def test_side_of_the_squares():
     """The option's metres on data of 1 m or finer, that many pixels on coarser data."""
     assert samelines.side(5, 1) == 5 and samelines.side(5, 2) == 10 and samelines.side(3, 2.5) == 7.5
@@ -119,7 +196,9 @@ def test_reducer_as_plain_reference(ends, monkeypatch):
     grid, side = _grid(), 5.0
     table = _table(6000, 1, ends)
     values = _rows(table)
-    expected = _reference(_ends(grid, table.columns["a1"], table.columns["a2"]), values, side)
+    ends_of = _ends(grid, table.columns["a1"], table.columns["a2"])
+    expected = _reference(ends_of, values, side)
+    ranges = _range_reference(ends_of, table, side)
     assert len(expected) < len(table) / 2  # many lines share a pair
     tables = []
     for parts, merge_rows, seed in ((1, 1 << 20, 0), (7, 1 << 20, 1), (40, 300, 2), (40, 1, 3)):
@@ -134,10 +213,12 @@ def test_reducer_as_plain_reference(ends, monkeypatch):
         assert _kept(grid, kept) == {anchors: count for anchors, count in expected.values()}
         assert int(kept.columns[COLUMN].sum()) == len(table) and kept.columns[COLUMN].dtype == np.int64
         assert not any(name.startswith("_") for name in kept.columns)
+        _assert_ranges(grid, kept, ranges, side, ends)  # the least and the most of the pair's lines
         tables.append(kept)
     for other in tables[1:]:  # the same rows in the same order, every column
         assert list(other.columns) == list(tables[0].columns)
         assert all(np.array_equal(other.columns[name], tables[0].columns[name]) for name in other.columns)
+        assert _bits(other) == _bits(tables[0])
     # a tile's core: its own lines only (the first anchor's test of search.line_coordinates)
     core = (1004.0, 4977.0, 1019.0, 4993.0)
     reducer = samelines.BestPerSquarePair(side, grid, core)
@@ -146,11 +227,81 @@ def test_reducer_as_plain_reference(ends, monkeypatch):
     in_core = _reference(_ends(grid, table.columns["a1"], table.columns["a2"]), values, side, core)
     assert 0 < len(in_core) < len(expected)
     assert reducer.counts()["found"] == sum(count for _, count in in_core.values())
-    assert _kept(grid, reducer.table()) == {anchors: count for anchors, count in in_core.values()}
-    # no line at all: an empty table with the column
+    kept = reducer.table()
+    assert _kept(grid, kept) == {anchors: count for anchors, count in in_core.values()}
+    _assert_ranges(grid, kept, _range_reference(ends_of, table, side, core), side, ends)
+    # no line at all: an empty table with the column and the ranges (float32, in their places)
     empty = samelines.BestPerSquarePair(side, grid)
     empty(sh.LineTable.empty())
     assert len(empty.table()) == 0 and COLUMN in samelines.BestPerSquarePair(side, grid).table().columns
+    none = samelines.BestPerSquarePair(side, grid).table()
+    assert list(none.columns) == [*sh.LineTable.empty().columns, COLUMN, *(
+        name for v in samelines.RANGED[:4] for name in samelines.range_columns(v))]
+    assert all(none.columns[name].dtype == np.float32 for name in _range_names(none))
+
+
+def test_outward_float32():
+    """samelines.outward: lo the largest float32 not above a value, hi the smallest not below it, exact where float32
+    holds the value, a zero +0.0 (also from -0.0 and from a value just below zero), NaN as NaN, beyond float32's range
+    its largest finite value and an infinity; the hard floats of the saved text and random doubles."""
+    from test_units import HARD_FLOATS
+    rng = np.random.default_rng(11)
+    values = np.concatenate([np.array(HARD_FLOATS, dtype=np.float64), rng.normal(0, 300, 20000),
+                             rng.random(2000) * 1e-40, -rng.random(2000) * 1e-46, np.float32(rng.random(500)),
+                             [0.0, -0.0, 1e39, -1e39, 3.4028235e38, np.inf, -np.inf, np.nan, 2.675, 0.1, -1e-300]])
+    lo, hi = samelines.outward(values)
+    assert lo.dtype == hi.dtype == np.float32
+    for k, v in enumerate(values.tolist()):
+        _assert_outward(lo[k], hi[k], v, v, (k, v))
+    with np.errstate(over="ignore"):
+        exact = np.isfinite(values) & (values.astype(np.float32).astype(np.float64) == values)
+    assert exact.sum() > 500 and np.array_equal(lo[exact], hi[exact])
+    assert float(lo[values == 1e39][0]) == float(np.finfo(np.float32).max) and hi[values == 1e39][0] == np.inf
+
+
+def test_ranges_of_rounded_values_nan_and_zeros(monkeypatch):
+    """The ranges are of the values as a run without the rule stores them (the mean height and the A-frame heights
+    rounded to 2 decimals, the others as they are), NaN skipped, NaN for a pair whose every mean height is NaN,
+    -0.0 and +0.0 in one pair the same bits for every order; the kept line's own values stay unrounded (the order
+    reads them so); any split, order and MERGE_ROWS give the same bits."""
+    grid, side = _grid(), 5.0
+    table = _table(6000, 7)
+    rng = np.random.default_rng(8)
+    c = table.columns
+    n = len(table)
+    c["height_mean"] = rng.random(n) * 50 + rng.random(n) * 1e-3
+    c["height_mean"][rng.random(n) < 0.2] = np.nan
+    c["lift_no_zone"] = np.where(rng.random(n) < 0.5, 0.0, rng.random(n) * 3)
+    c["lift_needed"] = np.where(rng.random(n) < 0.5, 0.0, c["lift_no_zone"] * rng.random(n))
+    c["clearance"] = np.where(rng.random(n) < 0.3, np.where(rng.random(n) < 0.5, 0.0, -0.0), c["clearance"])
+    c["height_max"][::7] = -0.0
+    x1, y1 = grid.pixel_to_xy(c["a1"][:, 0], c["a1"][:, 1])
+    x2, y2 = grid.pixel_to_xy(c["a2"][:, 0], c["a2"][:, 1])
+    ka, kb = samelines.square_keys(x1, y1, x2, y2, side)
+    _, inverse, counts = np.unique(np.column_stack([ka, kb]), axis=0, return_inverse=True, return_counts=True)
+    all_nan = np.flatnonzero(inverse.ravel() == int(np.argmax(counts)))
+    c["height_mean"][all_nan] = np.nan  # the largest pair: no mean height at all
+    ends_of = _ends(grid, c["a1"], c["a2"])
+    ranges = _range_reference(ends_of, table, side)
+    assert sum(r["height_mean"][0] != r["height_mean"][0] for r in ranges.values()) >= 1
+    assert sum(r["clearance"][0] == 0.0 for r in ranges.values()) > 100  # -0.0 and +0.0 in many pairs
+    bits = None
+    for parts, merge_rows, seed in ((1, 1 << 20, 0), (9, 1 << 20, 1), (60, 200, 2), (30, 1, 3)):
+        monkeypatch.setattr(samelines, "MERGE_ROWS", merge_rows)
+        order = np.random.default_rng(seed).permutation(n)
+        reducer = samelines.BestPerSquarePair(side, grid)
+        for index in np.array_split(order, parts):
+            reducer(table.take(index))
+        kept = reducer.table()
+        _assert_ranges(grid, kept, ranges, side, True)
+        assert bits is None or _bits(kept) == bits
+        bits = _bits(kept)
+        # the kept line's own values unrounded: those of the found line itself
+        own = dict(zip(ends_of, c["height_mean"].tolist()))
+        got = kept.columns["height_mean"].tolist()
+        for k, anchors in enumerate(_ends(grid, kept.columns["a1"], kept.columns["a2"])):
+            assert got[k] == own[anchors] or (got[k] != got[k] and own[anchors] != own[anchors])
+        assert any(v != round(v, 2) for v in got if v == v)
 
 
 def test_squares_on_a_coarse_grid_and_any_lattice_side():
@@ -190,7 +341,21 @@ def test_join_of_tiles_as_one_grid():
     assert len(joined) == len(whole) and int(joined.columns[COLUMN].sum()) == len(table)
     for name in whole.columns:
         assert np.array_equal(joined.columns[name], whole.columns[name]), name
+    assert len(_range_names(whole)) == 12 and _bits(joined) == _bits(whole)  # the ranges of one grid, bit for bit
+    _assert_ranges(grid, whole, _range_reference(_ends(grid, table.columns["a1"], table.columns["a2"]), table, side),
+                   side, True)
     assert samelines.reduce_table(sh.LineTable.empty(), side) is not None
+    # a table without range columns (tests/test_search_findings.py's): reduced as before, none added
+    plain = samelines.BestPerSquarePair(side, grid)
+    plain(table.take(np.arange(len(table))))
+    plain = plain.table()
+    for name in _range_names(plain):
+        plain.columns.pop(name)
+    plain.columns.update(a1_xy=np.column_stack(grid.pixel_to_xy(plain.columns["a1"][:, 0], plain.columns["a1"][:, 1])),
+                         a2_xy=np.column_stack(grid.pixel_to_xy(plain.columns["a2"][:, 0], plain.columns["a2"][:, 1])))
+    again = samelines.reduce_table(sh.LineTable.join([plain.take(np.arange(0, len(plain), 2)),
+                                                      plain.take(np.arange(1, len(plain), 2))]), side)
+    assert not _range_names(again) and len(again) == len(plain)
 
 
 def test_reducer_asks_its_check_about_kept_lines(monkeypatch):
@@ -321,6 +486,8 @@ def test_search_with_the_option_off_as_before(tmp_path, setting):
         assert b"stands_for" not in text and b"same_line" not in text, name
     stored, head = _store(run)
     assert COLUMN not in stored.columns and "found" not in head and "square" not in head
+    assert not _range_names(table) and not _range_names(stored)  # no range anywhere
+    assert not [name for name in _store_table(run).schema.names if name.endswith(("_lo", "_hi"))]
     assert set(sh.END_VALUES) <= set(stored.columns) if SETTINGS[setting] else \
         not set(sh.END_VALUES) & set(stored.columns)
     assert "same_line_square" not in search._run_params(plan)
@@ -341,6 +508,11 @@ def test_search_keeps_one_line_per_pair_of_squares(tmp_path, setting):
     got = {(a, b, x, y) if (a, b) <= (x, y) else (x, y, a, b): count
            for (a, b), (x, y), count in zip(c["a1_xy"].tolist(), c["a2_xy"].tolist(), c[COLUMN].tolist())}
     assert got == {anchors: count for anchors, count in expected.values()}
+    # the ranges: of the full table's lines of each pair, as the store keeps them (the mean height and the A-frame
+    # heights rounded), in the store as the search's table holds them
+    _assert_ranges(None, kept, _range_reference(_xy_ends(full), full, plan.square), plan.square, bool(values))
+    stored, _ = _store(run)
+    assert _bits(stored) == _bits(kept)
     if values:  # the rigging classes took part: a pair with lines of several keeps one of the least
         assert len(set(np.sign(full.columns["lift_no_zone"]).tolist())) == 2
     tiled, _, tiled_plan = _search(tmp_path, "tiled", same_line_square=5, tile_size=150, **values)

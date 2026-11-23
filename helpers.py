@@ -128,7 +128,8 @@ class LineTable:
     "a2_xy" ([easting, northing] in the grid CRS), "over_obstacles" (bool), "water_m",
     "filled_m"; with an end zone or A-frames also the END_VALUES (float64: lift_values, filled by
     search._pair_search); with the square rule (--same-line-square) also "stands_for" (int64:
-    samelines.COLUMN). profiles: the profile of a row, only for the rows that have one: a Profile of a
+    samelines.COLUMN) and the ranges of the found lines each kept line stands for ("<value>_lo",
+    "<value>_hi", float32, of samelines.RANGED). profiles: the profile of a row, only for the rows that have one: a Profile of a
     batch (lineprofiles.line_profiles) or the dict of line_profile (profile_dict gives either as
     that dict). row(k) gives a line as the dict the rest of the code knew.
     """
