@@ -300,7 +300,7 @@ PUBLISHABLE: Dict[str, Dict] = {
               "Art. 4 are not found; whether the record's free ZIP is a priced product is not established. Art. 3.º "
               "4: end users are told of every change (the card). An objection is answered with unpublish.",
         approved="a (approve all three), the user's word of 2026-11-17 (U55)"),
-    # Wallonia: SPW's lidar 2021-2022 at 0.5 m, cut at 1 m only (the user's U95 of 2026-11-22, the wording
+    # Wallonia: SPW's lidar 2021-2022 at 0.5 m, cut at 1 m only (the user's U96 of 2026-11-22, the wording
     # approved as drafted; a floor chosen later changes the changes sentence and is shown to the user again)
     "wallonia": dict(
         dataset="wallonia",
@@ -324,7 +324,7 @@ PUBLISHABLE: Dict[str, Dict] = {
               "https://geodata.wallonie.be/id/5a4c28fe-d30c-493e-861e-a80ebc703b64\". The terrain model's record: "
               "\"Les réutilisations sont autorisées moyennant citation de la source et mention explicite des "
               "modifications apportées à la donnée.\" (the card names every change).",
-        approved="Approve this wording, the user's word of 2026-11-22 (U95)"),
+        approved="Approve this wording, the user's word of 2026-11-22 (U96)"),
 }
 
 

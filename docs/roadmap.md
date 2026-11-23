@@ -1426,7 +1426,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   - *Wallonia* (`wallonia`, built 2026-11-23): SPW's Relief de la Wallonie MNT and MNS 2021-2022 (lidar, 0.5 m,
     heights in the DNG), CC BY 4.0, credited with the records' "Source :" sentences; the ten province ZIPs fetched by
     `tools/cdd_fetch.py` on the user's server, cut on the PC by `tools/mirror_tiles.py` at 1 m only, the mean of the
-    valid 0.5 m pixels of each 2 x 2 block (`Product.average`; the user, 2026-11-22), published with the row of U95
+    valid 0.5 m pixels of each 2 x 2 block (`Product.average`; the user, 2026-11-22), published with the row of U96
     (docs/mirror-hosting/spec.md); orthophoto SPW's ORTHO_LAST (CC BY 4.0); neighbours Luxembourg, North
     Rhine-Westphalia (with a border box of the Eifel) and the Netherlands. The cut, the publish, `check_source` and
     R94 (the Rochers de Freyr) wait: docs/new-sources-6/spec.md, section 2.

@@ -479,7 +479,7 @@ CUT_WITHOUT_A_ROW: set = set()
 # Each row's approval, as docs/mirror-hosting/spec.md section 5 names it: the user's decision behind the row.
 APPROVED_BY = {"slovakia": "U31", "madeira": "U11", "aosta": "U12",
                "porto-santo": "U55", "desertas": "U55", "selvagens": "U55",
-               "wallonia": "U95"}
+               "wallonia": "U96"}
 
 
 def test_publishable_is_the_catalogues_and_the_tools():
