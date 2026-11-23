@@ -72,6 +72,7 @@ Kept, where a sign stays:
 | the sign of a number | "+2 m" | a sign, not a word | G5's row kept-03 |
 | the coverage map's images and videos | "≤ 1 m", the stars' character | rendered by hand and rarely: left for now | step 3d's scope Q16 a (`local/ux-design-2026-11-16/3d/scope.md`); G5's row kept-04 |
 | the terrain profile's 1:1 scale | "1:1 scale (now vertical ×1.6)" | a multiplier the user kept like the 3D view's "×1" | the user's answer to G6's w-04, 2026-11-23 (user-inputs, "Step 3d G6") |
+| a phone's Area ramp (the result view's legend) | "7+" at the ramp's end | its end in the room beside the select ("7 or more" wrapped it to a line of its own); the desktop's classes say "from 7" | the user's F2 b, 2026-11-23 (user-inputs, "Step 3d G6: four questions after the reviews"); `test_words.py` `R9_KEPT` |
 | today's result page | "→" in its intro (`intro.result.spots`, `easy_within`), ≥ and ≤ in its filter bar | the page goes with line volume's round 6 | the user, 2026-11-19 (known-bugs.md, step 3d G5) |
 
 ## Style rules

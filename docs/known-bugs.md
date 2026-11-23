@@ -943,8 +943,14 @@ to 136; `tests/test_view_kit.py`). Left:
   Either costs a link's press or needs something drawn to move.
 - **The desktop card with "Rigging and layers" open** (the design review's F1, mended by the user's F1 a of
   2026-11-23: the profile's key at 12 px with 12 px gaps, DESIGN.md row 133): the key and the 1:1 scale on one row
-  again; the card is 358 px against main's 344 (the kit's 32 px button and the rigging rows' 24 px fields and 20 px
-  boxes). The row fits with 3 px to spare on the card (1 px on today's page, 594 px wide): a longer word wraps it.
+  again; the card is 358 px in the view and 361 px on today's page against main's 344 and 345 (the kit's 32 px button and the rigging rows' 24 px fields and 20 px
+  boxes). The row fits with 3 px to spare on the card (1 px on today's page, 594 px wide) for a search with the default
+  line model ("safety limit (formula)"; `tests/test_view_kit.py::test_card_key_and_scale_on_one_row`). It still takes
+  two rows, as on main, with the sag model ("safety limit (sag model)": the legend 409 px, 607 of 596) and with the
+  no-fall zone or A-frames (two more items: the legend alone 581 px).
+- `LineDetails.tsx` `ordinal` writes the English ordinal ("76th" percentile) in code, and the view shows it (an
+  anchor's percentile in a line's details): inherited English, unguarded (`LineDetails.tsx` is today's page's file,
+  outside `MOVED`); a catalogue's ordinal needs plural rules per language (i18next's `ordinal`).
 - `CoarserNote` joins the fallbacks' names with " and " in code. Today's page's own English the view never shows:
   `FilterBar`'s bar (its chips and "Close the filter") and `ResultNote`'s "Close" (`ResultSummary.tsx`); the guard
   (`tests/test_texts_in_catalogue.py` `MOVED`) covers the parts the view borrows (`MainEditor`, `MoreFilters`,

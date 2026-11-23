@@ -15,8 +15,8 @@ catalogue), `browser-tests.md`.
 
 - The words of the files `tests/test_texts_in_catalogue.py` names (`MOVED`) are texts of `locales/en.json` (`t`): its
   guard catches any word put back in their JSX text or text attributes and a phrase in their code, and checks that a
-  call gives each `{{name}}` of its text. Today's result page's own components (`FilterBar`'s bar, `LineDetails`,
-  `LinesTable`, `ResultColumns`) and the kit's demo pages still hold English in code (docs/known-bugs.md, step 3d G4,
+  call gives each `{{name}}` of its text. Today's result page's own components (`FilterBar`'s bar, `ResultNote`,
+  `LineDetails`, `LinesTable`, `ResultColumns`) and the kit's demo pages still hold English in code (docs/known-bugs.md, step 3d G4,
   G6). A sentence with an icon or a link
   inside is one key drawn by `i18n.parts`, and a value that stood as a text node of its own stays one (Chromium places
   a line's glyphs by its text nodes: merged nodes change pixels).
