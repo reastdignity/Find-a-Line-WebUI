@@ -548,7 +548,8 @@ def test_rows_complete_and_approved():
         assert mp.row_faults(row) == [], name
         assert set(row) == set(mp.ROW_FIELDS), name
         datetime.date.fromisoformat(row["basis_checked"])
-        assert "2026-11-" in row["approved"]  # the user's word and its date
+        when = re.search(r"(\d{4}-\d{2}-\d{2})", row["approved"])  # the user's word and its date
+        assert when and datetime.date.fromisoformat(when.group(1)) >= datetime.date(2026, 11, 15), name
     assert mp.PUBLISHABLE["madeira"]["licence"] == mp.PUBLISHABLE["madeira"]["licence_url"] == "none"
     assert mp.row_faults({**mp.PUBLISHABLE["aosta"], "approved": ""}) == ["not approved (no `approved`)"]
 
@@ -593,7 +594,7 @@ def test_cards_state_the_changes():
             "(PTRA08 / UTM zone 28N); nothing reprojected") in changes(served["desertas"])
     assert "the values, float64 in the file, stored as float32 (within those 5 mm)" in changes(served["porto-santo"])
     assert "label replaced" not in served["selvagens"] and "float64" not in served["selvagens"]
-    # Wallonia's mean of 2 x 2 (W11), as its row says it
+    # Wallonia's mean of 2 x 2 (U95), as its row says it
     assert "each 1 m pixel is the mean of the valid 0.5 m pixels of its 2 x 2 block" in changes(served["wallonia"])
     sk = changes(mp.cards()["slovakia"])
     assert "2 m and 5 m" in sk and "mean" in sk and "2 × 2" in sk and "5 × 5" in sk
