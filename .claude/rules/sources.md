@@ -102,7 +102,7 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   `wcsreader.SPLIT_RATE_SHARE`, England's 429s at the full rate). `net.HOST_SLOTS_OF` caps connections per host
   (BEV 2: its AGB §10 calls automated mass downloading misuse; Funet 4: it limits addresses to 10 connections;
   INSPIRE, provincial and LAiV servers 4; geoportal.gov.pl's WFS sheet indexes 4: no published limits).
-  A GDAL window read holds one slot and counts as one request. A new
+  A GDAL window read: a slot, a turn per file (`net.single_connection`). A new
   numeric limit found in a provider's terms goes into one of these dicts, with the quote, URL and date;
   `tests/test_rates.py` (conftest empties `HOST_RATES_OF` for the other tests).
 - **Keys of data services** stay in the worker: a key goes into a request only when it is made (`key_params`), never
