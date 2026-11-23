@@ -21,8 +21,12 @@ _spec = importlib.util.spec_from_file_location("regression_harness_tool", os.pat
 regression = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(regression)
 
-WORLD_FILE = "OpenStreetMap water polygons (world file)"
-FALLBACK = "Copernicus water body mask (fallback)"
+WORLD_FILE = regression.coast.SOURCE_WORLD
+OVERPASS = regression.coast.SOURCE_OVERPASS
+FALLBACK = regression.coast.SOURCE_FALLBACK
+NO_SEA = regression.coast.SOURCE_NO_SEA
+WARNING_LINE = (f"WARNING: {regression.coast.FALLBACK_WARNING} (502 Server Error: Bad Gateway for url: "
+                f"https://overpass-api.de/api/interpreter?...). Using the Copernicus water body mask instead")
 
 
 @pytest.fixture(autouse=True)
@@ -38,10 +42,12 @@ def _layout(folder) -> str:
     return str(folder)
 
 
-def _result(coastline=WORLD_FILE, lines=10, exit_code=0, unanswered=None, **more) -> dict:
-    found = {"anchors": 5, "lines": lines, "csv_sha256": "a" * 64, "exit": exit_code, "problems": []}
-    if coastline is not None:
-        found["coastline"] = coastline
+def _result(coastline=WORLD_FILE, lines=10, exit_code=0, unanswered=None, warned=False, **more) -> dict:
+    """What run() gives for a search: its output's coastline line and warning read by measure itself."""
+    output = (f"Coastline: {coastline}\n" if coastline is not None else "") + (f"{WARNING_LINE}\n" if warned else "")
+    found = {**regression.measure(output, "none"), "anchors": 5, "lines": lines, "csv_sha256": "a" * 64,
+             "exit": exit_code, "problems": []}
+    found.pop("empty_tiles")
     if exit_code:
         found["unanswered"] = unanswered
         found.pop("problems")
@@ -107,9 +113,32 @@ def test_measure_reads_the_coastline_line():
         == f"a; {FALLBACK}"
 
 
+def test_measure_reads_the_fallback_warning():
+    """The positive sign of the fallback: coast's own note, as findaline.print_event prints it."""
+    assert regression.measure(f"\n{'!' * 60}\n{WARNING_LINE}\n{'!' * 60}\n", "none")["coast_warning"] is True
+    assert "coast_warning" not in regression.measure(f"Coastline: {FALLBACK}\n", "none")
+    assert "coast_warning" not in regression.measure("WARNING: something else could not be downloaded (x)\n", "none")
+
+
 def test_stored_keeps_the_searchs_own_text():
     assert regression.stored(_result("anything at all"), {})["coastline"] == "anything at all"
     assert "coastline" not in regression.stored(_result(coastline=None), {"coastline": WORLD_FILE})
+    assert regression.stored(_result(OVERPASS), {"coastline": WORLD_FILE}, ok=True)["coastline"] == WORLD_FILE
+    assert regression.stored(_result(OVERPASS), {"coastline": WORLD_FILE})["coastline"] == OVERPASS
+    assert regression.stored(_result(OVERPASS), {}, ok=True)["coastline"] == OVERPASS  # a first baseline
+
+
+def test_every_stored_coastline_is_a_named_text():
+    """Every baseline's coastline is one of coast.py's named texts: a reword there fails here, instead of making
+    every baseline's source unknown (and every difference DIFFERENT, never excused)."""
+    coast = regression.coast
+    named = {coast.SOURCE_WORLD, coast.SOURCE_OVERPASS, coast.SOURCE_FALLBACK, coast.SOURCE_COPERNICUS,
+             coast.SOURCE_NO_SEA, coast.SOURCE_NO_COAST}
+    stored = {t: test["expected"]["coastline"] for t, test in regression.load().items()
+              if test.get("kind") != "osm" and "coastline" in test["expected"]}
+    assert len(stored) >= 91
+    assert {t: s for t, s in stored.items() if s not in named} == {}
+    assert not [t for t, s in stored.items() if s == coast.SOURCE_FALLBACK]
 
 
 def test_the_coastline_texts_are_coasts(monkeypatch):
@@ -134,18 +163,121 @@ def test_the_coastline_texts_are_coasts(monkeypatch):
 # H2: the outcomes
 
 
+REWORDED = "OSM water polygons (world file)"
+
+
+@pytest.mark.parametrize("stored, source, world, warned, excused", [
+    # a baseline on the world file: Overpass where the folder holds no world file, the fallback with its warning
+    (WORLD_FILE, OVERPASS, False, False, True),
+    (WORLD_FILE, OVERPASS, True, False, False),  # the real cache holds the world file: only changed code
+    (WORLD_FILE, FALLBACK, False, True, True),
+    (WORLD_FILE, FALLBACK, False, False, False),  # no warning: no positive sign
+    (WORLD_FILE, FALLBACK, True, True, False),
+    (WORLD_FILE, WORLD_FILE, True, False, False),  # the same source
+    # a baseline on live Overpass
+    (OVERPASS, WORLD_FILE, True, False, True),
+    (OVERPASS, WORLD_FILE, False, False, False),
+    (OVERPASS, FALLBACK, False, True, True),
+    # "no sea in the area" is a result, a reworded or unknown text no source, a fallback or no baseline never excuses
+    (WORLD_FILE, NO_SEA, False, False, False),
+    (NO_SEA, WORLD_FILE, True, False, False),
+    (NO_SEA, OVERPASS, False, False, False),
+    (WORLD_FILE, REWORDED, True, False, False),
+    (REWORDED, OVERPASS, False, False, False),
+    (FALLBACK, WORLD_FILE, True, False, False),
+    (None, OVERPASS, False, False, False),
+    (WORLD_FILE, None, False, False, False),
+    (WORLD_FILE, regression.coast.SOURCE_COPERNICUS, False, False, False),
+    (WORLD_FILE, f"{OVERPASS}; {FALLBACK}", False, True, False),
+])
+def test_coastline_excuse(stored, source, world, warned, excused):
+    reason = regression.coastline_excuse(stored, source, world, warned)
+    assert reason == (f"coastline: {source}; the baseline's: {stored}" if excused else None)
+
+
 def test_outcomes():
     test = _entry(_expected())
-    assert regression.outcome(test, _result("OpenStreetMap coastline (Overpass or extracts)"), []) == ("ok", None)
-    assert regression.outcome(test, _result(FALLBACK), ["lines: 10 -> 9"]) == \
+    assert regression.outcome(test, _result(OVERPASS), []) == ("ok", None)  # no difference: ok, whatever the source
+    assert regression.outcome(test, _result(OVERPASS), [], world_file=True) == ("ok", None)
+    assert regression.outcome(test, _result(FALLBACK, warned=True), ["lines: 10 -> 9"]) == \
         ("unverified", f"coastline: {FALLBACK}; the baseline's: {WORLD_FILE}")
-    assert regression.outcome(test, _result(), ["lines: 10 -> 9"]) == ("DIFFERENT", None)
-    assert regression.outcome(_entry(_expected(coastline=None)), _result(FALLBACK), ["x"]) == ("DIFFERENT", None)
-    # a search that printed no coastline (it failed before) is not unverified by the coastline
+    assert regression.outcome(test, _result(), ["lines: 10 -> 9"], world_file=True) == ("DIFFERENT", None)
+    assert regression.outcome(_entry(_expected(coastline=None)), _result(FALLBACK, warned=True), ["x"]) == \
+        ("DIFFERENT", None)
     assert regression.outcome(test, _result(coastline=None), ["x"]) == ("DIFFERENT", None)
     assert regression.outcome(test, _result(None, exit_code=1, unanswered="a data provider did not answer: x"),
-                              ["exit code 1"]) == ("unverified", "a data provider did not answer: x")
-    assert regression.outcome(test, _result(None, exit_code=1), ["exit code 1"]) == ("DIFFERENT", None)
+                              [], ["exit code 1"]) == ("unverified", "a data provider did not answer: x")
+    assert regression.outcome(test, _result(None, exit_code=1), [], ["exit code 1"]) == ("DIFFERENT", None)
+    # the store's, check_profiles' and --browser's problems are never excused by the coastline
+    for problem in ("lines.arrow has 9 lines, the export 10", "the map shows 3 spots, the export has 4",
+                    "profile of the line at 1.000000, 2.000000 computed again differs in ['clearance']"):
+        assert regression.outcome(test, _result(OVERPASS), [], [problem]) == ("DIFFERENT", None)
+        assert regression.outcome(test, _result(OVERPASS), ["lines: 10 -> 9"], [problem]) == ("DIFFERENT", None)
+    # same_as / without_access_as: excused only by this test or the other one being unverified in this run
+    cross = [("the CSV export differs from that of R1", "R1")]
+    assert regression.outcome(test, _result(OVERPASS), [], [], cross) == ("DIFFERENT", None)
+    assert regression.outcome(test, _result(OVERPASS), [], [], cross, unverified=("R1",)) == \
+        ("unverified", "R1 unverified in this run")
+    assert regression.outcome(test, _result(OVERPASS), ["lines: 10 -> 9"], [], cross) == \
+        ("unverified", f"coastline: {OVERPASS}; the baseline's: {WORLD_FILE}")
+    assert regression.outcome(test, _result(OVERPASS), ["lines: 10 -> 9"], [], cross, world_file=True) == \
+        ("DIFFERENT", None)
+
+
+def _plant_world_file(cache_dir: str):
+    """A world file in a cache folder, as coast.world_file finds it (the real cache holds one)."""
+    path = os.path.join(cache_dir, "osm", "water-polygons", "2026-10-23", regression.coast.WORLD_SHAPEFILE)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    open(path, "w").close()
+    assert regression.coast.world_file(cache_dir) == path
+
+
+@pytest.mark.parametrize("stored, found, world, outcome, code", [
+    # the code review's cases (review-scratch/check_outcomes.py) and the brief's list, each through main
+    (WORLD_FILE, _result(NO_SEA, lines=7), False, "DIFFERENT", 1),  # a coastal entry turned inland
+    (NO_SEA, _result(WORLD_FILE, lines=7, sea_km2=0.4), True, "DIFFERENT", 1),  # an inland entry that finds sea
+    (WORLD_FILE, _result(REWORDED, lines=9), True, "DIFFERENT", 1),  # the source's text reworded
+    (WORLD_FILE, _result(OVERPASS, problems=["lines.arrow has 9 lines, the export 10"]), False, "DIFFERENT", 1),
+    (WORLD_FILE, _result(OVERPASS, problems=["the map shows 3 spots, the export has 4"]), False, "DIFFERENT", 1),
+    (WORLD_FILE, _result(OVERPASS, lines=9), True, "DIFFERENT", 1),  # the real cache: Overpass only by changed code
+    (WORLD_FILE, _result(FALLBACK, lines=9, warned=True), True, "DIFFERENT", 1),  # the real cache: the fallback
+    (WORLD_FILE, _result(OVERPASS, lines=9), False, "unverified", 3),  # a scratch cache without the world file
+    (WORLD_FILE, _result(FALLBACK, lines=9, warned=True), False, "unverified", 3),
+    (WORLD_FILE, _result(FALLBACK, lines=9), False, "DIFFERENT", 1),  # the fallback without its warning
+    (OVERPASS, _result(WORLD_FILE, lines=9), True, "unverified", 3),  # a baseline on Overpass, a world file now
+    (FALLBACK, _result(WORLD_FILE, lines=9), True, "DIFFERENT", 1),
+    (None, _result(OVERPASS, lines=9), False, "DIFFERENT", 1),
+    (WORLD_FILE, _result(OVERPASS), True, "ok", 0),  # no difference: ok on any source
+])
+def test_outcome_through_main(harness, capsys, stored, found, world, outcome, code):
+    if world:
+        _plant_world_file(harness.cache)
+    harness.write({"R1": _entry({**_expected(coastline=stored), "sea_km2": 0} if stored == NO_SEA else
+                                _expected(coastline=stored))})
+    harness.results.update(R1=found)
+    status, out, _ = harness("R1", capsys=capsys)
+    assert (status, out.split("\n", 1)[0].split(" (")[0]) == (code, f"R1: {outcome}"), out
+
+
+def test_same_as_through_main(harness, capsys):
+    """A same_as mismatch is DIFFERENT unless the other test is unverified in the same run (a scratch cache)."""
+    tests = {"R1": _entry(_expected()), "R14": _entry({"anchors": 5, "lines": 10}, same_as="R1")}
+    harness.write(tests)
+    harness.results.update(R1=_result(OVERPASS), R14=_result(OVERPASS, csv_sha256="b" * 64))
+    code, out, _ = harness("R1", "R14", capsys=capsys)
+    assert code == 1 and "R1: ok" in out and "R14: DIFFERENT" in out
+    harness.results.update(R1=_result(OVERPASS, lines=9, csv_sha256="b" * 64),
+                           R14=_result(OVERPASS, csv_sha256="c" * 64))
+    code, out, _ = harness("R1", "R14", capsys=capsys)
+    assert code == 3 and "R1: unverified (coastline: " in out and "R14: unverified (R1 unverified in this run)" in out
+    _plant_world_file(harness.cache)  # the real cache: both DIFFERENT
+    code, out, _ = harness("R1", "R14", capsys=capsys)
+    assert code == 1 and "R1: DIFFERENT" in out and "R14: DIFFERENT" in out
+    # without_access_as alike
+    harness.write({"R16": _entry(_expected()), "R83": _entry({"anchors": 5}, without_access_as="R16")})
+    harness.results.update(R16=_result(OVERPASS), R83=_result(OVERPASS, csv_sha256_without_access="d" * 64))
+    code, out, _ = harness("R16", "R83", capsys=capsys)
+    assert code == 1 and "R83: DIFFERENT" in out
 
 
 def test_r17s_coastline_count_is_still_compared():
@@ -335,16 +467,23 @@ def test_not_a_sign_of_no_answer(text):
     assert regression.unanswered(text) is None
 
 
-def test_unanswered_reads_the_whole_message():
-    """A server's answer in the message may hold line breaks: the text from the prefix to the end is read."""
+def test_unanswered_reads_only_its_own_line():
+    """Only the search's own error line counts: never a line after it (a thread still logging), nor the rest of a
+    server's answer on further lines."""
     text = "[Download] 3 of 4\nDownload failed: Could not download T tile 1_1: HTTP 502: <html>\n<body>bad</body>\n"
     assert regression.unanswered(text) == "a data provider did not answer: Download failed: Could not download T " \
                                           "tile 1_1: HTTP 502: <html>"
+    later = ("Download failed: Could not download X tile 1_2: the answer is not a TIFF\n"
+             "Retrying (Retry(total=2)) after connection broken by 'ReadTimeoutError(\"Read timed out. "
+             "(read timeout=60)\")'\n")
+    assert regression.unanswered(later) is None
+    assert regression.unanswered("Download failed: Could not download T tile 1_1: HTTP 404: <html>\n"
+                                 "<p>upstream timed out</p>\n") is None
 
 
 def test_unverified_is_reported_apart_and_kept(harness, capsys):
     harness.write({"R1": _entry(_expected()), "R2": _entry(_expected())})
-    harness.results.update(R1=_result(FALLBACK, lines=9), R2=_result())
+    harness.results.update(R1=_result(FALLBACK, lines=9, warned=True), R2=_result())  # no world file there
     code, out, _ = harness("R1", "R2", capsys=capsys)
     assert code == 3
     assert f"R1: unverified (coastline: {FALLBACK}; the baseline's: {WORLD_FILE})" in out
@@ -357,7 +496,7 @@ def test_unverified_is_reported_apart_and_kept(harness, capsys):
 
 def test_exit_codes(harness, capsys):
     harness.write({"R1": _entry(_expected()), "R2": _entry(_expected()), "R3": _entry(_expected())})
-    harness.results.update(R1=_result(), R2=_result(lines=9), R3=_result(FALLBACK, lines=9))
+    harness.results.update(R1=_result(), R2=_result(lines=9), R3=_result(FALLBACK, lines=9, warned=True))
     assert harness("R1", capsys=capsys)[0] == 0
     assert harness("R1", "R2", "R3", capsys=capsys)[0] == 1  # something different wins over unverified
     assert harness("R1", "R3", capsys=capsys)[0] == 3
@@ -371,7 +510,7 @@ def test_exit_codes(harness, capsys):
 
 def test_update_stores_nothing_of_an_unverified_entry(harness, capsys):
     harness.write({"R1": _entry(_expected()), "R2": _entry(_expected())})
-    harness.results.update(R1=_result(FALLBACK, lines=9), R2=_result(lines=11))
+    harness.results.update(R1=_result(FALLBACK, lines=9, warned=True), R2=_result(lines=11))
     code, out, tests = harness("R1", "R2", "--update", capsys=capsys)
     assert code == 3
     assert f"R1: not stored (coastline: {FALLBACK}; the baseline's: {WORLD_FILE})" in out
@@ -404,14 +543,25 @@ def test_update_stores_an_entry_asking_for_the_copernicus_mask(harness, capsys):
     assert code == 0 and tests["R1"]["expected"]["lines"] == 12
 
 
-def test_update_of_an_ok_run_stores_its_own_coastline(harness, capsys):
-    """H1 as built: --update stores the source the search printed, also of an ok run on another source that is no
-    fallback (live Overpass on a scratch cache): the baseline then names that source."""
-    overpass = "OpenStreetMap coastline (Overpass or extracts)"
+def test_update_of_an_ok_run_keeps_the_stored_coastline(harness, capsys):
+    """An ok run on another source (live Overpass on a scratch cache) never moves the baseline's coastline."""
     harness.write({"R1": _entry(_expected())})
-    harness.results.update(R1=_result(overpass))
+    harness.results.update(R1=_result(OVERPASS))
     code, out, tests = harness("R1", "--update", capsys=capsys)
-    assert code == 0 and "R1: ok" in out and tests["R1"]["expected"]["coastline"] == overpass
+    assert code == 0 and "R1: ok" in out and tests["R1"]["expected"] == _expected()
+
+
+def test_update_of_a_different_run_stores_its_coastline(harness, capsys):
+    """A DIFFERENT run stored by --update stores the source it printed with its values (here on a cache holding the
+    world file, where Overpass is a changed result); a fallback is refused."""
+    _plant_world_file(harness.cache)
+    harness.write({"R1": _entry(_expected()), "R2": _entry(_expected())})
+    harness.results.update(R1=_result(OVERPASS, lines=12), R2=_result(FALLBACK, lines=12, warned=True))
+    code, out, tests = harness("R1", "R2", "--update", capsys=capsys)
+    assert code == 3 and "R1: DIFFERENT" in out and "R2: DIFFERENT" in out
+    assert tests["R1"]["expected"] == _expected(coastline=OVERPASS, lines=12)
+    assert f"R2: not stored (coastline: {FALLBACK}; a baseline is never stored on a fallback)" in out
+    assert tests["R2"]["expected"] == _expected()
 
 
 def test_update_of_a_different_entry_exits_as_before(harness, capsys):
@@ -442,12 +592,44 @@ def test_an_empty_cache_is_refused_without_cold(harness, tmp_path, capsys, monke
     assert code == 0
 
 
+def test_a_folder_with_files_but_no_layout_is_a_usage_error(harness, tmp_path, capsys, monkeypatch):
+    """--cold or not, a folder holding files but no LAYOUT file ends before anything runs, exit code 2."""
+    folder = tmp_path / "stray"
+    folder.mkdir()
+    (folder / "notes.txt").write_text("x")
+    harness.write({"R1": _entry(_expected())})
+    monkeypatch.setattr(regression, "run", lambda *args: pytest.fail("a search ran"))
+    for argv in (("--cold",), ("--cold", "--no-seed"), ()):
+        code, out, _ = harness("R1", "--cache", str(folder), *argv, capsys=capsys)
+        assert code == 2 and f"the folder {folder} holds files but no LAYOUT file" in out, argv
+        assert not (folder / "LAYOUT").exists() and not (tmp_path / "locks" / regression.RUN_LOG).exists()
+
+
+def test_an_empty_real_cache_says_so(harness, tmp_path, capsys, monkeypatch):
+    """FINDALINE_DATA naming a new folder: the real cache itself is empty; the refusal does not send the user to the
+    same folder, and --cold runs, seeding nothing and saying so."""
+    monkeypatch.setenv("FINDALINE_DATA", str(tmp_path / "data"))
+    real = os.path.join(str(tmp_path / "data"), "cache")
+    assert regression.real_cache_dir() == real
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result())
+    code, out, _ = harness("R1", "--cache", real, capsys=capsys)
+    assert code == 2 and f"the cache folder {real} is the real cache and it is missing" in out
+    assert "--cache" not in out.split("error:", 1)[1]
+    code, out, _ = harness("R1", "--cache", real, "--cold", capsys=capsys)
+    assert code == 0 and f"Not seeded: {real} is the real cache" in out and "R1: ok" in out
+    scratch = str(tmp_path / "scratch" / "cache")  # a scratch cache beside an empty real one
+    shutil.rmtree(real)
+    code, out, _ = harness("R1", "--cache", scratch, "--cold", capsys=capsys)
+    assert code == 0 and f"Not seeded: the real cache {real} is empty (no LAYOUT file)" in out
+
+
 def test_the_real_cache_named(tmp_path, monkeypatch):
     monkeypatch.delenv("FINDALINE_DATA", raising=False)
-    common = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=REPO, capture_output=True, text=True,
-                            check=True).stdout.strip()
-    main = os.path.dirname(os.path.abspath(os.path.join(REPO, common)))
-    assert regression.real_cache_dir() == os.path.join(main, "cache")  # a worktree names the main checkout's
+    parts = os.path.normpath(REPO).split(os.sep)  # a worktree is <main>/.claude/worktrees/<name>: its main checkout's
+    at = next((k for k in range(len(parts) - 1) if parts[k] == ".claude" and parts[k + 1] == "worktrees"), None)
+    main = os.sep.join(parts[:at]) if at is not None else REPO
+    assert os.path.normcase(regression.real_cache_dir()) == os.path.normcase(os.path.join(main, "cache"))
     monkeypatch.setenv("FINDALINE_DATA", str(tmp_path / "data"))
     assert regression.real_cache_dir() == os.path.join(str(tmp_path / "data"), "cache")
 
@@ -513,9 +695,10 @@ def test_seed_links_the_shared_data(tmp_path, capsys):
     out = capsys.readouterr().out
     assert seeded == ["osm/water-polygons/2026-10-23", "osm/themes", "fabdem/v1-2", "copernicus30/2021/dem",
                       "copernicus30/2021/wbm", "geoid/egm2008", "osm/nominatim.sqlite"]
-    assert out.startswith(f"Seeded {scratch} from {real}: osm/water-polygons/2026-10-23 (2 files), osm/themes "
-                          f"(1 files), fabdem/v1-2 (1 files)")
-    assert "by hard links; osm/nominatim.sqlite (2 rows), 3 index rows by copy" in out
+    assert out == (f"Seeded {scratch} from {real}: osm/water-polygons/2026-10-23 linked (2 files), osm/themes "
+                   f"linked (1 files), fabdem/v1-2 linked (1 files), copernicus30/2021/dem linked (1 files), "
+                   f"copernicus30/2021/wbm linked (1 files), geoid/egm2008 linked (1 files); osm/nominatim.sqlite "
+                   f"(2 rows) and 3 index rows copied\n")
     for name in ("fabdem/v1-2/N50E019.tif", "osm/themes/coastline/N35E014.geojson",
                  "osm/water-polygons/2026-10-23/water-polygons-split-4326/water_polygons.dbf"):
         linked = os.path.join(scratch, *name.split("/"))
@@ -559,10 +742,13 @@ def test_seed_again_adds_only_what_is_missing(tmp_path, capsys):
 def test_seed_nothing_into_the_real_cache_or_a_link_to_it(tmp_path, capsys):
     real = _real_cache(tmp_path / "real")
     assert regression.seed(real, real) == []
+    assert capsys.readouterr().out == f"Not seeded: {real} is the real cache\n"
     linked = str(tmp_path / "link")
     regression.link(real, linked)
     try:
-        assert regression.seed(linked, real) == [] and capsys.readouterr().out == ""
+        assert regression.seed(linked, real) == []
+        assert capsys.readouterr().out == f"Not seeded: {linked} is the real cache\n"
+        assert os.listdir(real) == os.listdir(linked)  # nothing added
     finally:
         if os.name == "nt":
             os.rmdir(linked)  # the junction only
@@ -579,8 +765,9 @@ def test_seed_leaves_out_an_entrys_own_source(tmp_path, capsys):
     seeded = regression.seed(scratch, real, own)
     assert "fabdem/v1-2" not in seeded and "copernicus30/2021/wbm" in seeded
     assert not os.path.exists(os.path.join(scratch, "fabdem", "v1-2"))
-    assert "Not seeded: fabdem/v1-2 (R11's own source); copernicus30/2021/dem (R11's own source)" in \
-        capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Not seeded: fabdem/v1-2 (R11's own source); copernicus30/2021/dem (R11's own source)" in out
+    assert "fabdem/v1-2 left out, " in out and "copernicus30/2021/dem left out, " in out
     import cache
     assert cache.info(scratch, os.path.join(scratch, "fabdem", "v1-2", "S10E019.tif")) is None  # its rows neither
 
@@ -595,7 +782,60 @@ def test_seed_on_another_volume_copies_what_is_small(tmp_path, capsys, monkeypat
     assert "osm/themes" in seeded and "fabdem/v1-2" not in seeded  # 2 bytes against 6
     assert not os.path.samefile(os.path.join(scratch, "osm", "themes", "coastline", "N35E014.geojson"),
                                 os.path.join(real, "osm", "themes", "coastline", "N35E014.geojson"))
-    assert "by copies (another volume)" in out and "Not seeded: osm/water-polygons/2026-10-23 (another volume" in out
+    assert "osm/themes copied (1 files)" in out and "osm/water-polygons/2026-10-23 left out" in out
+    assert "Not seeded: osm/water-polygons/2026-10-23 (another volume, 0 MB, over 0 MB)" in out
+
+
+def _failing_link(monkeypatch, word: str):
+    """os.link failing for the files whose path holds `word` (too many links of a file, a junction to another
+    drive), as Windows refuses it."""
+    real_link = os.link
+
+    def link(source, target):
+        if word in source:
+            raise OSError(1142, "An attempt was made to create more links on a file than the file system supports")
+        real_link(source, target)
+
+    monkeypatch.setattr(regression.os, "link", link)
+
+
+def test_seed_copies_a_folder_whose_link_fails_only_when_small(tmp_path, capsys, monkeypatch):
+    real = _real_cache(tmp_path / "real")
+    scratch = _layout(tmp_path / "scratch")
+    _failing_link(monkeypatch, "fabdem")
+    monkeypatch.setattr(regression, "SEED_COPY_MAX_BYTES", 4)  # FABDEM's folder: 7 bytes
+    seeded = regression.seed(scratch, real)
+    out = capsys.readouterr().out
+    assert "fabdem/v1-2" not in seeded
+    assert not [f for _, _, names in os.walk(os.path.join(scratch, "fabdem", "v1-2")) for f in names]
+    assert "fabdem/v1-2 left out, copernicus30/2021/dem linked (1 files)" in out
+    assert "Not seeded: fabdem/v1-2 (a hard link failed: " in out and "7 bytes" not in out
+    monkeypatch.setattr(regression, "SEED_COPY_MAX_BYTES", 100)
+    seeded = regression.seed(scratch, real)
+    out = capsys.readouterr().out
+    copied = os.path.join(scratch, "fabdem", "v1-2", "N50E019.tif")
+    assert "fabdem/v1-2" in seeded and "fabdem/v1-2 copied (1 files)" in out and "Not seeded" not in out
+    assert open(copied, "rb").read() == b"fabdem"
+    assert not os.path.samefile(copied, os.path.join(real, "fabdem", "v1-2", "N50E019.tif"))
+
+
+def test_seed_takes_back_the_links_of_a_folder_left_out(tmp_path, capsys, monkeypatch):
+    """A link that fails after others in the same folder: a small folder is linked and copied, a large one left
+    out with the links already made taken back (never the real files)."""
+    real = _real_cache(tmp_path / "real")
+    scratch = _layout(tmp_path / "scratch")
+    _failing_link(monkeypatch, "water_polygons.shp")  # the .dbf links first, then the .shp fails (os.walk order)
+    monkeypatch.setattr(regression, "SEED_COPY_MAX_BYTES", 1)
+    regression.seed(scratch, real)
+    out = capsys.readouterr().out
+    assert "osm/water-polygons/2026-10-23 left out" in out
+    assert not [f for _, _, names in os.walk(os.path.join(scratch, "osm", "water-polygons")) for f in names]
+    assert open(os.path.join(real, "osm", "water-polygons", "2026-10-23", "water-polygons-split-4326",
+                             "water_polygons.dbf"), "rb").read() == b"dbf"
+    monkeypatch.setattr(regression, "SEED_COPY_MAX_BYTES", 100)
+    regression.seed(scratch, real)
+    out = capsys.readouterr().out
+    assert "osm/water-polygons/2026-10-23 linked and copied (2 files)" in out
 
 
 def test_seed_names_follow_the_code(tmp_path):
@@ -647,10 +887,16 @@ def test_cold_seeds_before_the_first_search(harness, tmp_path, capsys, monkeypat
 
 
 def test_run_log_line(harness, tmp_path, capsys, monkeypatch):
-    monkeypatch.setenv("FINDALINE_FAKE_SECRET", "s3cr3t-value")
-    harness.write({"R1": _entry(_expected()), "R2": _entry(_expected()), "R3": _entry(_expected(), needs_env="NOPE"),
-                   "R4": _entry(_expected(), sets=["quick"], by_name=True)})
-    harness.results.update(R1=_result(), R2=_result(FALLBACK, lines=9))
+    # A service key in the process (settings.ServiceKeys reads it): an entry needs it, and a provider's error text
+    # quoting it reaches a reason; its value is nowhere in the line
+    key = "k3y-of-the-test-0123"
+    monkeypatch.setenv("OPENTOPOGRAPHY_API_KEY", key)
+    harness.write({"R1": _entry(_expected(), needs_env="OPENTOPOGRAPHY_API_KEY"), "R2": _entry(_expected()),
+                   "R3": _entry(_expected(), needs_env="NOPE"), "R4": _entry(_expected(), sets=["quick"], by_name=True),
+                   "R5": _entry(_expected())})
+    harness.results.update(R1=_result(), R2=_result(FALLBACK, lines=9, warned=True),
+                           R5=_result(None, exit_code=1, unanswered=f"a data provider did not answer: Download failed: "
+                                                                    f"HTTP 503 for ?key={key}"))
     code, out, _ = harness("--all", capsys=capsys)
     assert code == 3
     with open(tmp_path / "locks" / regression.RUN_LOG, encoding="utf-8") as f:
@@ -668,8 +914,9 @@ def test_run_log_line(harness, tmp_path, capsys, monkeypatch):
                                        "reason": f"coastline: {FALLBACK}; the baseline's: {WORLD_FILE}",
                                        "coastline": FALLBACK}
     assert record["entries"]["R3"]["outcome"] == "skipped" and "R4" not in record["entries"]
-    assert record["counts"] == {"ok": 1, "different": 0, "unverified": 1, "skipped": 1, "by_name": 1}
-    assert "s3cr3t-value" not in lines[0]
+    assert record["counts"] == {"ok": 1, "different": 0, "unverified": 2, "skipped": 1, "by_name": 1}
+    assert record["entries"]["R5"]["reason"] == "a data provider did not answer: Download failed: HTTP 503 for ?key=***"
+    assert key not in lines[0] and os.environ["OPENTOPOGRAPHY_API_KEY"] == key
 
 
 def test_run_log_never_fails_a_run(tmp_path, monkeypatch, capsys):
@@ -700,34 +947,58 @@ def test_run_log_lines_are_never_torn(tmp_path):
 
 
 def test_r17_lists_its_differences_and_keeps_both_trees(harness, tmp_path, capsys, monkeypatch):
-    from shapely.geometry import Point
+    """run_osm with the real readers: the extract's tile built by osmextract.build_tile from a small themes.json,
+    Overpass's fetched by osm.fetch_tile from a local stand-in (FINDALINE_OVERPASS_URL); both trees written by the
+    code under test stay in the kept log folder."""
     import osm
-    import osmextract
     cache_dir = harness.cache
-    os.makedirs(os.path.join(cache_dir, "malta", "osm-extract"))
-    open(os.path.join(cache_dir, "malta", "osm-extract", "malta.osm.pbf"), "w").close()
+    extract = os.path.join(cache_dir, "malta", "osm-extract")
+    os.makedirs(extract)
+    open(os.path.join(extract, "malta.osm.pbf"), "w").close()
+    tile = {"type": "Polygon", "coordinates": [[[13.9, 35.9], [14.4, 35.9], [14.4, 36.4], [13.9, 36.4], [13.9, 35.9]]]}
+    with open(os.path.join(extract, "malta.geojson"), "w", encoding="utf-8") as f:
+        json.dump(tile, f)  # the outline holds the whole tile: the extract gives all of it
+
+    def line(*points):
+        return {"type": "LineString", "coordinates": [list(p) for p in points]}
+
+    ours = {"way/1": line((14.01, 36.01), (14.02, 36.02)), "way/2": line((14.05, 36.05), (14.06, 36.06)),
+            "way/3": line((14.1, 36.1), (14.11, 36.11))}
+    with open(os.path.join(extract, "malta.themes.json"), "w", encoding="utf-8") as f:
+        json.dump({"timestamp": "2026-11-07T00:00:00Z", "themes": {"coastline": [
+            {"type": "Feature", "geometry": g, "properties": {"id": k, "tags": {"natural": "coastline"}}}
+            for k, g in ours.items()], "cliff": []}}, f)
     os.makedirs(os.path.join(cache_dir, "osm"), exist_ok=True)
-    open(os.path.join(cache_dir, "osm", "geofabrik-index.json"), "w").close()
-    sides = {"extract": {"way/1": Point(0, 0), "way/2": Point(1, 1), "way/3": Point(2, 2)},
-             "overpass": {"way/2": Point(1, 1), "way/3": Point(2, 3), "way/4": Point(4, 4)}}
+    with open(os.path.join(cache_dir, "osm", "geofabrik-index.json"), "w", encoding="utf-8") as f:
+        json.dump({"type": "FeatureCollection", "features": []}, f)
 
-    def written(folder, theme, lat, lon):
-        path = osm.theme_path(folder, theme, lat, lon)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            f.write("{}")
-        return True
+    def way(number, *points):
+        return {"type": "way", "id": number, "tags": {"natural": "coastline"},
+                "geometry": [{"lon": lon, "lat": lat} for lon, lat in points]}
 
-    side = lambda folder: "extract" if f"{os.sep}extract{os.sep}" in folder else "overpass"  # noqa: E731
-    monkeypatch.setattr(osm, "tiles", lambda *box: [(36.0, 14.0)])
-    monkeypatch.setattr(osmextract, "build_tile", written)
-    monkeypatch.setattr(osm, "fetch_tile", lambda theme, lat, lon, folder: written(folder, theme, lat, lon))
-    monkeypatch.setattr(osm, "theme", lambda theme, w, s, e, n, folder: [
-        {"id": k, "geometry": g} for k, g in sides[side(folder)].items()])
-    harness.write({"R17": {"place": "x", "kind": "osm", "region": "malta", "bbox": [14.15, 35.78, 14.6, 36.1],
+    theirs = json.dumps({"elements": [way(2, (14.05, 36.05), (14.06, 36.06)), way(3, (14.1, 36.1), (14.12, 36.11)),
+                                      way(4, (14.2, 36.2), (14.21, 36.21))]}).encode()
+
+    class Overpass(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(theirs)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Overpass)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("FINDALINE_OVERPASS_URL", f"http://127.0.0.1:{server.server_port}/api/interpreter")
+    harness.write({"R17": {"place": "x", "kind": "osm", "region": "malta", "bbox": [14.0, 36.0, 14.2, 36.2],
                            "themes": ["coastline"], "sets": ["network"], "expected": {"coastline": 3, "same": True}}})
-    code, out, tests = harness("R17", "--update", capsys=capsys)
-    assert "R17: DIFFERENT" in out and "\n    same: True -> False" in out
+    try:
+        code, out, tests = harness("R17", "--update", capsys=capsys)
+    finally:
+        server.shutdown()
+    assert "R17: DIFFERENT" in out and "\n    same: True -> False" in out, out
     assert "\n    coastline: 1 only in the extract, 1 only in Overpass, 1 in both with another geometry" in out
     assert "\n        only in the extract: way/1" in out and "\n        in both with another geometry: way/3" in out
     assert tests["R17"]["expected"] == {"coastline": 3, "same": False}  # the ids are no expected value
@@ -736,11 +1007,35 @@ def test_r17_lists_its_differences_and_keeps_both_trees(harness, tmp_path, capsy
     with open(os.path.join(folder, "differences.json"), encoding="utf-8") as f:
         assert json.load(f) == {"coastline": {"only_extract": ["way/1"], "only_overpass": ["way/4"],
                                               "other_geometry": ["way/3"]}}
-    for name in ("extract", "overpass"):  # both trees are still there when the run has ended
-        assert os.path.isfile(osm.theme_path(os.path.join(folder, name, "cache"), "coastline", 36.0, 14.0)), name
-    if os.path.isjunction(os.path.join(folder, "extract", "cache", "malta")):
-        os.rmdir(os.path.join(folder, "extract", "cache", "malta"))
-    shutil.rmtree(work)
+    for name in ("extract", "overpass"):  # both trees, as the readers wrote them, are there when the run has ended
+        path = osm.theme_path(os.path.join(folder, name, "cache"), "coastline", 36.0, 14.0)
+        with open(path, encoding="utf-8") as f:
+            assert len(json.load(f)["features"]) == 3, name
+
+
+def test_run_hands_stderr_to_unanswered(tmp_path, monkeypatch):
+    """run(): a failed search's stderr goes to unanswered (the search's process replaced by a canned result)."""
+    calls = []
+
+    def search(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 1, stdout="Coastline: no sea in the area\n",
+                                           stderr="[Download] 1 of 2\nDownload failed: Could not download T tile 0_0: "
+                                                  "HTTP 503: busy\n")
+
+    monkeypatch.setattr(regression.subprocess, "run", search)
+    monkeypatch.setattr(regression, "link", lambda target, path: os.makedirs(path))  # no junction under basetemp
+    tests = {"R1": _entry(_expected())}
+    found = regression.run(tests, "R1", str(tmp_path / "work"), str(tmp_path / "cache"), False)
+    assert calls and found["exit"] == 1 and found["coastline"] == NO_SEA
+    assert found["unanswered"] == ("a data provider did not answer: Download failed: Could not download T tile 0_0: "
+                                   "HTTP 503: busy")
+    monkeypatch.setattr(regression.subprocess, "run", lambda cmd, **kwargs: subprocess.CompletedProcess(
+        cmd, 1, stdout="", stderr="Not enough steep terrain. Try a lower --slope-threshold or a larger --radius.\n"))
+    found = regression.run(tests, "R1", str(tmp_path / "work2"), str(tmp_path / "cache"), False)
+    assert found["exit"] == 1 and found["unanswered"] is None
+    with open(tmp_path / "work2" / "R1" / "output.log", encoding="utf-8") as f:
+        assert "Not enough steep terrain" in f.read()
 
 
 def test_describe_differences_shows_ten_ids_at_most():

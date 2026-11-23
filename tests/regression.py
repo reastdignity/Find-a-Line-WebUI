@@ -46,14 +46,22 @@ differ are printed per theme and written to differences.json in the test's log f
 
 Each test's outcome:
 - ok: every expected value equal (whatever the coastline source was);
-- unverified (reason): differences, but the run cannot tell a changed result: its coastline source
-  (the search's "Coastline:" line, stored as "coastline") is not the baseline's, or the search ended
-  because a data provider or an OSM service did not answer (unanswered: NO_ANSWER's signs only);
-  never a pass, its differences listed as for DIFFERENT;
-- DIFFERENT: any other difference (a crash and the search's own errors too);
+- unverified (reason): differences only for a reason outside the code: the search ended because a
+  data provider or an OSM service did not answer (unanswered: NO_ANSWER's signs in its own error
+  line only), or the compared values differ and the coastline source (the search's "Coastline:"
+  line, stored as "coastline") is another one of coast's three sources than the baseline's world
+  file or live Overpass, and the cache folder explains it (coastline_excuse: the world file only
+  where the folder holds it, Overpass only where it does not, the fallback only where it does not
+  and the search warned that the coastline could not be downloaded); a same_as or
+  without_access_as mismatch only when one of the two tests is unverified in this run; never a
+  pass, its differences listed as for DIFFERENT;
+- DIFFERENT: any other difference (a crash, the search's own errors, the store's, check_profiles'
+  and --browser's problems, "no sea in the area" against a source, a reworded source text, and on
+  the real cache, which holds the world file, a run on Overpass or the fallback);
 - skipped: its needs not met here (needs_env, needs_path), or R17's extract or Overpass missing.
 An entry with "by_name": true runs only when named or through --set (--all and the quick set leave it out).
---update stores nothing for an unverified entry, nor a coastline taken from a fallback ("(fallback)").
+--update stores nothing for an unverified entry, nor a coastline taken from a fallback; an ok run keeps the
+stored coastline, a DIFFERENT one stores its own with its values, a first baseline what the search printed.
 
 Exit code: 0 nothing different and nothing unverified (skips allowed); 1 something different (with
 --update: 0 as before, the new values are stored); 3 nothing different but something unverified, or
@@ -85,6 +93,7 @@ from typing import Dict, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cache  # noqa: E402
+import coast  # noqa: E402  (its source texts, never copied here)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TESTS = os.path.join(REPO, "tests", "regression.json")
@@ -108,9 +117,14 @@ PATTERNS = {
 ALWAYS = ("anchors", "open", "checked", "lines", "spots", "csv_sha256", "length_km", "clearance_min",
           "clearance_mean", "clearance_max", "over_trees", "coverage", "empty_tiles")
 # search.prepare_data's line naming where the sea came from (coast.sea_mask's texts): stored as "coastline" of a
-# search entry, never compared as a result; a run on another source with differences is unverified
+# search entry, never compared as a result (coastline_excuse decides when another source excuses a difference)
 COASTLINE = r"^Coastline: (.+)$"
-FALLBACK = "(fallback)"  # in a coastline source taken because the one asked for failed (coast.sea_mask)
+FALLBACK = coast.SOURCE_FALLBACK  # taken because Overpass failed: never stored by --update
+EXCUSED_BASELINES = (coast.SOURCE_WORLD, coast.SOURCE_OVERPASS)  # a baseline another source may excuse
+RUN_SOURCES = (coast.SOURCE_WORLD, coast.SOURCE_OVERPASS, coast.SOURCE_FALLBACK)  # a run's source that may excuse it
+# The search's own warning that Overpass failed and the fallback was taken (coast's note, printed by
+# findaline.print_event as "WARNING: ..."): the positive sign coastline_excuse needs for the fallback
+COAST_WARNING = r"^(?:WARNING: )?" + re.escape(coast.FALLBACK_WARNING) + r" \("
 # A search that ended (exit code not 0) because a data provider or an OSM service did not answer. The command line
 # prints only the text of search.SearchError (findaline.py main: sys.exit(str(e))), so its codes are read from the
 # prefixes their texts start with: download_failed ("Download failed: ", a RuntimeError of a download) and
@@ -168,6 +182,8 @@ def measure(output: str, run_dir: str) -> dict:
     coastlines = list(dict.fromkeys(m.strip() for m in re.findall(COASTLINE, output, re.M)))
     if coastlines:  # one line per search (step 1 of the whole grid); two different ones joined, never chosen
         found["coastline"] = "; ".join(coastlines)
+    if re.search(COAST_WARNING, output, re.M):
+        found["coast_warning"] = True
     empty = {}  # per layer, the most tiles without data seen (tiled areas report every tile)
     for layer, n in re.findall(r"^(.+): (\d+) of \d+ tiles without data", output, re.M):
         empty[layer] = max(empty.get(layer, 0), int(n))
@@ -391,39 +407,69 @@ def run(tests: dict, test_id: str, work: str, cache_dir: str, browser: bool) -> 
 
 
 def unanswered(stderr: str) -> Optional[str]:
-    """What did not answer, when a search ended because a data provider or an OSM service did not answer: its
-    SearchError's text (the last line starting with one of FAILED_PREFIXES, to the end: a server's answer in it may
-    hold line breaks) holding one of NO_ANSWER's signs; else None (a crash, the search's own error, a failure that
-    cannot be told). Conservative: only a positive sign counts."""
+    """What did not answer, when a search ended because a data provider or an OSM service did not answer: its own
+    error line (the last line of stderr starting with one of FAILED_PREFIXES, as findaline.py's
+    sys.exit(str(error)) printed it; never a line after it, which a thread still logging may have written, and never
+    the rest of a server's answer on further lines) holding one of NO_ANSWER's signs; else None (a crash, the
+    search's own error, a failure that cannot be told). Conservative: only a positive sign counts."""
     if "Traceback (most recent call last)" in stderr:
         return None
     lines = stderr.splitlines()
     for k in range(len(lines) - 1, -1, -1):
         who = next((who for prefix, who in FAILED_PREFIXES if lines[k].startswith(prefix)), None)
         if who is not None:
-            text = "\n".join(lines[k:])
+            text = lines[k].strip()
             status = re.search(HTTP_STATUS, text)  # the first status named is the error's; a server's text follows it
             if status and int(status.group(1) or status.group(2)) not in NO_ANSWER_STATUSES:
                 return None  # answered (a 500 whose page says "timed out" too)
             if any(re.search(sign, text) for sign in NO_ANSWER):
-                first = lines[k].strip()
-                return f"{who} did not answer: {first[:200] + ('...' if len(first) > 200 else '')}"
+                return f"{who} did not answer: {text[:200] + ('...' if len(text) > 200 else '')}"
             return None
     return None
 
 
-def outcome(test: dict, found: dict, diffs: list) -> tuple:
-    """("ok" | "unverified" | "DIFFERENT", reason or None) of a test that ran (not skipped)."""
-    if not diffs:
+def coastline_excuse(stored_source: Optional[str], source: Optional[str], world_file: bool,
+                     warned: bool) -> Optional[str]:
+    """The reason another coastline source excuses differences in the compared values, or None: only for a cause
+    outside the code. The baseline names the world file or live Overpass; the run printed another one of the three
+    sources (world file, live Overpass, the fallback; "no sea in the area", an unknown or reworded text never); and
+    the cache folder explains it: the world file only where the folder holds it (world_file), live Overpass only
+    where it does not, the fallback only where it does not and the search warned that Overpass failed (warned). On
+    the real cache, which holds the world file, only changed code can give Overpass or the fallback."""
+    if stored_source not in EXCUSED_BASELINES or source not in RUN_SOURCES or source == stored_source:
+        return None
+    if source == coast.SOURCE_WORLD and not world_file:
+        return None
+    if source == coast.SOURCE_OVERPASS and world_file:
+        return None
+    if source == coast.SOURCE_FALLBACK and (world_file or not warned):
+        return None
+    return f"coastline: {source}; the baseline's: {stored_source}"
+
+
+def outcome(test: dict, found: dict, values: list, problems: list = (), cross: list = (), world_file: bool = False,
+            unverified: tuple = ()) -> tuple:
+    """("ok" | "unverified" | "DIFFERENT", reason or None) of a test that ran (not skipped). values: the differences
+    of the compared values (value_differences); problems: the other own differences (the exit code, the store's,
+    check_profiles', --browser's: never excused by the coastline); cross: (difference, the other test) of same_as
+    and without_access_as, excused only when this test or the other one is unverified in this run (unverified: the
+    ids so far); world_file: whether the cache folder holds the world file after the search."""
+    if not (values or problems or cross):
         return "ok", None
     if test.get("kind") == "osm":
         return "DIFFERENT", None
     if found.get("exit"):
         return ("unverified", found["unanswered"]) if found.get("unanswered") else ("DIFFERENT", None)
-    stored_source, source = test["expected"].get("coastline"), found.get("coastline")
-    if stored_source and source and source != stored_source:
-        return "unverified", f"coastline: {source}; the baseline's: {stored_source}"
-    return "DIFFERENT", None
+    if problems:
+        return "DIFFERENT", None
+    excuse = coastline_excuse(test["expected"].get("coastline"), found.get("coastline"), world_file,
+                              bool(found.get("coast_warning"))) if values else None
+    if values and not excuse:
+        return "DIFFERENT", None
+    others = sorted({other for _, other in cross})
+    if not excuse and any(other not in unverified for other in others):
+        return "DIFFERENT", None
+    return "unverified", excuse or f"{', '.join(others)} unverified in this run"
 
 
 def run_osm(test: dict, work: str, cache_dir: str) -> dict:
@@ -489,9 +535,10 @@ def describe_differences(differences: dict, most: int = 10) -> List[str]:
     return lines
 
 
-def compare(expected: dict, found: dict, ignore: tuple = ()) -> list:
-    """Differences as 'key: expected -> found'; the keys of `ignore` are not results (a search's "coastline")."""
-    diffs = [f"exit code {found['exit']}"] if found.get("exit") else []
+def value_differences(expected: dict, found: dict, ignore: tuple = ()) -> list:
+    """The compared values that differ, as 'key: expected -> found'; the keys of `ignore` are not results (a search's
+    "coastline")."""
+    diffs = []
     for key, value in expected.items():
         if key in ignore:
             continue
@@ -499,11 +546,25 @@ def compare(expected: dict, found: dict, ignore: tuple = ()) -> list:
         same = got is not None and (abs(got - value) < 1e-9 if isinstance(value, float) else got == value)
         if not same:
             diffs.append(f"{key}: {value} -> {got}")
-    return diffs + found.get("problems", [])
+    return diffs
 
 
-def stored(found: dict, old: dict) -> dict:
-    """What --update keeps: the always-present values plus the optional values that matter."""
+def own_problems(found: dict) -> list:
+    """A test's differences that no data explain: its exit code and its problems (the store's, check_profiles',
+    --browser's)."""
+    return ([f"exit code {found['exit']}"] if found.get("exit") else []) + list(found.get("problems", []))
+
+
+def compare(expected: dict, found: dict, ignore: tuple = ()) -> list:
+    """Differences as 'key: expected -> found': the exit code, the values, the problems."""
+    exit_line = own_problems({"exit": found.get("exit")})
+    return exit_line + value_differences(expected, found, ignore) + list(found.get("problems", []))
+
+
+def stored(found: dict, old: dict, ok: bool = False) -> dict:
+    """What --update keeps: the always-present values plus the optional values that matter. The coastline: an ok
+    run keeps the stored one (its values equal the baseline's whatever source it ran on); a run that differs, or a
+    first baseline, stores the source the search printed (not_storable refuses a fallback first)."""
     keep = {k: found[k] for k in ALWAYS if k in found}
     for key in ("source", "filled_km2", "filled_from"):
         if key in found and (key in old or key != "source"):
@@ -515,7 +576,9 @@ def stored(found: dict, old: dict) -> dict:
         keep["lines_in_region"] = found["lines_in_region"]
     if "access_ends" in found:
         keep["access_ends"] = found["access_ends"]
-    if "coastline" in found:  # the search's own text, whatever it is (none printed: none stored)
+    if ok and "coastline" in old:
+        keep["coastline"] = old["coastline"]
+    elif "coastline" in found:  # the search's own text (none printed: none stored)
         keep["coastline"] = found["coastline"]
     return keep
 
@@ -632,9 +695,9 @@ def _newest_water_polygons(real: str) -> Optional[str]:
 
 def _seed_files(source: str, target: str, how: str) -> tuple:
     """Link (how "link") or copy ("copy") every file below source to the same place below target, where target has
-    none yet; skips SEED_SKIP's names and files gone meanwhile. Returns (files placed, files failed, bytes copied):
-    a link that fails (too many links of a file) falls back to a copy up to SEED_COPY_MAX_BYTES."""
-    placed = failed = copied = 0
+    none yet; skips SEED_SKIP's names and files gone meanwhile. Returns (the paths placed below target, the error
+    that stopped it or None): the first link or copy that fails stops it (seed decides what then)."""
+    placed = []
     for folder, _, names in os.walk(source):
         for name in names:
             if SEED_SKIP.search(name):
@@ -646,21 +709,22 @@ def _seed_files(source: str, target: str, how: str) -> tuple:
             try:
                 os.makedirs(os.path.dirname(out), exist_ok=True)
                 if how == "link":
-                    try:
-                        os.link(path, out)
-                        placed += 1
-                        continue
-                    except OSError:
-                        if os.path.getsize(path) > SEED_COPY_MAX_BYTES:
-                            raise
-                shutil.copy2(path, out)
-                copied += os.path.getsize(out)
-                placed += 1
+                    os.link(path, out)
+                else:
+                    shutil.copy2(path, out)
+                placed.append(out)
             except FileNotFoundError:  # gone meanwhile (a tile replaced, a .part renamed)
                 continue
-            except OSError:
-                failed += 1
-    return placed, failed, copied
+            except OSError as error:  # too many links of a file, a junction to another drive, a full disk
+                return placed, error
+    return placed, None
+
+
+def _unplace(paths: List[str]):
+    """Remove files seed placed (links or copies in the scratch cache: never the real files)."""
+    for path in paths:
+        with contextlib.suppress(OSError):
+            os.remove(path)
 
 
 def _other_volume(a: str, b: str) -> bool:
@@ -739,34 +803,60 @@ def _copy_database(path: str, out: str) -> int:
 
 def seed(cache_dir: str, real: str, own: Optional[Dict[str, List[str]]] = None) -> List[str]:
     """Seed a scratch cache from the real one (--cold): SEED_LINKED by hard link per file, SEED_COPIED through
-    SQLite's backup and the seeded folders' index rows by copy, never what is there already; on another volume a
-    folder up to SEED_COPY_MAX_BYTES is copied and a larger one left out (one line names it); `own` (folder ->
-    tests): folders left out as a test's own source. Prints what was seeded; returns the names seeded."""
-    if same_folder(cache_dir, real) or not os.path.isdir(real):
+    SQLite's backup and the seeded folders' index rows by copy, never what is there already. Where a hard link
+    cannot be made (another volume, or a link that fails) a folder is copied only when the whole folder is at most
+    SEED_COPY_MAX_BYTES, else left out; `own` (folder -> tests): folders left out as a test's own source. Prints for
+    each name whether it was linked, copied or left out, and a line naming what was not seeded and why; returns the
+    names seeded."""
+    if same_folder(cache_dir, real):
+        print(f"Not seeded: {cache_dir} is the real cache", flush=True)
+        return []
+    if not holds_cache(real):
+        print(f"Not seeded: the real cache {real} is empty (no LAYOUT file)", flush=True)
         return []
     own = own or {}
     other_volume = _other_volume(real, cache_dir)
-    seeded, left, counts, folders = [], [], [], []
+    cap = f"over {SEED_COPY_MAX_BYTES / 2 ** 20:.0f} MB"
+    seeded, left, said, folders = [], [], [], []
     for name in SEED_LINKED:
         if name in own:
             left.append(f"{name} ({', '.join(own[name])}'s own source)")
+            said.append(f"{name} left out")
             continue
         folder = _newest_water_polygons(real) if name == "osm/water-polygons" else name
         source = os.path.join(real, *folder.split("/")) if folder else None
         if not source or not os.path.isdir(source):
             continue  # not in the real cache either
-        how = "link"
+        target = os.path.join(cache_dir, *folder.split("/"))
         if other_volume:
-            if _folder_bytes(source) > SEED_COPY_MAX_BYTES:
-                left.append(f"{folder} (another volume, {_folder_bytes(source) / 2 ** 20:.0f} MB)")
+            size = _folder_bytes(source)
+            if size > SEED_COPY_MAX_BYTES:
+                left.append(f"{folder} (another volume, {size / 2 ** 20:.0f} MB, {cap})")
+                said.append(f"{folder} left out")
                 continue
-            how = "copy"
-        placed, failed, _ = _seed_files(source, os.path.join(cache_dir, *folder.split("/")), how)
-        if failed:
-            left.append(f"{failed} files of {folder}")
+            placed, error = _seed_files(source, target, "copy")
+            how = "copied"
+        else:
+            placed, error = _seed_files(source, target, "link")
+            how = "linked"
+            if error is not None:  # a hard link failed: the whole folder copied only when small
+                size = _folder_bytes(source)
+                if size > SEED_COPY_MAX_BYTES:
+                    _unplace(placed)
+                    left.append(f"{folder} (a hard link failed: {error}; {size / 2 ** 20:.0f} MB, {cap})")
+                    said.append(f"{folder} left out")
+                    continue
+                more, error = _seed_files(source, target, "copy")
+                how = "linked and copied" if placed else "copied"
+                placed += more
+        if error is not None:
+            _unplace(placed)
+            left.append(f"{folder} ({error})")
+            said.append(f"{folder} left out")
+            continue
         seeded.append(folder)
         folders.append(folder)
-        counts.append(f"{folder} ({placed} files)")
+        said.append(f"{folder} {how} ({len(placed)} files)")
     rows = 0
     try:
         rows = _copy_rows(real, cache_dir, folders)
@@ -781,9 +871,8 @@ def seed(cache_dir: str, real: str, own: Optional[Dict[str, List[str]]] = None) 
                 seeded.append(name)
             except (sqlite3.Error, OSError) as e:
                 left.append(f"{name} ({e})")
-    how = "copies (another volume)" if other_volume else "hard links"
-    print(f"Seeded {cache_dir} from {real}: " + (", ".join(counts) or "no folder") + f" by {how}; "
-          + ", ".join(copies + [f"{rows} index rows"]) + " by copy", flush=True)
+    print(f"Seeded {cache_dir} from {real}: " + (", ".join(said) or "no folder") + "; "
+          + " and ".join(copies + [f"{rows} index rows"]) + " copied", flush=True)
     if left:
         print("Not seeded: " + "; ".join(left), flush=True)
     return seeded
@@ -809,8 +898,10 @@ def write_run_log(record: dict):
         folder = _lock_dir()
         if folder is None:
             return
+        from settings import redact
         path = os.path.join(folder, RUN_LOG)
-        line = json.dumps(record, ensure_ascii=False, separators=(",", ":"), default=str)
+        # a key's value masked wherever it is (a reason quotes a provider's error text, cleaned by the search already)
+        line = redact(json.dumps(record, ensure_ascii=False, separators=(",", ":"), default=str))
         with FileLock(path + ".lock", timeout=10):
             with open(path, "a", encoding="utf-8", newline="\n") as f:
                 f.write(line + "\n")
@@ -915,9 +1006,17 @@ def main():
     cache_dir = args.cache or os.path.join(cache.data_dir(), "cache")
     real = real_cache_dir()
     searches = [t for t in ids if tests[t].get("kind") != "osm"]  # R17 alone reads only its extract (as before)
-    if searches and not args.cold and not holds_cache(cache_dir):
-        parser.error(f"the cache folder {cache_dir} is {'empty' if os.path.isdir(cache_dir) else 'missing'} "
-                     f"(no LAYOUT file): pass --cache {real}, or --cold to download")
+    if searches and not holds_cache(cache_dir):
+        state = "missing" if not os.path.isdir(cache_dir) else "empty" if not os.listdir(cache_dir) else None
+        if state is None:  # files but no LAYOUT: no cache of this layout, --cold or not (cache.check_layout's case)
+            parser.error(f"the folder {cache_dir} holds files but no LAYOUT file: it is no cache of this layout; "
+                         f"pass --cache {real} or an empty folder")
+        if not args.cold:
+            if same_folder(cache_dir, real):
+                parser.error(f"the cache folder {cache_dir} is the real cache and it is {state} (no LAYOUT file): "
+                             f"fill it, or pass --cold to download")
+            parser.error(f"the cache folder {cache_dir} is {state} (no LAYOUT file): pass --cache {real}, or --cold "
+                         f"to download")
     started, start_time, seeded = time.time(), datetime.now(timezone.utc), []
     if searches and args.cold:
         cache.check_layout(cache_dir)  # a new cache gets its LAYOUT (a seeded one must have it before its files)
@@ -952,20 +1051,25 @@ def main():
             continue
         differences = found.pop("differences", None)  # R17's feature ids, printed below
         results[test_id] = found
-        diffs = compare(test["expected"], found, () if osm_kind else ("coastline",))
+        values = value_differences(test["expected"], found, () if osm_kind else ("coastline",))
+        problems = own_problems(found)
+        cross = []  # (difference, the other test)
         other = test.get("same_as")
         if other:
             sha = results.get(other, {}).get("csv_sha256") or tests[other]["expected"].get("csv_sha256")
             if found.get("csv_sha256") != sha:
-                diffs.append(f"the CSV export differs from that of {other}")
+                cross.append((f"the CSV export differs from that of {other}", other))
         base = test.get("without_access_as")
         if base:
             sha = results.get(base, {}).get("csv_sha256") or tests[base]["expected"].get("csv_sha256")
             if found.get("csv_sha256_without_access") != sha:
-                diffs.append(f"the CSV export without access1, access2 differs from that of {base}")
+                cross.append((f"the CSV export without access1, access2 differs from that of {base}", base))
         if differences:
-            diffs += describe_differences(differences)
-        status, reason = outcome(test, found, diffs)
+            values += describe_differences(differences)
+        world_file = not osm_kind and coast.world_file(cache_dir) is not None  # after the search: as it ran
+        status, reason = outcome(test, found, values, problems, cross, world_file, tuple(unverified))
+        diffs = (own_problems({"exit": found.get("exit")}) + values + list(found.get("problems", []))
+                 + [line for line, _ in cross])  # in the order printed before
         slow = test.get("seconds") and seconds > SLOWER * test["seconds"] and seconds - test["seconds"] > 5
         print(f"{test_id}: {status}" + (f" ({reason})" if reason else "") + f" ({seconds:.0f} s"
               + (f", WARNING: recorded {test['seconds']:.0f} s" if slow else "")
@@ -980,7 +1084,7 @@ def main():
                 refused.append(test_id)
             elif not found.get("exit") and not found.get("problems"):
                 test["expected"] = ({k: v for k, v in found.items() if k not in ("exit", "unanswered")} if osm_kind
-                                    else stored(found, test["expected"]))
+                                    else stored(found, test["expected"], ok=status == "ok"))
                 test["seconds"] = round(seconds, 1)
     if args.update:
         with open(TESTS, "w", encoding="utf-8", newline="\n") as f:
