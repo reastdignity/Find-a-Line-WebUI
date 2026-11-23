@@ -726,7 +726,7 @@ def list_status(cache_dir: str, top: str = TOP) -> str:
             files = None
         age = cache.age_days(row["checked_at"])
         text = (f"made {row['checked_at'][:10]} ({age:.0f} days ago" + (f", {files:,} files" if files is not None else "")
-                + f"); made again after {LIST_MAX_AGE_DAYS:g} days")
+                + f"); made again after {LIST_MAX_AGE_DAYS:g} days" + (": due" if age > LIST_MAX_AGE_DAYS else ""))
     elif _shipped_off():
         text = "none made yet (the shipped copy is off)"
     else:

@@ -547,7 +547,9 @@ def test_cache_status_line_of_a_made_list(tmp_path):
     cache.record(cache_dir, tb.unlisted_path(cache_dir), url="b")
     _age(cache_dir, tb.unlisted_path(cache_dir), 5)
     text = tb.list_status(cache_dir)
-    assert "(5 days ago, 3 files); made again after 28 days" in text
+    assert "(5 days ago, 3 files); made again after 28 days" in text and "due" not in text
+    _age(cache_dir, tb.unlisted_path(cache_dir), 29)
+    assert tb.list_status(cache_dir).endswith("made again after 28 days: due")
     tb.write_failed(cache_dir, "TNM API: HTTP 503")
     assert "the last try failed" in tb.list_status(cache_dir) and "HTTP 503" in tb.list_status(cache_dir)
 
