@@ -258,7 +258,7 @@ From the gates and reviews of round 6, each with its source (the user's answers 
 - **Compare's other runs pressable in the view** (the user's P5 b, "known difference now"; effort medium-high): a
   hit test for other runs' lines on the canvas and a details panel for a line that is no spot of this run (today's
   page opens it with its "Run").
-- **The level switch as a radio group** (the final design check's F6; effort medium-low): Auto, Area, Spots, Lines
+- *Done in step 3d G6 (DESIGN.md row 136).* **The level switch as a radio group** (the final design check's F6; effort medium-low): Auto, Area, Spots, Lines
   are four toggle buttons and four Tab stops; `ui/radios.ts` (`radioKeys`, `radioStop`) would make them one stop with
   arrows (DESIGN.md row 82), the buttons `role=radio` with `aria-checked` (`test_shell_c_view_map.py` reads
   `aria-pressed` and changes with it).

@@ -57,7 +57,8 @@ shore's (each fallback's km² in view, `ui.coarse.help`; `addCoarser`, whose `fi
 `coarserControl`, with the shore's classes `.u-shore-ctl` and `.u-coarse-ctl`: docs/DESIGN.md row 105), the shares
 under More filters (`FilterBar`)), `layersControl.ts` the maps' layers control (Leaflet's `L.Control.Layers` with the
 kit's "layers" icon, `options.afterUpdate` after every redraw of its rows, an opened box fitted above the map's
-credits), used by the place map (`app/PlaceMap.ts`) and the result view's frame (`result/view/SpotColumns.tsx`); a
+credits; a disclosure for the keyboard, its rows the kit's boxes `.u-check`/`.u-radio`, a finger's second tap guarded
+for `OPEN_GUARD_MS`; `pressMarks`: the map's own ring only after a key: docs/DESIGN.md rows 132, 136), used by the place map (`app/PlaceMap.ts`) and the result view's frame (`result/view/SpotColumns.tsx`); a
 module of its own so that the result view's bundles (map.html's `viewer.js` too) take it without `PlaceMap.ts`'
 Leaflet-Geoman; bundled by esbuild into `dist/` (committed);
 copied to `runs/_viewer/` by every run. The app (`app/app.tsx`: the app's one interface, C (`app/c`); B and D were

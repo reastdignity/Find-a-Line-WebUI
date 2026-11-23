@@ -56,6 +56,9 @@ R9 (DESIGN, the user's pick "R9 b", 2026-11-17): in a text the user reads no cha
 | "+ " (for "and" or "more") | left out; before a command the kit's plus icon | "+ 2 more settings" -> "2 more settings"; "+ Add a rig" -> the icon and "Add a rig" | G5's rows char-07, char-08 |
 | " · " between values | a label with a colon, the parts joined by "; " | "page: …; interface: …; window: …" | G5's row left-08 |
 | "/" for "and" | and | "About and data licences" | G5's row left-06 |
+| "/" for "or" | or | "trees/buildings" -> "trees or buildings" (the profile; the view's details said it so) | G6's row w-07 (the user, 2026-11-23) |
+| "@" | at | "% stretch @ 10 kN" -> "% stretch at 10 kN" | G6's row w-06 |
+| "+" after a legend's last class | from; at a ramp's end "or more" | "7+" -> "from 7" (the map's Area legend), "7 or more" (a phone's ramp) | G6's rows w-10, w-10b |
 | a sign in a chart's tick | the bare value, the word in the chart's title | "≥10", "<2", "≤1" -> "10", "2", "1" under a title that says "at least", "under" or "up to" | G5's row char-18 |
 
 Kept, where a sign stays:
@@ -68,7 +71,7 @@ Kept, where a sign stays:
 | the 3D view's speed and zoom | "×1", "×8" | a multiplier the user kept like a unit | the user, 2026-11-19 ("Keep "x1""); DESIGN choice 47; G5's row kept-02 |
 | the sign of a number | "+2 m" | a sign, not a word | G5's row kept-03 |
 | the coverage map's images and videos | "≤ 1 m", the stars' character | rendered by hand and rarely: left for now | step 3d's scope Q16 a (`local/ux-design-2026-11-16/3d/scope.md`); G5's row kept-04 |
-| round 6's coarser box | " · " between the sources' shares | after line volume's round 6 | G5's row kept-05 |
+| the terrain profile's 1:1 scale | "1:1 scale (now vertical ×1.6)" | a multiplier the user kept like the 3D view's "×1" | the user's answer to G6's w-04, 2026-11-23 (user-inputs, "Step 3d G6") |
 | today's result page | "→" in its intro (`intro.result.spots`, `easy_within`), ≥ and ≤ in its filter bar | the page goes with line volume's round 6 | the user, 2026-11-19 (known-bugs.md, step 3d G5) |
 
 ## Style rules
