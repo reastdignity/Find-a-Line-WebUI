@@ -453,7 +453,7 @@ def test_cache_update_keeps_a_good_answer_too(http_server, tmp_path, monkeypatch
     path = _layer().index.index_path(cache_dir, *tile)
     text = open(path, encoding="utf-8").read()
     tnm.fault, tnm.times = "empty", 2
-    with pytest.raises(requests.RequestException, match="still answer at their URL"):
+    with pytest.raises(requests.RequestException, match="still answers at its URL"):
         _layer().update_index_tile(cache_dir, *tile)
     assert open(path, encoding="utf-8").read() == text
     tnm.fault, tnm.times = "error", 99
@@ -465,8 +465,8 @@ def test_cache_update_keeps_a_good_answer_too(http_server, tmp_path, monkeypatch
 
 def test_the_check_of_dropped_files(http_server, tmp_path, monkeypatch, renewing, capsys):
     """D3: two answers that agree in dropping a file are taken only when the file is gone at its URL; a check that
-    fails (not known) keeps the cached answer; more dropped files than CHECK_GONE_MAX are not checked (kept); an index
-    without a check (IfSAR's kind) takes two agreeing answers."""
+    fails (not known) keeps the cached answer, also when more files are dropped than CHECK_GONE_MAX (one check, in the
+    order of the URLs: the first fails); an index without a check (IfSAR's kind) takes two agreeing answers."""
     from sources.indexes import cached as cached_module
     tnm, newer, cache_dir, grid, folder, names = _two_projects(tmp_path, monkeypatch, http_server)
     tile = index_tiles(grid)[0]
@@ -477,19 +477,52 @@ def test_the_check_of_dropped_files(http_server, tmp_path, monkeypatch, renewing
     tnm.fault, tnm.times, tnm.url = "dropped", 2, newer
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
     assert (done.failed, checked) == (1, [newer]) and open(path, encoding="utf-8").read() == text
-    assert "whose check at their URL failed" in capsys.readouterr().out
+    assert "at its URL failed" in capsys.readouterr().out
     monkeypatch.setattr(cached_module, "CHECK_GONE_MAX", 1)
     checked.clear()
     _settle(cache_dir)
-    tnm.fault, tnm.times = "empty", 2                                   # two dropped, more than 1: not checked
+    tnm.fault, tnm.times = "empty", 2                                   # two dropped, more than 1: the first checked
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert (done.failed, checked) == (1, []) and open(path, encoding="utf-8").read() == text
+    first = min(p["downloadURL"] for p in tnm.products)
+    assert (done.failed, checked) == (1, [first]) and open(path, encoding="utf-8").read() == text
     _settle(cache_dir)
     tnm.fault, tnm.times = "empty", 2
     layer = _layer()
     layer.index.check_gone = None                                       # no check: two agreeing answers are taken
     done = renewal.renew([layer], grid, cache_dir, lambda text: None)
     assert (done.asked, done.failed) == (1, 0) and json.load(open(path, encoding="utf-8"))["sheets"] == []
+
+
+def test_a_drop_of_many_files_is_checked_in_order_up_to_the_cap(tmp_path):
+    """Round 2c: 30 dropped files (more than CHECK_GONE_MAX) checked in the order of their URLs: all gone, the drop
+    is taken after exactly CHECK_GONE_MAX checks (a real removal of any size passes); the first still there, kept
+    after one check; the 3rd check failing, kept after three."""
+    from sources.indexes.cached import CHECK_GONE_MAX, CachedIndex, DroppedFiles, Listing
+    files = [{"url": f"https://bucket.example/Projects/P/TIFF/f{k:02d}.tif"} for k in range(30)]
+
+    class Answers(Listing):
+        url, sheets = "https://index.example", files
+
+        def fetch(self, lat, lon):
+            return {"sheets": list(Answers.sheets)}
+    index = CachedIndex("x", Answers(), None, "p", "top")
+    index.confirms_drops = True
+    cache_dir = str(tmp_path)
+    urls = sorted(f["url"] for f in files)
+    for answers, calls, taken in (({}, CHECK_GONE_MAX, True), ({urls[0]: False}, 1, False),
+                                  ({urls[2]: None}, 3, False)):
+        Answers.sheets = files
+        assert len(index.answers(cache_dir, 50.0, 10.0, "all")) == 30   # cached: the 30 files
+        checked = []
+        index.check_gone = lambda url, answers=answers: (checked.append(url), answers.get(url, True))[1]
+        Answers.sheets = []                                              # the index drops them all, twice
+        if taken:
+            assert index.answers(cache_dir, 50.0, 10.0, "all") == []
+        else:
+            with pytest.raises(DroppedFiles):
+                index.answers(cache_dir, 50.0, 10.0, "all")
+            assert len(index.answers(cache_dir, 50.0, 10.0)) == 30      # the cached answer stays
+        assert checked == urls[:calls]
 
 
 def test_a_file_the_index_delists_and_the_bucket_keeps(tmp_path, monkeypatch, renewing):

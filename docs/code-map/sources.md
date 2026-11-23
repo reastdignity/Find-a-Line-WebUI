@@ -228,8 +228,8 @@ unless set, LidarBC's 30; update.py reads it), offline fallback, `update_tile`; 
 its request succeeded, skipped when checked since the renewal started, `before_store` run first: `sources/renewal.py`),
 `confirms_drops` (the TNM layers': an answer replacing a cached one that drops URLs it held, not in `extra`
 either, is asked once more; a second answer dropping nothing is taken; else, with `check_gone` (the 1 m DEM's:
-`tnmbucket.file_gone`, at most `CHECK_GONE_MAX` files), only when both agree and every dropped file is gone at its
-URL, without it when both agree; else `DroppedFiles`: `_fetch`, used by `answers` with an update, `ask_again` and
+`tnmbucket.file_gone`, in the order of their URLs until the first not gone, `CHECK_GONE_MAX` gone in a row taking
+the drop of all), only when both agree and the dropped files are gone at their URLs, without it when both agree; else `DroppedFiles`: `_fetch`, used by `answers` with an update, `ask_again` and
 `fresh_answer`/`store`), `merge_items` marking the extra versions (`EXTRA`, for `versions.keep_item`), `cached_items`
 (what `answers` gives for a cached answer, nothing asked), `extra` and `merge_items` (the versions merged in:
 `tnm.UnlistedIndex`); a `Versions` policy;
