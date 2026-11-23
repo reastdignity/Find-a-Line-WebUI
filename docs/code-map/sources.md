@@ -58,14 +58,15 @@ unlisted 1 m files (`renew_list`, for an index with `has_list`): made when the c
 `cache/locks/renewal/<top>-bucket1m.lock`, `LIST_LOCK_WAIT_S`, then the list there is), a failed or refused listing
 recorded (`failed.json`) and not tried again for `FAILED_RETRY_DAYS`; made into `unlisted.json.new` and put in
 place only once what left it is decided (`_make_list`, `_departures`: a file the index lists now is carried, named in
-the list's `carried`, while a cached answer it reaches lacks its URL, and only those answers are asked,
-`_settle_carried`, on every renewal; a file the bucket's listing lacked has its project listed again,
+the list's `carried`, while a cached answer of a tile its box meets lacks its URL, `_tiles_met`, no margin, and only
+those answers are asked, each at most once per listing, `_settle_carried`, on every renewal; a file the bucket's listing lacked has its project listed again,
 `RELIST_PAGES`, and leaves only when that listing lacks it too; one left out without a zone this time keeps its item
 of before), the blocks whose order the new list changes deleted first (`_reorder_list`, C7: files moving inside the
 list; a block that cannot be deleted keeps the file's item of before). (2) Every answer under the grid asked again
 (`CachedIndex.ask_again` with `_reorder_first`: the blocks whose order the answer changes deleted before it is
 written; any fault of one tile is that tile's; after `FAILED_IN_A_ROW` failures in a row the API counts as down for
-the rest of the start, `("down", url)` in `asked`). So a stop anywhere leaves a change pending or done
+the rest of the start, `("down", url)` in `asked`; `OWN_FAULTS_IN_A_ROW` faults of one type that are no request
+error stop the layer's, `("broken", top, prefix)`). So a stop anywhere leaves a change pending or done
 (`test_a_stop_anywhere_leaves_the_change_pending_or_done`). Returns `Renewal` (answers asked, changed, failed, left,
 skipped; the list made, kept or failed; departed files by why: indexed, carried, gone, relisted, zoneless; moved
 files; blocks to read again; requests, bytes and seconds by part) and tells its progress through `say` (`_Ticker`
@@ -225,9 +226,11 @@ rows; a circle's tiles as before, `tests/test_sources.py::test_wcs_tiles_of_a_ta
 (a `Listing`'s answers cached per 0.25° tile in `<top>/sheet-index/<prefix>/`, TTL (`ttl_days`: the sheet index's
 unless set, LidarBC's 30; update.py reads it), offline fallback, `update_tile`; `ask_again` (one tile's answer asked again under its lock, written only when
 its request succeeded, skipped when checked since the renewal started, `before_store` run first: `sources/renewal.py`),
-`confirms_drops` (the TNM layers': an answer replacing a cached one that lacks URLs it held is asked once more and
-taken only when both agree, else `DroppedFiles`: `_fetch`, used by `answers` with an update, `ask_again` and
-`fresh_answer`/`store`), `cached_items`
+`confirms_drops` (the TNM layers': an answer replacing a cached one that drops URLs it held, not in `extra`
+either, is asked once more; a second answer dropping nothing is taken; else, with `check_gone` (the 1 m DEM's:
+`tnmbucket.file_gone`, at most `CHECK_GONE_MAX` files), only when both agree and every dropped file is gone at its
+URL, without it when both agree; else `DroppedFiles`: `_fetch`, used by `answers` with an update, `ask_again` and
+`fresh_answer`/`store`), `merge_items` marking the extra versions (`EXTRA`, for `versions.keep_item`), `cached_items`
 (what `answers` gives for a cached answer, nothing asked), `extra` and `merge_items` (the versions merged in:
 `tnm.UnlistedIndex`); a `Versions` policy;
 `IndexUnavailable`; `index_tiles(grid)`: the 0.25° tiles the versions ask for a grid: a circle's whole box, an area's
@@ -355,7 +358,8 @@ upload's) and writes `<cache>/usa/sheet-index/bucket1m/unlisted.json` with a row
 failure); `unlisted_in_tile` reads it, or the shipped `sources/catalogue/usa_unlisted_1m.json` (also in place of a
 cached list that cannot be used: `_load`), once per process and data folder; for the renewal `LIST_MAX_AGE_DAYS`
 (28), the failure record (`failed_path`, `failed_recently`, `write_failed`, `clear_failed`; `RENEW_ENV` off in the
-tests), `list_items`, `list_tiles`, `carried_urls`, `list_status` (the line of `cache status`),
+tests), `list_items`, `list_tiles`, `carried_urls`, `list_changed` (one `os.stat` per query of a grid,
+`tnm.UnlistedIndex.tiles`), `file_gone`, `list_status` (the line of `cache status`),
 `make_unlisted(budgets=, found=)`; imported
 only when an answer is read,
 never by the web process),

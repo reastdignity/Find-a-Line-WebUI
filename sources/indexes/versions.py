@@ -21,7 +21,7 @@ import osm
 from grid import Grid
 
 from ..readers.windows import BlockRequest, _same_crs
-from .cached import CachedIndex, IndexUnavailable, Versions, index_tiles, merge_items
+from .cached import EXTRA, CachedIndex, IndexUnavailable, Versions, index_tiles, merge_items
 
 
 # existing() lists a folder once when at least LISTING_FROM of the paths it is asked about lie in it, and asks
@@ -215,6 +215,18 @@ class NewestPerSheet(Versions):
         return sorted(sheets, key=_sheet_order, reverse=True)
 
 
+def keep_item(found: Dict[str, Dict], item: Dict):
+    """Add a listed version to found (by URL) as the files of several index tiles are joined: the later tile's
+    wins, as ever, except that a version merged in from a tile's extra versions (cached.EXTRA: the list of the
+    bucket's unlisted files) never replaces one an index answer lists: a file the index lists now but another tile's
+    answer does not yet (the list carries it, renewal.py) has the index's year and date whatever the grid. Without
+    extra versions (every other layer) the later tile's wins, byte for byte as before."""
+    old = found.get(item["url"])
+    if old is not None and item.get(EXTRA) and not old.get(EXTRA):
+        return
+    found[item["url"]] = item
+
+
 def moved_items(before: Sequence[Dict], after: Sequence[Dict]) -> List[Dict]:
     """The items of after whose URL before holds with another year or date ("published"): such a file keeps its
     place in a block's set of files (its key) but may change its place in their order."""
@@ -263,7 +275,7 @@ class ComposedBlocks(Versions):
         items: Dict[str, Dict] = {}
         for lat, lon in tiles:
             for item in index.answers(cache_dir, lat, lon, update):
-                items[item["url"]] = item
+                keep_item(items, item)
         return list(items.values())
 
     def _blocks(self, items: List[Dict], bounds: Dict[str, tuple], shape=None) -> List[Block]:
@@ -470,9 +482,9 @@ class ComposedBlocks(Versions):
             for tile in tiles:
                 now = after[tile] if tile in after else index.cached_items(cache_dir, *tile)
                 for i in now or ():
-                    new[i["url"]] = i
+                    keep_item(new, i)
                 for i in before[tile] if tile in before else now or ():
-                    old[i["url"]] = i
+                    keep_item(old, i)
             bounds = {item["crs"]: tuple(item["extent"])}
             olds = {(b.crs, b.i, b.j): b for b in self._blocks(list(old.values()), bounds)}
             for block in self._blocks(list(new.values()), bounds):

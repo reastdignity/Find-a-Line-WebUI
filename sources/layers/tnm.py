@@ -63,6 +63,20 @@ class UnlistedIndex(CachedIndex):
         from .tnmbucket import unlisted_in_tile  # imported here: the web process never reads the list
         return unlisted_in_tile(cache_dir, self.top, lat, lon)
 
+    def check_gone(self, url: str) -> Optional[bool]:
+        """A file a fresh answer dropped, checked at its URL (CachedIndex._fetch): gone, there, or not known."""
+        from .tnmbucket import file_gone
+        return file_gone(url)
+
+    def tiles(self, grid: Grid) -> Optional[list]:
+        """CachedIndex.tiles, the list's stamp looked at first (one os.stat a query, tnmbucket.list_changed): a list
+        renewed by another process is read before this query, and what this process found over a grid before it is
+        found again, so a block another process's renewal just deleted is never composed in the order of before."""
+        from .tnmbucket import list_changed
+        if self.cache_dir is not None and list_changed(self.cache_dir, self.top):
+            self._listed.clear()
+        return super().tiles(grid)
+
 
 class TnmBlocks(IndexedTiles):
     """Blocks of the files of a dataset of The National Map (USGS 3DEP), found through the

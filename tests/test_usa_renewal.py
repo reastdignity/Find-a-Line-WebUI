@@ -289,6 +289,50 @@ def test_a_fault_of_one_tile_is_that_tiles(http_server, tmp_path, monkeypatch, r
         renewal.renew([_layer()], grid, cache_dir, lambda text: None)
 
 
+def test_a_fault_of_our_own_on_every_tile_stops_the_layer(http_server, tmp_path, monkeypatch, renewing):
+    """D5: the same fault that is no request error, OWN_FAULTS_IN_A_ROW times in a row (a fault of this code in
+    before_store), stops the layer's renewal for the start with one line: the rest keeps its cached answers, later
+    calls of the start return at once, no answer more is fetched and thrown away."""
+    tnm, files, cache_dir = _start(tmp_path, monkeypatch, http_server)
+    monkeypatch.setenv(tb.RENEW_ENV, "off")
+    monkeypatch.setattr(renewal, "OWN_FAULTS_IN_A_ROW", 2)
+    layer, grid = _layer(), _grid(430000, 4390000, 45000)
+    tiles = index_tiles(grid)
+    for t in tiles:
+        layer.index.answers(cache_dir, *t)
+    _settle(cache_dir)
+
+    def broken(*args):
+        def before_store(old, answer):
+            raise TypeError("'NoneType' object is not subscriptable")
+        return before_store
+    monkeypatch.setattr(renewal, "_reorder_first", broken)
+    tnm.asked.clear()
+    asked, said = set(), []
+    done = renewal.renew([_layer()], grid, cache_dir, said.append, asked)
+    assert (done.failed, done.left, done.asked) == (2, len(tiles) - 2, 0) and len(tnm.tile_requests()) == 2
+    assert any("failed 2 times in a row with TypeError" in line for line in said)
+    again = renewal.renew([_layer()], _grid(400100, 4424100), cache_dir, said.append, asked)
+    assert again.left > 0 and len(tnm.tile_requests()) == 2
+
+
+def test_another_process_s_list_is_read_by_the_next_query(tmp_path, monkeypatch, renewing):
+    """D6: a process that read the list a moment ago reads it again at its next query of a grid once another process
+    renewed it (one os.stat a query), not up to RECHECK_S later, so it never composes a block in the order of before;
+    the list is still read once per change."""
+    tnm, state, u1, u2, cache_dir, grid = _scene(tmp_path, monkeypatch)
+    layer = _layer()
+    layer._use(cache_dir, None)
+    first = lambda: layer.tiles(grid)[0].files[0][0]  # noqa: E731
+    assert first() == "USGS_1M_13_x47y443_CO_Ay_2020"
+    reads = tb.READS
+    assert first() == "USGS_1M_13_x47y443_CO_Ay_2020" and tb.READS == reads    # nothing changed: not read again
+    tb.write_list(tb.unlisted_path(cache_dir), {"made_at": cache.now_iso(), "listed": 1, "left_out": []},
+                  [state["list"][0], tile_item(u2, 13, U2_AFTER)], "b", "a", "d")   # another process's renewal
+    assert first() == "USGS_1M_13_x47y443_CO_Dee_2020" and tb.READS == reads + 1
+    assert first() == "USGS_1M_13_x47y443_CO_Dee_2020" and tb.READS == reads + 1
+
+
 def test_renew_asks_an_ifsar_layer_too(tmp_path, monkeypatch, renewing):
     """Every TNM dataset renews: an IfSAR-kind layer (no list) has every answer under the grid asked again and a new
     product seen; its answers' requests are counted."""
@@ -364,17 +408,19 @@ def _good_blocks_used(tmp_path, cache_dir, grid, folder, names, name):
     assert sorted(set(np.unique(_mosaic(_layer(), grid, cache_dir, tmp_path, name)).tolist())) == [1013.0, 1025.0]
 
 
-@pytest.mark.parametrize("fault, times", [("short", 1), ("empty", 1), ("error", 99), ("dropped", 1)])
+@pytest.mark.parametrize("fault, times", [("short", 1), ("empty", 1), ("error", 99), ("dropped", 1), ("empty", 2),
+                                          ("dropped", 2)])
 def test_a_bad_answer_never_replaces_a_good_one(http_server, tmp_path, monkeypatch, renewing, fault, times):
-    """C1: an answer with HTTP 200 that is short (asked once more and joined), empty where files were, an error body
-    (asked again, then failed), or lacking a product once (asked once more, the two disagree): the cached answer stays
-    (or a complete one is written), and the next pass leaves the good blocks in place and reads them."""
+    """C1 and D3: an answer with HTTP 200 that is short (asked once more and joined), empty where files were or
+    lacking a product, once (asked once more: the second, complete, is written) or twice in a row while the files
+    still answer at their URLs (kept), an error body (asked again, then failed): the cached answer stays or a
+    complete one is written, and the next pass leaves the good blocks in place and reads them."""
     tnm, newer, cache_dir, grid, folder, names = _two_projects(tmp_path, monkeypatch, http_server)
     answers = {t: open(_layer().index.index_path(cache_dir, *t), encoding="utf-8").read() for t in index_tiles(grid)}
     tnm.fault, tnm.times, tnm.url = fault, times, newer
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    if fault == "short":
-        assert (done.asked, done.failed) == (len(answers), 0)    # asked once more and joined: complete
+    if fault == "short" or times == 1 and fault != "error":
+        assert (done.asked, done.failed) == (len(answers), 0)    # asked once more: complete
     else:
         assert done.failed == len(answers) == 1 and done.asked == 0
     for t, text in answers.items():
@@ -384,11 +430,12 @@ def test_a_bad_answer_never_replaces_a_good_one(http_server, tmp_path, monkeypat
 
 
 def test_a_product_dropped_twice_is_taken(http_server, tmp_path, monkeypatch, renewing):
-    """A product missing from two answers asked one after the other is a real removal: taken at once, nothing to
-    clear by hand; the next pass reads the blocks without it."""
+    """A product missing from two answers asked one after the other whose file is gone at its URL is a real removal:
+    taken at once, nothing to clear by hand; the next pass reads the blocks without it."""
     tnm, newer, cache_dir, grid, folder, names = _two_projects(tmp_path, monkeypatch, http_server)
     tnm.fault, tnm.times, tnm.url = "dropped", 2, newer
-    done =renewal.renew([_layer()], grid, cache_dir, lambda text: None)
+    os.remove(newer)                                                   # gone at its URL
+    done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
     assert (done.asked, done.changed, done.failed) == (1, 1, 0)
     tile = index_tiles(grid)[0]
     assert newer not in open(_layer().index.index_path(cache_dir, *tile), encoding="utf-8").read()
@@ -399,13 +446,14 @@ def test_a_product_dropped_twice_is_taken(http_server, tmp_path, monkeypatch, re
 
 def test_cache_update_keeps_a_good_answer_too(http_server, tmp_path, monkeypatch, renewing):
     """The path of `cache update` (update_index_tile: a fresh answer before the blocks) refuses the same bad answers:
-    an empty answer once raises (the check fails), the cached answer and the blocks stay."""
+    an empty answer twice while the files still answer raises (the check fails), the cached answer and the blocks
+    stay."""
     tnm, newer, cache_dir, grid, folder, names = _two_projects(tmp_path, monkeypatch, http_server)
     tile = index_tiles(grid)[0]
     path = _layer().index.index_path(cache_dir, *tile)
     text = open(path, encoding="utf-8").read()
-    tnm.fault, tnm.times = "empty", 1
-    with pytest.raises(requests.RequestException, match="asked again at once"):
+    tnm.fault, tnm.times = "empty", 2
+    with pytest.raises(requests.RequestException, match="still answer at their URL"):
         _layer().update_index_tile(cache_dir, *tile)
     assert open(path, encoding="utf-8").read() == text
     tnm.fault, tnm.times = "error", 99
@@ -413,6 +461,64 @@ def test_cache_update_keeps_a_good_answer_too(http_server, tmp_path, monkeypatch
         _layer().update_index_tile(cache_dir, *tile)
     assert open(path, encoding="utf-8").read() == text
     _good_blocks_used(tmp_path, cache_dir, grid, folder, names, "update")
+
+
+def test_the_check_of_dropped_files(http_server, tmp_path, monkeypatch, renewing, capsys):
+    """D3: two answers that agree in dropping a file are taken only when the file is gone at its URL; a check that
+    fails (not known) keeps the cached answer; more dropped files than CHECK_GONE_MAX are not checked (kept); an index
+    without a check (IfSAR's kind) takes two agreeing answers."""
+    from sources.indexes import cached as cached_module
+    tnm, newer, cache_dir, grid, folder, names = _two_projects(tmp_path, monkeypatch, http_server)
+    tile = index_tiles(grid)[0]
+    path = _layer().index.index_path(cache_dir, *tile)
+    text = open(path, encoding="utf-8").read()
+    checked = []
+    monkeypatch.setattr(tb, "file_gone", lambda url: checked.append(url))   # None: not known
+    tnm.fault, tnm.times, tnm.url = "dropped", 2, newer
+    done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
+    assert (done.failed, checked) == (1, [newer]) and open(path, encoding="utf-8").read() == text
+    assert "whose check at their URL failed" in capsys.readouterr().out
+    monkeypatch.setattr(cached_module, "CHECK_GONE_MAX", 1)
+    checked.clear()
+    _settle(cache_dir)
+    tnm.fault, tnm.times = "empty", 2                                   # two dropped, more than 1: not checked
+    done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
+    assert (done.failed, checked) == (1, []) and open(path, encoding="utf-8").read() == text
+    _settle(cache_dir)
+    tnm.fault, tnm.times = "empty", 2
+    layer = _layer()
+    layer.index.check_gone = None                                       # no check: two agreeing answers are taken
+    done = renewal.renew([layer], grid, cache_dir, lambda text: None)
+    assert (done.asked, done.failed) == (1, 0) and json.load(open(path, encoding="utf-8"))["sheets"] == []
+
+
+def test_a_file_the_index_delists_and_the_bucket_keeps(tmp_path, monkeypatch, renewing):
+    """D3's way out: the index stops listing a file the bucket still holds: the answers dropping it are kept (it
+    still answers); the next listing of the bucket finds it unlisted and lists it, after which nothing is dropped,
+    the answer is written, and the blocks (their order: the upload date in place of the index's) equal a fresh
+    folder's."""
+    tnm, files = Tnm(), tmp_path / "files"
+    monkeypatch.setattr(requests, "get", tnm.get)
+    _tile_1m(tnm, files, "CO_Bee_2020", 1001, published="2024-01-01")
+    u1 = _tile_1m(tnm, files, "CO_Ay_2020", 1002, name="USGS_1M_13_x47y443_CO_Ay_2020.tif", published="2023-06-01")
+    state = {"list": []}
+    _fake_listing(monkeypatch, state, tnm)
+    cache_dir, grid = str(tmp_path / "cache"), _grid()
+    renewal.renew([_layer()], grid, cache_dir, lambda text: None)
+    _layer().download(grid, cache_dir, None, "test")
+    assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "a") == 1001).all()   # B (2024) before Ay (2023)
+    tnm.products = [p for p in tnm.products if p["downloadURL"] != u1]          # delisted; the file stays
+    _settle(cache_dir)
+    done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
+    assert (done.asked, done.failed) == (0, 1)
+    state["list"] = [tile_item(u1, 13, "2026-02-12T17:17:41.000Z")]            # the next listing finds it
+    _age(cache_dir, tb.unlisted_path(cache_dir), 29)
+    _settle(cache_dir)
+    done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
+    assert (done.list, done.asked, done.failed, done.reread) == ("made", 1, 0, 4)
+    _layer().download(grid, cache_dir, None, "test")
+    assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "b") == 1002).all()   # Ay uploaded 2026, read first
+    _blocks_equal(cache_dir, _fresh(tmp_path, grid))
 
 
 def test_a_searchs_first_answer_of_an_error_body_is_not_cached(tmp_path, monkeypatch, renewing):
@@ -507,9 +613,12 @@ def test_two_renewals_at_once_list_once_and_ask_each_answer_once(http_server, tm
     tnm, files, cache_dir = _start(tmp_path, monkeypatch, http_server, delay=0.2, bucket_delay=0.2)
     grid = _grid(440000, 4400000, 30000)
     results = []
+    together = threading.Barrier(2)  # both renewals start at the same moment, however loaded the machine
 
     def one():
-        results.append(renewal.renew([_layer(http_server.base)], grid, cache_dir, lambda text: None))
+        layer = _layer(http_server.base)
+        together.wait()
+        results.append(renewal.renew([layer], grid, cache_dir, lambda text: None))
     threads = [threading.Thread(target=one) for _ in range(2)]
     for t in threads:
         t.start()
@@ -646,7 +755,8 @@ def _fake_listing(monkeypatch, state, tnm):
     """tnmbucket.make_unlisted writing state["list"] (its own tests list a stand-in bucket): the renewal's rules are
     tested here with files the blocks can read (local paths). The bucket's listing holds the list's files, the
     index's (tnm's products) and state["left_out"] (names left out without a zone), less state["missing"] (names a
-    listing lacked)."""
+    listing lacked); the index's national listing holds tnm's products and state["listed"] (names whose products
+    map to no item in a tile's answer)."""
     def make(cache_dir, out=None, found=None, **kwargs):
         state.setdefault("made", 0)
         state["made"] += 1
@@ -657,7 +767,7 @@ def _fake_listing(monkeypatch, state, tnm):
             cache.record(cache_dir, path, url="b")
             tb.forget_unlisted()
         if found is not None:
-            listed = {_name(p["downloadURL"]) for p in tnm.products}
+            listed = {_name(p["downloadURL"]) for p in tnm.products} | set(state.get("listed", ()))
             found["listed"] = listed
             found["bucket"] = (listed | {_name(i["url"]) for i in state["list"]} | set(state.get("left_out", ()))) \
                 - set(state.get("missing", ()))
@@ -884,6 +994,113 @@ def test_a_file_whose_date_changes_in_the_list_reorders_its_blocks(tmp_path, mon
     _blocks_equal(cache_dir, _fresh(tmp_path, grid))
 
 
+class ByBox(Tnm):
+    """The TNM API answering a tile with the products whose boundingBox meets its own box (as the real one does: the
+    second review's D1 stand-in)."""
+
+    def get(self, url, params=None, **kwargs):
+        if not str(url).startswith(TNM_API):
+            return super().get(url, params=params, **kwargs)
+        w, s, e, n = (float(v) for v in params["bbox"].split(","))
+        everything = self.products
+        self.products = [p for p in everything if p["boundingBox"]["minX"] < e and p["boundingBox"]["maxX"] > w
+                         and p["boundingBox"]["minY"] < n and p["boundingBox"]["maxY"] > s]
+        try:
+            return super().get(url, params=params, **kwargs)
+        finally:
+            self.products = everything
+
+
+AZ = (560000, 3650000, 570000, 3660000)  # zone 12, x56 y366: its box ends 0.00002° west of the tile edge -110.25
+
+
+def _az_scene(tmp_path, monkeypatch):
+    """D1's scene: B listed (2020, published 2024-01-01), U unlisted (2020, uploaded 2026-02-12) in one 10 km cell
+    whose box meets one index tile and comes within INDEX_MARGIN_DEG of the next; the list made, the blocks of a grid
+    across the tile edge downloaded; then the index lists U, dated 2023-06-01 (B read first)."""
+    tnm, files = ByBox(), tmp_path / "files"
+    monkeypatch.setattr(requests, "get", tnm.get)
+    _tile_1m(tnm, files, "AZ_Bee_2020", 1001, zone=12, x=56, y=366, published="2024-01-01")
+    u = _tile_1m(FakeTnm(), files, "AZ_Ay_2020", 1002, zone=12, x=56, y=366, name="USGS_1M_12_x56y366_AZ_Ay_2020.tif")
+    state = {"list": [tile_item(u, 12, "2026-02-12T17:17:41.000Z")]}
+    _fake_listing(monkeypatch, state, tnm)
+    cache_dir = str(tmp_path / "cache")
+    inside = gd.make_grid((568100, 3655100, 569900, 3656900), RES, "EPSG:26912")
+    across = gd.make_grid((568100, 3655100, 571900, 3656900), RES, "EPSG:26912")
+    assert len(index_tiles(inside)) == 1 and len(index_tiles(across)) == 2
+    renewal.renew([_layer()], across, cache_dir, lambda text: None)
+    _layer().download(across, cache_dir, None, "test")
+    tnm.add(u, "EPSG:26912", AZ, published="2023-06-01")
+    state["list"] = []
+    return tnm, state, u, cache_dir, inside, across
+
+
+def test_a_file_the_index_lists_since_leaves_the_list(tmp_path, monkeypatch, renewing):
+    """D1 (a): over four starts with listings at the 1st and 3rd, a file the index lists now is carried only while
+    the tile its box meets lacks it: that tile is asked once, the tile it reaches only through the margin never, and
+    the second listing drops the file."""
+    tnm, state, u, cache_dir, inside, across = _az_scene(tmp_path, monkeypatch)
+    meeting, margin = index_tiles(across)
+    box = lambda t: f"{t[1]},{t[0]},{t[1] + 0.25},{t[0] + 0.25}"  # noqa: E731
+    asked = []
+    _settle(cache_dir)
+    for start, listing in enumerate((True, False, True, False), 1):
+        if listing:
+            _age(cache_dir, tb.unlisted_path(cache_dir), 29)
+        tnm.asked.clear()
+        done = renewal.renew_list(_layer(), cache_dir, lambda text: None)
+        asked.append(sorted(tnm.tile_requests()))
+        if start == 1:
+            assert (done.list, done.indexed, done.carried) == ("made", 1, 1)
+        if start == 3:
+            assert (done.list, done.indexed, done.carried) == ("made", 1, 0)
+    assert asked == [[box(meeting)], [], [], []]
+    assert tb.carried_urls(cache_dir) == [] and u not in tb.list_items(cache_dir)
+
+
+def test_a_file_carried_for_a_real_reason_costs_one_ask_a_listing(tmp_path, monkeypatch, renewing):
+    """A file the index's listing names but whose product maps to no item in a tile's answer stays carried (rightly:
+    the list is its only source); the tile lacking it is asked at most once per listing, not at every start."""
+    tnm, state, u, cache_dir, inside, across = _az_scene(tmp_path, monkeypatch)
+    tnm.products = [p for p in tnm.products if p["downloadURL"] != u]   # no tile's answer will hold it
+    state["listed"] = [_name(u)]                                        # the national listing names it
+    meeting = index_tiles(across)[0]
+    box = f"{meeting[1]},{meeting[0]},{meeting[1] + 0.25},{meeting[0] + 0.25}"
+    asked = []
+    for start, listing in enumerate((True, False, False, True, False), 1):
+        _settle(cache_dir)  # a later start: the answers asked 10 s ago, before this start's own time
+        if listing:  # weeks later: the answers asked before are older than the new list
+            _age(cache_dir, tb.unlisted_path(cache_dir), 29)
+        else:        # the list made before those answers were asked (20 s ago)
+            _age(cache_dir, tb.unlisted_path(cache_dir), 20 / 86400)
+        tnm.asked.clear()
+        done = renewal.renew_list(_layer(), cache_dir, lambda text: None)
+        asked.append(sorted(tnm.tile_requests()))
+        assert done.failed == 0 and tb.carried_urls(cache_dir) == [u]
+    assert asked == [[box], [], [], [box], []]
+
+
+def test_a_carried_files_blocks_do_not_depend_on_the_grid(tmp_path, monkeypatch, renewing):
+    """D1 (b): while the list carries a file the index lists now, a tile whose answer lacks it still merges the
+    list's item (its upload date); the answer's item wins whatever the grid: the same block is composed equally by a
+    grid inside the cell and one across the tile edge, and as a fresh folder composes it."""
+    tnm, state, u, cache_dir, inside, across = _az_scene(tmp_path, monkeypatch)
+    _age(cache_dir, tb.unlisted_path(cache_dir), 29)
+    _settle(cache_dir)
+    done = renewal.renew_list(_layer(), cache_dir, lambda text: None)
+    assert done.carried == 1 and tb.carried_urls(cache_dir) == [u]
+
+    def files_of(grid, folder):
+        layer = _layer()
+        layer._use(folder, None)
+        return {(b.i, b.j): [n for n, _, _ in b.files] for b in layer.tiles(grid) if (b.i, b.j) == (568, 3655)}
+    fresh_dir = str(tmp_path / "fresh")
+    renewal.renew([_layer()], across, fresh_dir, lambda text: None)
+    fresh = files_of(across, fresh_dir)
+    assert fresh == {(568, 3655): ["USGS_1M_12_x56y366_AZ_Bee_2020", "USGS_1M_12_x56y366_AZ_Ay_2020"]}
+    assert files_of(inside, cache_dir) == files_of(across, cache_dir) == fresh
+
+
 STOPS = ["listing made", "departures decided", "blocks deleted for the list", "list written", "list recorded",
          "answer fetched", "blocks deleted for the answer", "answer written"]
 
@@ -950,6 +1167,26 @@ def test_a_stop_anywhere_leaves_the_change_pending_or_done(tmp_path, monkeypatch
     renewal.renew([_layer()], grid, cache_dir, lambda text: None)
     _layer().download(grid, cache_dir, None, "test")
     assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "after") == 1004).all()
+    _blocks_equal(cache_dir, _fresh(tmp_path, grid))
+
+
+def test_a_stop_in_the_settling_is_made_good_by_a_renewal_elsewhere(tmp_path, monkeypatch, renewing):
+    """D2 (C2c): a renewal stopped (Ctrl+C) while it settles the carried files, after the list was written; a pass;
+    then a renewal over ANOTHER grid, whose own answers do not reach the file: it settles the carried file all the
+    same (the list kept), so the next pass's blocks equal a fresh folder's."""
+    tnm, state, u1, u2, cache_dir, grid = _scene(tmp_path, monkeypatch)
+    _change(tnm, state, u1, u2, cache_dir, "answer")
+    with monkeypatch.context() as m:
+        m.setattr(renewal, "_ask_answers", lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()))
+        with pytest.raises(KeyboardInterrupt):
+            renewal.renew([_layer()], grid, cache_dir, lambda text: None)
+    assert tb.carried_urls(cache_dir) == [u1]
+    _layer().download(grid, cache_dir, None, "test")
+    elsewhere = _grid(400100, 4424100)                                 # x40: 70 km west, none of U1's tiles
+    assert not set(index_tiles(elsewhere)) & set(index_tiles(grid))
+    done = renewal.renew([_layer()], elsewhere, cache_dir, lambda text: None)
+    assert done.list == "kept" and done.reread == 4
+    _layer().download(grid, cache_dir, None, "test")
     _blocks_equal(cache_dir, _fresh(tmp_path, grid))
 
 

@@ -13,16 +13,21 @@ OPR); any other layer is left alone, without a request:
    and then finds the list made, or after the wait goes on with the list there is). A listing that fails or is
    refused writes tnmbucket.failed_path and is not tried again for tnmbucket.FAILED_RETRY_DAYS by any process. The
    new list is made beside the cached one and replaces it only once what left it is decided (_departures): a file
-   the index lists now stays in the list ("carried") until every cached answer it reaches holds its URL, and only
-   the answers lacking it are asked (_settle_carried, on every renewal, so a stop after the list was written is made
-   good at the next start); a file the bucket's listing lacks has its project listed again at once and leaves only
-   when that listing lacks it too; a file left out this time without a zone keeps its item of before. So at no
+   the index lists now stays in the list ("carried") until the cached answers of every tile its own box meets hold
+   its URL (_tiles_met: the API answers a tile by its box, so a tile reached only within a margin may never hold
+   it), and only those answers lacking it are asked, each at most once per listing (_settle_carried, on every
+   renewal, so a stop after the list was written is made good at the next start; meanwhile an answer's item of a
+   file wins over the list's in every tile: versions.keep_item); a file the bucket's listing lacks has its project
+   listed again at once and leaves only when that listing lacks it too; a file left out this time without a zone
+   keeps its item of before. So at no
    moment, in no process, is a file some cached block was composed from missing from both the list and the answers;
 2. every index answer under the grid (cached.index_tiles) asked again (CachedIndex.ask_again: written only when its
-   request succeeded and, when it lacks files the cached one held, a second answer at once agrees: confirms_drops;
-   under the tile's lock, skipped when another renewal asked it since this one started); a failed answer keeps the
-   cached one and prints one line, any fault of one tile is that tile's, and after FAILED_IN_A_ROW failures in a row
-   the API counts as down for the rest of the start (every later call returns at once with its tiles left: one line);
+   request succeeded and the rule of dropped files lets it through: CachedIndex.confirms_drops; under the tile's
+   lock, skipped when it was checked at or after `since`); a failed answer keeps the cached one and prints one line,
+   any fault of one tile is that tile's, and after FAILED_IN_A_ROW failures in a row the API counts as down for the
+   rest of the start (every later call returns at once with its tiles left: one line), as the layer's renewal does
+   after OWN_FAULTS_IN_A_ROW faults of one type that are no request error (a fault of this code: every answer would
+   be fetched and thrown away);
 3. the cached blocks whose files stay but whose order changes (a file's date or year moved: the index's date in
    place of its upload time) deleted before the answer or the list that changes their order is written
    (ComposedBlocks.reordered; per tile, _reorder_first; for the list, _reorder_list), so a stop at any point leaves
@@ -60,6 +65,10 @@ from .indexes.versions import ComposedBlocks, moved_items
 # time, 33 one at a time): after that it goes on with the list there is
 LIST_LOCK_WAIT_S = 2700
 FAILED_IN_A_ROW = 5      # failed answers in a row after which the API counts as down for the rest of the start
+# Faults of one type in a row that are no request error (a fault of this code, as in before_store, or of this
+# machine) after which a layer's renewal stops for the rest of the start: every answer would be fetched and thrown
+# away at every start
+OWN_FAULTS_IN_A_ROW = 5
 PROGRESS_SECONDS = 30    # between the progress lines of a listing's part and of the answers
 RELIST_PAGES = 100       # the bucket's pages for listing again the projects of files a listing lacked
 
@@ -158,6 +167,16 @@ def _tiles_of(item: Dict) -> List[Tuple[float, float]]:
     return osm.tiles(west - m, south - m, east + m, north + m)
 
 
+def _tiles_met(item: Dict) -> List[Tuple[float, float]]:
+    """The 0.25° index tiles a file's own extent meets (its WGS84 box, no margin): those whose answer holds it, the
+    TNM API answering a tile by its own box (every product of the 413 real pages of 2026-11-22 whose box met a
+    leaf box by more than 0° came back in that box's answer: 97,733 pairs, none missing)."""
+    from rasterio.warp import transform_bounds
+    west, south, east, north = transform_bounds(item["crs"], "EPSG:4326", *item["extent"], densify_pts=21)
+    return [(lat, lon) for lat, lon in osm.tiles(west, south, east, north)
+            if lat < north and lat + osm.TILE_DEG > south and lon < east and lon + osm.TILE_DEG > west]
+
+
 def _reorder_first(layer, cache_dir: str, lat: float, lon: float, result: Renewal):
     """CachedIndex.ask_again's before_store for one tile: the cached blocks whose files stay but whose order the new
     answer changes (a file's date or year moved: ComposedBlocks.reordered) deleted before the answer is written, so
@@ -193,14 +212,17 @@ def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since:
     later call for it count their tiles as left at once, one line each."""
     index: CachedIndex = layer.index
     todo = [t for t in tiles if (index.top, index.prefix, t) not in asked]
-    down = ("down", index.listing.url)
-    if down in asked:
+    down, broken = ("down", index.listing.url), ("broken", index.top, index.prefix)
+    if down in asked or broken in asked:
         if todo:
             result.left += len(todo)
-            say(f"{layer.description}: the index did not answer {FAILED_IN_A_ROW} times in a row in this start: "
-                f"{len(todo):,} answers keep their cached ones ({what})")
+            say(f"{layer.description}: " + (f"the index did not answer {FAILED_IN_A_ROW} times in a row"
+                                            if down in asked else f"its renewal failed {OWN_FAULTS_IN_A_ROW} times "
+                                            f"in a row in the same way") +
+                f" in this start: {len(todo):,} answers keep their cached ones ({what})")
         return
     in_a_row, last = 0, time.monotonic()
+    own, own_type = 0, None  # faults of one type in a row that are no request error
     for k, (lat, lon) in enumerate(todo):
         asked.add((index.top, index.prefix, (lat, lon)))
         try:
@@ -212,8 +234,18 @@ def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since:
             # answer, twice) neither adds to the streak nor ends it
             if isinstance(e, requests.RequestException) and not isinstance(e, DroppedFiles):
                 in_a_row += 1
+            if isinstance(e, requests.RequestException):
+                own, own_type = 0, None
+            else:
+                own, own_type = (own + 1 if type(e) is own_type else 1), type(e)
             print(f"{layer.description}: the index answer of {osm.tile_name(lat, lon)} could not be asked again "
                   f"({cache.clean_error(f'{type(e).__name__}: {e}')[:300]}); the cached one is kept", flush=True)
+            if own >= OWN_FAULTS_IN_A_ROW:
+                asked.add(broken)
+                result.left += len(todo) - k - 1
+                say(f"{layer.description}: its renewal failed {own} times in a row with {own_type.__name__}: it stops "
+                    f"for this start, the other {len(todo) - k - 1:,} answers keep their cached ones")
+                break
             if in_a_row >= FAILED_IN_A_ROW:
                 asked.add(down)
                 if k + 1 < len(todo):
@@ -222,7 +254,7 @@ def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since:
                         f"{len(todo) - k - 1:,} keep their cached answers, and so do the later ones of this start")
                 break
             continue
-        in_a_row = 0
+        in_a_row, own, own_type = 0, 0, None
         if changed is None:
             result.skipped += 1
         else:
@@ -234,9 +266,11 @@ def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since:
 
 
 def renew_list(layer, cache_dir: str, say: Say = print, result: Optional[Renewal] = None,
-               asked: Optional[Set[tuple]] = None, since: Optional[str] = None, force: bool = False) -> Renewal:
+               asked: Optional[Set[tuple]] = None, since: Optional[str] = None, force: bool = False,
+               allow_drop: bool = False) -> Renewal:
     """Step 1 of renew for one layer (its index has a list: tnm.UnlistedIndex), also `cache update`'s check of the
-    list. force: made whatever its age (`cache update --all`); a failure less than a day old still waits.
+    list and tools/usa_unlisted.py --cached's. force: made whatever its age (`cache update --all`, the tool); a
+    failure less than a day old still waits. allow_drop: make_unlisted's (the tool's --allow-drop).
 
     The new list is made into a file beside the cached one (make_unlisted(out=)), and what left the list is decided
     before it replaces the cached one (_departures): no moment, in no process, finds a file some cached block was
@@ -294,7 +328,7 @@ def renew_list(layer, cache_dir: str, say: Say = print, result: Optional[Renewal
             say(f"The list of the 1 m files the TNM index does not list could not be made by another process "
                 f"meanwhile ({tb.failed_recently(cache_dir, top)['error'][:200]}): the list there is is used")
         else:
-            _make_list(layer, cache_dir, path, tmp, say, result)
+            _make_list(layer, cache_dir, path, tmp, say, result, allow_drop)
     finally:
         with contextlib.suppress(OSError):
             os.remove(tmp)
@@ -305,7 +339,7 @@ def renew_list(layer, cache_dir: str, say: Say = print, result: Optional[Renewal
     return result
 
 
-def _make_list(layer, cache_dir: str, path: str, tmp: str, say: Say, result: Renewal):
+def _make_list(layer, cache_dir: str, path: str, tmp: str, say: Say, result: Renewal, allow_drop: bool = False):
     """renew_list's listing, under the list's lock: made into tmp, its departures decided, the reordered blocks
     deleted, then written in place of the cached list (atomically) and recorded."""
     from .layers import tnmbucket as tb
@@ -321,7 +355,7 @@ def _make_list(layer, cache_dir: str, path: str, tmp: str, say: Say, result: Ren
         with _Ticker(say) as ticker:
             summary = tb.make_unlisted(cache_dir, out=tmp, bucket=bucket, api=index.listing.url,
                                        dataset=index.listing.dataset, regions=index.regions or tb.REGIONS,
-                                       log=say, budgets=ticker.watch, found=found)
+                                       log=say, budgets=ticker.watch, found=found, allow_drop=allow_drop)
         new, _ = tb.read_list(tmp)
         final, carried = _departures(layer, cache_dir, old, new, summary, found, say, result)
         final = _reorder_list(layer, cache_dir, old_tiles, old, final, say, result)
@@ -355,9 +389,11 @@ def _make_list(layer, cache_dir: str, path: str, tmp: str, say: Say, result: Ren
 
 
 def _lacking(index, cache_dir: str, item: Dict) -> List[Tuple[float, float]]:
-    """The index tiles a file reaches whose cached answer does not hold its URL (tiles without one: none)."""
+    """The index tiles a file's extent meets (_tiles_met) whose cached answer does not hold its URL (tiles without
+    one: none). A tile it reaches only within INDEX_MARGIN_DEG may never hold it (the API answers by the tile's own
+    box): counted, the file would be carried for good (the second review's D1)."""
     out = []
-    for lat, lon in _tiles_of(item):
+    for lat, lon in _tiles_met(item):
         sheets = index._cached_sheets(index.index_path(cache_dir, lat, lon))
         if sheets is not None and item["url"] not in {s["url"] for s in sheets}:
             out.append((lat, lon))
@@ -369,7 +405,7 @@ def _departures(layer, cache_dir: str, old: Dict[str, Dict], new: List[Dict], su
     """The files of the new list and those of the old one that stay in it, and the URLs it carries; why files left
     it (counted in result):
     - the index lists it now (its name among the index's): carried (its old item kept, its URL in the list's
-      "carried") while some cached answer it reaches lacks its URL; else dropped (every answer holds it);
+      "carried") while a cached answer of a tile its box meets lacks its URL (_lacking); else dropped;
     - the bucket no longer holds it: its project's folder listed again at once (PageBudget RELIST_PAGES); gone there
       too: dropped (the blocks over it get another key and are read again without it; prune deletes the old ones),
       there after all (a page of the listing missing) or the listing failing: kept with its old item;
@@ -452,16 +488,26 @@ def _reorder_list(layer, cache_dir: str, old_tiles: Dict, old: Dict[str, Dict], 
 
 
 def _settle_carried(layer, cache_dir: str, say: Say, result: Renewal, asked: Set[tuple], since: str):
-    """The answers that lack a file the list carries (the index lists it now) asked again: only the tiles whose
-    cached answer lacks its URL. A carried file stays in the list (the merge drops it by URL wherever an answer holds
-    it); the next listing drops it once every cached answer it reaches holds it."""
+    """The answers that lack a file the list carries (the index lists it now) asked again: only the tiles its extent
+    meets whose cached answer lacks its URL, and of those only the ones not asked since the list was made (its row's
+    check time), so a file that stays carried for a real reason (an index product that maps to no item) costs at most
+    one ask of each lacking tile per listing. A carried file stays in the list (the merge drops it by URL wherever an
+    answer holds it, and an answer's item wins over its item in another tile: versions.keep_item); the next listing
+    drops it once every cached answer of the tiles it meets holds it."""
     from .layers import tnmbucket as tb
-    carried = tb.carried_urls(cache_dir, layer.index.top)
+    index = layer.index
+    carried = tb.carried_urls(cache_dir, index.top)
     if not carried:
         return
-    items = tb.list_items(cache_dir, layer.index.top)
-    tiles = list(dict.fromkeys(t for url in carried if url in items for t in _lacking(layer.index, cache_dir,
-                                                                                         items[url])))
+    items = tb.list_items(cache_dir, index.top)
+    made = (cache.info(cache_dir, tb.unlisted_path(cache_dir, index.top)) or {}).get("checked_at") or ""
+
+    def unasked(tile) -> bool:
+        row = cache.info(cache_dir, index.index_path(cache_dir, *tile))
+        return not (made and row and (row.get("checked_at") or "") >= made)
+    tiles = [t for t in dict.fromkeys(t for url in carried if url in items for t in _lacking(index, cache_dir,
+                                                                                            items[url]))
+             if unasked(t)]
     if not tiles:
         return
     failed, mark = result.failed + result.left, time.monotonic()
