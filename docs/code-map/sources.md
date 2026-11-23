@@ -232,9 +232,7 @@ name: the same file at another URL is no drop), not in `extra` either, is asked 
 the drop of all), only when both agree and the dropped files are gone at their URLs, without it when both agree; else `DroppedFiles`: `_fetch`, used by `answers` with an update, `ask_again` and
 `fresh_answer`/`store`; a search's `answers` with an update reads a refused tile's cached answer, one line),
 `merge_items` adding the extra versions whose name the answer lacks, marked (`EXTRA`, for `versions.keep_item` and
-`block_key`), `cached_items`
-(what `answers` gives for a cached answer, nothing asked), `extra` and `merge_items` (the versions merged in:
-`tnm.UnlistedIndex`); a `Versions` policy;
+`block_key`), `extra` (the versions merged in: `tnm.UnlistedIndex`); a `Versions` policy;
 `IndexUnavailable`; `index_tiles(grid)`: the 0.25° tiles the versions ask for a grid: a circle's whole box, an area's
 only those of the grid's box under its outline (per part of `grid.area_shape` in WGS84, its box grown by
 `INDEX_MARGIN_DEG` 0.01° and kept within the grid's box, the tiles whose grown box intersects the outline; a part
@@ -361,7 +359,7 @@ upload's) and writes `<cache>/usa/sheet-index/bucket1m/unlisted.json` with a row
 failure); `unlisted_in_tile` reads it, or the shipped `sources/catalogue/usa_unlisted_1m.json` (also in place of a
 cached list that cannot be used: `_load`), once per process and data folder; for the renewal `LIST_MAX_AGE_DAYS`
 (28), the failure record (`failed_path`, `failed_recently`, `write_failed`, `clear_failed`; `RENEW_ENV` off in the
-tests), `list_items`, `list_tiles`, `carried_urls`, `file_gone`, `list_status` (the line of `cache status`),
+tests), `list_items`, `carried_urls`, `file_gone`, `list_status` (the line of `cache status`),
 `make_unlisted(budgets=, found=)`; imported
 only when an answer is read,
 never by the web process),

@@ -286,7 +286,7 @@ def slow_note(row: Row) -> Optional[str]:
 
 def renews(row: Row) -> bool:
     """Whether a row's start asks its index again before listing (sources/renewal.py: the layers of its source, or of
-    its stand-in, that renew; tools/area_download.py's first pass)."""
+    its stand-in, that renew; tools/area_download.py: the passes of a start until its renewal went through)."""
     import sources as src
     from sources.renewal import renewing
     source = src.SOURCES.get(row.source)

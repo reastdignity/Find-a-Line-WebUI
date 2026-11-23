@@ -465,7 +465,7 @@ class Downloads(App):
         asking = [row for row in going if ar.renews(row.row)]
         if asking:
             lines += ["", f"USGS's index is asked again before the tiles of {areas_word(len(asking))} are listed: "
-                          f"files published since the last start are downloaded too."]
+                          f"files USGS has published since its answers were cached are downloaded too."]
         notes = [note for note in (ar.slow_note(row.row) for row in going) if note]
         if notes:
             lines += ["", *notes]

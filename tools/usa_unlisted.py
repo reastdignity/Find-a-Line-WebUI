@@ -12,8 +12,8 @@ locks of the cache folder given). Nothing is written when a step fails. It refus
 clearly fewer files than the list before (tnmbucket.MAX_LISTED_DROP): check the index, then --allow-drop (a
 renewal also accepts it by itself when a listing a day later agrees). With --cached it renews the list of the cache
 folder given instead (its usa/sheet-index/bucket1m/unlisted.json, with its row) through the renewal's own step
-(sources.renewal.renew_list, forced: what left the list is decided, files the index lists now carried, the blocks
-whose order changes deleted; a failure record of an earlier try is cleared first, a person asked): the way to accept
+(sources.renewal.renew_list, forced: what left the list is decided, files the index lists now carried; a failure
+record of an earlier try is cleared first, a person asked): the way to accept
 a real shrink at once on an installed machine (--cached --allow-drop --cache <its cache folder>); without a shrink
 `findaline.py cache update --all usa` does the same. Like every renewal it makes nothing while
 FINDALINE_USA_UNLISTED_RENEW is off. It prints

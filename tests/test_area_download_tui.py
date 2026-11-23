@@ -495,8 +495,8 @@ def test_a_row_of_the_usa_says_its_index_is_asked_again(settings):
         await pilot.click("#start")
         await pilot.pause()
         text = str(app.screen.query_one("#dialog-text").render())
-        assert "USGS's index is asked again before the tiles of 1 area are listed: files published since the last " \
-               "start are downloaded too." in text
+        assert "USGS's index is asked again before the tiles of 1 area are listed: files USGS has published since " \
+               "its answers were cached are downloaded too." in text
         await pilot.click("#yes")
         await pilot.pause()
         await app.workers.wait_for_complete()
