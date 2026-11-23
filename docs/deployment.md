@@ -45,7 +45,8 @@ installs nginx and, once the A record points at the server, the certificate (4),
 and the automatic updates (6), writes `findaline.env`, `.env` (the worker's cores and, on a
 server with less than 10 GB, its memory) and the secrets (8; in a terminal it asks for the
 sign-in apps' client ids and secrets and for the GitHub login or id of the administrator), builds and
-starts the site (9), installs the daily backup once `/etc/findaline-backup.env` exists (11),
+starts the site (9), installs the weekly renewal of the USA's 1 m index (13), the daily backup once
+`/etc/findaline-backup.env` exists (11),
 sets up the monitoring (15; in a terminal it asks for the healthchecks.io ping URLs and the ntfy
 topic) and runs the checks of `deploy/vps.sh check`. Each step looks at what is already there,
 so run it again after it stops: it ends with a list of what is still missing (the DNS record, a
@@ -62,8 +63,8 @@ secret, a reboot). Options:
   (section 1, *Disk*; only before the site's volumes exist);
 - `--yes`, yes to its questions.
 
-Later: `sudo deploy/vps.sh update` (section 13) and `sudo deploy/vps.sh check` (sections 2, 12
-and 15: the answers of nginx, the firewall from inside the containers, the jail, the certificate's
+Later: `sudo deploy/vps.sh update` (section 13) and `sudo deploy/vps.sh check` (sections 2, 12,
+13 and 15: the answers of nginx, the firewall from inside the containers, the jail, the certificate's
 timer, SSH, the free disk, the monitoring; a timer runs it daily, section 15).
 
 ## 1. Prerequisites
@@ -859,7 +860,9 @@ asks, and `--skip-ci` leaves the check out), pulls them, installs the files of `
 where they changed (nginx reloaded, fail2ban restarted, the blocks of `ufw`'s files replaced and
 `ufw` reloaded), makes the file of every secret added since (empty, so its service or source is off; owned by its container's uid, mode 0400: secrets/README.md), builds the image, restarts the services, downloads the OpenStreetMap data not there yet
 (section 9), converts the cached elevation tiles still in an older encoding (`cache_migrate`:
-`findaline.py cache migrate` in the worker, see below), installs the monitoring's units and
+`findaline.py cache migrate` in the worker, see below), installs the weekly renewal of the USA's 1 m
+index (below; the first `update` after it reached `main` installs and enables its timer), installs the
+monitoring's units and
 pulls and starts its containers (section 15; a failure there is listed at the end and leaves the
 site running) and warns when the examples of the settings changed. By hand:
 
@@ -899,6 +902,69 @@ only counts them; `cache status` says how many are left). It can run while the s
 be stopped at any tile; with nothing left it only reads the tiles' headers. `deploy/vps.sh update`
 runs it after the services started; a failure is listed at the end and leaves the site running.
 
+**The USA's 1 m index, every week what is older than 28 days.** USGS publishes new lidar projects all
+the time, and the site caches the answers of its index per 0.25° tile, which a search never asks again
+(README, "Keeping the cache up to date"). So `deploy/vps.sh` (`setup` and `update`) installs a timer:
+`findaline-usa-renewal.timer` starts `findaline-usa-renewal.service` every Wednesday at 04:15 of the
+server's clock (after the backup), plus a delay of up to 4 hours that systemd fixes per server
+(`RandomizedDelaySec`, `FixedRandomDelay`: installations do not ask USGS at the same minute). The
+service runs `findaline.py cache update usa` in the worker's container, as the script runs `cache
+migrate`, and that asks only what is older than its interval:
+- the list of the 1 m files USGS's index does not list, and every cached 1 m answer, after 28 days
+  (one request per answer): what the timer itself renewed is renewed again at its fifth run, 35 days
+  later, and what a search cached mid-week or a run by hand renewed at the first run after its 28 days
+  (so 28 to 35 days); a failed run is tried again a week later; Alaska's IfSAR answers after 180 days;
+- the USA's tiles of the 10 m DEM (1/3 arc-second) and of the orthophoto after 2 years, and tiles
+  recorded as missing (where a service had no data) after 90 days;
+- the blocks of the 1 m DEM whose files changed are read again and the older ones deleted.
+
+On a site that never searched the USA it prints one line and asks nothing. Nothing runs at install:
+the first run is the timer's first elapse after it (the next Wednesday, with the delay), and where US
+1 m answers are cached it makes the whole list then (about 1,700 requests, 0.7 GB, 10 minutes: a site
+has no cached list, and the copy shipped with the code does not count). A week missed while the server
+was off is caught up once after the next boot, at the boot plus the same fixed delay (`Persistent=true`).
+- It runs beside the searches: it is another process in the worker's container (its memory and cores
+  count toward `WORKER_MEMORY` and `WORKER_CPUS`; it takes none of the worker's slots), shares the
+  data servers' download slots with the searches' downloads (`cache/locks/hosts`), and replaces an
+  answer or the list in one move under the tile's lock: a search reads the old or the new one, and
+  one asking USGS for a tile the renewal holds waits for that one request. Like a second search over
+  the same area, it may delete a block another search listed a moment earlier (docs/known-bugs.md,
+  "a reader can find its block pruned").
+- Memory: the listing peaks at about 0.3-0.4 GiB (estimated from its data structures, not measured
+  on a real listing), and reading changed blocks again costs what a download process does; none of it
+  is reserved in the worker's limit. With one compute slot a search started while it runs sizes itself
+  from the memory free then (with several, each slot's share leaves room for the download slots only);
+  only a search whose lines grow near `WORKER_MEMORY` could meet the limit, and then the kernel ends the
+  largest process, that search's phase.
+- One run at a time: systemd never starts a second run of a service still running. A run is bounded
+  to 6 hours inside the container (`timeout`) and by systemd 10 minutes later; a run stopped or ended
+  by systemd's bound alone leaves its process running in the container (seen with Docker Desktop's
+  client on Windows), so the bound inside is the one that ends it.
+- A run fails when the command ends with an error: the list could not be made or USGS refused it
+  (the cached list stays in use; the cache waits a day before any process tries again, and the timer's
+  next try is the next week), an answer could not be asked (its cached one stays), or the worker is not
+  running (one line: `service "worker" is not running`). The site goes on as before. What a person
+  sees: `deploy/vps.sh check` (daily, by `findaline-check.timer`) prints `FAIL:
+  findaline-usa-renewal.service: its last run failed` until a run succeeds, which reaches Grafana's
+  alert D3 on every host; with `notify-failure@.service` (section 11) the failed run also sends its
+  message to the ntfy topic at once. Grafana's D1 watches the timer (failed or not loaded), not the runs.
+
+```sh
+systemctl list-timers findaline-usa-renewal.timer          # the next run and the last
+journalctl -u findaline-usa-renewal -n 30                  # what the last runs printed
+sudo systemctl start findaline-usa-renewal.service         # a run now (waits until it ends)
+docker compose exec -T worker python findaline.py cache status usa   # the list's age and what is due
+```
+
+Another day or hour on one server: `sudo systemctl edit findaline-usa-renewal.timer` with
+`[Timer]`, an empty `OnCalendar=` and the new one (e.g. `OnCalendar=Sun *-*-* 02:00`): the drop-in
+stays when `update` writes the unit again. For every installation: `USA_RENEWAL_CALENDAR` of
+`deploy/vps.sh`. Off: `sudo systemctl disable --now findaline-usa-renewal.timer` (later updates leave
+it off, `deploy/vps.sh check` notes it; `update` enables the timer only at its first install, which
+ends with `/var/lib/findaline-monitoring/usa-renewal.enabled`); on again: `sudo systemctl enable --now
+findaline-usa-renewal.timer`. A timer or service the operator masked (`systemctl mask`) is left alone
+by `update` and noted by `check`.
+
 **Old runs: removed in two deploys** (store wave 4, docs/line-volume/spec-store.md section 2; the user's word of
 2026-11-14, "old runs removed - both on server and on this pc"). Since the first deploy a new run keeps its lines
 only in its store (`lines.arrow`, `profiles.arrow`, with `map.html`, `ATTRIBUTION.txt`, `run.json`), and the page
@@ -925,7 +991,8 @@ data could not be loaded, and its share link the same; run `runs remove-old --dr
 **Moving the checkout** (e.g. after the repository was renamed): stop the services
 (`docker compose down`, the volumes stay), move the folder, point `git remote set-url origin` at
 the new address and run `sudo deploy/vps.sh setup` from the new place: it writes the backup's unit
-(`ExecStart` names the path of `backup.sh`) again and starts the services; a backup run by cron
+(`ExecStart` names the path of `backup.sh`) and the USA's weekly renewal (it names the checkout's
+`compose.yaml`) again and starts the services; a backup run by cron
 instead (section 11) needs its line in `/etc/cron.d/findaline-backup` changed by hand. Docker's
 project (`name: findaline` in compose.yaml), its volumes and the other files in `/etc` do not
 depend on the folder's name.
@@ -992,7 +1059,7 @@ without a good answer, and below 14 days).
 | The SSH login notice | `/usr/local/sbin/findaline-ssh-login` (from `deploy/monitoring/ssh-login.sh`), one line at the end of `/etc/pam.d/sshd` | Every successful SSH login sends "SSH login: <user> from <address> on <server>" to the ntfy topic of `secrets/ntfy_url` (in the background, 5 s at most) and counts the login in `/var/lib/findaline-monitoring/ssh.json` (the last time and the total; no user or address), which the dashboard *Site* shows. `session optional pam_exec.so quiet ...`: when the script fails, is missing or ntfy cannot be reached, the login goes on as before. |
 | nginx | `/var/log/nginx/findaline.metrics.log`; `http://127.0.0.1:8081/nginx_status` | A second access log of the site, one JSON line per request without any address (section 4); nginx's connection counts (`stub_status`) on the loopback only. |
 | `findaline-facts.timer` | the host, as root, every 5 minutes | `deploy/monitoring/facts.sh`: fail2ban's counts per jail (never the addresses), the holes of the disk image (section 1), the pending updates (and those of the security pocket) into `/var/lib/findaline-monitoring/facts.json`. |
-| `findaline-check.timer` | the host, as root, daily at 06:00 (± 15 min) | `deploy/vps.sh check` (sections 2, 12, 15); the numbers of its ok and FAIL lines into `check.json` there. Its output is in `journalctl -u findaline-check`. |
+| `findaline-check.timer` | the host, as root, daily at 06:00 (± 15 min) | `deploy/vps.sh check` (sections 2, 12, 13, 15); the numbers of its ok and FAIL lines into `check.json` there. Its output is in `journalctl -u findaline-check`. |
 | The application's metrics | `web` (`findaline.py web --public --metrics-port 8766`, the default), published on `127.0.0.1:8766` (`METRICS_PORT` in `.env`; Telegraf's URL in `deploy/monitoring/telegraf.conf` stays 8766, so change both or neither) | `metrics.py`: the queue and the worker, finished jobs by result and error, the times of their phases, the quick lane, accounts by status and by the country of their time zone, sessions, audit events and refusals of the last hour, reports, runs, favourites, the cache by folder (measured by the worker's housekeeping every 6 hours into `work/cache-sizes.json` of the data volume), the free disk, the searched km² and searches by country. Aggregates only: no user ids, addresses, titles or paths. Telegraf reads `http://127.0.0.1:8766/metrics` every 30 s for the dashboard *Find-a-Line* and its alert rules. nginx never proxies to it: on the site's port `/metrics` is a 404. |
 | `findaline-backup.service` | the host (section 11) | `backup.sh` writes `backup.json` there after every run and pings the backup check of healthchecks.io. |
 | `findaline-heartbeat.timer` | the host, every minute, as a throwaway user | `deploy/monitoring/heartbeat.sh`: `https://<site>/` through nginx on the host (its certificate checked) and, when it answers 200, a ping of the heartbeat check of healthchecks.io. |

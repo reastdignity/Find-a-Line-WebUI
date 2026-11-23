@@ -1,0 +1,69 @@
+{
+ "recipe": "bucket1m-usgs",
+ "recorded": "2026-11-22",
+ "case": {
+  "source": "usa",
+  "layer": "nmt",
+  "lat": 39.9,
+  "lon": -111.2,
+  "projects": [
+   "ME_Umbagog_2016",
+   "UT_StrawberryRiver_2019"
+  ],
+  "regions": [
+   [
+    -111.2,
+    39.9,
+    -110.85,
+    40.15
+   ],
+   [
+    -68.5,
+    45.65,
+    -67.95,
+    46.25
+   ]
+  ]
+ },
+ "hosts": [
+  "https://prd-tnm.s3.amazonaws.com",
+  "https://tnmaccess.nationalmap.gov"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://prd-tnm.s3.amazonaws.com/?list-type=2&prefix=StagedProducts%2FElevation%2F1m%2FProjects%2F&delimiter=%2F&max-keys=1000",
+   "status": 200,
+   "content_type": "application/xml",
+   "body": "001.xml.gz"
+  },
+  {
+   "method": "GET",
+   "url": "https://prd-tnm.s3.amazonaws.com/?list-type=2&prefix=StagedProducts%2FElevation%2F1m%2FProjects%2FME_Umbagog_2016%2FTIFF%2F&max-keys=1000",
+   "status": 200,
+   "content_type": "application/xml",
+   "body": "002.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://prd-tnm.s3.amazonaws.com/?list-type=2&prefix=StagedProducts%2FElevation%2F1m%2FProjects%2FUT_StrawberryRiver_2019%2FTIFF%2F&max-keys=1000",
+   "status": 200,
+   "content_type": "application/xml",
+   "body": "003.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://tnmaccess.nationalmap.gov/api/v1/products?datasets=Digital+Elevation+Model+%28DEM%29+1+meter&max=500&offset=0&bbox=-111.2%2C39.9%2C-110.85%2C40.15",
+   "status": 200,
+   "content_type": "application/json",
+   "body": "004.json"
+  },
+  {
+   "method": "GET",
+   "url": "https://tnmaccess.nationalmap.gov/api/v1/products?datasets=Digital+Elevation+Model+%28DEM%29+1+meter&max=500&offset=0&bbox=-68.5%2C45.65%2C-67.95%2C46.25",
+   "status": 200,
+   "content_type": "application/json",
+   "body": "005.json.gz"
+  }
+ ]
+}

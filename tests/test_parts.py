@@ -82,8 +82,10 @@ def _recorded(case):
         return json.load(f)
 
 
-# A case of one request per sheet (INEGI: no 0.25° tile, "sheets" in its case) has its own test (tests/test_mexico.py)
-ANSWER_CASES = [case for case in CASES if "raises" not in _recorded(case) and "sheets" not in _recorded(case)["case"]]
+# A case of one request per sheet (INEGI: no 0.25° tile, "sheets" in its case) has its own test (tests/test_mexico.py),
+# so has the list of USGS's unlisted 1 m files ("projects" in its case: tests/test_usa_unlisted.py)
+ANSWER_CASES = [case for case in CASES if "raises" not in _recorded(case)
+                and not {"sheets", "projects"} & set(_recorded(case)["case"])]
 ERROR_CASES = [case for case in CASES if "raises" in _recorded(case)]
 
 
@@ -119,7 +121,7 @@ def _on_server(layer, server, years=None):
 
 
 def test_recorded_cases_exist():
-    assert CASES == ["arcgis/lidarbc-dem", "inegi/mexico-dtm", "stac/lgln-dgm1", "stac/swisstopo-swissalti3d", "tnm/dem1m",
+    assert CASES == ["arcgis/lidarbc-dem", "bucket1m/usgs-1m", "inegi/mexico-dtm", "stac/lgln-dgm1", "stac/swisstopo-swissalti3d", "tnm/dem1m",
                      "tnm/ifsar5m", "wfs/geoportal-error", "wfs/geoportal-nmt", "wfs/sardinia-dtm",
                      "wfs/tuscany-lidar"]
     assert ERROR_CASES == ["wfs/geoportal-error"]

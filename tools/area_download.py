@@ -7,6 +7,20 @@ days or weeks, so it survives what happens in that time, and can be followed.
   that could not be reached is remembered as None by sources.indexes.cached.CachedIndex.tiles, which would skip the
   whole layer) ends with it. A pass that did not finish is followed by another after RETRY_SECONDS, and what is
   cached stays: restarting costs the listing only.
+- Every start of a row (a finished row started again too) asks the index of the layers that renew again before it
+  lists (sources/renewal.py: the USA's 1 m DEM with the list of the bucket's unlisted files, Alaska's IfSAR), so a file
+  published since is downloaded. The passes of one start renew until the start's renewal went through (the user's answer
+  of 2026-11-23): each index answer under the row asked once, successfully or refused by the drop rule because a dropped
+  file still exists (its cached answer kept: counted as asked, the user's answer of 2026-11-23; a drop not confirmed,
+  the two answers disagreeing or a check failing, stays open; the state's "renewed" says how many were kept; the next
+  start asks them again), and the list looked at once, whatever the outcome (made, kept, or failed with its day's
+  record: a start never looks at it again). The start's time (the state's "renewal_since", set by pass 1) is handed to
+  each pass's renewal as `since`, so a later pass asks only the answers this start has not yet asked (failed, left after
+  the service was found down, never reached because a pass died; those refused for a file that still exists, whose
+  cached answer was not written, are skipped by their tiles in "renewed"), none twice; once the start's renewal went
+  through, a later pass of it does not call the renewal at all (no request, no lookup, no list made in a start's later
+  weeks). Pass 1 writes the state as it begins, so a later pass never takes an older start's time. The "down" mark is a
+  pass's own: the next pass may try again.
 - A pass downloads the source's layers and, where the catalogue names one (Source.instead_without_data: alaska and
   alaska_ifsar), the stand-in's too. The window layers' groups hold the same pixels whatever the files' resolution
   (country.PREFETCH_GROUP_M at 1 m, half that for 0.5 m files), and a pass over --max-memory-gb (a quarter of the
@@ -260,6 +274,10 @@ class Reporter:
                       "tiles_done": 0, "tiles_total": 0, "failed": 0, "mb": self.mb_before,
                       "restarts": before.get("restarts", 0), "memory_gb": 0.0, "memory_peak_gb": 0.0,
                       "tiles_missing": 0}
+        if before.get("source") == area.source and number > 1:  # the start's renewal, through its later passes
+            for key in ("renewal_since", "renewed"):
+                if before.get(key):
+                    self.state[key] = before[key]
         self.next_minute = 0.0  # the free space and status.html
         # the history's next row: its own timer, so a listing's beats (no tiles_total yet) do not spend the first
         # row's minute (it was written up to HISTORY_SECONDS after the listing, or never in a short pass)
@@ -518,6 +536,75 @@ def _planned(area: Area) -> List:
         raise Stop(f"the download could not be planned: {cache.clean_error(e)}") from e
 
 
+def _renew(plans: Sequence, cache_dir: str, reporter: Reporter, number: int = 1):
+    """The index of the area asked again before the listing (sources/renewal.py; the user's D3b of 2026-11-22: on
+    every start of a row, so a file the service published since is downloaded): each plan's layers that renew (the
+    TNM datasets: the USA's 1 m DEM with its list of unlisted files, Alaska's IfSAR for the stand-in), the others
+    untouched. Every pass of a start renews until the start's renewal went through, with the start's time as `since`
+    (the state's "renewal_since": pass 1 sets it and writes the state at once, so a pass killed in its renewal leaves
+    it to the next; a later pass without it starts it), so the answers the start asked successfully are not asked
+    again (the user's answer of 2026-11-23: "Until one renewal went through"); once it went through, a later pass
+    returns at once. What it says goes to the log and, as the row's text while it runs, to the state ("renewal");
+    what the start did into the state ("renewed": the answers asked since the start's time, the asked and skipped
+    of this pass, so also what a killed pass asked; those still to ask; whether it went through; the pass's number;
+    this pass's line and counts). Nothing of it stops the pass: it lists from the answers there are then."""
+    from sources import renewal
+    if not any(renewal.renewing(plan.layers) for plan in plans):
+        return
+    since = reporter.state.get("renewal_since") if number > 1 else None
+    before = reporter.state.get("renewed") if since else None
+    if before and before.get("since") != since:  # what another start did
+        before = None
+    kept_tiles = [list(t) for t in (before or {}).get("kept_tiles", [])]  # [top, prefix, lat, lon]: refused, asked
+    if before and before.get("through"):  # the start's renewal went through in an earlier pass: nothing more
+        print(f"The index was renewed by an earlier pass of this start: {before.get('text', '')[:200]}", flush=True)
+        return
+    if not since:
+        since = cache.now_iso()
+        with reporter.lock:
+            reporter.state["renewal_since"] = since
+            reporter.state.pop("renewed", None)
+        reporter.write()
+    asked: set = {(top, prefix, (lat, lon)) for top, prefix, lat, lon in kept_tiles}
+
+    def say(text: str):
+        print(text, flush=True)
+        with reporter.lock:
+            reporter.state["renewal"] = " ".join(text.split())[:160]
+    done, counts, faulted = [], [], False
+    try:
+        for plan in plans:
+            if renewal.renewing(plan.layers):
+                renewed = renewal.renew(plan.layers, plan.grid, cache_dir, say, asked, since)
+                done.append(renewed.text())
+                counts.append(renewed.as_dict())
+                kept_tiles += [list(t) for t in renewed.kept_tiles]
+    except Exception as e:  # noqa: BLE001 (a fault of the renewal never stops the download)
+        print(f"The index could not be renewed ({type(e).__name__}: {cache.clean_error(e)}); the tiles are listed "
+              f"from the answers there are", flush=True)
+        done.append(f"failed: {cache.clean_error(e)[:200]}")
+        faulted = True
+    # every pass goes over all the answers, skipping those checked since the start's time: asked + skipped is what
+    # the start asked so far, a killed pass's asks included (they are checked since then too)
+    total = sum(c["asked"] + c["skipped"] for c in counts) if counts else (before or {}).get("asked", 0)
+    still = sum(c["failed"] + c["left"] for c in counts)
+    kept = len(kept_tiles)
+    passes = number
+    through = not faulted and not still
+    summary = (f"this start: {total:,} index answers asked in {passes} pass{'es' if passes > 1 else ''}, "
+               + (f"{kept:,} answer{'s' if kept != 1 else ''} kept: the index dropped files that still exist, "
+                  if kept else "")
+               + ("the renewal went through" if through else
+                  f"{still:,} still to ask by the next pass" if not faulted else "the next pass tries again"))
+    with reporter.lock:
+        reporter.state["renewal"] = ""
+        # the start's totals, this pass's line and its counts by part (requests, bytes, seconds; why files left the
+        # list)
+        reporter.state["renewed"] = {"at": _now(), "since": since, "passes": passes, "asked": total, "open": still,
+                                     "kept": kept, "kept_tiles": kept_tiles, "through": through,
+                                     "text": f"{summary}; this pass: " + "; ".join(done), "renewals": counts}
+
+
 def run_pass(area: Area, number: int) -> int:
     """One pass over everything still missing: EXIT_DONE, EXIT_FAILED, EXIT_STOPPED, EXIT_RESTART or EXIT_NOTHING.
 
@@ -546,6 +633,8 @@ def _one_pass(area: Area, number: int) -> int:
     plans: List = []
     asked: List[Dict] = []   # per plan: what each layer's to_download gave, by id(layer)
     with Reporter(area, number, plans, failures) as reporter:
+        if number == 1:  # a new start: its state on disk at once, so no later pass reads an older start's renewal
+            reporter.write()
         if not os.environ.get("FINDALINE_CONTACT"):
             print(f"Warning: {NO_CONTACT}", flush=True)
             reporter.state["message"] = NO_CONTACT
@@ -554,6 +643,8 @@ def _one_pass(area: Area, number: int) -> int:
             plans = _planned(area)
             reporter.plans = plans
             labels = _labels(area, plans)
+            # every pass of a start, until the start's renewal went through (later passes ask what is still open)
+            _renew(plans, cache_dir, reporter, number)
             rows = []
             for plan, plan_labels in zip(plans, labels):
                 grid = plan.grid
@@ -891,7 +982,8 @@ def summary(state: Dict, history: Sequence[Tuple[float, float, float]], now: flo
             "index_done": state.get("index_done"), "index_total": state.get("index_total"), "stale": stale,
             "updated": updated, "pass": state.get("pass"), "source": state.get("source", ""),
             "restarts": state.get("restarts", 0), "memory_gb": state.get("memory_gb"),
-            "memory_peak_gb": state.get("memory_peak_gb"), "missing": state.get("tiles_missing", 0)}
+            "memory_peak_gb": state.get("memory_peak_gb"), "missing": state.get("tiles_missing", 0),
+            "renewal": state.get("renewal", "")}
 
 
 def duration(seconds: Optional[float]) -> str:

@@ -280,6 +280,301 @@ def test_index_out_of_reach_is_no_success(setup):
     assert "could not be reached" in state["message"] and state["stage"] != "done"
 
 
+def test_a_row_without_tnm_data_is_not_renewed(setup, monkeypatch):
+    """A source whose layers do not renew (sources/renewal.py: only the TNM datasets do): the first pass of a start
+    asks nothing more than before (its three tiles; no HTTP request, the renewal never called) and notes no
+    renewal."""
+    import requests
+    from sources import renewal
+    sent = []
+    real = requests.Session.request
+    monkeypatch.setattr(requests.Session, "request", lambda self, method, url, *a, **k: (
+        sent.append(url), real(self, method, url, *a, **k))[1])
+    monkeypatch.setattr(renewal, "renew", lambda *a, **k: sent.append("renew"))
+    layer = FakeLayer(3)
+    area = setup(layer)
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert sorted(layer.fetched) == [0, 1, 2] and sent == []
+    state = ad.read_state(area.state_dir, "land")
+    assert "renewed" not in state and not state.get("renewal")
+
+
+def test_the_row_shows_the_renewal_while_it_runs(setup, monkeypatch):
+    """What the renewal says goes into the state while it runs (the window's row text: "renewal"), the beat writing
+    it; afterwards "renewal" is empty and "renewed" says what it did."""
+    from sources import renewal
+
+    class Renewing(FakeLayer):
+        renews = True
+    seen = []
+
+    def renew(layers, grid, cache_dir, say, asked, since=None):
+        say("  the index of fake terrain: 1 of 2 answers, 0 changed, 0 failed")
+        deadline = time.monotonic() + 60   # until the beat wrote it (a loaded machine: several beats), not a guess
+        while not ad.read_state(area.state_dir, "land").get("renewal") and time.monotonic() < deadline:
+            time.sleep(0.02)
+        seen.append(ad.read_state(area.state_dir, "land").get("renewal"))
+        return renewal.Renewal(asked=2)
+    monkeypatch.setattr(ad, "STATE_SECONDS", 0.05)
+    monkeypatch.setattr(renewal, "renew", renew)
+    area = setup(Renewing(2))
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert seen == ["the index of fake terrain: 1 of 2 answers, 0 changed, 0 failed"]
+    state = ad.read_state(area.state_dir, "land")
+    assert state["renewal"] == "" and state["renewed"]["text"].startswith(
+        "this start: 2 index answers asked in 1 pass, the renewal went through; this pass: 2 index answers asked again")
+
+
+def test_the_starts_time_is_on_disk_before_its_renewal(setup, monkeypatch):
+    """The start's time (renewal_since) is in the state file before the renewal begins, so a pass killed during it
+    (no final write of its state) leaves the time to the start's next pass, which then asks only what is open."""
+    from sources import renewal
+
+    class Renewing(FakeLayer):
+        renews = True
+    seen = []
+
+    def renew(layers, grid, cache_dir, say, asked, since=None):
+        seen.append((since, ad.read_state(area.state_dir, "land").get("renewal_since")))
+        return renewal.Renewal(asked=2)
+    monkeypatch.setattr(ad, "STATE_SECONDS", 3600)   # the beat writes nothing in between
+    monkeypatch.setattr(renewal, "renew", renew)
+    area = setup(Renewing(2))
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert len(seen) == 1 and seen[0][0] and seen[0][0] == seen[0][1]
+
+
+def test_a_restarted_row_asks_the_index_again(tmp_path, monkeypatch, http_server):
+    """Every start of a row asks the USA's index again before the listing, and the list of the bucket's unlisted
+    files (older than 28 days: none yet), on the stand-in TNM index and bucket: a finished row started again after
+    the index gained a project fetches the new blocks and deletes the older ones; a later pass of the same start
+    (after a failure, a memory restart) whose renewal went through in pass 1 asks nothing again, neither an answer
+    nor the bucket (wave A of the USA, part A-2; fix round 2a)."""
+    import requests
+    from sources.layers import tnmbucket as tb
+    from test_sources import _tile_1m
+    from test_usa_renewal import FAR, Tnm, _bucket, _grid, _layer, _settle
+    monkeypatch.setenv(tb.RENEW_ENV, "")
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    monkeypatch.setattr(tb, "MAX_UNLISTED_SHARE", 1.0)
+    tb.forget_unlisted()
+    tnm, files = Tnm(), tmp_path / "files"
+    monkeypatch.setattr(requests, "get", tnm.get)
+    _tile_1m(tnm, files, "CO_Full_2013", 1013)
+    _bucket(http_server, tnm, [FAR])
+    data, state_dir = tmp_path / "data", tmp_path / "state"
+    (data / "cache").mkdir(parents=True)
+    state_dir.mkdir()
+    area = ad.Area("utah", "osm:Utah", "usa", 1.0, str(data), str(state_dir), min_free_gb=0)
+    monkeypatch.setattr(ad, "plan_of", lambda _: SimpleNamespace(
+        layers=[_layer(http_server.base)], grid=_grid(), paths=SimpleNamespace(cache=str(data / "cache"))))
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    folder = data / "cache" / "usa" / "test1m" / "epsg26913" / "47_442"
+    first = sorted(os.listdir(folder))
+    state = ad.read_state(area.state_dir, "utah")
+    assert len(first) == 4 and state["renewal"] == "" and "the list of unlisted files made" in state["renewed"]["text"]
+    assert state["renewed"]["renewals"][0]["list"] == "made" and state["renewed"]["renewals"][0]["requests"]["answers"]
+
+    _tile_1m(tnm, files, "CO_New_2025", 1025, published="2026-01-01")
+    tnm.asked.clear()
+    bucket = sum(1 for r in http_server.log if r.path == "/")
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE     # a later pass of the same start: its renewal went through
+    assert tnm.tile_requests() == {} and sorted(os.listdir(folder)) == first
+    assert sum(1 for r in http_server.log if r.path == "/") == bucket   # the list looked at once in the start
+    renewed = ad.read_state(area.state_dir, "utah")["renewed"]
+    assert (renewed["passes"], renewed["asked"], renewed["open"], renewed["through"]) == \
+        (1, state["renewed"]["asked"], 0, True)   # pass 2 did not renew (E4)
+    _settle(str(data / "cache"))
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE     # the row started again
+    after = sorted(os.listdir(folder))
+    assert len(after) == 4 and all(n.startswith("2025_") for n in after) and not set(after) & set(first)
+    assert "the list of unlisted files kept" in ad.read_state(area.state_dir, "utah")["renewed"]["text"]
+    tb.forget_unlisted()
+
+
+def test_a_refused_answer_counts_as_asked(tmp_path, monkeypatch):
+    """The user's answer of 2026-11-23: an index answer the drop rule refused because a file the index dropped still
+    exists (the cached answer kept) counts as asked: a start with one goes through in pass 1, says "1 answer kept", and
+    its later passes do not ask that tile again, also when the start is still open for a failed one; a new start asks
+    it again. The other refusals are no decisions and stay open, asked again by the next pass: the two fresh answers
+    disagreeing, the check of a dropped file failing."""
+    import requests
+    from sources.indexes.cached import index_tiles
+    from sources.layers import tnmbucket as tb
+    from sources.layers.tnm import TNM_API
+    from test_sources import _tile_1m
+    from test_usa_renewal import Response, Tnm, _grid, _layer, _settle
+
+    class Refusing(Tnm):
+        """The stand-in TNM index dropping the file from the answers of the tiles in `refuse` (the file stays),
+        answering those in `unsteady` with another file every second time (two answers that disagree) and not
+        answering those in `down`; `last` is the box asked last (whose dropped file's check fails if in `unchecked`)."""
+        def __init__(self):
+            super().__init__()
+            self.refuse, self.down, self.unsteady, self.unchecked, self.last, self.count = \
+                set(), set(), set(), set(), None, 0
+
+        def get(self, url, params=None, **kwargs):
+            if str(url).startswith(TNM_API) and params:
+                self.last = params["bbox"]
+            if str(url).startswith(TNM_API) and params and params["bbox"] in self.down:
+                raise requests.ConnectionError("the service does not answer")
+            response = super().get(url, params=params, **kwargs)
+            if str(url).startswith(TNM_API) and params and params["bbox"] in self.unsteady:
+                self.count += 1
+                other = {"downloadURL": "https://bucket.example/Projects/P/TIFF/USGS_1M_13_x50y450_P.tif",
+                         "publicationDate": "2024-01-01", "boundingBox": self.products[0]["boundingBox"]}
+                return Response({"total": 1, "items": [other]} if self.count % 2 == 0 else {"total": 0, "items": []})
+            if str(url).startswith(TNM_API) and params and params["bbox"] in self.refuse | self.unchecked:
+                return Response({"total": 0, "items": []})
+            return response
+    monkeypatch.setenv(tb.RENEW_ENV, "off")
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    tnm, files = Refusing(), tmp_path / "files"
+    monkeypatch.setattr(requests, "get", tnm.get)
+    _tile_1m(tnm, files, "CO_Full_2013", 1013)
+    data, state_dir = tmp_path / "data", tmp_path / "state"
+    (data / "cache").mkdir(parents=True)
+    state_dir.mkdir()
+    cache_dir, grid = str(data / "cache"), _grid(460000, 4410000, 30000)
+    tiles = index_tiles(grid)
+    box = {t: f"{t[1]},{t[0]},{t[1] + 0.25},{t[0] + 0.25}" for t in tiles}
+    for t in tiles:
+        _layer().index.answers(cache_dir, *t)
+    _settle(cache_dir)
+    area = ad.Area("utah", "osm:Utah", "usa", 1.0, str(data), str(state_dir), min_free_gb=0)
+    monkeypatch.setattr(ad, "plan_of", lambda _: SimpleNamespace(layers=[_layer()], grid=grid,
+                                                                 paths=SimpleNamespace(cache=cache_dir)))
+
+    def renewed():
+        r = ad.read_state(area.state_dir, "utah")["renewed"]
+        return r["kept"], r["open"], r["through"]
+
+    tnm.refuse = {box[tiles[1]]}
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert renewed() == (1, 0, True)
+    assert "1 answer kept: the index dropped files that still exist" in ad.read_state(area.state_dir, "utah")[
+        "renewed"]["text"]
+    tnm.asked.clear()
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE and tnm.tile_requests() == {}
+
+    _settle(cache_dir)                                # a new start: the refused tile asked again, another one fails
+    tnm.down, tnm.asked = {box[tiles[2]]}, []
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert box[tiles[1]] in tnm.tile_requests() and renewed() == (1, 1, False)
+    tnm.down, tnm.asked = set(), []
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE       # only the failed one: the refused tile counts as asked
+    assert tnm.tile_requests() == {box[tiles[2]]: 1} and renewed() == (1, 0, True)
+
+    # a new start with one tile of each kind of refusal: only "still exists" is kept, the other two stay open
+    gone = tb.file_gone
+    monkeypatch.setattr(tb, "file_gone", lambda url: None if tnm.last in tnm.unchecked else gone(url))
+    _settle(cache_dir)
+    tnm.refuse, tnm.unsteady, tnm.unchecked, tnm.asked = {box[tiles[1]]}, {box[tiles[2]]}, {box[tiles[3]]}, []
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert renewed() == (1, 2, False)                 # 1 kept, the unsteady and the unchecked ones open
+    tnm.refuse, tnm.unsteady, tnm.unchecked, tnm.asked = set(), set(), set(), []
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE       # those two asked again, the kept one not
+    assert tnm.tile_requests() == {box[tiles[2]]: 1, box[tiles[3]]: 1} and renewed() == (1, 0, True)
+
+
+def test_the_passes_of_a_start_renew_until_it_went_through(tmp_path, monkeypatch):
+    """The user's answer of 2026-11-23, "Until one renewal went through": a later pass of a start asks exactly the
+    answers that start has not yet asked successfully (those that failed; those a killed pass never reached), none
+    twice; once all are asked, later passes of the start ask nothing; a new start asks every answer again. The
+    state's "renewed" says what the start asked in all and what is still open."""
+    import requests
+    from sources.indexes.cached import index_tiles
+    from sources.layers import tnmbucket as tb
+    from sources.layers.tnm import TNM_API
+    from test_sources import _tile_1m
+    from test_usa_renewal import Tnm, _grid, _layer, _settle
+
+    class Flaky(Tnm):
+        """The stand-in TNM index with tiles that do not answer (down) and a kill at the n-th tile request."""
+        def __init__(self):
+            super().__init__()
+            self.down, self.kill_at, self.count = set(), None, 0
+
+        def get(self, url, params=None, **kwargs):
+            if str(url).startswith(TNM_API) and params:
+                self.count += 1
+                if self.kill_at == self.count:
+                    raise KeyboardInterrupt()
+                if params["bbox"] in self.down:
+                    raise requests.ConnectionError("the service does not answer")
+            return super().get(url, params=params, **kwargs)
+    monkeypatch.setenv(tb.RENEW_ENV, "off")
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    tnm, files = Flaky(), tmp_path / "files"
+    monkeypatch.setattr(requests, "get", tnm.get)
+    _tile_1m(tnm, files, "CO_Full_2013", 1013)
+    data, state_dir = tmp_path / "data", tmp_path / "state"
+    (data / "cache").mkdir(parents=True)
+    state_dir.mkdir()
+    cache_dir, grid = str(data / "cache"), _grid(460000, 4410000, 30000)
+    tiles = index_tiles(grid)
+    box = {t: f"{t[1]},{t[0]},{t[1] + 0.25},{t[0] + 0.25}" for t in tiles}
+    assert len(tiles) == 4
+    for t in tiles:                                   # the answers cached before this start
+        _layer().index.answers(cache_dir, *t)
+    _settle(cache_dir)
+    area = ad.Area("utah", "osm:Utah", "usa", 1.0, str(data), str(state_dir), min_free_gb=0)
+    monkeypatch.setattr(ad, "plan_of", lambda _: SimpleNamespace(layers=[_layer()], grid=grid,
+                                                                 paths=SimpleNamespace(cache=cache_dir)))
+
+    def renewed():
+        r = ad.read_state(area.state_dir, "utah")["renewed"]
+        return r["passes"], r["asked"], r["open"], r["through"]
+
+    tnm.down = {box[tiles[1]], box[tiles[2]]}         # pass 1: two tiles do not answer
+    tnm.asked.clear()
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert sorted(tnm.tile_requests()) == sorted([box[tiles[0]], box[tiles[3]]]) and renewed() == (1, 2, 2, False)
+    assert "2 still to ask by the next pass" in ad.read_state(area.state_dir, "utah")["renewed"]["text"]
+    tnm.down, tnm.asked = set(), []
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE       # asks only those two
+    assert tnm.tile_requests() == {box[tiles[1]]: 1, box[tiles[2]]: 1} and renewed() == (2, 4, 0, True)
+    for number in (3, 4):                             # went through: nothing more in this start
+        tnm.asked.clear()
+        assert ad.run_pass(area, number) == ad.EXIT_DONE
+        assert tnm.tile_requests() == {} and renewed() == (2, 4, 0, True)   # not called again (E4)
+
+    _settle(cache_dir)                                # a new start, killed at its third answer
+    tnm.asked, tnm.count, tnm.kill_at = [], 0, 3
+    with pytest.raises(KeyboardInterrupt):
+        ad.run_pass(area, 1)
+    assert sorted(tnm.tile_requests()) == sorted([box[tiles[0]], box[tiles[1]]])
+    tnm.asked, tnm.kill_at = [], None
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE       # the rest, not the two asked before the kill
+    assert tnm.tile_requests() == {box[tiles[2]]: 1, box[tiles[3]]: 1}
+    assert renewed() == (2, 4, 0, True)               # the killed pass's two asks counted (E6)
+    from sources import renewal
+    calls = []
+    real = renewal.renew
+    monkeypatch.setattr(renewal, "renew", lambda *a, **k: calls.append(1) or real(*a, **k))
+    tnm.asked.clear()
+    assert ad.run_pass(area, 3) == ad.EXIT_DONE       # went through: the renewal not called at all (E4)
+    assert calls == [] and tnm.tile_requests() == {}
+    monkeypatch.setattr(renewal, "renew", real)
+
+    _settle(cache_dir)                                # E5: a new start whose pass 1 dies before it plans
+    _tile_1m(tnm, files, "CO_New_2025", 1025, published="2026-01-01")
+    with monkeypatch.context() as m:
+        m.setattr(ad, "_planned", lambda area: (_ for _ in ()).throw(KeyboardInterrupt()))
+        with pytest.raises(KeyboardInterrupt):
+            ad.run_pass(area, 1)
+    assert "renewal_since" not in ad.read_state(area.state_dir, "utah")   # the older start's time gone at once
+    tnm.asked.clear()
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE       # starts the start's renewal: every answer, the new file seen
+    assert tnm.tile_requests() == {box[t]: 1 for t in tiles} and renewed()[2:] == (0, True)
+
+    _settle(cache_dir)                                # a new start: every answer again
+    tnm.asked.clear()
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert tnm.tile_requests() == {box[t]: 1 for t in tiles} and renewed() == (1, 4, 0, True)
+
+
 def test_many_failures_in_a_row_end_the_pass(setup, monkeypatch):
     """A share or a service that went away: no tile can be written, so the rest is not tried tile by tile."""
     monkeypatch.setattr(ad, "FAILURES_IN_A_ROW", 3)

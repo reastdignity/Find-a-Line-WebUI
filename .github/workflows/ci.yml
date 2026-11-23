@@ -190,6 +190,13 @@ jobs:
       - name: Command line in the image
         run: docker compose run --rm --no-deps worker --help
 
+      # The copy of the list of the USA's 1 m files USGS's index does not list, shipped with the code
+      # (sources/catalogue/usa_unlisted_1m.json): in the image, and read by the 1 m layer where no list is cached
+      - name: The shipped list of the USA's unlisted 1 m files
+        run: |
+          docker compose run --rm --no-deps --entrypoint python worker -c \
+            'from sources.layers import tnmbucket as tb; n = len(tb.list_items("/data/cache")); print(n, "files:", tb.list_status("/data/cache")); assert n > 1000, n'
+
       # The Żabi Koń clip offline: the run must land in /data, numba's cache in the service's /tmp
       - name: A search in the image
         run: |

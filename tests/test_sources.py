@@ -1117,7 +1117,7 @@ def _usgs_file(path, crs, left, top, res, band, nodata=-999999.0):
 
 
 class FakeTnm:
-    """The TNM Access API: the products of a dataset, in pages of two (the box is ignored:
+    """The TNM Access API: the products of a dataset, in pages of the `max` asked (the box is ignored:
     every product is near)."""
 
     def __init__(self):
@@ -1132,10 +1132,10 @@ class FakeTnm:
     def get(self, url, params=None, **kwargs):
         if self.offline:
             raise requests.ConnectionError("offline")
-        offset = params["offset"]
+        offset, size = params["offset"], int(params["max"])
         self.asked.append((params["datasets"], offset))
         response = FakeResponse()
-        response.json = lambda: {"total": len(self.products), "items": self.products[offset:offset + 2]}
+        response.json = lambda: {"total": len(self.products), "items": self.products[offset:offset + size]}
         return response
 
 
@@ -1165,6 +1165,7 @@ def test_usgs_1m_blocks(tmp_path, monkeypatch, capsys):
     tnm, files = FakeTnm(), tmp_path / "files"
     monkeypatch.setattr(requests, "get", tnm.get)
     monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    monkeypatch.setattr(src.indexes.listings, "TNM_PAGE", 2)                     # pages of two products
     _tile_1m(tnm, files, "CO_West_2020_B20", 1020, columns=slice(0, 106))     # the western half (E < 475 000)
     _tile_1m(tnm, files, "CO_Full_2013", 1013)
     _tile_1m(tnm, files, "CO_Older_2010", 1010, name="USGS_one_meter_x47y443_CO_Older_2010.tif")  # no zone

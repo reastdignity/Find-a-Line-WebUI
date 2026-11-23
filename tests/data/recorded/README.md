@@ -19,6 +19,15 @@ stay small.
 | `inegi/mexico-dtm/` | INEGI's download viewer (elevacionesmex), the JSON of one sheet of the 5 m lidar terrain model per request (`getF10KDescarga.do`; recorded 2026-11-15): `expected.json` is `{sheet: items}` of the answers cached per sheet (`InegiIndex.answer`), read back by `tests/test_mexico.py` | sheets G14C15B2 (El Potrero Chico) and G14C15B1 | INEGI, [Términos de Libre Uso de la Información del INEGI](https://www.inegi.org.mx/inegi/terminos.html): free use, "Fuente: INEGI" |
 | `wfs/tuscany-lidar/` | Regione Toscana's cartoteca, its WFS feature type of the lidar sheets (`rt_cartoteca.lidar2k`, not in the capabilities; GetFeature as GML 3.1.1 with the footprints in EPSG:3003, 26 features of which 26 surveys kept; recorded 2026-11-15) | 43° N, 12° E (Cortona and the Umbrian border: surveys of Regione Toscana and of the Ministry of the Environment, 1 m and 2 m) | Regione Toscana, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (the index of the cartoteca's download layer; the sheets' data are not in the answer) |
 
+`bucket1m/usgs-1m/` (recipe `bucket1m-usgs`, recorded 2026-11-22): USGS's bucket `prd-tnm` listed as
+`sources/layers/tnmbucket.py` lists it (ListObjectsV2: the 1 m projects, then the `TIFF/` folders of
+`ME_Umbagog_2016` and `UT_StrawberryRiver_2019`) and The National Map Access API's 1 m products over two boxes
+around them: `expected.json` is the list of the files the index does not list that `make_unlisted` made of them
+(no 0.25° tile, no header read), read back by `tests/test_usa_unlisted.py`. USGS, public domain. The recipe's
+own code (`record_answers._bucket1m`, one request at a time) has no test of its own: it was checked by recording
+the case (2026-11-22, 5 answers, 70 kB, 4 items) and by `test_recorded_bucket_and_index` replaying it, the same
+requests in the same order and the same items (fix round 2 of the USA's wave A).
+
 Files of a case: `answers.json` (the recipe, the date, the tile, the recorded hosts and every request in
 order: method, URL, status, content type, body file), the bodies (`001.xml`, `002.json.gz`...: gzipped above
 64 kB) and `expected.json`; an error case (`raises` in `answers.json`: the exception the code raised) has no

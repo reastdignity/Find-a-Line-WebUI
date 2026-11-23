@@ -16,7 +16,8 @@ search checks the data of its area). How each kind of data is checked:
                  WMS of geoportal.gov.pl and IGN) and OSM theme tiles from Overpass: downloaded
                  again; the same content only changes the check time
     sheet index  geoportal.gov.pl: the index is asked again; newer surveys of the cached sheets
-                 are downloaded and the older files deleted
+                 are downloaded and the older files deleted (the USA's 1 m DEM after 28 days, the
+                 list of the files its index does not list checked first: sources/renewal.py)
     newer file   OSM water polygons of the world (regenerated daily: checked after a year,
                  downloaded again when the server's file is newer than the folder's date)
     diffs        Geofabrik OSM extracts (osmextract.py); theme tiles built from them follow
@@ -65,6 +66,7 @@ class Check:
     extent: Optional[Tuple[float, float, float, float]]  # (west, south, east, north); None: everywhere
     action: Callable[[], object]  # True: changed (otherwise a new fetch time of the file tells)
     parallel: bool = True
+    first: bool = False           # checked before the others (the list of the USA's unlisted 1 m files)
 
 
 @lru_cache(maxsize=None)
@@ -105,7 +107,9 @@ def _check(cache_dir: str, row: Dict, update: str) -> Optional[Check]:
     for layer in _sheet_layers():
         top = layer.folder.split("/")[0]
         if path.startswith(f"{top}/sheet-index/{layer.prefix}/"):
-            if not cache.stale(row, getattr(layer.index, "ttl_days", cache.TTL_DAYS["sheet-index"]), update):
+            ttl = getattr(layer, "update_ttl_days", None) or getattr(layer.index, "ttl_days",
+                                                                     cache.TTL_DAYS["sheet-index"])
+            if not cache.stale(row, ttl, update):
                 return None
             name = os.path.basename(path)[:-len(".json")]
             lat, lon = osmextract._tile_corner(name)
@@ -242,13 +246,44 @@ def _adopt_world(cache_dir: str):
                 cache.state(cache_dir, path)
 
 
+def _list_check(cache_dir: str, layer: src.IndexedTiles, rows: List[Dict], update: str) -> Optional[Check]:
+    """The check of a layer's list of the files its index does not list (the USA's 1 m DEM: tnmbucket), or None when
+    it is not due: made again after tnmbucket.LIST_MAX_AGE_DAYS (--all: now), or when none was made yet while
+    answers of the layer are cached (the copy shipped with the code does not count). Checked before the answers
+    (Check.first), so they are read with the new list; a file that left it has the answers it reaches asked again
+    at once (sources/renewal.py renew_list)."""
+    from sources.layers import tnmbucket as tb
+    top = layer.index.top
+    path = tb.unlisted_path(cache_dir, top)
+    relative = cache.relative(cache_dir, path)
+    row = next((r for r in rows if r["path"] == relative), None)
+    if row is None:
+        prefix = f"{top}/sheet-index/{layer.prefix}/"
+        if not any(r["path"].startswith(prefix) for r in rows):
+            return None
+    elif not cache.stale(row, tb.LIST_MAX_AGE_DAYS, update):
+        return None
+
+    def make() -> bool:
+        from sources import renewal
+        done = renewal.renew_list(layer, cache_dir, print, force=update == "all")
+        if done.list == "failed":
+            raise RuntimeError("the list could not be made (the line above says why); the list there is is used")
+        return done.list == "made"
+    return Check(f"{layer.description}: the list of the files its index does not list", relative, None, make,
+                 parallel=False, first=True)
+
+
 def checks(cache_dir: str, folder: Optional[str] = None, update: str = "stale",
            bbox: Optional[Tuple[float, float, float, float]] = None) -> List[Check]:
-    """What an update would check; bbox (west, south, east, north) limits it to a place."""
+    """What an update would check; bbox (west, south, east, north) limits it to a place. The lists of the files an
+    index does not list come first (Check.first); with a bbox a list is checked only when an answer of its layer
+    in that place is."""
     _adopt_world(cache_dir)
     found = []
     for top in _tops(cache_dir, folder):
-        for row in cache.rows(cache_dir, top):
+        rows = cache.rows(cache_dir, top)
+        for row in rows:
             check = _check(cache_dir, row, update)
             if check is None:
                 continue
@@ -257,7 +292,16 @@ def checks(cache_dir: str, folder: Optional[str] = None, update: str = "stale",
                 if w > bbox[2] or e < bbox[0] or s > bbox[3] or n < bbox[1]:
                     continue
             found.append(check)
-    return found
+        for layer in _sheet_layers():
+            if not getattr(layer.index, "has_list", False) or layer.index.top != top:
+                continue
+            prefix = f"{top}/sheet-index/{layer.prefix}/"
+            if bbox and not any(c.path.startswith(prefix) for c in found):
+                continue
+            check = _list_check(cache_dir, layer, rows, update)
+            if check is not None and check.path not in {c.path for c in found}:
+                found.append(check)
+    return sorted(found, key=lambda c: not c.first)  # stable: the order of before otherwise
 
 
 def run_update(cache_dir: str, folder: Optional[str] = None, update: str = "stale",
@@ -354,6 +398,11 @@ def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
         span = f"{_date(min(fetched, default=None))} - {_date(max(fetched, default=None))}"
         print(f"{top:<14} {_size(os.path.join(cache_dir, top)) / 1e9:>7.2f}GB {len(rows):>7}  {span:<23}  "
               f"{_date(used):<10}  " + ("; ".join(f"{w}: {n}" for w, n in due.items()) or "-"))
+    lists = {layer.index.top: layer for layer in _sheet_layers()
+             if getattr(layer.index, "has_list", False) and layer.index.top in tops}
+    for top, layer in lists.items():
+        from sources.layers import tnmbucket as tb
+        print(f"\n{layer.description}, the list of the files its index does not list: {tb.list_status(cache_dir, top)}")
     found = [(rid, pbf) for rid, pbf in osmextract.extracts(cache_dir)
              if not folder or cache.relative(cache_dir, pbf).startswith(folder + "/")]
     if found:

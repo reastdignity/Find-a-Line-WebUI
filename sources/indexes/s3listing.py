@@ -1,6 +1,8 @@
 """S3Objects: the keys of an anonymously listable Amazon S3 bucket under prefixes (ListObjectsV2 over plain
 HTTP), as cached by CachedIndex."""
 
+import contextlib
+import threading
 import xml.etree.ElementTree as ET
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence
 
@@ -23,6 +25,30 @@ MAX_KEYS = 1000
 MAX_PAGES = 1000  # a listing that never ends is an error (every waiting loop has a deadline)
 
 
+class PageBudget:
+    """The pages (requests) a whole listing of many prefixes may ask, shared by its calls and threads: one more is
+    IndexUnavailable, never a shorter listing (the bucket of USGS's 1 m DEM: about 990 pages, tnmbucket). stop: an
+    event that, once set (another part of the listing failed), makes every further take IndexUnavailable. The bytes
+    of the answers are added up (add)."""
+
+    def __init__(self, what: str, limit: int, stop: Optional[threading.Event] = None):
+        self.what, self.limit, self.used, self.bytes = what, limit, 0, 0
+        self.stop = stop
+        self._lock = threading.Lock()
+
+    def take(self):
+        with self._lock:
+            if self.stop is not None and self.stop.is_set():
+                raise IndexUnavailable(f"{self.what}: stopped (another request of the listing failed)")
+            if self.used >= self.limit:
+                raise IndexUnavailable(f"{self.what}: more than {self.limit} pages; the listing was stopped")
+            self.used += 1
+
+    def add(self, size: int):
+        with self._lock:
+            self.bytes += size
+
+
 class S3Object(NamedTuple):
     """One listed key: its size in bytes, LastModified (ISO 8601, as S3 gives it) and ETag (without quotes)."""
     key: str
@@ -42,18 +68,26 @@ def _error(body: bytes) -> Optional[str]:
     return f"{root.findtext('Code') or '?'}: {root.findtext('Message') or ''}".strip()
 
 
-def _page(bucket: str, params: Dict[str, str]) -> bytes:
+def _page(bucket: str, params: Dict[str, str], cache_dir: Optional[str] = None,
+          budget: Optional[PageBudget] = None) -> bytes:
     """One answer of ListObjectsV2 with HTTP 200; server errors (5xx, the connection) asked again up to
-    RETRIES times; IndexUnavailable for anything else, an <Error> with HTTP 200 too."""
+    RETRIES times; IndexUnavailable for anything else, an <Error> with HTTP 200 too. With cache_dir each request
+    holds a slot of the host (net.host_slot); with budget each takes one of its pages."""
     url = bucket.rstrip("/") + "/"
     for attempt in range(RETRIES):
+        if budget is not None:
+            budget.take()
         net.rate_turn(url)
         try:
-            response = servicecounts.get(url, params=params, timeout=120, headers=cache.http_headers())
+            slot = net.host_slot(cache_dir, url) if cache_dir else contextlib.nullcontext()
+            with slot:
+                response = servicecounts.get(url, params=params, timeout=120, headers=cache.http_headers())
         except requests.RequestException as e:
             if attempt == RETRIES - 1:
                 raise IndexUnavailable(f"S3 ListObjectsV2: {cache.clean_error(e)}") from e
         else:
+            if budget is not None:
+                budget.add(len(response.content))
             error = _error(response.content)
             if response.status_code == 200 and error is None:
                 return response.content
@@ -63,11 +97,13 @@ def _page(bucket: str, params: Dict[str, str]) -> bytes:
     raise AssertionError("unreachable")
 
 
-def list_objects(bucket: str, prefix: str, max_keys: int = MAX_KEYS) -> List[S3Object]:
+def list_objects(bucket: str, prefix: str, max_keys: int = MAX_KEYS, cache_dir: Optional[str] = None,
+                 budget: Optional[PageBudget] = None) -> List[S3Object]:
     """Every key of bucket (its address, e.g. https://<name>.s3.<region>.amazonaws.com) starting with prefix,
     in S3's order (UTF-8 binary), page by page (max_keys a page) following the continuation tokens.
     IndexUnavailable for an error answer, an answer that is no ListBucketResult, a truncated page without
-    a token, a token given twice or more than MAX_PAGES pages: never a shorter listing."""
+    a token, a token given twice or more than MAX_PAGES pages (or the pages of budget): never a shorter
+    listing. cache_dir, budget: as _page."""
     found: List[S3Object] = []
     token, seen = None, set()
     for _ in range(MAX_PAGES):
@@ -75,7 +111,7 @@ def list_objects(bucket: str, prefix: str, max_keys: int = MAX_KEYS) -> List[S3O
         if token is not None:
             params["continuation-token"] = token
         try:
-            root = ET.fromstring(_page(bucket, params))
+            root = ET.fromstring(_page(bucket, params, cache_dir, budget))
         except ET.ParseError as e:
             raise IndexUnavailable(f"S3 ListObjectsV2: not XML ({e})") from e
         if root.tag != S3_NS + "ListBucketResult":
@@ -93,7 +129,8 @@ def list_objects(bucket: str, prefix: str, max_keys: int = MAX_KEYS) -> List[S3O
     raise IndexUnavailable(f"S3 ListObjectsV2: more than {MAX_PAGES} pages under {prefix}")
 
 
-def common_prefixes(bucket: str, prefix: str, delimiter: str = "/") -> List[str]:
+def common_prefixes(bucket: str, prefix: str, delimiter: str = "/", cache_dir: Optional[str] = None,
+                    budget: Optional[PageBudget] = None) -> List[str]:
     """The "folders" right under prefix (ListObjectsV2 with a delimiter: its CommonPrefixes, e.g. "2019/"), every
     page; IndexUnavailable as list_objects."""
     found: List[str] = []
@@ -103,7 +140,7 @@ def common_prefixes(bucket: str, prefix: str, delimiter: str = "/") -> List[str]
         if token is not None:
             params["continuation-token"] = token
         try:
-            root = ET.fromstring(_page(bucket, params))
+            root = ET.fromstring(_page(bucket, params, cache_dir, budget))
         except ET.ParseError as e:
             raise IndexUnavailable(f"S3 ListObjectsV2: not XML ({e})") from e
         if root.tag != S3_NS + "ListBucketResult":

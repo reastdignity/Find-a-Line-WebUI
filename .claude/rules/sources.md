@@ -45,7 +45,9 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   its own name and credit; every writer of `used_data` goes through `prepare_layer`, and `fill_gaps` drops all of a
   filler's entries when it filled nothing (`_forget_entries`). A per-sheet index that is not an `IndexedTiles`
   (INEGI's JSON per sheet) is skipped by `update.py` and by record_answers' generic test (`tests/test_parts.py`
-  `ANSWER_CASES` leave out "sheets" cases): it brings its own update path and test.
+  `ANSWER_CASES` leave out "sheets" and "projects" cases): each brings its own update path and test.
+- The USA's 1 m DEM: TNM answers plus the bucket's files they lack (`tnmbucket.py`), merged on read
+  (`tnm.UnlistedIndex`); shipped list only by `tools/usa_unlisted.py`. Only `renewal.py` renews (no search).
 - The cache's tile encoding: `sources.layer._write_tile`'s profile (LERC_ZSTD within `MAX_Z_ERROR`), `old_encoding`
   (what counts as written before it), `Download.fetch` (a provider's one-band float file is written through it after
   its sha256 check; integer files, NASADEM and the water mask, as they came), the mirror's tiles (`tools/sk_tiles.py`
@@ -151,10 +153,8 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   country's files: docs/data-sources.md, section 5). A test of such code takes grids inside, across and outside the outline
   (`tests/test_units.py::test_tilings_within_the_grids_box`).
 - **Updates** (`update.py`): a dataset that can change needs a TTL (`cache.TTL_DAYS`, `Layer.ttl_days` from `/live` in
-  the folder) and a way back from its path to its tile (`Layer.tile_of`), otherwise `cache update` skips it.
-  `osm.THEME_TAGS` defines a theme for Overpass, and for the extracts when it is in `osmextract.EXTRACT_THEMES`: a new
-  theme is one entry there (and one in `EXTRACT_THEMES` to take it from the extracts: `osm update` then takes every
-  extract's features again).
+  the folder) and a way back from its path to its tile (`Layer.tile_of`), otherwise `cache update` skips it. A new
+  OSM theme: `osm.md`.
 
 ## Verifying changes
 

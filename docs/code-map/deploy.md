@@ -13,7 +13,11 @@ gateway `172.30.0.1` = `FINDALINE_TRUSTED_PROXY`), `worker` (egress), bridges na
 ## `deploy/`
 
 The VPS (docs/deployment.md), nginx on the host from Ubuntu's packages: `vps.sh` (`setup`, `update`, `check`: the
-commands of docs/deployment.md, each step idempotent; sourced, it only defines its functions; `shellcheck` clean),
+commands of docs/deployment.md, each step idempotent; sourced, it only defines its functions; `shellcheck` clean;
+`usa_renewal`: `findaline-usa-renewal.service` and `.timer`, `cache update usa` in the worker's container every week
+under `timeout` (what is older than 28 days), the interval `USA_RENEWAL_CALENDAR`, enabled at the first install
+(the marker `usa-renewal.enabled`), a masked unit left alone; `check_usa_renewal`: the timer's state and a failed
+last run; docs/deployment.md section 13),
 `nginx/findaline-http.conf` (`conf.d/`: the upstream, zones, the masked log format, the metrics log format
 `findaline_metrics` and its route groups `$findaline_group`, slow-client timeouts, `stub_status` on `127.0.0.1:8081`),
 `nginx/findaline-tls.conf` (`snippets/`: Mozilla intermediate), `nginx/findaline-acme.conf` (port 80: certbot's
@@ -26,7 +30,9 @@ highline explorer: cube.json, area.geojson and the build folder cube.json names 
 swapped in, every copied file's sha256 compared; no address or key in it; docs/deployment.md, section 10), `backup.sh` (`sqlite3 .backup` as uid
 10001 + restic; at every end, also a failed one, `backup.json` and the healthchecks.io ping from an exit trap;
 docs/deployment.md, "Backups"); `tests/test_deploy.py` checks the filter, the masking with Python's `re`, the
-published ports, the metrics log format and groups, the firewall's bridges and the monitoring's units;
+published ports, the metrics log format and groups, the firewall's bridges, the monitoring's units and the USA's
+renewal (`test_usa_renewal_*`, `test_check_usa_renewal`: its units written in bash with a stand-in systemctl, the
+weekly calendar against the 28 days);
 `tests/nginx_check.sh` (CI) runs the nginx and fail2ban files
 
 ## `deploy/mirror/`

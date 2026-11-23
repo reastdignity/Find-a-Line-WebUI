@@ -76,7 +76,11 @@ id of every source some `Source.neighbours` names: `tests/test_country.py::test_
 `neighbour_cubes` (cube.json's `neighbours` in the order of `Source.neighbours`: a line's partner index k is the k-th;
 [] for a study area or an elevation file); the territories that name a line's partner (`territory_specs`: a cube's
 outline specs from `sources.AREA_NAMES`; `neighbours.geojson`, `ensure_neighbours`/`write_neighbours` at `run`'s
-set-up: each declared neighbour's outline within `territory_reach` of the outline, fetched once, a failed fetch stops
+set-up (then, when no tile of the cube was ever claimed, `Manifest.started`, and there is something to count,
+`_renew` after the disk check and the "Start?" question, or --yes, before the prefetch: the index of the bands' layers
+and of the source's fall-backs that renew asked again, `sources/renewal.py`, its note `index_renewed` in
+country.json outside the hash; the estimate before the question rests on the answers cached then, a line says so
+when a renewal follows: `_renews`): each declared neighbour's outline within `territory_reach` of the outline, fetched once, a failed fetch stops
 the run; `load_territories` once per worker; its sha256 in each border tile's meta and in cube.json,
 `_requeue_border_tiles` sends a border tile, decided from its grid by `_at_border`, with another back to pending,
 `build` refuses one); `country.json` (the config, `hash` = sha256 of the config and of `area.geojson`'s sha256, with

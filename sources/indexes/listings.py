@@ -342,34 +342,88 @@ class StacItems(Listing):
         return {"sheets": sheets}
 
 
+TNM_PAGE = 500  # products a page of The National Map Access API (its most)
+
+
+def tnm_answer(page) -> Dict:
+    """A page of The National Map Access API as products: a dict holding a list of `items` (an empty list for a box
+    without products); anything else (an error body such as {"errorMessage": ...} with HTTP 200, a list, text) is a
+    ValueError, so the caller asks it again and then fails, never takes it for "no products"."""
+    if not isinstance(page, dict) or not isinstance(page.get("items"), list):
+        raise ValueError("not an answer of products (no list of items)")
+    return page
+
+
+def tnm_pages(ask: Callable[[int], Dict], first: Optional[Dict] = None, where: str = "",
+              size: int = TNM_PAGE) -> List[Dict]:
+    """Every product of one box of The National Map Access API, page by page, in the order they came; the one paging
+    rule of TnmProducts.fetch (a tile's answer) and of tnmbucket.tnm_listed (the boxes of the whole USA). ask(offset)
+    gives a page checked by tnm_answer (asked again by the caller while it fails); first: the page at offset 0 when
+    the caller has it already; size: the `max` products a page the caller asks for.
+
+    The API counts some products twice in its `total` and pages over that count, and now and then gives a page short
+    by one or ten (2 of 151 boxes on 2026-11-23; the pages always reached `total`: tnmbucket.tnm_listed). So the next
+    page starts after what came (offset += the items' count, repeats included: pages overlap, never skip); a page
+    shorter than `total` promises is asked once more and the two are joined (the longer one moves the offset); a page
+    that comes back empty, also when asked again, before `total` is reached is a dropped page: IndexUnavailable. No
+    rule compares the distinct URLs with `total`."""
+    products: List[Dict] = []
+    offset = 0
+    page = ask(0) if first is None else first
+    while True:
+        items, total = page["items"], page.get("total") or 0
+        products += items
+        if len(items) < min(size, total - offset):
+            again = ask(offset)["items"]
+            products += again
+            items = again if len(again) > len(items) else items
+        if not items:
+            if offset < total:
+                raise IndexUnavailable(f"TNM API: an empty page at offset {offset} of {total}"
+                                       + (f" in {where}" if where else "") + " (a dropped page)")
+            return products
+        offset += len(items)
+        if offset >= total:
+            return products
+        page = ask(offset)
+
+
 class TnmProducts(Listing):
     """Products of a dataset of The National Map Access API (USGS 3DEP), in pages of up to
-    500, asked again (RETRIES, with backoff) while the API is slow or down; item(product)
-    gives a product as cached, or None if it is not used."""
+    500 (tnm_pages: a short page asked once more, an empty page before the total an error), each
+    page asked again (RETRIES, with backoff) while the API is slow or down or answers no products
+    (tnm_answer: an error body with HTTP 200 is an error, never "no files"); item(product)
+    gives a product as cached, or None if it is not used. The requests made and the bytes of their
+    answers are added up in `requests` and `bytes` (the renewal's counts: sources/renewal.py)."""
 
     def __init__(self, url: str, dataset: str, item: Callable[[Dict], Optional[Dict]]):
         self.url, self.dataset, self.item = url, dataset, item
+        self.requests = self.bytes = 0
+        self._counting = threading.Lock()
+
+    def _page(self, lat: float, lon: float, offset: int) -> Dict:
+        for attempt in range(RETRIES):
+            try:
+                with self._counting:
+                    self.requests += 1
+                response = servicecounts.get(self.url, timeout=120, headers=cache.http_headers(), params={
+                    "datasets": self.dataset, "max": TNM_PAGE, "offset": offset,
+                    "bbox": f"{lon},{lat},{lon + osm.TILE_DEG},{lat + osm.TILE_DEG}"})
+                with self._counting:
+                    self.bytes += len(getattr(response, "content", None) or b"")
+                response.raise_for_status()
+                return tnm_answer(response.json())
+            except (requests.RequestException, ValueError) as e:  # the API is sometimes slow or down
+                if attempt == RETRIES - 1:
+                    raise requests.RequestException(f"TNM API: {e}")
+                net._sleep(attempt)
+        raise AssertionError("unreachable")
 
     def fetch(self, lat: float, lon: float) -> Dict:
         items: Dict[str, Dict] = {}
-        offset, total = 0, 1
-        while offset < total:  # pages of up to 500 products
-            for attempt in range(RETRIES):
-                try:
-                    response = servicecounts.get(self.url, timeout=120, headers=cache.http_headers(), params={
-                        "datasets": self.dataset, "max": 500, "offset": offset,
-                        "bbox": f"{lon},{lat},{lon + osm.TILE_DEG},{lat + osm.TILE_DEG}"})
-                    response.raise_for_status()
-                    page = response.json()
-                    break
-                except (requests.RequestException, ValueError) as e:  # the API is sometimes slow or down
-                    if attempt == RETRIES - 1:
-                        raise requests.RequestException(f"TNM API: {e}")
-                    net._sleep(attempt)
-            products = page.get("items") or []
-            for product in products:
-                item = self.item(product)
-                if item:
-                    items[item["url"]] = item
-            offset, total = offset + len(products), (page.get("total") or 0) if products else 0
+        for product in tnm_pages(lambda offset: self._page(lat, lon, offset), where=osm.tile_name(lat, lon),
+                                 size=TNM_PAGE):
+            item = self.item(product)
+            if item:
+                items[item["url"]] = item
         return {"sheets": list(items.values())}
