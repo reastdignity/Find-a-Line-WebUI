@@ -76,7 +76,8 @@ TTL_DAYS = {
     "sheet-index": 180,  # answers of the geoportal.gov.pl sheet index (new surveys)
     # The USA's 1 m DEM: its TNM answers and the list of the bucket's files the index does not list
     # (sources/layers/tnmbucket.py), for `cache update` (the public site's timer: every month, the user's D3a of
-    # 2026-11-22); a download row and a country run ask them on every start anyway (sources/renewal.py)
+    # 2026-11-22); a download row asks them on every start anyway, a country run before a cube's first tile
+    # (sources/renewal.py)
     "usgs-1m-index": 28,
     "osm-theme": 365,    # OSM theme tiles from Overpass (tiles built from an extract follow the extract)
     "osm-extract": 30,   # Geofabrik extracts (daily diffs)

@@ -56,13 +56,20 @@ layers that renew (`renews`: `TnmBlocks`; any other layer untouched, no request)
 unlisted 1 m files (`renew_list`, for an index with `has_list`): made when the cached one is missing or older than
 `tnmbucket.LIST_MAX_AGE_DAYS` (28; the shipped copy does not count), one process at a time (a `FileLock`
 `cache/locks/renewal/<top>-bucket1m.lock`, `LIST_LOCK_WAIT_S`, then the list there is), a failed or refused listing
-recorded (`failed.json`) and not tried again for `FAILED_RETRY_DAYS`; the cached answers of every tile a file that
-left the list reaches asked again at once, wherever they are (else it would drop out of their blocks). (2) Every
-answer under the grid asked again (`CachedIndex.ask_again`; `FAILED_IN_A_ROW` failures in a row leave the rest
-cached). (3) The cached blocks whose order of files changed deleted (`ComposedBlocks.reordered`). Returns `Renewal`
-(answers asked, changed, failed, left, skipped; the list made, kept or failed; departed files; blocks to read again;
-requests, bytes and seconds by part) and tells its progress through `say` (`_Ticker` every `PROGRESS_SECONDS` while
-the list is made). Callers: `tools/area_download.py` `_renew` (the first pass of a start), `country._renew` (before a
+recorded (`failed.json`) and not tried again for `FAILED_RETRY_DAYS`; made into `unlisted.json.new` and put in
+place only once what left it is decided (`_make_list`, `_departures`: a file the index lists now is carried, named in
+the list's `carried`, while a cached answer it reaches lacks its URL, and only those answers are asked,
+`_settle_carried`, on every renewal; a file the bucket's listing lacked has its project listed again,
+`RELIST_PAGES`, and leaves only when that listing lacks it too; one left out without a zone this time keeps its item
+of before), the blocks whose order the new list changes deleted first (`_reorder_list`, C7: files moving inside the
+list; a block that cannot be deleted keeps the file's item of before). (2) Every answer under the grid asked again
+(`CachedIndex.ask_again` with `_reorder_first`: the blocks whose order the answer changes deleted before it is
+written; any fault of one tile is that tile's; after `FAILED_IN_A_ROW` failures in a row the API counts as down for
+the rest of the start, `("down", url)` in `asked`). So a stop anywhere leaves a change pending or done
+(`test_a_stop_anywhere_leaves_the_change_pending_or_done`). Returns `Renewal` (answers asked, changed, failed, left,
+skipped; the list made, kept or failed; departed files by why: indexed, carried, gone, relisted, zoneless; moved
+files; blocks to read again; requests, bytes and seconds by part) and tells its progress through `say` (`_Ticker`
+every `PROGRESS_SECONDS` while the list is made). Callers: `tools/area_download.py` `_renew` (the first pass of a start), `country._renew` (before a
 cube's first tile), `update.py` `_list_check`; never a search; never imported by the web process
 (`tests/test_usa_renewal.py`).
 
@@ -216,7 +223,10 @@ so a tall area lost its top and bottom rows to the gap filler: Norway's mainland
 rows; a circle's tiles as before, `tests/test_sources.py::test_wcs_tiles_of_a_tall_area`)); `cached.py` `CachedIndex`
 (a `Listing`'s answers cached per 0.25° tile in `<top>/sheet-index/<prefix>/`, TTL (`ttl_days`: the sheet index's
 unless set, LidarBC's 30; update.py reads it), offline fallback, `update_tile`; `ask_again` (one tile's answer asked again under its lock, written only when
-its request succeeded, skipped when checked since the renewal started: `sources/renewal.py`), `cached_items`
+its request succeeded, skipped when checked since the renewal started, `before_store` run first: `sources/renewal.py`),
+`confirms_drops` (the TNM layers': an answer replacing a cached one that lacks URLs it held is asked once more and
+taken only when both agree, else `DroppedFiles`: `_fetch`, used by `answers` with an update, `ask_again` and
+`fresh_answer`/`store`), `cached_items`
 (what `answers` gives for a cached answer, nothing asked), `extra` and `merge_items` (the versions merged in:
 `tnm.UnlistedIndex`); a `Versions` policy;
 `IndexUnavailable`; `index_tiles(grid)`: the 0.25° tiles the versions ask for a grid: a circle's whole box, an area's
@@ -235,7 +245,9 @@ so a new year layer is seen within a month; asked again with update "all", once 
 fails on layers from the file), the folder given by `use(index, cache_dir, update)`; `threads = 1` in
 `tools/record_answers.py`), `StacItems` (pystac-client's `ItemSearch`; its `APIError` becomes `IndexUnavailable`;
 `item`: a regex of the item ids with year, east, north; `asset`: the one asset read when the items name no gsd, LGLN),
-`TnmProducts` (requests); pyogrio and pystac-client imported inside `fetch` (the web process imports `sources`); their
+`TnmProducts` (requests; its pages and `tnmbucket.tnm_listed`'s follow one rule, `tnm_pages`: a short page asked
+once more and joined, an empty page before `total` an error, `tnm_answer`: an answer without a list of items an error,
+never "no files"); pyogrio and pystac-client imported inside `fetch` (the web process imports `sources`); their
 JSON must stay byte for byte: recorded answers in `tests/data/recorded/` (an error case: `raises`),
 `tools/record_answers.py`; `versions.py` `NewestPerSheet` (`Sheet`, `_sheet_order`; `prune` asks about the files
 through `existing`: one listing of a folder from `LISTING_FROM` paths in it, kept for its second question
@@ -243,8 +255,9 @@ through `existing`: one listing of a folder from `LISTING_FROM` paths in it, kep
 resolution for STAC; `_answers`: the 0.25° tiles `tiles_at_once` at a time when the listing says so (`WfsSheets`),
 merged in the tiles' order) and `ComposedBlocks` (`Block`, newest first, the key of a block's files; `prune` also
 deletes a block's file of another newest year with the same key; `update_tile` reads again a block whose newest
-year changed, and one whose order of files changed, deleted first: `reordered`, `moved_items`, a file's date or
-year moved); `metalink.py`
+year changed, and one whose order of files changed over its own path before the answer is written (`download`; a
+failed one stays and the answer is not written): `reordered` (`before`/`after` of the tiles), `moved_items`, a
+file's date or year moved); `metalink.py`
 `MetalinkFiles` (Metalink 4 / RFC 5854 documents of a whole region, read once per TTL and kept in
 `<top>/metalink/<key>.json.gz`, each 0.25° tile picked from them; `parse_metalink`), `MetalinkIndex`, `ShaPerTile` (a
 file known by its SHA-256: `<E//10>_<N//10>/<E>_<N>[_<year>]_<sha8>.tif`, the newest year per place, a changed file
@@ -341,7 +354,8 @@ upload's) and writes `<cache>/usa/sheet-index/bucket1m/unlisted.json` with a row
 failure); `unlisted_in_tile` reads it, or the shipped `sources/catalogue/usa_unlisted_1m.json` (also in place of a
 cached list that cannot be used: `_load`), once per process and data folder; for the renewal `LIST_MAX_AGE_DAYS`
 (28), the failure record (`failed_path`, `failed_recently`, `write_failed`, `clear_failed`; `RENEW_ENV` off in the
-tests), `list_items`, `list_tiles`, `list_status` (the line of `cache status`), `make_unlisted(budgets=)`; imported
+tests), `list_items`, `list_tiles`, `carried_urls`, `list_status` (the line of `cache status`),
+`make_unlisted(budgets=, found=)`; imported
 only when an answer is read,
 never by the web process),
 `files.py` (a local raster), `wmsr.py` `WmsrTiles` (`ResolutionTiling`: one `WcsTiling` per fetch resolution, the

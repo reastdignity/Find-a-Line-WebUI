@@ -28,7 +28,9 @@ Where no list is cached (or the cached one cannot be used), the copy shipped wit
 by tools/usa_unlisted.py with this function; FINDALINE_USA_UNLISTED_SHIPPED=off leaves it out: the tests). The
 renewal (sources/renewal.py, part A-2 of the USA's wave A) calls make_unlisted when the cached list is missing or
 older than LIST_MAX_AGE_DAYS, never twice a day after a failure (failed.json beside the list; RENEW_ENV off: the
-tests); `cache status` shows the list in a line (list_status). The web process never imports this module.
+tests), into a file beside the list (out=) that replaces it once the renewal has decided what left it; the list's
+head may then name "carried" files (the index lists them now, a cached answer they reach did not yet: carried_urls).
+`cache status` shows the list in a line (list_status). The web process never imports this module.
 """
 
 import collections

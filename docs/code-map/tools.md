@@ -578,7 +578,8 @@ answers to `download_layers(listed=)`, so the source's own layers are asked once
 their download, hours later), and asks about the files by folder, `run_pass` setting `sources.layer.EXISTING` for
 the pass and giving it back: docs/performance.md, "The check of cached tiles"; the first pass of a start, and
 only it, asks the index of each plan's layers that renew again before the listing, `_renew`: `sources/renewal.py`,
-the state's `renewal` the row's text while it runs and `renewed` what it did, a failure of it never a stop), inside
+the state's `renewal` the row's text while it runs and `renewed` what it did, kept by the start's later passes
+(`Reporter`), a failure of it never a stop), inside
 its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
 planning (Denmark's key, an unknown outline) is a `Stop` with its text; the window layers' groups are
 `country.PREFETCH_GROUP_M` times the finest native resolution of the plan's grouped layers (`_group_m`: a group's

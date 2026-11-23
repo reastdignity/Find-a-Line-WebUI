@@ -1570,7 +1570,7 @@ Checked at Yosemite (El Capitan), Moab and Boulder (Flatirons) with the TNM API,
     only, and the date changes. The ten tiles of the southern Sierra (-118.6..-118.4, 36.4..36.6) carry 20261030,
     20261104 and 20261109, uploaded 2026-11-02 to 2026-11-13, although S1M covered the southern Sierra on 2026-10-30:
     files there were made again under new names and the older ones removed (likely; their names of 2026-10-30 were not
-    recorded, so not proven tile by tile). A layer of it would need an index renewed as `usa`'s (`TnmBlocks`, 180 days)
+    recorded, so not proven tile by tile). A layer of it would need an index renewed as `usa`'s (`TnmBlocks`: `sources/renewal.py`, 28 days)
     and a tile's newer name read again in `cache update`, as for geoportal's newer sheets.
   - "Limited availability": the API returned nothing at any of the three places.
   - Not used (the user, 2026-11-22): [usa-data.md](usa-data.md#why-the-seamless-1-m-dem-s1m-is-not-used), which also keeps the counts of its tiles by date.
