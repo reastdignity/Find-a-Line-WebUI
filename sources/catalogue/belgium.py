@@ -47,6 +47,26 @@ WALLONIA_ORTHO = OrthoService("Orthophoto SPW (most recent)",
                               f"récentes (2025-09-20) {SPW_ORTHO_RECORD}", attribution_url=SPW_ORTHO_RECORD)
 
 
+WALLONIA_BOX = (49.49, 50.82, 2.83, 6.41)  # the region's rectangle (wave 0; Nominatim's box of BE-WAL)
+# Offline (no lookup) the region by bands of 0.05 degrees, in each the runs of 0.01-degree cells lying inside the
+# coverage map's be-wal outline (Natural Earth) shrunk by 0.01 degrees: they keep off France (Givet, Charleville,
+# Sedan, Maubeuge), Flanders (Ronse, Tongeren), the Netherlands, Germany and Luxembourg, so a point there is chosen
+# as before (europe, or its own source); about 86 % of the outline's area; the strip along the borders (Bouillon,
+# Comines, Kelmis) takes europe offline, as all of Belgium did before. Arlon and Martelange lie in Luxembourg's box,
+# which comes first (as before). Made from the outline on 2026-11-23 (band 0.05, cell 0.01, margin 0.01)
+WALLONIA_OFFLINE = (
+    (49.55, 49.60, 5.47, 5.78), (49.60, 49.65, 5.42, 5.83), (49.65, 49.70, 5.31, 5.84), (49.70, 49.75, 5.18, 5.78),
+    (49.75, 49.80, 5.10, 5.72), (49.80, 49.85, 4.86, 4.92), (49.80, 49.85, 5.00, 5.72), (49.85, 49.90, 4.87, 5.70),
+    (49.90, 49.95, 4.87, 5.71), (49.95, 50.00, 4.82, 5.74), (50.00, 50.05, 4.22, 4.65), (50.00, 50.05, 4.84, 5.79),
+    (50.05, 50.10, 4.22, 4.66), (50.05, 50.10, 4.87, 5.83), (50.10, 50.15, 4.21, 4.69), (50.10, 50.15, 4.87, 5.85),
+    (50.15, 50.20, 4.17, 4.77), (50.15, 50.20, 4.87, 5.93), (50.20, 50.25, 4.21, 6.14), (50.25, 50.30, 4.21, 6.20),
+    (50.30, 50.35, 4.11, 6.27), (50.35, 50.40, 3.67, 3.74), (50.35, 50.40, 3.88, 6.33), (50.40, 50.45, 3.66, 6.32),
+    (50.45, 50.50, 3.66, 6.17), (50.50, 50.55, 3.51, 6.15), (50.55, 50.60, 3.28, 6.15), (50.60, 50.65, 3.26, 6.13),
+    (50.65, 50.70, 3.25, 3.88), (50.65, 50.70, 4.08, 4.19), (50.65, 50.70, 4.32, 5.05), (50.65, 50.70, 5.19, 6.07),
+    (50.70, 50.75, 3.25, 3.29), (50.70, 50.75, 3.45, 3.52), (50.70, 50.75, 3.68, 3.75), (50.70, 50.75, 4.66, 4.90),
+    (50.70, 50.75, 4.97, 4.99), (50.70, 50.75, 5.53, 5.68))
+
+
 SOURCES: List[Source] = [
     Source(
         id="wallonia", name="SPW Wallonia (MNT / MNS 2021-2022)",
@@ -58,16 +78,16 @@ SOURCES: List[Source] = [
         credits=(WALLONIA_MNT_CREDIT, WALLONIA_MNS_CREDIT),
         # Flanders, Brussels and the sea from FABDEM / Copernicus
         fallback="europe",
-        # Both ways (tests/test_neighbours.py): not France or Rhineland-Palatinate, which declare six already (the
-        # country layer's most, countcube.PARTNERS); not North Rhine-Westphalia while its boxes hold only 71 % of
-        # its land within 5 km of Wallonia (tools/border_study.py boxes, 2026-11-23: the Eifel west of 6.20 E
-        # needs a border box of its own first)
-        neighbours=("luxembourg", "netherlands"),
+        # Both ways (tests/test_neighbours.py), each declaring it last; North Rhine-Westphalia with its border box
+        # of the Eifel (the user's decision of 2026-11-23). Not France or Rhineland-Palatinate, which declare six
+        # already (the country layer's most, countcube.PARTNERS; the user's decision of 2026-11-23: docs/roadmap.md)
+        neighbours=("luxembourg", "north_rhine_westphalia", "netherlands"),
         listing=ReadmeRow("Wallonia (BE)", "SPW MNT 2021–2022, lidar 0.5 m averaged to 1 m",
                           "SPW MNS 2021–2022, lidar 0.5 m averaged to 1 m", "SPW orthophoto (most recent)"),
-        # The region's box; after France, Luxembourg, the Netherlands and Germany in FAMILIES, whose boxes keep their
-        # own land (Lille, Luxembourg, Aachen) where this box reaches over it
-        offline=(("be-wal", (49.49, 50.82, 2.83, 6.41)),), sample=(50.2180, 4.8940),  # the Rochers de Freyr
+        # The region's rectangle chooses nothing (it holds French, Flemish, Dutch, German and Luxembourg land): it
+        # keeps the neighbours' fill and the area download over all of Wallonia; offline the staircase inside it
+        bbox=WALLONIA_BOX, offline=tuple(("be-wal", box) for box in WALLONIA_OFFLINE),
+        sample=(50.2180, 4.8940),  # the Rochers de Freyr
         note="Wallonia's terrain and surface models (SPW, CC BY 4.0: lidar 2021-2022, 0.5 m, averaged to 1 m). Its "
              "tiles come from the project's data server or a local copy (tools/mirror_tiles.py).",
         coverage=Coverage(provider="SPW", added="2026-11-23", survey="2021–2022")),

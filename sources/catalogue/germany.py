@@ -681,11 +681,14 @@ SOURCES: List[Source] = [
         nmpt=_nw("dom", "DOM1 (trees, buildings)", True, (("GEOTIFF:COMPRESSION", "DEFLATE"),)),
         countries=("de",), regions=("de-nw",), crs="EPSG:25832", ortho=NW_DOP,
         credits=(NW_CREDIT,),
-        neighbours=("hesse", "lower_saxony", "rhineland_palatinate", "netherlands"),
+        neighbours=("hesse", "lower_saxony", "rhineland_palatinate", "netherlands", "wallonia"),
         listing=ReadmeRow("North Rhine-Westphalia (DE)", "Geobasis NRW DGM1, 1 m (WCS)", "Geobasis NRW DOM1, 1 m (WCS)",
                           "Geobasis NRW DOP"),
         # Aachen and the north, then the Eifel east of the Belgian border (not Belgium's East Cantons)
         offline=(("de-nw", (50.75, 52.53, 5.86, 9.46)), ("de-nw", (50.32, 50.75, 6.20, 8.25))), sample=(51.3200, 8.5400),
+        # The Eifel west of 6.20 E along Belgium (Roetgen, Monschau's west, Kalterherberg, the Vennbahn's
+        # enclaves): its land within 5 km of Wallonia from 71 % to 99.8 % (tools/border_study.py boxes, 2026-11-23)
+        border_boxes=((50.38, 50.75, 6.00, 6.20),),
         note="Data Geobasis NRW, dl-de/zero-2.0 (changed: mosaicked onto the working grid). The WCS names no "
              "survey years.",
         coverage=Coverage(provider="Geobasis NRW", added="2026-11-02")),

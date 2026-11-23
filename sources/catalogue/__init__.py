@@ -36,8 +36,8 @@ from . import belgium
 # holds Monterrey, Mexico's keep clear of US land; Cyprus and Estonia anywhere before the global ones; Portugal
 # (Madeira) before Spain: Spain's offline box holds Madeira; Brazil (Rio de Janeiro) anywhere before the global ones;
 # Japan (Tokyo, Shizuoka) anywhere before the global ones; Hong Kong anywhere before the global ones; Belgium
-# (Wallonia) after France, the Netherlands, Germany and Luxembourg: Wallonia's offline box is the region's rectangle
-# and holds their land at its borders, which their own boxes keep
+# (Wallonia) after Luxembourg: Luxembourg's offline box holds Arlon and Martelange, which stay Luxembourg's offline
+# (Wallonia's own offline boxes keep off France, Flanders, the Netherlands and Germany)
 FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, portugal, spain, mexico, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, cyprus, estonia, brazil, japan, hong_kong, belgium, world)
 SOURCES: Dict[str, Source] = {s.id: s for family in FAMILIES for s in family.SOURCES}
 

@@ -171,8 +171,9 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Netherlands (European part)", "PDOK AHN4 DTM, 0.5 m (WCS)", "PDOK AHN4 DSM, 0.5 m (WCS)",
                           "PDOK aerial photo (Beeldmateriaal)"),
         offline=NL_OFFLINE, sample=(50.8258, 5.6866),  # the ENCI quarry at Maastricht (R69)
-        # North Rhine-Westphalia only: Lower Saxony declares six neighbours already, the most a country layer's
-        # cube can name (countcube.PARTNERS); its border with the Netherlands is flat land (Groningen to Twente)
+        # North Rhine-Westphalia and Wallonia (South Limburg's border at Eijsden and Vaals, 2026-11-23); not Lower
+        # Saxony, which declares six neighbours already, the most a country layer's cube can name
+        # (countcube.PARTNERS); its border with the Netherlands is flat land (Groningen to Twente)
         neighbours=("north_rhine_westphalia", "wallonia"),
         note="Data: AHN4, PDOK, CC0. Surveyed 2020-2022. Water and the buildings removed from the terrain model are "
              "holes, filled from 30 m data.",
