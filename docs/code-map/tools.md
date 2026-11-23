@@ -150,7 +150,8 @@ library only, no import of the project): whether the providers of the mirror's d
 a successor. `WATCH`: per dataset its signals, `File` (a HEAD: size, Last-Modified, ETag), `Feed` (an ATOM feed's
 matching entries: `updated`, enclosure lengths) and `Listing` (the set of strings patterns extract from a page, feed
 or record); `Http` asks each address once a run, 1.5 s after the host's previous answer, without redirects, cookies
-or a proxy. `check` (one line per dataset, exit 0/1/3/2; `--json`, `--json-out`, `--previous`: a first "not
+or a proxy, nothing after `RUN_SECONDS`, a body cut short of its Content-Length not checkable; `read` makes any
+reader's failure that signal's "not checkable", never the run's. `check` (one line per dataset, exit 0/1/3/2; `--json`, `--json-out`, `--previous`: a first "not
 checkable" does not make exit 3), `adopt` (rewrites the datasets' records in the committed `tools/mirror_watch.json`,
 refusing a signal not checkable), `list`. `tests/test_mirror_watch.py` (against `tests/http_server.py`, the real rows
 on cuts of the providers' answers, the workflow's YAML), `tests/test_mirror_pairs.py`.

@@ -13,7 +13,7 @@ import time
 import pytest
 import yaml
 
-from http_server import HttpServer
+from http_server import Answer, HttpServer
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "tools"))
@@ -104,15 +104,19 @@ las_footprints_s-jtsk03_1_cyklus_shp.zip" title="Odkaz sa otvorí v novom okne">
 SK_LINKS = ["https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT31/LOT31_DMP2_sjtsk03_bpv.zip",
             "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT31/LOT31_DMR6_sjtsk03_bpv.zip",
             "https://opendata.skgeodesy.sk/static/LLS/DMP1/DMP1_0_sjtsk03_bpv.zip",
-            "https://opendata.skgeodesy.sk/static/LLS/DMR5/DMR5_0_sjtsk03_bpv.zip",
-            "https://opendata.skgeodesy.sk/static/LLS/Footprints/1_cyklus/las_footprints_s-jtsk03_1_cyklus_shp.zip"]
+            "https://opendata.skgeodesy.sk/static/LLS/DMR5/DMR5_0_sjtsk03_bpv.zip"]   # no footprint or INSPIRE archive
 
-# A cut of the SNIG record abba9a83 (ISO 19139, read 2026-11-22): its date stamp, a citation date, a lineage date
-# and the distribution's links (an entity in one)
+# A cut of the SNIG record abba9a83 (ISO 19139, read 2026-11-22): its date stamp, a citation date, a lineage date,
+# a contact's link, and the distribution's links (a WMS with an entity in it, the two download ZIPs)
 SNIG_RECORD = """<?xml version="1.0" encoding="UTF-8"?>
 <gmd:MD_Metadata xmlns:gmd="http://www.isotc211.org/2005/gmd" xmlns:gco="http://www.isotc211.org/2005/gco">
   <gmd:fileIdentifier><gco:CharacterString>abba9a83-cb1c-4d2c-ad1d-ccb592247754</gco:CharacterString>
   </gmd:fileIdentifier>
+  <gmd:onlineResource><gmd:CI_OnlineResource>
+              <gmd:linkage>
+                <gmd:URL>https://www.madeira.gov.pt/drote/</gmd:URL>
+              </gmd:linkage>
+  </gmd:CI_OnlineResource></gmd:onlineResource>
   <gmd:dateStamp>
     <gco:Date>2026-06-12</gco:Date>
   </gmd:dateStamp>
@@ -120,16 +124,37 @@ SNIG_RECORD = """<?xml version="1.0" encoding="UTF-8"?>
                 <gco:Date>2019-10-15</gco:Date>
   </gmd:date></gmd:CI_Date></gmd:date>
   <gco:DateTime>2019-10-15T00:00:00</gco:DateTime>
-  <gmd:linkage>
-    <gmd:URL>https://irig-sig.madeira.gov.pt/ows/pg/qwc_config/DIR_modelo_digital_terreno?SERVICE=WMS&amp;\
+          <gmd:onLine>
+            <gmd:CI_OnlineResource>
+              <gmd:linkage>
+                <gmd:URL>https://irig-sig.madeira.gov.pt/ows/pg/qwc_config/DIR_modelo_digital_terreno?SERVICE=WMS&amp;\
 VERSION=1.3.0&amp;REQUEST=GetCapabilities</gmd:URL>
-  </gmd:linkage>
-  <gmd:linkage>
-    <gmd:URL>https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip</gmd:URL>
-  </gmd:linkage>
-  <gmd:linkage>
-    <gmd:URL>https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip</gmd:URL>
-  </gmd:linkage>
+              </gmd:linkage>
+              <gmd:protocol>
+                <gco:CharacterString>OGC:WMS-1.3.0-http-get-capabilities</gco:CharacterString>
+              </gmd:protocol>
+            </gmd:CI_OnlineResource>
+          </gmd:onLine>
+          <gmd:onLine>
+            <gmd:CI_OnlineResource>
+              <gmd:linkage>
+                <gmd:URL>https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip</gmd:URL>
+              </gmd:linkage>
+              <gmd:protocol>
+                <gco:CharacterString>WWW:DOWNLOAD-1.0-http--download</gco:CharacterString>
+              </gmd:protocol>
+            </gmd:CI_OnlineResource>
+          </gmd:onLine>
+          <gmd:onLine>
+            <gmd:CI_OnlineResource>
+              <gmd:linkage>
+                <gmd:URL>https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip</gmd:URL>
+              </gmd:linkage>
+              <gmd:protocol>
+                <gco:CharacterString>WWW:DOWNLOAD-1.0-http--download</gco:CharacterString>
+              </gmd:protocol>
+            </gmd:CI_OnlineResource>
+          </gmd:onLine>
 </gmd:MD_Metadata>
 """
 
@@ -292,13 +317,25 @@ def test_a_file_changed_and_lacking_a_field_says_both(tool):
     assert code == 1 and lines == ['a: changed: a.zip size: 1000 -> 999; a.zip ETag: "e1" -> none | check 2: none']
 
 
-def test_a_field_the_baseline_lacks_is_not_compared(tool):
+def test_a_field_absent_when_adopted_and_present_later_is_said_until_adopted(tool):
     tool.file("/f/a.zip", etag=None)
     tool.rows(a=[mw.File(tool.url("/f/a.zip"))])
     tool.adopt("a")
     assert tool.records()[f"file {tool.url('/f/a.zip')}"]["etag"] is None
-    tool.file("/f/a.zip", etag='"new"')
     assert tool.check()[:2] == (0, ["a: same | check 2: none"])
+    tool.file("/f/a.zip", etag='"new"')
+    for _ in range(2):   # every check says it, never skipped, until the user adopts it
+        assert tool.check()[:2] == (1, ['a: changed: a.zip ETag: none -> "new" (a new field) | check 2: none'])
+    assert 'a.zip ETag: none -> "new" (a new field)' in tool.adopt("a")
+    assert tool.check()[:2] == (0, ["a: same | check 2: none"])
+
+
+def test_a_weak_and_a_strong_etag_of_one_tag_are_the_same(tool):
+    _file_row(tool)
+    tool.file("/f/a.zip", etag='W/"e1"')
+    assert tool.check()[:2] == (0, ["a: same | check 2: none"])
+    tool.file("/f/a.zip", etag='W/"e2"')
+    assert tool.check()[:2] == (1, ['a: changed: a.zip ETag: "e1" -> W/"e2" | check 2: none'])
 
 
 def test_a_head_without_content_length_is_not_checkable(bare_tool):
@@ -306,7 +343,28 @@ def test_a_head_without_content_length_is_not_checkable(bare_tool):
     _file_row(tool)
     tool.server.bare["/f/a.zip"] = {"ETag": '"e1"', "Last-Modified": LM}
     code, lines, _ = tool.check()
-    assert (code, lines) == (3, ["a: not checkable: a.zip: no size: the answer has no Content-Length | check 2: none"])
+    assert (code, lines) == (3, ["a: not checkable: a.zip: the answer has no Content-Length | check 2: none"])
+    code, lines, _ = tool.run("adopt", "a")
+    assert code == 3 and lines[1] == "  a.zip: not checkable: no size: the answer has no Content-Length"
+
+
+@pytest.mark.parametrize("previous", [False, True])
+def test_a_head_without_content_length_but_another_etag_is_changed(bare_tool, previous):
+    tool = bare_tool
+    _file_row(tool)
+    tool.server.bare["/f/a.zip"] = {"ETag": '"e2"', "Last-Modified": LM2}
+    argv = ["--previous", _previous(tool, tool.tmp / "previous.json", a=[])] if previous else []
+    code, lines, _ = tool.check(*argv)
+    assert code == 1 and lines[-1] == (f'a: changed: a.zip ETag: "e1" -> "e2"; a.zip Last-Modified: {LM} -> {LM2}; '
+                                       'a.zip size: 1000 -> none | check 2: none')
+
+
+def test_an_html_page_for_a_file_is_not_checkable_never_changed(tool):
+    _file_row(tool)
+    tool.server.add("/f/a.zip", b"<html><body>Checking your browser...</body></html>", "text/html; charset=utf-8")
+    assert tool.check()[:2] == (3, ["a: not checkable: a.zip: an HTML page instead of the file | check 2: none"])
+    tool.server.add("/f/a.zip", b"<html/>", "application/xhtml+xml")
+    assert tool.check()[0] == 3
 
 
 def test_a_head_without_a_field_the_baseline_has_is_not_checkable(tool):
@@ -401,6 +459,61 @@ def test_feed_unreadable_is_not_checkable(tool, body, why):
     assert tool.check()[:2] == (3, [f"w: not checkable: MNT feed: {why} | check 2: none"])
 
 
+LIEGE_LENGTH = b' length="48579593210"'
+NAMUR = "RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV_NAMUR.zip"
+LIEGE = "RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV_LIEGE.zip"
+ENTRY = "RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV"
+
+
+@pytest.mark.parametrize("previous", [False, True])
+def test_a_feed_piece_missing_never_hides_a_change(tool, previous):
+    """NAMUR's length changed, LIEGE's length attribute gone: changed (exit 1, with or without a previous run that
+    had the dataset checkable), the missing piece said beside the change."""
+    _feed_row(tool)
+    body = atom({**PROVINCES, "NAMUR": 46315489747}).replace(LIEGE_LENGTH, b"")
+    assert body != atom({**PROVINCES, "NAMUR": 46315489747})
+    tool.server.add("/spw/atom_dataset.xml", body)
+    argv = ["--previous", _previous(tool, tool.tmp / "previous.json", w=[])] if previous else []
+    code, lines, _ = tool.check(*argv)
+    assert (code, lines[-1]) == (1, f"w: changed: MNT feed {NAMUR} length: 46315489746 -> 46315489747; "
+                                    f"MNT feed {LIEGE} length: 48579593210 -> none | check 2: none")
+
+
+def test_an_entry_without_updated_never_hides_a_change(tool):
+    _feed_row(tool)
+    body = atom({**PROVINCES, "NAMUR": 1}).replace(b"<updated>2024-05-27T09:36:05Z</updated>", b"")
+    tool.server.add("/spw/atom_dataset.xml", body)
+    code, lines, _ = tool.check()
+    assert (code, lines) == (1, [f"w: changed: MNT feed {NAMUR} length: 46315489746 -> 1; MNT feed entry {ENTRY} "
+                                 "updated: 2024-05-27T09:36:05Z -> none | check 2: none"])
+
+
+@pytest.mark.parametrize("cut, why", [
+    (lambda b: b.replace(LIEGE_LENGTH, b""), f"the answer has no length of {LIEGE}"),
+    (lambda b: b.replace(LIEGE_LENGTH, ' length="²"'.encode()), f"the answer has no length of {LIEGE}"),
+    (lambda b: b.replace(b"<updated>2024-05-27T09:36:05Z</updated>", b""),
+     f"the answer has no updated of entry {ENTRY}"),
+    (lambda b: b.replace(f'href="{ZIP.format("LIEGE")}"'.encode(), b""), None),
+])
+def test_a_feed_piece_missing_alone_is_not_checkable_and_not_adopted(tool, cut, why):
+    """A piece missing where nothing readable differs: not checkable (the length "²" too: str.isdigit takes it, int()
+    does not); an enclosure without its address is LIEGE's gone, a change, the unreadable one said beside it. adopt
+    refuses each and leaves the baseline."""
+    _feed_row(tool)
+    with open(tool.baseline, "rb") as f:
+        before = f.read()
+    tool.server.add("/spw/atom_dataset.xml", cut(atom()))
+    if why is None:
+        assert tool.check()[:2] == (1, [f"w: changed: MNT feed {LIEGE} length: 48579593210 -> gone; MNT feed an "
+                                        f"enclosure of entry {ENTRY}: unreadable | check 2: none"])
+    else:
+        assert tool.check()[:2] == (3, [f"w: not checkable: MNT feed: {why} | check 2: none"])
+    code, lines, _ = tool.run("adopt", "w")
+    assert code == 3 and lines[0] == "not adopted, the baseline left as it was:"
+    with open(tool.baseline, "rb") as f:
+        assert f.read() == before
+
+
 # Listing
 
 def _listing_row(tool):
@@ -434,6 +547,80 @@ def test_an_answer_larger_than_the_cap_is_not_checkable(tool):
     _listing_row(tool)
     tool.monkeypatch.setattr(mw, "MAX_BODY", 50)
     assert tool.check()[:2] == (3, ["p: not checkable: the page: the answer is larger than 50 bytes"])
+
+
+def test_an_answer_cut_short_is_not_checkable_and_not_adopted(tool):
+    """The page's whole Content-Length announced, half its bytes sent, the connection closed (http.client returns the
+    short body without an error): not checkable, never "removed"; adopt refuses it and keeps the baseline."""
+    names = [f"n{i:03d}" for i in range(60)]
+    tool.server.add("/page", page(*names), "text/html")
+    tool.rows(p=[mw.Listing(tool.url("/page"), (LINKS,), "the page")])
+    tool.adopt("p")
+    with open(tool.baseline, "rb") as f:
+        before = f.read()
+    tool.server.fault("/page", "truncate", lambda n, r: True, plain=True)
+    size = len(page(*names))
+    code, lines, _ = tool.check()
+    assert (code, lines) == (3, [f"p: not checkable: the page: an answer cut short ({size // 2} of {size} bytes)"])
+    code, lines, _ = tool.run("adopt", "p")
+    assert code == 3 and lines[1] == f"  the page: not checkable: an answer cut short ({size // 2} of {size} bytes)"
+    with open(tool.baseline, "rb") as f:
+        assert f.read() == before
+
+
+def test_a_readers_failure_is_that_signals_never_the_runs(tool):
+    """A feed in an encoding XML does not know (ElementTree raises LookupError, not ParseError) beside a changed file:
+    both datasets' lines, exit 1, the result file written."""
+    tool.file("/f/a.zip")
+    tool.server.add("/spw/atom_dataset.xml", atom(), "application/atom+xml")
+    tool.rows(a=[mw.File(tool.url("/f/a.zip"))],
+              w=[mw.Feed(tool.url("/spw/atom_dataset.xml"), r"_GEOTIFF_3812_PROV$", "MNT feed")])
+    tool.adopt("a", "w")
+    tool.file("/f/a.zip", size=2000)
+    tool.server.add("/spw/atom_dataset.xml", b'<?xml version="1.0" encoding="x-nonsense"?><feed/>')
+    result = tool.tmp / "result.json"
+    code, lines, _ = tool.check("--json-out", str(result))
+    assert (code, lines) == (1, ["a: changed: a.zip size: 1000 -> 2000 | check 2: none",
+                                 "w: not checkable: MNT feed: a broken answer (LookupError: unknown encoding: "
+                                 "x-nonsense) | check 2: none"])
+    assert json.loads(result.read_text(encoding="utf-8"))["exit"] == 1
+
+
+def test_a_content_length_of_other_digits_is_no_size(bare_tool):
+    """A Content-Length "²" (the header byte 0xB2, read as Latin-1; str.isdigit takes it, int() does not): no size,
+    never an error of the run."""
+    tool = bare_tool
+    _file_row(tool)
+    tool.server.bare["/f/a.zip"] = {"Content-Length": "²", "ETag": '"e1"', "Last-Modified": LM}
+    assert tool.check()[:2] == (3, ["a: not checkable: a.zip: the answer has no Content-Length | check 2: none"])
+    assert mw._number(" 12 ") == 12 and mw._number(None) is None
+
+
+def test_a_result_file_that_cannot_be_written_is_said_after_the_lines(tool):
+    _listing_row(tool)
+    missing = str(tool.tmp / "no-such-folder" / "result.json")
+    code, lines, _ = tool.check("--json-out", missing)
+    assert (code, lines) == (2, ["p: same", "the result file: not written (FileNotFoundError)"])   # nothing else: 2
+    tool.server.add("/page", page("a", "b", "c"), "text/html")
+    code, lines, _ = tool.check("--json-out", missing)
+    assert code == 1 and lines[-1] == "the result file: not written (FileNotFoundError)"   # the change's code kept
+
+
+def test_the_runs_time_is_bounded(tool):
+    """After RUN_SECONDS no request starts: what was not reached is not checkable, the result file still written."""
+    def slow(request):
+        time.sleep(0.4)
+        return Answer(200, b"x" * 1000, {"ETag": '"e1"', "Last-Modified": LM})
+    tool.server.route("/slow/", slow)
+    tool.server.add("/page", page("a"), "text/html")
+    tool.rows(a=[mw.File(tool.url("/slow/a.zip"))], p=[mw.Listing(tool.url("/page"), (LINKS,), "the page")])
+    tool.adopt("a", "p")
+    tool.monkeypatch.setattr(mw, "RUN_SECONDS", 0.2)
+    result = tool.tmp / "result.json"
+    code, lines, _ = tool.check("--json-out", str(result))
+    assert (code, lines) == (3, ["a: same | check 2: none", "p: not checkable: the page: the run's time was up"])
+    assert json.loads(result.read_text(encoding="utf-8"))["exit"] == 3
+    assert len(tool.server.requests("/page")) == 1   # the adopt's only
 
 
 # Several signals, several datasets
@@ -481,6 +668,22 @@ def test_the_wait_between_two_requests_to_one_host(tool):
     assert len(started) == 4
     gaps = [b - a for a, b in zip(started, started[1:])]
     assert min(gaps) >= 0.3 - 0.02, gaps   # the clocks' resolution
+
+
+def test_the_wait_after_a_failed_request(tool):
+    """A refusal and a connection closed without an answer count as answers for the wait: the next request to the
+    host comes REQUEST_PAUSE after them."""
+    tool.server.add("/f/refused.zip", b"no", status=503)
+    tool.server.add("/f/closed.zip", b"x" * 10)
+    tool.server.fault("/f/closed.zip", "close", lambda n, r: True, plain=True)
+    tool.file("/f/a.zip")
+    tool.rows(d=[mw.File(tool.url(p)) for p in ("/f/refused.zip", "/f/closed.zip", "/f/a.zip")])
+    tool.monkeypatch.setattr(mw, "REQUEST_PAUSE", 0.3)
+    tool.check()
+    started = [r.started for r in tool.server.requests()]
+    assert [r.path for r in tool.server.requests()] == ["/f/refused.zip", "/f/closed.zip", "/f/a.zip"]
+    gaps = [b - a for a, b in zip(started, started[1:])]
+    assert min(gaps) >= 0.3 - 0.02, gaps
 
 
 def test_check_two_none_is_said(tool):
@@ -632,6 +835,16 @@ def test_json_out_is_the_next_runs_previous(tool):
     assert code == 3 and json.loads("\n".join(lines))["datasets"]["p"]["state"] == "not checkable"
 
 
+def test_the_previous_runs_time_is_printed_only_as_a_time(tool):
+    _listing_row(tool)
+    path = tool.tmp / "previous.json"
+    for checked, said in (("2026-10-01T03:17:00Z", "the run of 2026-10-01T03:17:00Z"),
+                          ("<script>alert(1)</script>", "a run of an unknown time"),
+                          (None, "a run of an unknown time")):
+        path.write_text(json.dumps({"tool": "mirror_watch", "checked": checked, "datasets": {}}), encoding="utf-8")
+        assert tool.check("--previous", str(path))[1][0] == f"previous run: {said}"
+
+
 @pytest.mark.parametrize("content, said", [
     ("{broken", "none (the file cannot be read as JSON)"),
     ('{"datasets": {}}', "none (not a result of this tool)"),
@@ -672,13 +885,12 @@ def test_the_real_rows_read_cuts_of_the_providers_answers():
                     mw.VDA_PAGE.url: VDA_PAGE.encode(), mw.METAWAL.url: METAWAL_ANSWER.encode()})
     facts, why = mw.read(saved, mw.MNT_FEED)
     assert why is None and facts == {"updated": {ID + "3812_PROV": "2024-05-27T09:36:05Z"},
-                                     "lengths": {ZIP.format(p): n for p, n in PROVINCES.items()}}
+                                     "lengths": {ZIP.format(p): n for p, n in PROVINCES.items()}, "unaddressed": []}
     assert mw.read(saved, mw.MNT_ENTRIES)[0]["items"] == [ID + "31370_PROV", ID + "3812_PROV", ID + "3812_REGION"]
     assert mw.read(saved, mw.SK_PAGE)[0]["items"] == SK_LINKS
-    assert mw.read(saved, mw.SNIG)[0]["items"] == [
+    assert mw.read(saved, mw.SNIG)[0]["items"] == [   # dates and download links: no contact's, viewer's or WMS link
         "2019-10-15", "2019-10-15T00:00:00", "2026-06-12",
-        "https://irig-sig.madeira.gov.pt/ows/pg/qwc_config/DIR_modelo_digital_terreno?SERVICE=WMS&VERSION=1.3.0&"
-        "REQUEST=GetCapabilities", "https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip",
+        "https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip",
         "https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip"]
     assert mw.read(saved, mw.VDA_PAGE)[0]["items"] == ["DTM0508", "DTM2022_DORA", "DTM_2005_2008_ORTOMETRICA.pdf",
                                                        "DTM_2022_DORA_ORTOMETRICA.pdf"]
@@ -690,7 +902,8 @@ def test_the_real_rows_read_cuts_of_the_providers_answers():
 
 def test_every_dataset_on_the_mirror_has_both_checks():
     """Each row has a check of its files (File or Feed) and a check for a successor (Listing): none says "check 2:
-    none" today (the user's W4, W5); one address is read one way only."""
+    none" today (the user's decision of 2026-11-22: "Implement if for every data set in the mirror."); one address is
+    read one way only."""
     for name, row in mw.WATCH.items():
         kinds = {s.kind for s in row}
         assert kinds & {"file", "feed"} and "listing" in kinds, name
@@ -713,7 +926,8 @@ def test_the_committed_baseline_has_a_record_for_every_signal():
 
 
 def test_the_monthly_workflow():
-    """.github/workflows/mirror-watch.yml (the user's W10): on the 1st of each month (off the hour) and by hand, reading
+    """.github/workflows/mirror-watch.yml (the user's decision of 2026-11-22: "Yes, GitHub Actions monthly"): on the
+    1st of each month (off the hour) and by hand, reading
     the repository and its own artifacts only, no secret; the runner's python3 without the project's dependencies; the
     tool's own command (its parser takes it), whose exit code is the run's; the result kept for the next run's
     --previous whatever the check said; every action pinned by its commit."""
@@ -741,8 +955,18 @@ def test_the_monthly_workflow():
     assert "|| status=$?" in runs and "exit $status" in runs   # the tool's exit code fails the run, not a pipe's
     (upload,) = [s for s in steps if s.get("uses", "").startswith("actions/upload-artifact@")]
     assert upload["with"]["path"] == args.json_out and upload["if"].startswith("always()")
-    assert upload["with"]["retention-days"] == 90
-    assert f"-n {upload['with']['name']} -D previous" in runs
+    assert upload["with"]["retention-days"] == 90 and upload["with"]["overwrite"] is True   # a re-run's attempt
+    # The look-up of the previous result never ends the job (the user's decision of 2026-11-23, "Check anyway"): the
+    # step goes on after an error, and its two commands that may fail are `if` conditions (bash -e, no pipefail,
+    # does not stop on them), each else-branch a warning; only this repository's runs count (not a fork's)
+    (look,) = [s for s in steps if f"-n {upload['with']['name']} -D previous" in s.get("run", "")]
+    assert look["continue-on-error"] is True and steps.index(look) < steps.index(upload)
+    commands = [line.strip() for line in look["run"].splitlines() if line.strip()]
+    assert commands[0].startswith("if ! run=$(gh api ") and "head_repository_id == .workflow_run.repository_id" in \
+        look["run"]
+    assert any(c.startswith("elif gh run download ") and c.endswith("; then") for c in commands)
+    assert look["run"].count("::warning title=Mirror watch::") == 2
+    assert not [c for c in commands if c.startswith(("gh ", "run=$(", "exit"))]
 
 
 def test_the_tool_imports_nothing_of_the_project():

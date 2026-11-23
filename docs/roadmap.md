@@ -1636,6 +1636,9 @@ Follow-ups, not part of the build:
   its `PUBLISHABLE` row and the user's approval: datasets at a native 0.5 m ("0.5m" folders, already served), several
   products under one dataset with one card, folder names with a hyphen. A dataset that cannot be published and is
   kept as an own copy reaches the site only through a local copy on the VPS, an exception to U4 the user decides then.
+- **Valle d'Aosta's DTM 2022** (a candidate, the user's note of 2026-11-23): the region's download page offers a "DTM
+  2022" of the Dora Baltea valley (`DTM2022_DORA`, read 2026-11-23) beside the 2005/2008 model on the mirror; its
+  extent, pixel and licence not looked at (found by the mirror's watch, docs/mirror-hosting/watch.md).
 
 Parked (the specification's section 13: what the design keeps possible, nothing decided):
 - **Country cubes** (about 5 GB a country): a manifest with a sha256 per array, a streamed and resumable download, a

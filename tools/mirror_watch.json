@@ -4,7 +4,7 @@
     "file https://opendata.skgeodesy.sk/static/LLS/DMR5/DMR5_0_sjtsk03_bpv.zip": {
       "kind": "file",
       "url": "https://opendata.skgeodesy.sk/static/LLS/DMR5/DMR5_0_sjtsk03_bpv.zip",
-      "read": "2026-11-22",
+      "read": "2026-11-23",
       "size": 197707257567,
       "last_modified": "Wed, 26 Jun 2024 08:41:35 GMT",
       "etag": "\"667bd43f-2e084556df\""
@@ -12,7 +12,7 @@
     "file https://opendata.skgeodesy.sk/static/LLS/DMP1/DMP1_0_sjtsk03_bpv.zip": {
       "kind": "file",
       "url": "https://opendata.skgeodesy.sk/static/LLS/DMP1/DMP1_0_sjtsk03_bpv.zip",
-      "read": "2026-11-22",
+      "read": "2026-11-23",
       "size": 155103705912,
       "last_modified": "Wed, 26 Jun 2024 07:23:33 GMT",
       "etag": "\"667bc1f5-241ce6bb38\""
@@ -20,9 +20,9 @@
     "listing https://www.skgeodesy.sk/geoportal/zbgis/lls/poskytovanie/": {
       "kind": "listing",
       "url": "https://www.skgeodesy.sk/geoportal/zbgis/lls/poskytovanie/",
-      "read": "2026-11-22",
+      "read": "2026-11-23",
       "patterns": [
-        "href=[\"'](https://opendata\\.skgeodesy\\.sk/static/LLS/[^\"']+\\.zip)[\"']"
+        "href=[\"'](https://opendata\\.skgeodesy\\.sk/static/LLS/(?!Footprints/)[^\"']+\\.zip)[\"']"
       ],
       "items": [
         "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT04/LOT04_DMP2_etrs89_tm34.zip",
@@ -90,21 +90,13 @@
         "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT32/LOT32_DMR6_etrs89_tm34.zip",
         "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT32/LOT32_DMR6_sjtsk03_bpv.zip",
         "https://opendata.skgeodesy.sk/static/LLS/DMP1/DMP1_0_sjtsk03_bpv.zip",
-        "https://opendata.skgeodesy.sk/static/LLS/DMR5/DMR5_0_sjtsk03_bpv.zip",
-        "https://opendata.skgeodesy.sk/static/LLS/Footprints/1_cyklus/las_footprints_etrs89-tm34_1_cyklus_gdb.zip",
-        "https://opendata.skgeodesy.sk/static/LLS/Footprints/1_cyklus/las_footprints_etrs89-tm34_1_cyklus_shp.zip",
-        "https://opendata.skgeodesy.sk/static/LLS/Footprints/1_cyklus/las_footprints_s-jtsk03_1_cyklus_gdb.zip",
-        "https://opendata.skgeodesy.sk/static/LLS/Footprints/1_cyklus/las_footprints_s-jtsk03_1_cyklus_shp.zip",
-        "https://opendata.skgeodesy.sk/static/LLS/Footprints/2_cyklus/las_footprints_etrs89-tm34_2_cyklus_gdb.zip",
-        "https://opendata.skgeodesy.sk/static/LLS/Footprints/2_cyklus/las_footprints_etrs89-tm34_2_cyklus_shp.zip",
-        "https://opendata.skgeodesy.sk/static/LLS/Footprints/2_cyklus/las_footprints_s-jtsk03_2_cyklus_gdb.zip",
-        "https://opendata.skgeodesy.sk/static/LLS/Footprints/2_cyklus/las_footprints_s-jtsk03_2_cyklus_shp.zip"
+        "https://opendata.skgeodesy.sk/static/LLS/DMR5/DMR5_0_sjtsk03_bpv.zip"
       ]
     },
     "file https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip": {
       "kind": "file",
       "url": "https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip",
-      "read": "2026-11-22",
+      "read": "2026-11-23",
       "size": 460132910,
       "last_modified": "Fri, 12 Jun 2026 14:33:41 GMT",
       "etag": "\"f6d7b6f35b512ab7a247ccb7179c8b63\""
@@ -112,11 +104,11 @@
     "listing https://snig.dgterritorio.gov.pt/rndg/srv/api/records/abba9a83-cb1c-4d2c-ad1d-ccb592247754/formatters/xml": {
       "kind": "listing",
       "url": "https://snig.dgterritorio.gov.pt/rndg/srv/api/records/abba9a83-cb1c-4d2c-ad1d-ccb592247754/formatters/xml",
-      "read": "2026-11-22",
+      "read": "2026-11-23",
       "patterns": [
         "<gco:Date>([^<]+)</gco:Date>",
         "<gco:DateTime>([^<]+)</gco:DateTime>",
-        "<gmd:URL>([^<]+)</gmd:URL>"
+        "(?s)<gmd:URL>([^<]+)</gmd:URL>\\s*</gmd:linkage>\\s*<gmd:protocol>\\s*<gco:CharacterString>WWW:DOWNLOAD[^<]*</gco:CharacterString>"
       ],
       "items": [
         "2008-06-01",
@@ -130,12 +122,8 @@
         "2019-10-15",
         "2019-10-15T00:00:00",
         "2026-06-12",
-        "https://irig-sig.madeira.gov.pt/?t=pg/qwc_config/DIR_modelo_digitaL_terreno",
-        "https://irig-sig.madeira.gov.pt/ows/pg/qwc_config/DIR_modelo_digital_terreno?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities",
         "https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip",
-        "https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip",
-        "https://www.madeira.gov.pt/drote/",
-        "https://www.socarto.pt/"
+        "https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip"
       ]
     },
     "file https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip": {

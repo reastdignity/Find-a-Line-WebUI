@@ -1,12 +1,13 @@
 # The mirror's watch (docs/mirror-hosting/watch.md): on the 1st of each month, and by hand, tools/mirror_watch.py
 # asks the providers of the mirror's datasets whether they replaced a file or published a successor, against the
-# committed baseline tools/mirror_watch.json (the user's W10, 2026-11-22: "Yes, GitHub Actions monthly").
+# committed baseline tools/mirror_watch.json (the user's decision of 2026-11-22: "Yes, GitHub Actions monthly").
 # - A change fails the run (exit 1), and GitHub mails it. A provider that does not answer fails it only when the same
 #   dataset was not checkable in the previous run too (exit 3 with --previous, the tool's rule); a first time is a
 #   warning and the run passes. The result is kept as an artifact for the next run (90 days; a monthly run's cache
 #   would expire after 7 days unused).
 # - The runner's own python3 (Ubuntu's, 3.11 or newer), no `uv sync` and no project dependency: the tool is standard
-#   library only. No secret; the token reads the previous run's artifact (actions: read).
+#   library only. No secret; the token reads the previous run's artifact (actions: read). The one action beside
+#   checkout is upload-artifact (the user's yes of 2026-11-23): only an action can keep a file for a later run.
 # - GitHub: "Scheduled workflows will only run on the default branch." "In a public repository, scheduled workflows
 #   are automatically disabled when no repository activity has occurred in 60 days." "High load times include the
 #   start of every hour": hence 06:17 UTC.
@@ -35,24 +36,31 @@ jobs:
         with:
           persist-credentials: false
 
-      # The newest unexpired result of an earlier run of this branch; none (the first run, an expired artifact) is said
-      # and the check goes on: --previous then reads no file and a provider not answering is a first time. A failing
-      # API call fails the run (never taken as "none": the rule would never fire); a listed result that does not
-      # download is a warning
+      # The newest unexpired result of an earlier run of this repository's own branch (not a fork's); none (the first
+      # run, an expired artifact) is said and the check goes on: --previous then reads no file and a provider not
+      # answering is a first time. A look-up that fails (the API, the download) never stops the check (the user's
+      # decision of 2026-11-23, "Check anyway"): a warning, and the check runs as with no previous result. The step
+      # cannot end the job: every command that may fail is an `if` condition (the default shell, bash -e without
+      # pipefail, does not stop on a failing condition), the others are echo, and continue-on-error covers the rest
       - name: The previous run's result
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=mirror-watch-result&per_page=100" --jq \
+          if ! run=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=mirror-watch-result&per_page=100" --jq \
             "[.artifacts[] | select(.expired | not) | select(.workflow_run.id != $GITHUB_RUN_ID)
+              | select(.workflow_run.head_repository_id == .workflow_run.repository_id)
               | select(.workflow_run.head_branch == \"$GITHUB_REF_NAME\")] | sort_by(.created_at) | last
-              | .workflow_run.id // empty")
+              | .workflow_run.id // empty"); then
+            echo "::warning title=Mirror watch::the previous result could not be looked up: checked as a first run"
+            run=
+          fi
           if [ -z "$run" ]; then
             echo "No previous result (the first run, or its artifact expired): a provider not answering is a warning"
           elif gh run download "$run" -R "$GITHUB_REPOSITORY" -n mirror-watch-result -D previous; then
             echo "The previous result: run $run"
           else
-            echo "::warning title=Mirror watch::the result of run $run did not download: a provider not answering is a warning this time"
+            echo "::warning title=Mirror watch::the result of run $run did not download: checked as a first run"
           fi
 
       - name: Check the providers
@@ -73,3 +81,4 @@ jobs:
           path: result.json
           retention-days: 90
           if-no-files-found: error
+          overwrite: true

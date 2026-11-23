@@ -621,7 +621,8 @@ def test_the_readmes_rclone_remote_has_what_the_tool_asks_for():
 
 def test_every_published_dataset_is_watched():
     """tools/mirror_watch.py (docs/mirror-hosting/watch.md): every PUBLISHABLE dataset has a WATCH row (no dataset is
-    published unwatched; the user's W4, W5), and every WATCH row is a dataset the tools cut (DATASETS or Slovakia),
+    published unwatched; the user's decision of 2026-11-22: "Implement if for every data set in the mirror."), and
+    every WATCH row is a dataset the tools cut (DATASETS or Slovakia),
     but for PENDING_CUT. The tool's own tests (tests/test_mirror_watch.py) keep its baseline in step with WATCH."""
     import mirror_watch
     # Watched before its cut is in this branch (DATASETS["wallonia"] comes with branch `wallonia`); the planner empties

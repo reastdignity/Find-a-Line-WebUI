@@ -22,6 +22,8 @@ loads with `deploy/monitoring/` too.
   tests), `pip-audit` and `npm audit`, and `docker`: the image built, a search and both services run in it,
   `docker compose config`, the source address of the published port, nginx and fail2ban through
   `tests/nginx_check.sh`); keep its steps in line with these commands.
+- `.github/workflows/mirror-watch.yml`: monthly `tools/mirror_watch.py check` on the runner's python3 (standard library
+  only, no `uv sync`); the previous result's look-up never ends the job; `test_the_monthly_workflow` pins it.
 - Docker (the public site): `Dockerfile` (uv build stage, python-slim runtime without uv, uid 10001; base images
   pinned by digest, how to update them is in its header) and `compose.yaml` (`web --public` and `worker --public`, one
   data volume at `/data`, read-only root, `/tmp` tmpfs, settings in `findaline.env`, secrets in `secrets/`, resources

@@ -8,7 +8,9 @@ import of this project: it runs in a stock Python (a CI runner's python3) withou
 Two kinds of change, two checks. WATCH names each dataset's signals; a signal several datasets share is read once a
 run, and each address is asked once (a feed read for its enclosures and for its entries is one request):
 1. The same file replaced (a correction at the same address):
-   File      a HEAD of the file: its size (Content-Length), Last-Modified and ETag against the baseline.
+   File      a HEAD of the file: its size (Content-Length), Last-Modified and ETag against the baseline. An HTML page
+             answering instead of the file (a challenge or a login page served with 200) is a provider that does not
+             answer, never a change.
    Feed      an ATOM feed, where the provider's HEAD gives no size or date (SPW's): the entries whose id matches the
              signal's pattern, their `updated` and each of their enclosures' `length`. The feed's own `updated` is
              not compared (it moves when the feed is rewritten, the files staying).
@@ -19,15 +21,17 @@ run, and each address is asked once (a feed read for its enclosures and for its 
 
 What counts as the same file, and why each field is compared:
 - size: a file of another size is another file, the plainest sign of a replacement;
-- ETag, where both sides have one: the server's own name of the file's version (nginx's and IIS's change with the
-  file's time and size), so another ETag means another file even at the same size;
+- ETag: the server's own name of the file's version (nginx's and IIS's change with the file's time and size), so
+  another ETag means another file even at the same size; a weak and a strong form of one tag (W/"x" and "x", as a
+  proxy or compression may switch them) are the same;
 - Last-Modified, also when it differs alone (same size, same ETag): a file rewritten at the same size, on a server
   whose ETag does not follow the content, shows only in its date. Nothing cleverer is decided: a report costs the user
   a look, a missed change costs stale tiles; a date that moved over the same file is ended with `adopt`.
-A field the baseline lacks (the provider sent none when it was adopted) is not compared. A field the baseline has and
-the answer lacks makes the signal not checkable, unless another field differs: then it is changed, the missing field
-named as "-> none". A Feed compares each enclosure's length (one gone or new is a change) and each entry's `updated`;
-a Listing its set.
+Whatever was readable is compared. A field or a piece (a Feed's enclosure length, an entry's `updated`) the baseline
+has and the answer lacks makes the signal not checkable when nothing readable differs; when something does, it is
+changed and the missing piece is named beside it ("-> none"). A field the baseline recorded as absent (the provider
+sent none when it was adopted) and the answer now has is a change ("none -> <value> (a new field)"), said until it is
+adopted. A Feed's enclosure gone or new is a change; a Listing compares its set.
 
     python tools/mirror_watch.py check [dataset ...] [--baseline FILE] [--json] [--json-out FILE] [--previous FILE]
     python tools/mirror_watch.py adopt dataset ... [--baseline FILE]
@@ -40,31 +44,37 @@ of providers only.
 
 check: every signal of the datasets named (all by default) read once, then one line per dataset: `same`, `changed:
 <what>: <from> -> <to>; ...` (every difference), `not checkable: <signal>: <why>; ...` (no answer, a refusal, a
-status other than 200 (redirects are not followed: a 3xx names its target without a query), an answer without a field
-the baseline has, a feed that is not XML or has no matching entry, a page from which the patterns extract nothing, an
-answer larger than MAX_BODY, no baseline record, a record read another way). A provider that does not answer is never
-a change, and a change is never hidden by another signal's failure: a dataset with both says both, ` | ` between
-them. A dataset without a Listing says `check 2: none` on its line. --json prints the result as JSON instead of the
-lines; --json-out FILE writes that JSON to FILE as well. --previous FILE reads the result of the run before (a
---json-out file): a dataset not checkable now that was checkable (or absent) then is `not checkable (first time)` and
-does not make the exit code 3; not checkable in both runs does. A missing or unreadable previous file is said in one
-line and taken as no previous run. Without --previous every not checkable dataset counts.
+status other than 200 (redirects are not followed: a 3xx names its target without a query), an answer cut short of
+its Content-Length or larger than MAX_BODY, an HTML page for a file, an answer without a field the baseline has, a
+feed that is not XML or has no matching entry, a page from which the patterns extract nothing, any other failure of
+the answer's reading (its kind and a short text), the run's time up (RUN_SECONDS), no baseline record, a record read
+another way). A provider that does not answer is never a change, and a change is never hidden by another signal's
+failure: a dataset with both says both, ` | ` between them. A dataset without a Listing says `check 2: none` on its
+line. --json prints the result as JSON instead of the lines; --json-out FILE writes that JSON to FILE after the lines
+(a failed write is said in one line: exit 2 when nothing else made the exit code). --previous FILE reads the result of
+the run before (a --json-out file): a dataset not checkable now that was checkable (or absent) then is `not checkable
+(first time)` and does not make the exit code 3; not checkable in both runs does. A missing or unreadable previous
+file is said in one line and taken as no previous run. Without --previous every not checkable dataset counts.
 
 adopt: reads the signals of the datasets named and rewrites their records (through a temporary file and a rename),
 printing what changed and, for a signal shared with other datasets, whose baseline moved with it; records of signals
-no longer in WATCH are dropped. It refuses (exit 3, the file as it was) when any of those signals is not checkable.
-It is how the first baseline is made and how the user accepts a change he has looked at; nothing runs it by itself.
+no longer in WATCH are dropped. It refuses (exit 3, the file as it was) when any of those signals is not checkable or
+lacks a piece its record needs (a File's size, a Feed's length or `updated`). It is how the first baseline is made and
+how the user accepts a change he has looked at; nothing runs it by itself.
 
 list: the rows: each dataset's signals, their addresses and the date their record was read.
 
 Exit codes: 1 when any dataset changed; else 3 when any is not checkable (not counting a first time with --previous);
-else 0; 2 for usage, an unreadable baseline or the tool's own failure.
+else 0; 2 for usage, an unreadable baseline, a --json-out that could not be written (when nothing else made the code)
+or the tool's own failure.
 
 Requests: a HEAD for a File (never a GET: no data file is ever downloaded), a GET for a Feed or a Listing (read up to
-MAX_BODY), one at a time, each at least REQUEST_PAUSE after the previous answer from the same host, TIMEOUT seconds at
-most, only https, with the tool's User-Agent and nothing else of the machine (no cookies, no proxy: it connects
-directly). The output holds only provider addresses and the facts above; an error is named by its kind, never its
-text. It never recuts, never adopts by itself and writes nothing but the baseline (adopt) and --json-out.
+MAX_BODY), one at a time, each at least REQUEST_PAUSE after the previous answer (or failure) from the same host,
+TIMEOUT seconds at most a socket wait, none started (and no body read on) after RUN_SECONDS of the run, only https,
+with the tool's User-Agent and nothing else of the machine (no cookies, no proxy: it connects directly). The output
+holds only provider addresses and the facts above; a request's error is named by its kind, a reader's by its kind and
+a short text of the parser's. It never recuts, never adopts by itself and writes nothing but the baseline (adopt) and
+--json-out.
 
 A scheduler runs `check --previous <the last run's result> --json-out <this run's result>` and keeps the result for the
 next run: exit 1 means a provider changed something (the user looks: a new edition or `adopt`, docs/mirror-hosting/
@@ -92,16 +102,20 @@ from typing import ClassVar, Dict, List, Optional, Tuple
 AGENT = "Find-a-Line/0.1 (highline finder; mirror watch)"
 REQUEST_PAUSE = 1.5      # seconds between an answer and the next request to the same host
 TIMEOUT = 60             # seconds a socket may wait
+RUN_SECONDS = 600        # a run's time: no request started, no body read on after it (the job allows 15 min)
 MAX_BODY = 20_000_000    # bytes of a page, feed or record read at most; a larger answer is not checkable
+CHUNK = 1 << 16          # bytes of a body read at a time (the run's time checked between them)
 SCHEMES = {"https"}      # the only scheme asked (the tests' local server adds http)
+HTML_TYPES = ("text/html", "application/xhtml+xml")   # a File answered by a page: not the file
 BASELINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mirror_watch.json")
 FORMAT = 1               # of the --json result
 ATOM = "{http://www.w3.org/2005/Atom}"
 EXIT_SAME, EXIT_CHANGED, EXIT_USAGE, EXIT_NOT_CHECKABLE = 0, 1, 2, 3
 DEFAULT_PORTS = {"https": 443, "http": 80}
 STAMP = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+DIGITS = re.compile(r"[0-9]+")
 
-_clock = time.monotonic  # the pacing's clock
+_clock = time.monotonic  # the pacing's and the run's clock
 _wait = time.sleep
 
 
@@ -150,23 +164,26 @@ HOW = {"file": (), "feed": ("entries",), "listing": ("patterns",)}
 META = ("kind", "url", "read")
 
 # The providers. Slovakia: ÚGKK SR's national ZIPs of DMR 5.0 and DMP 1.0 (tools/sk_tiles.py) and its provision page
-# of the LLS products, whose .zip links already list the second cycle's lots (DMR 6.0, DMP 2.0): a new lot or a
-# national second-cycle ZIP is the successor
+# of the LLS products: its data ZIPs, the lots of the second cycle (DMR 6.0, DMP 2.0) and the national models; a new
+# lot or a national second-cycle ZIP is the successor. Left out: the footprint archives (LLS/Footprints/), the
+# overview archives (on www.skgeodesy.sk) and the INSPIRE copies of the same models in ETRS89 (static/INSPIRE/)
 _SK = "https://opendata.skgeodesy.sk/static/LLS/"
 DMR5 = File(_SK + "DMR5/DMR5_0_sjtsk03_bpv.zip")
 DMP1 = File(_SK + "DMP1/DMP1_0_sjtsk03_bpv.zip")
 SK_PAGE = Listing("https://www.skgeodesy.sk/geoportal/zbgis/lls/poskytovanie/",
-                  (r"""href=["'](https://opendata\.skgeodesy\.sk/static/LLS/[^"']+\.zip)["']""",),
+                  (r"""href=["'](https://opendata\.skgeodesy\.sk/static/LLS/(?!Footprints/)[^"']+\.zip)["']""",),
                   "skgeodesy LLS provision page")
 # Madeira: DROTe's two ZIPs (2 m of Madeira; 5 m of the other islands, one file for three datasets) and the SNIG
-# record abba9a83 that lists both: its dates and its links
+# record abba9a83 that lists both: its dates and its download links (a CI_OnlineResource of a WWW:DOWNLOAD protocol);
+# its contact, organisation, viewer and WMS links are left out
 _IRIG = "https://irig-storage.madeira.gov.pt/irig-catalogo/"
 MDT_2M = File(_IRIG + "MDT_2m.zip")
 MDT_5M = File(_IRIG + "mdt_5m.zip")
 SNIG = Listing("https://snig.dgterritorio.gov.pt/rndg/srv/api/records/abba9a83-cb1c-4d2c-ad1d-ccb592247754"
                "/formatters/xml",
                (r"<gco:Date>([^<]+)</gco:Date>", r"<gco:DateTime>([^<]+)</gco:DateTime>",
-                r"<gmd:URL>([^<]+)</gmd:URL>"),
+                r"(?s)<gmd:URL>([^<]+)</gmd:URL>\s*</gmd:linkage>\s*<gmd:protocol>\s*"
+                r"<gco:CharacterString>WWW:DOWNLOAD[^<]*</gco:CharacterString>"),
                "SNIG record abba9a83")
 # Valle d'Aosta: the region's one ZIP of the DTM 2005/2008 and its geoportal's page of DTM products (the download
 # keys `carta=` and the products' information sheets); the download folder itself answers 403
@@ -245,6 +262,12 @@ def _plain(url: str) -> str:
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
+def _number(text) -> Optional[int]:
+    """A whole number written in ASCII digits only (never "²", which str.isdigit takes), else None."""
+    text = (text or "").strip()
+    return int(text) if DIGITS.fullmatch(text) else None
+
+
 @dataclasses.dataclass
 class Answer:
     status: int
@@ -254,7 +277,8 @@ class Answer:
 
 class Http:
     """One opener without redirects, cookies or a proxy; one request at a time, at least REQUEST_PAUSE after the
-    previous answer from the same host; each (method, address) asked once a run (its answer or its failure kept)."""
+    previous answer (or failure) from the same host; each (method, address) asked once a run (its answer or its
+    failure kept); nothing asked or read on after RUN_SECONDS from its making."""
 
     def __init__(self):
         self.opener = urllib.request.OpenerDirector()
@@ -263,6 +287,7 @@ class Http:
             self.opener.add_handler(handler)
         self.last: Dict[str, float] = {}
         self.memo: Dict[Tuple[str, str], object] = {}
+        self.deadline = _clock() + RUN_SECONDS
 
     def ask(self, method: str, url: str) -> Answer:
         """The 200 answer to the request; NotCheckable otherwise."""
@@ -277,13 +302,19 @@ class Http:
             raise found
         return found
 
+    def _time_up(self) -> None:
+        if _clock() > self.deadline:
+            raise NotCheckable("the run's time was up")
+
     def _ask(self, method: str, url: str) -> Answer:
         scheme, host = _host(url)
         if scheme not in SCHEMES:
             raise NotCheckable(f"an address on {scheme or 'no scheme'}: refused (only {', '.join(sorted(SCHEMES))})")
+        self._time_up()
         pause = REQUEST_PAUSE - (_clock() - self.last.get(host, -1e9))
         if pause > 0:
             _wait(pause)
+        self._time_up()
         request = urllib.request.Request(url, method=method, headers={"User-Agent": AGENT})
         try:
             try:
@@ -296,7 +327,7 @@ class Http:
                     where = headers.get("Location") if 300 <= status < 400 else None
                     target = f" (a redirect to {_plain(urllib.parse.urljoin(url, where))})" if where else ""
                     raise NotCheckable(f"HTTP {status}{target}")
-                body = answer.read(MAX_BODY + 1) if method == "GET" else None
+                body = self._body(answer, headers) if method == "GET" else None
         except urllib.error.URLError as error:
             reason = error.reason
             raise NotCheckable("no answer (%s)" % (type(reason).__name__ if isinstance(reason, BaseException)
@@ -307,12 +338,29 @@ class Http:
             raise NotCheckable("a broken answer (%s)" % type(error).__name__) from None
         finally:
             self.last[host] = _clock()
-        if body is not None and len(body) > MAX_BODY:
-            raise NotCheckable(f"the answer is larger than {MAX_BODY} bytes")
         return Answer(status, headers, body)
 
+    def _body(self, answer, headers) -> bytes:
+        """The whole body, read a CHUNK at a time (one socket read each, the run's time checked between them); an
+        answer larger than MAX_BODY or shorter than its Content-Length (the connection closed early: http.client
+        returns the short body without an error) is not checkable."""
+        chunks, size = [], 0
+        while size <= MAX_BODY:
+            self._time_up()
+            chunk = answer.read1(CHUNK)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+        if size > MAX_BODY:
+            raise NotCheckable(f"the answer is larger than {MAX_BODY} bytes")
+        declared = _number(headers.get("Content-Length"))
+        if declared is not None and declared != size:
+            raise NotCheckable(f"an answer cut short ({size} of {declared} bytes)")
+        return b"".join(chunks)
 
-# Reading a signal: its facts, or NotCheckable
+
+# Reading a signal: its facts (None for a piece the answer lacks), or NotCheckable
 
 def _short(text: str) -> str:
     """The last part of an address or id, for the output."""
@@ -321,13 +369,16 @@ def _short(text: str) -> str:
 
 def read_file(http: Http, signal: File) -> Dict:
     headers = http.ask("HEAD", signal.url).headers
-    size = (headers.get("Content-Length") or "").strip()
-    if not size.isdigit():
-        raise NotCheckable("no size: the answer has no Content-Length")
-    return {"size": int(size), "last_modified": headers.get("Last-Modified"), "etag": headers.get("ETag")}
+    kind = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    if kind in HTML_TYPES:
+        raise NotCheckable("an HTML page instead of the file")
+    return {"size": _number(headers.get("Content-Length")), "last_modified": headers.get("Last-Modified"),
+            "etag": headers.get("ETag")}
 
 
 def read_feed(http: Http, signal: Feed) -> Dict:
+    """The matching entries' `updated` and their enclosures' lengths (None where an entry has no readable <updated>
+    or an enclosure no readable length); "unaddressed": the entries with an enclosure without an address."""
     body = http.ask("GET", signal.url).body
     try:
         root = ET.fromstring(body)
@@ -336,27 +387,25 @@ def read_feed(http: Http, signal: Feed) -> Dict:
     if root.tag != ATOM + "feed":
         raise NotCheckable("not an ATOM feed")
     pattern = re.compile(signal.entries)
-    updated, lengths = {}, {}
+    updated, lengths, unaddressed = {}, {}, []
     for entry in root.findall(ATOM + "entry"):
         entry_id = (entry.findtext(ATOM + "id") or "").strip()
         if not pattern.search(entry_id):
             continue
-        when = (entry.findtext(ATOM + "updated") or "").strip()
-        if not when:
-            raise NotCheckable(f"entry {_short(entry_id)} has no updated")
-        updated[entry_id] = when
+        updated[entry_id] = (entry.findtext(ATOM + "updated") or "").strip() or None
         for link in entry.findall(ATOM + "link"):
             if link.get("rel") != "enclosure":
                 continue
-            href, length = (link.get("href") or "").strip(), (link.get("length") or "").strip()
-            if not href or not length.isdigit():
-                raise NotCheckable(f"an enclosure of entry {_short(entry_id)} without an address or a length")
-            lengths[href] = int(length)
+            href = (link.get("href") or "").strip()
+            if href:
+                lengths[href] = _number(link.get("length"))
+            else:
+                unaddressed.append(entry_id)
     if not updated:
         raise NotCheckable("no entry matches")
     if not lengths:
         raise NotCheckable("no enclosure in the matching entries")
-    return {"updated": updated, "lengths": lengths}
+    return {"updated": updated, "lengths": lengths, "unaddressed": unaddressed}
 
 
 def _text(answer: Answer) -> str:
@@ -390,11 +439,25 @@ READERS = {"file": read_file, "feed": read_feed, "listing": read_listing}
 
 
 def read(http: Http, signal):
-    """(facts, None) or (None, why)."""
+    """(facts, None) or (None, why). Any failure of a reader is that signal's, never the run's."""
     try:
         return READERS[signal.kind](http, signal), None
     except NotCheckable as failed:
         return None, str(failed)
+    except Exception as error:  # an encoding XML does not know, a value int() refuses, ...
+        text = " ".join(str(error).split())[:80]
+        return None, f"a broken answer ({type(error).__name__}{': ' + text if text else ''})"
+
+
+def lacking(signal, facts: Dict) -> List[str]:
+    """What a record would need and the answer lacks: adopt refuses it."""
+    if signal.kind == "file":
+        return [] if facts["size"] is not None else ["no size: the answer has no Content-Length"]
+    if signal.kind == "feed":
+        return ([f"entry {_short(k)} has no updated" for k, v in facts["updated"].items() if v is None]
+                + [f"{_short(k)} has no length" for k, v in facts["lengths"].items() if v is None]
+                + [f"an enclosure of entry {_short(k)} has no address" for k in facts["unaddressed"]])
+    return []
 
 
 def record_of(signal, facts: Dict, day: str) -> Dict:
@@ -416,28 +479,47 @@ def read_another_way(signal, record: Dict) -> bool:
 # Comparing
 
 LABELS = {"size": "size", "etag": "ETag", "last_modified": "Last-Modified"}
+ABSENT = {"size": "Content-Length", "etag": "ETag", "last_modified": "Last-Modified"}
+PIECES = {"updated": ("entry {} updated", "updated of entry {}"), "lengths": ("{} length", "length of {}")}
 
 
-def compare(signal, base: Dict, now: Dict) -> Tuple[List[str], List[Tuple[str, object]]]:
+def _tag(etag: str) -> str:
+    """An ETag without its weak mark: W/"x" and "x" name one version."""
+    return etag[2:] if etag.startswith("W/") else etag
+
+
+def compare(signal, base: Dict, now: Dict) -> Tuple[List[str], List[Tuple[str, str, object]]]:
     """(changes, missing) of a signal's facts now against its record: each change as "<what>: <from> -> <to>", each
-    missing field (a File's, in the record and not in the answer) as (its label, its recorded value)."""
+    piece the record has and the answer lacks as (what the answer has not, what it is, the recorded value; None when
+    there is none to name)."""
     name, changes, missing = name_of(signal), [], []
     if signal.kind == "file":
         for field in ("size", "etag", "last_modified"):
-            before, after = base.get(field), now.get(field)
-            if before is None:
+            before, after, what = base.get(field), now.get(field), f"{name} {LABELS[field]}"
+            if before is None and after is None:
                 continue
-            if after is None:
-                missing.append((LABELS[field], before))
-            elif after != before:
-                changes.append(f"{name} {LABELS[field]}: {before} -> {after}")
+            if before is None:
+                changes.append(f"{what}: none -> {after} (a new field)")
+            elif after is None:
+                missing.append((ABSENT[field], what, before))
+            elif (_tag(after) != _tag(before)) if field == "etag" else (after != before):
+                changes.append(f"{what}: {before} -> {after}")
     elif signal.kind == "feed":
-        for field, what in (("updated", "entry {} updated"), ("lengths", "{} length")):
+        for field, (shown, absent) in PIECES.items():
             before, after = base.get(field) or {}, now.get(field) or {}
             for key in sorted(set(before) | set(after)):
-                if before.get(key) != after.get(key):
-                    changes.append(f"{name} {what.format(_short(key))}: {before.get(key, 'new')} -> "
-                                   f"{after.get(key, 'gone')}")
+                what = f"{name} {shown.format(_short(key))}"
+                if key not in after:
+                    changes.append(f"{what}: {before[key]} -> gone")
+                elif key not in before:
+                    changes.append(f"{what}: new -> {'none' if after[key] is None else after[key]}")
+                elif after[key] is None:
+                    missing.append((absent.format(_short(key)), what, before[key]))
+                elif after[key] != before[key]:
+                    changes.append(f"{what}: {before[key]} -> {after[key]}")
+        for entry_id in now.get("unaddressed") or ():
+            missing.append((f"address of an enclosure of entry {_short(entry_id)}",
+                            f"{name} an enclosure of entry {_short(entry_id)}", None))
     else:
         before, after = set(base.get("items") or ()), set(now.get("items") or ())
         changes += [f"{name} added: {item}" for item in sorted(after - before)]
@@ -445,8 +527,9 @@ def compare(signal, base: Dict, now: Dict) -> Tuple[List[str], List[Tuple[str, o
     return changes, missing
 
 
-def _gone(signal, missing) -> List[str]:
-    return [f"{name_of(signal)} {label}: {before} -> none" for label, before in missing]
+def _gone(missing) -> List[str]:
+    """The missing pieces beside a change."""
+    return [f"{what}: {before} -> none" if before is not None else f"{what}: unreadable" for _, what, before in missing]
 
 
 @dataclasses.dataclass
@@ -469,10 +552,10 @@ def judge(signal, record: Optional[Dict], facts: Optional[Dict], why: Optional[s
     if read_another_way(signal, record):
         return SignalResult(signal, facts, [], "the baseline was read another way (run adopt)")
     changes, missing = compare(signal, record, facts)
-    if changes:  # the file changed: a field it lacks now is one more difference
-        return SignalResult(signal, facts, changes + _gone(signal, missing), None)
+    if changes:  # something readable differs: the missing pieces are said beside it
+        return SignalResult(signal, facts, changes + _gone(missing), None)
     if missing:
-        return SignalResult(signal, facts, [], "the answer has no " + ", ".join(label for label, _ in missing))
+        return SignalResult(signal, facts, [], "the answer has no " + ", ".join(absent for absent, _, _ in missing))
     return SignalResult(signal, facts, [], None)
 
 
@@ -618,8 +701,6 @@ def run_check(names, baseline: str, previous_path: Optional[str] = None) -> Dict
 
 def check(args) -> int:
     result = run_check(args.datasets, args.baseline, args.previous)
-    if args.json_out:
-        _write_json(args.json_out, result)
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
@@ -627,7 +708,14 @@ def check(args) -> int:
             print("previous run: " + result["previous"])
         for row in result["datasets"].values():
             print(row["line"])
-    return result["exit"]
+    code = result["exit"]
+    if args.json_out:  # after the lines: a failed write never loses them
+        try:
+            _write_json(args.json_out, result)
+        except OSError as error:
+            print(f"the result file: not written ({type(error).__name__})", file=sys.stderr if args.json else None)
+            code = code or EXIT_USAGE
+    return code
 
 
 def adopt(args) -> int:
@@ -636,7 +724,10 @@ def adopt(args) -> int:
     http = Http()
     signals = signals_of(datasets)
     read_now = {key_of(s): read(http, s) for s in signals}
-    refused = [(s, read_now[key_of(s)][1]) for s in signals if read_now[key_of(s)][1] is not None]
+    refused = []
+    for signal in signals:
+        facts, why = read_now[key_of(signal)]
+        refused += [(signal, why)] if why is not None else [(signal, w) for w in lacking(signal, facts)]
     if refused:
         print("not adopted, the baseline left as it was:")
         for signal, why in refused:
@@ -652,7 +743,7 @@ def adopt(args) -> int:
             said = f"{name_of(signal)}: read another way before: replaced"
         else:
             changes, missing = compare(signal, old, facts)
-            said = "; ".join(changes + _gone(signal, missing)) or f"{name_of(signal)}: same"
+            said = "; ".join(changes + _gone(missing)) or f"{name_of(signal)}: same"
         others = [d for d in sharing(signal) if d not in datasets]
         print(said + (f" (also the baseline of {', '.join(others)})" if others else ""))
         records[key] = record_of(signal, facts, day)
