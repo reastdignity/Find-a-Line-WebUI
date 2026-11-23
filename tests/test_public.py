@@ -470,6 +470,8 @@ def test_signup_modes_and_login_rate(tmp_path, settings, account_settings, provi
     with TestClient(_public_app(tmp_path / "open", settings, open_, providers), base_url=URL) as client:
         page = client.get("/").text
         assert "waits for an administrator" not in page and "no e-mail address" in page
+        failed = client.get("/auth/github?code=x&state=y")  # a sign-in that fails (no state in the cookie)
+        assert failed.status_code == 400 and "waits for an administrator" not in failed.text
         sign_in(client, providers, {"id": 3, "login": "carol"})
         assert client.get("/api/jobs").status_code == 200
         sign_in(client, providers, {"id": 4, "login": "dave"})

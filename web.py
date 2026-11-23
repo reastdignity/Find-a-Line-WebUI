@@ -1174,7 +1174,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             return HTMLResponse(signin_page(accounts.providers, note=messages.text("page.signin.closed")), 403)
         except (OAuthError, JoseError, ValueError, KeyError, httpx2.HTTPError) as e:  # the ID token's checks: JoseError
             request.session.clear()
-            return HTMLResponse(signin_page(accounts.providers,
+            return HTMLResponse(signin_page(accounts.providers, signup=accounts.signup,
                                             note=messages.text("page.signin.failed", error=type(e).__name__)), 400)
         next_path = ac.local_path(request.session.get("next"))
         request.session.clear()

@@ -520,7 +520,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
 `google:<sub>`, `microsoft:<sub>`. Google and Microsoft show the `sub` nowhere (Microsoft's is
 made for this app alone): start the site with GitHub as administrator (or with
 `FINDALINE_ADMINS` empty), sign in with Google or Microsoft once (the account waits for
-approval), and read it:
+approval, unless `FINDALINE_SIGNUP=open`), and read it:
 
 ```sh
 docker compose exec web python -c "
@@ -842,7 +842,8 @@ so (section 5).
    `docker inspect -f '{{.State.OOMKilled}}' findaline-worker-1` says `false` and the search
    finished (the search sizes its tiles from the container's memory limit).
 7. **Sign-in** with the real GitHub app (and Google, Microsoft): the account of an administrator lands in
-   the app, another one on *waiting for approval*; approve it in *Admin*.
+   the app, another one on *waiting for approval*; approve it in *Admin* (with `FINDALINE_SIGNUP=open` it lands
+   in the app at once, and the sign-in page does not mention a wait).
 8. **The firewall test** of section 2, and a **restore test** of section 11.
 9. **The monitoring**: the checks of section 15.
 10. **The visitors' real addresses**: open the site from a phone on mobile data, look up the
