@@ -946,6 +946,9 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     scheduler = Scheduler(jobs, limits=limits, warm_up=warm_up)  # warm_up: numba's (jobs.warm_up_wanted)
     users = ac.Accounts(data_dir, accounts) if public else None
     audit = Audit(data_dir) if public else None  # the local app keeps no audit log
+    for approved in (users.approved_at_start if users else []):  # FINDALINE_SIGNUP=open approved them (accounts.py):
+        # logged at once, before anything else of the start can fail and leave them unlogged
+        audit.log("user_status", None, str(approved), {"status": "approved", "was": "pending", "signup": "open"})
     quick_answers = dict.fromkeys(QUICK_RESULTS, 0)  # waits for the quick lane by result, since the start
     quick_lock = threading.Lock()
     route_counts = RouteCounts()  # requests per route, since the start (metrics.py)
@@ -967,9 +970,6 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         an async endpoint call it in the thread pool."""
         if audit is not None:
             audit.log(action, user.id if user else None, None if target is None else str(target), detail)
-
-    for approved in (users.approved_at_start if users else []):  # FINDALINE_SIGNUP=open approved them (accounts.py)
-        record("user_status", None, approved, {"status": "approved", "was": "pending", "signup": "open"})
 
     refusals: Dict[tuple, list] = {}  # (user id, kind) -> [start of its window, refusals not recorded]
     refusals_lock = threading.Lock()
