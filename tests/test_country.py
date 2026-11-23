@@ -256,7 +256,8 @@ def test_resume(env, full):
 
 def test_only_a_cubes_first_start_renews(env, monkeypatch):
     """The index is asked again (country._renew, sources/renewal.py) before the cube's first tile only: a run that
-    resumes does not renew (one cube, one state of the data), --redo starts the cube anew and does."""
+    resumes does not renew (one cube, one state of the data), --redo starts the cube anew and does; --max-tiles 0
+    (nothing will be counted) does not."""
     import country
     calls = []
     monkeypatch.setattr(country, "_renew", lambda c, plans, folder, state, say: calls.append(sorted(plans)))
@@ -267,7 +268,48 @@ def test_only_a_cubes_first_start_renews(env, monkeypatch):
     assert _country(*run, "--max-tiles", "1") == 0
     assert len(calls) == 1
     assert _country(*run, "--max-tiles", "0", "--redo") == 0
+    assert len(calls) == 1
+    assert _country(*run, "--max-tiles", "1", "--redo") == 0
     assert len(calls) == 2
+
+
+def test_a_cube_renews_after_its_start_question(env, monkeypatch):
+    """The user's answer of 2026-11-23 ("After "yes""): the renewal comes after the "Start?" question and before the
+    prefetch; a "no" asks nothing and writes no index_renewed; the line next to the estimate says the index is asked
+    again after the start; with --yes it renews where the question would have been answered."""
+    import country
+    from sources import renewal
+    events = []
+    monkeypatch.setattr(renewal, "renewing", lambda layers: [layer for layer in layers if layer is not None])
+    monkeypatch.setattr(renewal, "renew", lambda layers, grid, cache_dir, say, asked: (
+        events.append("renew"), renewal.Renewal(asked=1))[1])
+    prefetch = country._prefetch
+    monkeypatch.setattr(country, "_prefetch", lambda *a, **k: (events.append("prefetch"), prefetch(*a, **k))[1])
+    data = _data_dir(env, "after-yes")
+    folder = os.path.join(data, "countries", ID)
+    answer = {"yes": False}
+
+    def ask(question):
+        with open(os.path.join(folder, "logs", "run.log"), encoding="utf-8") as f:
+            said = f.read()
+        events.append("question" if "after the start the index is asked again" in said else "question, no line")
+        return answer["yes"]
+    monkeypatch.setattr(country, "_ask", ask)
+    run = ["run", ID, "--data-dir", data, "--processes", "0", "--bands", "S", "--max-tiles", "1"]
+    assert _country(*run) == 1
+    assert events == ["question"]
+    with open(os.path.join(folder, "country.json"), encoding="utf-8") as f:
+        assert "index_renewed" not in json.load(f)
+    answer["yes"] = True
+    events.clear()
+    assert _country(*run) == 0
+    assert events[0] == "question" and events[-1] == "prefetch" and set(events[1:-1]) == {"renew"}
+    with open(os.path.join(folder, "country.json"), encoding="utf-8") as f:
+        assert json.load(f)["index_renewed"]["renewals"]
+    events.clear()
+    monkeypatch.setattr(country, "_ask", lambda question: events.append("asked") or True)
+    assert _country(*run, "--yes", "--redo") == 0
+    assert events[-1] == "prefetch" and set(events[:-1]) == {"renew"}
 
 
 def test_two_processes(env, full):
