@@ -125,12 +125,16 @@ def test_layers_box_is_a_disclosure(site):
         r = page.evaluate(f"() => {{ const b = document.querySelector('{BOX} .leaflet-control-layers-toggle').getBoundingClientRect();"
                           " return [b.left + b.width / 2, b.top + b.height / 2]; }")
         before = page.evaluate(STATE)["base"]
+        # every click inside the box, and whether the box kept it from its row (the guard: Leaflet's preventDefault)
+        page.evaluate("() => { window.G6_CLICKS = []; document.addEventListener('click', (e) => { if (e.target.closest?.('.leaflet-control-layers-list'))"
+                      " G6_CLICKS.push(e.defaultPrevented); }); }")
         page.touchscreen.tap(*r)
         page.wait_for_timeout(150)
         page.touchscreen.tap(*r)  # where the button stood: the box's row now lies there
         page.evaluate(FRAMES)
         after = page.evaluate(STATE)
-        assert after["open"] and after["base"] == before, (before, after)
+        clicks = page.evaluate("() => G6_CLICKS")
+        assert after["open"] and after["base"] == before and clicks and all(clicks), (before, after, clicks)
     finally:
         page.context.close()
 
@@ -155,6 +159,11 @@ def test_map_ring_inside_its_box_and_layers_computed(site):
         pressed = page.evaluate("() => { const m = document.querySelector('.c-placemap'), s = getComputedStyle(m);"
                                 " return [document.activeElement === m, s.outlineStyle, s.boxShadow]; }")
         assert pressed[1:] == ["none", "none"], pressed
+        marked = page.evaluate("() => document.querySelector('.c-placemap').classList.contains('u-map-pressed')")
+        page.keyboard.press("Shift")  # a key: the mark goes, the ring comes back while the box keeps the focus
+        back = page.evaluate("() => [document.querySelector('.c-placemap').classList.contains('u-map-pressed'),"
+                             " getComputedStyle(document.querySelector('.c-placemap')).outlineStyle]")
+        assert pressed[0] and marked and back == [False, "solid" if page.evaluate("() => document.querySelector('.c-placemap').matches(':focus-visible')") else "none"], (pressed, marked, back)
         z = page.evaluate("""() => { const root = document.createElement('div'); root.className = 'ui';
           root.innerHTML = '<div class="v-result c-result-phone"><div class="c-phone-top"></div>'
             + '<div class="c-col-map"><div class="v-map"><div class="v-switch"></div><div class="v-toast"></div><div class="v-over"></div></div></div>'

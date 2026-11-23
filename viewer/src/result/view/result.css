@@ -50,7 +50,7 @@
 .ui .r-summary-count { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 /* A run made with the square rule: "… found. Why so many?" and its box (ResultSummary's WhyBox) */
 .ui .r-found-line { margin: -4px 0 0; color: var(--muted); }
-.ui .r-why-link { font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
+/* .r-why-link: a hook beside the kit's .u-link.u-inline (its look the kit's: step 3d G6) */
 .ui .r-why { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 10px 12px; border: 1px solid var(--rule);
   border-radius: 10px; background: var(--surface-2); }
 .ui .r-why-head { display: flex; align-items: center; gap: 8px; font: 600 16px/1.2 var(--display); margin-right: -4px; }

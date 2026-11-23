@@ -27,7 +27,8 @@
 .ui .v-result .u-btn { min-height: 32px; padding: 0 12px; border-color: var(--line); font-size: var(--fs-3); }
 .ui .v-result .u-btn:hover, .ui .v-result .u-btn.u-ghost:hover { background: var(--hover); }
 .ui .v-result .u-ib { width: 32px; height: 32px; border-color: var(--line); }
-.ui .v-result .u-ib.u-x { width: 24px; height: 24px; }  /* a close: the kit's 24 px (44 px on touch, below) */
+.ui .v-result .u-ib.u-x { width: 24px; height: 24px; border-color: transparent; background: transparent; }  /* a close: the kit's (44 px on touch, below) */
+.ui .v-result .u-ib.u-x:hover { background: var(--hover); }
 .ui .v-result .u-ib:hover { background: var(--hover); }
 .ui .v-result .u-ib.u-plain { border-color: transparent; background: transparent; }
 .ui .v-result .u-ib.u-plain:hover { background: var(--hover); }
