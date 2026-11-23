@@ -90,15 +90,17 @@ def test_web_process_writes_the_map_page_without_mapping(tmp_path):
 
 # --- The name rule (runs.run_name) ---
 
-@pytest.mark.parametrize("value", [None, 5, ["a"], {"name": "a"}, b"bytes", "", " ", " \t ", "　",
+@pytest.mark.parametrize("value", [None, 5, ["a"], {"name": "a"}, b"bytes", "", " ", " \t ", "\u3000",
                                    "x" * 101, " " + "y" * 101 + " ", "a\x00b", "a\nb", "a\tb", "a\x7fb", "a\x85b",
-                                   "a‮b", "‭ab", "a​b", "a‍b", "a﻿b", "a b", "a b",
-                                   "ab", "a\ud800b", "a͸b", "a\U000e0001b"],
+                                   "a\u202eb", "\u202dab", "a\u200bb", "a\ufeffb", "a\u2028b", "a\u2029b",
+                                   "\u200c", "\u200d\u200c", " \u200d ", "\u0301", "\u0301\u0302\u0303",
+                                   "\u034f", "\u034f \u200c", "a\ue000b", "a\ud800b", "a\u0378b", "a\U000e0001b"],
                          ids=repr)
 def test_names_refused(value):
-    """Not a string, empty after trimming, longer than params.MAX_NAME, or holding a character of a category "C*"
-    (control, format: bidi and zero-width marks, surrogate, private use, unassigned) or "Zl"/"Zp": a coded error
-    "run_name" with the limit, whose web text comes from the catalogue and never holds the name."""
+    """Not a string, empty after trimming, longer than params.MAX_NAME, holding a character of a category "C*"
+    (control, format: bidi and zero-width marks, surrogate, private use, unassigned; not the two joiners) or "Zl"/"Zp",
+    or with no visible character (joiners, combining marks or U+034F only): a coded error "run_name" with the limit,
+    whose web text comes from the catalogue and never holds the name."""
     import messages
     with pytest.raises(UserError) as refused:
         rn.run_name(value)
@@ -110,11 +112,17 @@ def test_names_refused(value):
 
 
 @pytest.mark.parametrize("value, stored", [
-    ("Żabi Koń", "Żabi Koń"), ("  New   name  ", "New name"), ("étude", "étude"),
-    ("a  b", "a b"), ("x" * 100, "x" * 100), ("  " + "z" * 100 + "  ", "z" * 100),
-    ('<b>A & "q"</b>', '<b>A & "q"</b>'), ("1", "1")], ids=repr)
+    ("Żabi Koń", "Żabi Koń"), ("  New   name  ", "New name"), ("e\u0301tude", "\u00e9tude"),
+    ("a\u00a0\u2003b", "a b"), ("x" * 100, "x" * 100), ("  " + "z" * 100 + "  ", "z" * 100),
+    ('<b>A & "q"</b>', '<b>A & "q"</b>'), ("1", "1"),
+    ("\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645", "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645"),
+    ("\U0001f468\u200d\U0001f469\u200d\U0001f467", "\U0001f468\u200d\U0001f469\u200d\U0001f467"),
+    ("\U0001f3f3\ufe0f\u200d\U0001f308", "\U0001f3f3\ufe0f\u200d\U0001f308"), ("a\u0301", "\u00e1"),
+    ("\u3164", "\u3164"), ("\u2800", "\u2800")], ids=repr)
 def test_names_as_stored(value, stored):
-    """NFC, the runs of (Unicode) whitespace one space, trimmed, 1 to 100 characters after that."""
+    """NFC, the runs of (Unicode) whitespace one space, trimmed, 1 to 100 characters after that; a word with ZWNJ
+    (Persian) and joined emoji (ZWJ) as given; a letter or symbol that draws nothing (U+3164, U+2800) passes, a
+    known limit (the planner's decision, 2026-11-23)."""
     assert rn.run_name(value) == stored
     assert unicodedata.is_normalized("NFC", rn.run_name(value))
 
@@ -220,26 +228,47 @@ def test_rename_leaves_what_it_does_not_know(saved):
         rn.rename_run(str(runs_dir), "no-such-run", "Third")
 
 
+@pytest.mark.parametrize("missing", ["name", "id"])
+def test_rename_checks_run_json_before_it_writes(saved, missing):
+    """A run.json without what the files need (a string name, the id map_page reads) is a KeyError before any file
+    is written: ATTRIBUTION.txt, whose first line names the old name and would be rewritten, keeps its bytes too."""
+    runs_dir, run_id, before = saved
+    folder = runs_dir / run_id
+    meta = json.loads(before["run.json"])
+    assert before["ATTRIBUTION.txt"].splitlines()[0] == _attribution_head(meta)
+    if missing == "name":
+        meta["name"] = 5  # not a string
+    else:
+        del meta["id"]
+    (folder / "run.json").write_text(json.dumps(meta), "utf-8")
+    files = _files(folder)
+    with pytest.raises(KeyError):
+        rn.rename_run(str(runs_dir), run_id, "New")
+    assert _files(folder) == files
+
+
 @pytest.mark.parametrize("failing", ["ATTRIBUTION.txt", "map.html", "run.json"])
 def test_a_failed_rename_keeps_the_old_name(saved, failing):
     """A file that cannot be replaced (OSError: on Windows one held open) stops the rename: run.json keeps the old
     name, so every list shows it; a second rename to the same name repairs the files written before the failure.
-    No temporary file is left."""
+    The move over the file fails after its temporary file is written: none is left."""
     runs_dir, run_id, before = saved
     folder = runs_dir / run_id
     old = json.loads(before["run.json"])["name"]
-    real = cache.replacing
+    real = os.replace
+    parts = []
 
-    @contextlib.contextmanager
-    def refusing(path, *args, **kwargs):
-        if os.path.basename(path) == failing:
-            raise PermissionError(13, "held by another process", path)
-        with real(path, *args, **kwargs) as f:
-            yield f
+    def refusing(source, target, *args, **kwargs):
+        if os.path.basename(target) == failing:
+            parts.append(source)
+            assert os.path.isfile(source) and source.endswith(".part")  # written: the clean-up's to remove it
+            raise PermissionError(13, "held by another process", target)
+        return real(source, target, *args, **kwargs)
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(cache, "replacing", refusing)
+        patch.setattr(os, "replace", refusing)
         with pytest.raises(OSError):
             rn.rename_run(str(runs_dir), run_id, "New")
+    assert len(parts) == 1 and not os.path.exists(parts[0])
     after = _files(folder)
     assert after["run.json"] == before["run.json"] and [r["name"] for r in rn.list_runs(str(runs_dir))] == [old]
     written = ["ATTRIBUTION.txt", "map.html", "run.json"]
@@ -286,7 +315,7 @@ def test_rename_through_the_site(run_people, tmp_path):
     assert mark(a, RUN_A, LINE).status_code == 200
     row = run_people["jobs"].run(RUN_A)
 
-    answer = a.post(f"/api/runs/{RUN_A}", json={"name": "  Sunny   édge <b>&\"q\"  "})
+    answer = a.post(f"/api/runs/{RUN_A}", json={"name": "  Sunny   e\u0301dge <b>&\"q\"  "})
     name = "Sunny édge <b>&\"q\""
     assert answer.status_code == 200 and answer.json() == {"ok": True, "name": name}
     meta = json.loads((folder / "run.json").read_text("utf-8"))
@@ -340,8 +369,8 @@ def test_rename_refused(run_people, tmp_path, monkeypatch):
         assert run_people[who].post(f"/api/runs/{RUN_A}", json={"name": "Mine"}).status_code == code, who
     assert a.post(f"/api/runs/{RUN_A}", json={"name": "Mine"}, headers={"origin": "https://evil.example"}) \
         .status_code == 403
-    for body in ({"name": ""}, {"name": "   "}, {"name": "x" * 101}, {"name": "a\x01b"}, {"name": "a‮b"},
-                 {"name": "a​b"}, {"name": 5}, {"name": None}, {}, {"title": "x"}):
+    for body in ({"name": ""}, {"name": "   "}, {"name": "x" * 101}, {"name": "a\x01b"}, {"name": "a\u202eb"},
+                 {"name": "a\u200bb"}, {"name": 5}, {"name": None}, {}, {"title": "x"}):
         refused = a.post(f"/api/runs/{RUN_A}", json=body)
         assert refused.status_code == 400 and refused.json()["detail"] == {
             "message": "Give the run a name of 1 to 100 characters.", "code": "run_name", "params": {"max": 100}}, body
@@ -363,6 +392,51 @@ def test_rename_refused(run_people, tmp_path, monkeypatch):
     assert {r["name"] for r in a.get("/api/runs").json()["runs"]} == {"A's run"}
     (folder / "run.json").unlink()
     assert a.post(f"/api/runs/{RUN_A}", json={"name": "Mine"}).status_code == 404
+    assert not [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "run_rename"]
+
+
+def test_rename_while_the_runs_lock_is_held(run_people, tmp_path, monkeypatch):
+    """The runs lock not had in time (another process holds it: filelock.Timeout, an OSError) answers 409 and
+    changes no file; once it is free the rename goes through. The lock's wait is shortened by its own constant."""
+    import audit
+    from filelock import FileLock
+    a = run_people["a"]
+    runs_dir = tmp_path / "runs"
+    folder = runs_dir / RUN_A
+    _as_saved(folder)
+    before = _files(folder)
+    monkeypatch.setattr(cache, "RUNS_LOCK_SECONDS", 0.2)
+    with FileLock(os.path.join(runs_dir, cache.RUNS_LOCK)):  # another holder (its own handle: the OS lock refuses)
+        in_use = a.post(f"/api/runs/{RUN_A}", json={"name": "Mine"})
+    assert in_use.status_code == 409 and in_use.json()["detail"] == "the run is in use: try again in a moment"
+    assert _files(folder) == before
+    assert not [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "run_rename"]
+    assert a.post(f"/api/runs/{RUN_A}", json={"name": "Mine"}).json() == {"ok": True, "name": "Mine"}
+
+
+def test_rename_of_a_run_being_deleted(run_people, tmp_path, monkeypatch):
+    """A delete that takes the runs lock first parks the run's folder (runs.park_run, as Jobs.delete_run does under
+    the lock); the rename that waited for the lock then finds no run: 404, nothing written into the parked folder,
+    no run folder made again, nothing recorded."""
+    import audit
+    a = run_people["a"]
+    runs_dir = tmp_path / "runs"
+    _as_saved(runs_dir / RUN_A)
+    before = _files(runs_dir / RUN_A)
+    real = cache.runs_lock
+    parked = []
+
+    @contextlib.contextmanager
+    def delete_first(path):
+        with real(path):  # the delete's turn: it parks the folder
+            parked.append(rn.park_run(path, RUN_A))
+        with real(path):  # then the rename's
+            yield
+    monkeypatch.setattr(cache, "runs_lock", delete_first)
+    answer = a.post(f"/api/runs/{RUN_A}", json={"name": "Mine"})
+    monkeypatch.setattr(cache, "runs_lock", real)
+    assert answer.status_code == 404 and parked == [os.path.join(runs_dir, rn.REMOVING + RUN_A)]
+    assert _files(parked[0]) == before and not (runs_dir / RUN_A).exists()
     assert not [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "run_rename"]
 
 

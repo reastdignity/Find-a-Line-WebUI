@@ -406,19 +406,27 @@ def map_page(run: Dict) -> str:
                            run=html.escape(str(run["id"])), notice=html.escape(messages.text("ui.map.disk_notice")))
 
 
+JOINERS = ("\u200c", "\u200d")  # ZWNJ, ZWJ: format characters a name may hold (run_name)
+HIDDEN_CATEGORIES = ("Z", "M", "C")  # first letters of the categories no visible character of a name has
+
+
 def run_name(value) -> str:
     """A run's name as a rename stores it (rename_run; the public site's POST /api/runs/<id>): in Unicode's composed
     form (NFC: a composed and a decomposed spelling are one name), its runs of whitespace collapsed to one space,
-    stripped; 1 to params.MAX_NAME characters. Refused (UserError "run_name"; the error never holds the name): no
-    string, or a string holding a character of a Unicode category starting with "C" (control, format: the bidi and
-    zero-width marks, surrogates, private use, unassigned) or "Zl"/"Zp", checked before the whitespace is collapsed
-    (as jobs.rig_name does), so a tab or a line break is refused, not turned into a space."""
+    stripped; 1 to params.MAX_NAME characters, at least one of them visible (not of HIDDEN_CATEGORIES: not a
+    space, a mark or a format character, so a name of joiners or combining marks only is refused as an empty one;
+    a letter or symbol that draws nothing, U+3164 or U+2800, passes: a known limit). Refused (UserError "run_name";
+    the error never holds the name): no string, or a string holding a character of a Unicode category starting with "C"
+    (control, format: the bidi and zero-width marks, surrogates, private use, unassigned) or "Zl"/"Zp", but for the
+    two joiners of real names (JOINERS: ZWNJ in Persian and Indic words, ZWJ in joined emoji), checked before the
+    whitespace is collapsed (as jobs.rig_name does), so a tab or a line break is refused, not turned into a space."""
     from messages import UserError
     from params import MAX_NAME
-    if isinstance(value, str) and not any(unicodedata.category(c)[0] == "C" or unicodedata.category(c) in ("Zl", "Zp")
+    if isinstance(value, str) and not any(c not in JOINERS and (unicodedata.category(c)[0] == "C"
+                                                                or unicodedata.category(c) in ("Zl", "Zp"))
                                           for c in value):
         name = " ".join(unicodedata.normalize("NFC", value).split())
-        if 0 < len(name) <= MAX_NAME:
+        if 0 < len(name) <= MAX_NAME and any(unicodedata.category(c)[0] not in HIDDEN_CATEGORIES for c in name):
             return name
     raise UserError(f"a run's name: 1 to {MAX_NAME} characters, no control or invisible characters", "run_name",
                     max=MAX_NAME)
@@ -440,8 +448,9 @@ def rename_run(runs_dir: str, run_id: str, name: str) -> Dict:
     none). If a step fails, run.json still holds the old name, so every list shows the old name, while
     ATTRIBUTION.txt and map.html may already hold the new one: a second rename to the same name repairs it (a
     rename to yet another name rewrites map.html but leaves an ATTRIBUTION.txt whose first line no longer names
-    run.json's name as it is). Raises KeyError for a run without a readable run.json, OSError when a file cannot be
-    replaced now (on Windows a file held open by another process; also filelock.Timeout). Returns the new run.json."""
+    run.json's name as it is). Raises KeyError, with no file written, for a run without a readable run.json (or
+    one without a string name or an id), OSError when a file cannot be replaced now (on Windows a file held open by
+    another process; also filelock.Timeout: the lock not had in time). Returns the new run.json."""
     folder = os.path.join(runs_dir, run_id)
     meta_path = os.path.join(folder, "run.json")
     with cache.runs_lock(runs_dir):
@@ -450,7 +459,8 @@ def rename_run(runs_dir: str, run_id: str, name: str) -> Dict:
                 meta = json.load(f)
         except (FileNotFoundError, NotADirectoryError, ValueError):  # no run (a missing or unreadable run.json)
             raise KeyError(run_id) from None
-        if not isinstance(meta, dict) or not isinstance(meta.get("name"), str):
+        # everything the files need, checked before any is written: a string name, the id map_page reads
+        if not isinstance(meta, dict) or not isinstance(meta.get("name"), str) or meta.get("id") is None:
             raise KeyError(run_id)
         old, created = meta["name"], meta.get("created", "")
         attribution = os.path.join(folder, "ATTRIBUTION.txt")
