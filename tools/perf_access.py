@@ -264,8 +264,9 @@ class Sidecar:
                 break
             time.sleep(0.05)
 
-    def stop(self) -> Tuple[List[List], List[Tuple[float, Dict[str, int]]]]:
-        """(samples, listings of the work folder), both in time order; the files removed."""
+    def stop(self, keep: bool = False) -> Tuple[List[List], List[Tuple[float, Dict[str, int]]]]:
+        """(samples, listings of the work folder), both in time order; the files removed (keep: the samples' file
+        stays, for a run whose end is not reached or read)."""
         open(self.stop_path, "w").close()
         try:
             self.proc.wait(30)
@@ -282,7 +283,7 @@ class Sidecar:
                     samples.append(rec["m"])
                 else:
                     listings.append((rec["t"], rec["files"]))
-        for p in (self.out, self.stop_path):
+        for p in (self.stop_path,) if keep else (self.out, self.stop_path):
             os.remove(p)
         return samples, listings
 
@@ -910,6 +911,7 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
     out["s"] = round(t1 - t0, 2)
     out["t0"], out["t1"] = t0, t1
     out["end"] = memory_now(proc)
+    out["cg_end"] = cgroup_sample()  # memory.peak since the container started, at the stage's end
     out["path"] = path
     return out
 
@@ -1004,7 +1006,7 @@ def run_stages(args) -> Dict:
         stage_on["label"] = None
         marks.mark("after step 1")
         step1.update(s=round(t1 - t0, 2), t0=t0, t1=t1, end=memory_now(psutil.Process()),
-                     work_after=work_files(s.work), first_event=0)
+                     work_after=work_files(s.work), first_event=0, cg_end=cgroup_sample())
         raw.append((step1, len(marks.events)))
         counts = {}
         for kind in out["order"]:
@@ -1015,7 +1017,7 @@ def run_stages(args) -> Dict:
             raw.append((st, len(marks.events)))
             stages.append(st)
     finally:
-        samples, listings = sidecar.stop()
+        samples, listings = sidecar.stop(args.keep_samples)
     # parts: each stage's events from its first to its end, within its seconds
     reports = []
     for st, end_event in raw:
@@ -1040,6 +1042,7 @@ def run_stages(args) -> Dict:
                                                          np.load(st["path"], mmap_mode="r"))
         gc.collect()
     out["cg_events"] = cgroup_events()
+    out["cg_final"] = cgroup_sample()
     out["work"] = s.work
     s.close(args.keep_work)
     return out
@@ -1284,6 +1287,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--memory", type=float, help="bytes that search.available_memory answers (before planning)")
     p.add_argument("--cores", type=int, help="run on this many cores and numba threads")
     p.add_argument("--keep-work", action="store_true", help="keep the work folder")
+    p.add_argument("--keep-samples", action="store_true", help="stages: keep the sidecar's samples (<out>/samples)")
     p.add_argument("--order", default="once,blocks", help="stages: the stages after step 1, e.g. blocks,once,blocks")
     p.add_argument("--step1-only", action="store_true", help="stages: step 1 alone")
     p.add_argument("--block-px", type=int, help="stages, compare, masks: the blocks' side instead of the rule's")
