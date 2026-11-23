@@ -258,27 +258,32 @@ def test_a_service_down_stops_once_a_start(http_server, tmp_path, monkeypatch, r
 
 
 def test_a_fault_of_one_tile_is_that_tiles(http_server, tmp_path, monkeypatch, renewing):
-    """C6: any exception of one tile but a KeyboardInterrupt (a locked database, an answer that is no dict) fails that
-    tile alone; the rest of the grid is still asked."""
+    """C6: any exception of one tile but a KeyboardInterrupt (a locked database, an answer that is no dict, a block
+    open in another process, answers that disagree) fails that tile alone; the rest of the grid is still asked. Such
+    faults, more in a row than FAILED_IN_A_ROW, do not count as the service being down."""
     import sqlite3
-    from sources.indexes.cached import CachedIndex
+    from sources.indexes.cached import CachedIndex, DroppedFiles
     tnm, files, cache_dir = _start(tmp_path, monkeypatch, http_server)
     monkeypatch.setenv(tb.RENEW_ENV, "off")
-    layer, grid = _layer(), _grid(440000, 4400000, 30000)
+    monkeypatch.setattr(renewal, "FAILED_IN_A_ROW", 2)
+    layer, grid = _layer(), _grid(430000, 4390000, 45000)
     tiles = index_tiles(grid)
+    assert len(tiles) >= 6
     for t in tiles:
         layer.index.answers(cache_dir, *t)
     _settle(cache_dir)
     real, faults = CachedIndex.ask_again, [sqlite3.OperationalError("database is locked"),
-                                           AttributeError("'list' object has no attribute 'get'")]
+                                           AttributeError("'list' object has no attribute 'get'"),
+                                           PermissionError(13, "used by another process"),
+                                           DroppedFiles("the index answer lacked 1 of the files")]
 
     def ask_again(self, cache_dir, lat, lon, *args):
-        if (lat, lon) in tiles[:2]:
+        if (lat, lon) in tiles[:len(faults)]:
             raise faults[tiles.index((lat, lon))]
         return real(self, cache_dir, lat, lon, *args)
     monkeypatch.setattr(CachedIndex, "ask_again", ask_again)
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert (done.failed, done.asked, done.left) == (2, len(tiles) - 2, 0)
+    assert (done.failed, done.asked, done.left) == (len(faults), len(tiles) - len(faults), 0)
     monkeypatch.setattr(CachedIndex, "ask_again", lambda *a: (_ for _ in ()).throw(KeyboardInterrupt()))
     with pytest.raises(KeyboardInterrupt):
         renewal.renew([_layer()], grid, cache_dir, lambda text: None)

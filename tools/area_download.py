@@ -538,18 +538,21 @@ def _renew(plans: Sequence, cache_dir: str, reporter: Reporter):
         print(text, flush=True)
         with reporter.lock:
             reporter.state["renewal"] = " ".join(text.split())[:160]
-    done = []
+    done, counts = [], []
     try:
         for plan in plans:
             if renewal.renewing(plan.layers):
-                done.append(renewal.renew(plan.layers, plan.grid, cache_dir, say, asked).text())
+                renewed = renewal.renew(plan.layers, plan.grid, cache_dir, say, asked)
+                done.append(renewed.text())
+                counts.append(renewed.as_dict())
     except Exception as e:  # noqa: BLE001 (a fault of the renewal never stops the download)
         print(f"The index could not be renewed ({type(e).__name__}: {cache.clean_error(e)}); the tiles are listed "
               f"from the answers there are", flush=True)
         done.append(f"failed: {cache.clean_error(e)[:200]}")
     with reporter.lock:
         reporter.state["renewal"] = ""
-        reporter.state["renewed"] = {"at": _now(), "text": "; ".join(done)}
+        # the counts by part (requests, bytes, seconds; why files left the list) beside the line
+        reporter.state["renewed"] = {"at": _now(), "text": "; ".join(done), "renewals": counts}
 
 
 def run_pass(area: Area, number: int) -> int:

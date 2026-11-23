@@ -352,6 +352,7 @@ def test_a_restarted_row_asks_the_index_again(tmp_path, monkeypatch, http_server
     first = sorted(os.listdir(folder))
     state = ad.read_state(area.state_dir, "utah")
     assert len(first) == 4 and state["renewal"] == "" and "the list of unlisted files made" in state["renewed"]["text"]
+    assert state["renewed"]["renewals"][0]["list"] == "made" and state["renewed"]["renewals"][0]["requests"]["answers"]
 
     _tile_1m(tnm, files, "CO_New_2025", 1025, published="2026-01-01")
     _settle(str(data / "cache"))

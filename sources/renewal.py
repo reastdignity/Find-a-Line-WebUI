@@ -46,13 +46,14 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
+import requests
 from filelock import FileLock, Timeout
 
 import cache
 import osm
 
 from . import net
-from .indexes.cached import INDEX_MARGIN_DEG, CachedIndex, index_tiles, merge_items
+from .indexes.cached import INDEX_MARGIN_DEG, CachedIndex, DroppedFiles, index_tiles, merge_items
 from .indexes.versions import ComposedBlocks, moved_items
 
 # How long a renewal waits for another process making the list (a listing takes about 8 minutes at 4 requests at a
@@ -186,9 +187,10 @@ def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since:
     """The answers of these tiles asked again (those not asked by this renewal yet), counted into result; before each
     answer is written the blocks whose order it changes are deleted (_reorder_first). Any failure of one tile but a
     KeyboardInterrupt (a request, a dropped file not confirmed, a locked database, a block that cannot be deleted)
-    is that tile's: its cached answer stays, one line. After FAILED_IN_A_ROW failures in a row the API counts as down
-    for the rest of the start (("down", its URL) in asked): this and every later call for it count their tiles as
-    left at once, one line each."""
+    is that tile's: its cached answer stays, one line. After FAILED_IN_A_ROW requests in a row that did not reach the
+    service (a requests.RequestException; not DroppedFiles, not a fault of this machine: those neither add to the
+    streak nor end it) the API counts as down for the rest of the start (("down", its URL) in asked): this and every
+    later call for it count their tiles as left at once, one line each."""
     index: CachedIndex = layer.index
     todo = [t for t in tiles if (index.top, index.prefix, t) not in asked]
     down = ("down", index.listing.url)
@@ -205,7 +207,11 @@ def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since:
             changed = index.ask_again(cache_dir, lat, lon, since, _reorder_first(layer, cache_dir, lat, lon, result))
         except Exception as e:  # noqa: BLE001 (one tile's fault: the rest of the grid is still asked)
             result.failed += 1
-            in_a_row += 1
+            # Only the service not answering counts toward its being down: a fault of this machine (a block open in
+            # another process, a locked database, the tile's lock) or answers that disagree (DroppedFiles: it did
+            # answer, twice) neither adds to the streak nor ends it
+            if isinstance(e, requests.RequestException) and not isinstance(e, DroppedFiles):
+                in_a_row += 1
             print(f"{layer.description}: the index answer of {osm.tile_name(lat, lon)} could not be asked again "
                   f"({cache.clean_error(f'{type(e).__name__}: {e}')[:300]}); the cached one is kept", flush=True)
             if in_a_row >= FAILED_IN_A_ROW:
