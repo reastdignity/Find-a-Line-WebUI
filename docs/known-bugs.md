@@ -68,7 +68,10 @@ not caused by its changes; the tests are unchanged):
 - `tests/test_web.py::test_quick_lane_idle_and_prompt` asserts each of five quick-lane answers within 0.5 s
   (`time.monotonic() - started < 0.5`): 0.85 s in the CE agent's full suite and again in the merged wave 2 suite.
 - `tests/test_probe.py::test_timeout` runs the probe with `timeout=0.5` over a slow source (3 s) and a fast one and
-  asserts "2 checked, 1 failed": under load the fast source misses the 0.5 s too. Failed in batch 5 runs (agent CE).
+  asserts "2 checked, 1 failed": under load the fast source misses the 0.5 s too. Failed in batch 5 runs (agent CE)
+  and twice on CI's Windows runners (2026-11-14, 2026-11-17). Since 2026-11-23 its timeout is 2 s (the user's
+  choice: the number is the test's setting; the slow source's 3 s still never fit). The quick lane's 0.5 s above
+  stays: it says how promptly the app answers.
 
 ## `test_search_panel_on_a_phone` fails under a full pytest
 
