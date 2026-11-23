@@ -9,9 +9,10 @@ import rasterio as rio
 import rasterio.warp
 from rasterio.warp import transform_bounds
 
+import cache
 from grid import Grid
 
-from ..indexes.cached import CachedIndex
+from ..indexes.cached import CachedIndex, merge_items
 from ..indexes.listings import TnmProducts
 from ..indexes.versions import ComposedBlocks
 from ..readers.windows import Windows
@@ -51,14 +52,16 @@ class UnlistedIndex(CachedIndex):
     through answers(): ComposedBlocks.query, update_tile and has_data_near. The list is read once per process and
     data folder (the cached one, else the copy shipped with the code)."""
 
+    has_list = True  # sources/renewal.py makes the list (tnmbucket.make_unlisted) before it asks the answers again
+    bucket: Optional[str] = None  # the bucket the list is made from: tnmbucket.BUCKET (a test: its stand-in)
+    regions: Optional[list] = None  # the boxes the index is listed over: tnmbucket.REGIONS
+
     def answers(self, cache_dir: str, lat: float, lon: float, update: Optional[str] = None) -> List[Dict]:
-        items = super().answers(cache_dir, lat, lon, update)
+        return merge_items(super().answers(cache_dir, lat, lon, update), self.extra(cache_dir, lat, lon))
+
+    def extra(self, cache_dir: str, lat: float, lon: float) -> List[Dict]:
         from .tnmbucket import unlisted_in_tile  # imported here: the web process never reads the list
-        extra = unlisted_in_tile(cache_dir, self.top, lat, lon)
-        if not extra:
-            return items
-        listed = {item["url"] for item in items}
-        return items + [item for item in extra if item["url"] not in listed]
+        return unlisted_in_tile(cache_dir, self.top, lat, lon)
 
 
 class TnmBlocks(IndexedTiles):
@@ -78,6 +81,9 @@ class TnmBlocks(IndexedTiles):
     """
     index_crs = "EPSG:4326"
     index_class = CachedIndex  # the 1 m DEM's: UnlistedIndex
+    # A download row's start and a country run's first tile ask its index again (sources/renewal.py): USGS
+    # publishes new projects, and a cached answer is otherwise asked again only by `cache update`
+    renews = True
 
     def __init__(self, description: str, dataset: str, prefix: str, folder: str, native_res: float,
                  block_m: float, bytes_per_tile: float, api: str = TNM_API):
@@ -168,8 +174,11 @@ class Usgs1mBlocks(TnmBlocks):
     <project>.tif, in NAD83 / UTM of their zone (a tile crossing two zones is delivered in
     both), with 6 pixels of overlap around; older names give no zone (USGS_one_meter_x..y..).
     The files of USGS's bucket that the TNM index does not list are merged into its answers
-    (UnlistedIndex, sources/layers/tnmbucket.py)."""
+    (UnlistedIndex, sources/layers/tnmbucket.py). `cache update` asks its answers again after
+    28 days (update_ttl_days; the public site's monthly timer), a search's --update stale after
+    the sheet index's 180 as before."""
     index_class = UnlistedIndex
+    update_ttl_days = cache.TTL_DAYS["usgs-1m-index"]
 
     def _item(self, product: Dict) -> Optional[Dict]:
         return usgs_1m_item(product)

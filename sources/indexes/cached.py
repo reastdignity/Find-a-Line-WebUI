@@ -79,6 +79,14 @@ def index_tiles(grid: Grid) -> List[Tuple[float, float]]:
     return sorted(found)
 
 
+def merge_items(items: List[Dict], extra: List[Dict]) -> List[Dict]:
+    """A tile's listed versions with extra versions added whose URL they do not hold (tnm.UnlistedIndex)."""
+    if not extra:
+        return items
+    listed = {item["url"] for item in items}
+    return items + [item for item in extra if item["url"] not in listed]
+
+
 class IndexUnavailable(requests.RequestException):
     """An index service cannot be asked (offline, down, an error answer). A RequestException,
     so the cached files are used (CachedIndex.tiles) and `cache update` lists it as an error;
@@ -163,15 +171,58 @@ class CachedIndex(Index):
         if due():
             with tile_lock(cache_dir, path):  # another search may be asking for it now
                 if due():
-                    answer = self.listing.fetch(lat, lon)
-                    os.makedirs(os.path.dirname(path), exist_ok=True)
-                    tmp = _part(path)
-                    with open(tmp, "w", encoding="utf-8") as out:
-                        json.dump(answer, out)
-                    os.replace(tmp, path)
-                    cache.record(cache_dir, path, url=self.listing.url)
+                    self._store(cache_dir, path, self.listing.fetch(lat, lon))
         with open(path, encoding="utf-8") as f:
             return json.load(f)["sheets"]
+
+    def _store(self, cache_dir: str, path: str, answer: Dict):
+        """An answer of the index written in place of the cached one (atomically) and recorded."""
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = _part(path)
+        with open(tmp, "w", encoding="utf-8") as out:
+            json.dump(answer, out)
+        os.replace(tmp, path)
+        cache.record(cache_dir, path, url=self.listing.url)
+
+    def ask_again(self, cache_dir: str, lat: float, lon: float, since: Optional[str] = None) -> Optional[bool]:
+        """Ask the index again for one tile (sources/renewal.py), under the tile's lock, and write its answer only
+        when the request succeeded: a failure raises (a requests.RequestException) and the cached answer stays.
+        None when the cached answer was checked at or after `since` (a time as cache.now_iso gives it, the start of
+        the renewal): another renewal asked it meanwhile, so it is not asked twice. Else whether the listed versions
+        changed (compared as sets: the index's order of its products is left aside); a tile without a cached answer
+        counts as changed."""
+        path = self.index_path(cache_dir, lat, lon)
+        with tile_lock(cache_dir, path):
+            old = self._cached_sheets(path)
+            if since and old is not None:
+                row = cache.info(cache_dir, path)
+                if row and row.get("checked_at") and row["checked_at"] >= since:
+                    return None
+            answer = self.listing.fetch(lat, lon)
+            self._store(cache_dir, path, answer)
+        same = lambda sheets: sorted(json.dumps(s, sort_keys=True) for s in sheets)  # noqa: E731
+        return old is None or same(old) != same(answer["sheets"])
+
+    @staticmethod
+    def _cached_sheets(path: str) -> Optional[List[Dict]]:
+        """The versions of a cached answer as the index gave them; None without one (or one that cannot be read)."""
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)["sheets"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def extra(self, cache_dir: str, lat: float, lon: float) -> List[Dict]:
+        """Versions a tile holds besides its cached answer (none here; tnm.UnlistedIndex: the bucket's unlisted
+        files), merged in when an answer is read."""
+        return []
+
+    def cached_items(self, cache_dir: str, lat: float, lon: float) -> Optional[List[Dict]]:
+        """What answers() gives for a tile whose answer is cached, nothing asked; None without a cached answer."""
+        sheets = self._cached_sheets(self.index_path(cache_dir, lat, lon))
+        if sheets is None:
+            return None
+        return merge_items(sheets, self.extra(cache_dir, lat, lon))
 
     def tiles(self, grid: Grid) -> Optional[list]:
         key = (grid.crs, tuple(grid.bounds), grid.res, self.update)

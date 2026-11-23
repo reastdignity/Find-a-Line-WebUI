@@ -26,7 +26,9 @@ failure, or a Ctrl+C, stops the others.
 
 Where no list is cached (or the cached one cannot be used), the copy shipped with the code is read (SHIPPED, made
 by tools/usa_unlisted.py with this function; FINDALINE_USA_UNLISTED_SHIPPED=off leaves it out: the tests). The
-renewal of the list (part A-2 of the USA's wave A) calls make_unlisted. The web process never imports this module.
+renewal (sources/renewal.py, part A-2 of the USA's wave A) calls make_unlisted when the cached list is missing or
+older than LIST_MAX_AGE_DAYS, never twice a day after a failure (failed.json beside the list; RENEW_ENV off: the
+tests); `cache status` shows the list in a line (list_status). The web process never imports this module.
 """
 
 import collections
@@ -514,20 +516,25 @@ def previous_listed(cache_dir: str, top: str = TOP) -> Optional[int]:
 def make_unlisted(cache_dir: str, out: Optional[str] = None, bucket: str = BUCKET, api: str = TNM_API,
                   dataset: str = DATASET, regions: Sequence[Tuple[float, float, float, float]] = REGIONS,
                   projects: Optional[Sequence[str]] = None, log: Callable[[str], None] = print,
-                  at_once: Optional[int] = None, allow_drop: bool = False) -> Dict:
+                  at_once: Optional[int] = None, allow_drop: bool = False,
+                  budgets: Optional[Callable[[Dict[str, PageBudget]], None]] = None) -> Dict:
     """Make the list of the bucket's 1 m files the TNM index does not list and write it to out, by default the cached
     list (unlisted_path, with a row in the index of its top folder); cache_dir also holds the host slots. projects:
     only these of the bucket (a recorded test; then neither guard applies). at_once: requests at a time in each
     part (REQUESTS_AT_ONCE). allow_drop: the index may list fewer files than the list before by more than
-    MAX_LISTED_DROP (checked by hand). Returns what it did: files, bytes, how their zones and years were found, the
-    names left out, the projects dated by their upload, the bucket's files and the index's, the requests, bytes and
-    seconds of each part. IndexUnavailable when a step fails; the list there was stays."""
+    MAX_LISTED_DROP (checked by hand). budgets: given the three parts' budgets ("bucket", "index", "headers") before
+    the first request, so a caller can show their requests while they run (sources/renewal.py). Returns what it did:
+    files, bytes, how their zones and years were found, the names left out, the projects dated by their upload, the
+    bucket's files and the index's, the requests, bytes and seconds of each part. IndexUnavailable when a step fails;
+    the list there was stays."""
     at_once = REQUESTS_AT_ONCE if at_once is None else at_once
     started = time.monotonic()
     stop = threading.Event()
     bucket_budget = PageBudget("USGS's bucket (1 m DEM)", BUCKET_PAGES, stop)
     tnm_budget = PageBudget("the TNM index (1 m DEM)", TNM_PAGES, stop)
     header_budget = PageBudget("the headers of the unlisted 1 m files", HEADER_READS, stop)
+    if budgets is not None:
+        budgets({"bucket": bucket_budget, "index": tnm_budget, "headers": header_budget})
     seconds = {}
 
     def header(url, extent):
@@ -617,10 +624,117 @@ def write_list(path: str, summary: Dict, items: List[Dict], bucket: str, api: st
 def unlisted_age_days(cache_dir: str, top: str = TOP) -> float:
     """Days since the cached list was made (its row's check time); infinite without one (the shipped copy does
     not count: a renewal makes the cached list). The user's rule of 2026-11-23 for A-2: a download row or a country
-    run starts on a list at most 28 days old."""
+    run starts on a list at most 28 days old (LIST_MAX_AGE_DAYS)."""
     path = unlisted_path(cache_dir, top)
     row = cache.info(cache_dir, path) if os.path.exists(path) else None
     return cache.age_days(row["checked_at"]) if row else float("inf")
+
+
+# The renewal of the list (sources/renewal.py)
+
+# The oldest list a download row or a country run starts on (the user's W3 of 2026-11-23, asked again with the
+# measured cost of a listing: about 8 minutes and 0.7 GB) and the age at which `cache update` makes it again (D3a:
+# every month): one constant, as the 1 m DEM's answers' (cache.TTL_DAYS["usgs-1m-index"])
+LIST_MAX_AGE_DAYS = cache.TTL_DAYS["usgs-1m-index"]
+# A listing that failed or was refused is not tried again within this many days by any process of the machine
+# (failed.json beside the list): every try costs about 450 s of USGS's servers
+FAILED_RETRY_DAYS = 1.0
+RENEW_ENV = "FINDALINE_USA_UNLISTED_RENEW"  # "off": a renewal never makes the list (tests/conftest.py)
+
+
+def renew_off() -> bool:
+    return os.environ.get(RENEW_ENV, "").strip().lower() == "off"
+
+
+def failed_path(cache_dir: str, top: str = TOP) -> str:
+    """The record of the last listing that failed or was refused (beside the cached list): {"at": ISO time, "error"}.
+    refused.json (the count guard's record of the index's count) stays beside it."""
+    return os.path.join(cache_dir, top, "sheet-index", "bucket1m", "failed.json")
+
+
+def read_failed(cache_dir: str, top: str = TOP) -> Optional[Dict]:
+    """The record of a failed listing as {"at": datetime, "error": text}; None without one or for one that cannot be
+    read (then a listing may be tried)."""
+    try:
+        with open(failed_path(cache_dir, top), encoding="utf-8") as f:
+            record = json.load(f)
+        at = datetime.fromisoformat(record["at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if at.tzinfo is None:
+        return None
+    return {"at": at, "error": str(record.get("error", ""))}
+
+
+def failed_recently(cache_dir: str, top: str = TOP) -> Optional[Dict]:
+    """The record of a listing that failed less than FAILED_RETRY_DAYS ago, else None."""
+    record = read_failed(cache_dir, top)
+    if record is not None and (_utc_now() - record["at"]).total_seconds() < FAILED_RETRY_DAYS * 86400:
+        return record
+    return None
+
+
+def write_failed(cache_dir: str, error: str, top: str = TOP):
+    """Record a failed or refused listing (atomically; a failure to write is one printed line)."""
+    path = failed_path(cache_dir, top)
+    tmp = net._part(path)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"at": _utc_now().isoformat(timespec="seconds"), "error": cache.clean_error(error)[:500]}, f)
+        os.replace(tmp, path)
+    except OSError as e:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        print(f"The record of the failed listing could not be written ({path}): {e}")
+
+
+def clear_failed(cache_dir: str, top: str = TOP):
+    with contextlib.suppress(OSError):
+        os.remove(failed_path(cache_dir, top))
+
+
+def list_items(cache_dir: str, top: str = TOP) -> Dict[str, Dict]:
+    """The files of the list in use now (the cached one, else the shipped copy) by URL: what the merge reads."""
+    found: Dict[str, Dict] = {}
+    for items in _tiles(cache_dir, top).values():
+        for item in items:
+            found.setdefault(item["url"], item)
+    return found
+
+
+def list_tiles(cache_dir: str, top: str = TOP) -> Dict[Tuple[int, int], List[Dict]]:
+    """The list in use now by index tile (unlisted_in_tile's map; the object stays as it is when the list is renewed:
+    a snapshot)."""
+    return _tiles(cache_dir, top)
+
+
+def tile_key(lat: float, lon: float) -> Tuple[int, int]:
+    """The key of a 0.25° index tile in list_tiles' map."""
+    return round(lat / osm.TILE_DEG), round(lon / osm.TILE_DEG)
+
+
+def list_status(cache_dir: str, top: str = TOP) -> str:
+    """The list in one line, for `cache status`: its age and files, or the shipped copy in use, and a failed try."""
+    path = unlisted_path(cache_dir, top)
+    row = cache.info(cache_dir, path) if os.path.exists(path) else None
+    if row:
+        try:
+            with open(path, encoding="utf-8") as f:
+                files = json.load(f)["counts"]["files"]
+        except (OSError, ValueError, KeyError, TypeError):
+            files = None
+        age = cache.age_days(row["checked_at"])
+        text = (f"made {row['checked_at'][:10]} ({age:.0f} days ago" + (f", {files:,} files" if files is not None else "")
+                + f"); made again after {LIST_MAX_AGE_DAYS:g} days")
+    elif _shipped_off():
+        text = "none made yet (the shipped copy is off)"
+    else:
+        text = "none made yet: the copy shipped with the code is read"
+    failed = read_failed(cache_dir, top)
+    if failed is not None:
+        text += f"; the last try failed {failed['at']:%Y-%m-%d %H:%M} UTC ({failed['error'][:120]})"
+    return text
 
 
 # Reading the list

@@ -24,6 +24,8 @@ class IndexedTiles(ComposedLayer):
     """
     index_crs = ""  # CRS of the extents in the cached index answers
     index: CachedIndex
+    renews = False  # whether sources/renewal.py asks its index again (TnmBlocks)
+    update_ttl_days: Optional[float] = None  # days after which `cache update` asks an answer again (None: the index's)
 
     def __init__(self, description: str, index_url: str, prefix: str, folder: str,
                  native_res: float, bytes_per_tile: float):

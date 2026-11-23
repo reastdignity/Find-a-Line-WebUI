@@ -345,10 +345,13 @@ class StacItems(Listing):
 class TnmProducts(Listing):
     """Products of a dataset of The National Map Access API (USGS 3DEP), in pages of up to
     500, asked again (RETRIES, with backoff) while the API is slow or down; item(product)
-    gives a product as cached, or None if it is not used."""
+    gives a product as cached, or None if it is not used. The requests made and the bytes of their
+    answers are added up in `requests` and `bytes` (the renewal's counts: sources/renewal.py)."""
 
     def __init__(self, url: str, dataset: str, item: Callable[[Dict], Optional[Dict]]):
         self.url, self.dataset, self.item = url, dataset, item
+        self.requests = self.bytes = 0
+        self._counting = threading.Lock()
 
     def fetch(self, lat: float, lon: float) -> Dict:
         items: Dict[str, Dict] = {}
@@ -356,9 +359,13 @@ class TnmProducts(Listing):
         while offset < total:  # pages of up to 500 products
             for attempt in range(RETRIES):
                 try:
+                    with self._counting:
+                        self.requests += 1
                     response = servicecounts.get(self.url, timeout=120, headers=cache.http_headers(), params={
                         "datasets": self.dataset, "max": 500, "offset": offset,
                         "bbox": f"{lon},{lat},{lon + osm.TILE_DEG},{lat + osm.TILE_DEG}"})
+                    with self._counting:
+                        self.bytes += len(getattr(response, "content", None) or b"")
                     response.raise_for_status()
                     page = response.json()
                     break

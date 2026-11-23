@@ -215,6 +215,14 @@ class NewestPerSheet(Versions):
         return sorted(sheets, key=_sheet_order, reverse=True)
 
 
+def moved_items(before: Sequence[Dict], after: Sequence[Dict]) -> List[Dict]:
+    """The items of after whose URL before holds with another year or date ("published"): such a file keeps its
+    place in a block's set of files (its key) but may change its place in their order."""
+    old = {item["url"]: item for item in before}
+    return [item for item in after if item["url"] in old
+            and (old[item["url"]]["year"], old[item["url"]].get("published", "")) != (item["year"], item.get("published", ""))]
+
+
 @dataclass(frozen=True)
 class Block:
     """A square of a TnmBlocks layer: (i, j) on a grid of `size` metres in crs, composed from
@@ -338,9 +346,11 @@ class ComposedBlocks(Versions):
         return sorted(blocks, key=lambda b: (not _same_crs(b.crs, grid.crs), -b.year, b.crs, b.j, b.i))
 
     def _others(self, cache_dir: str, block: Block,
-                folders: Optional[Dict[str, Dict[tuple, List[Tuple[str, str]]]]] = None,
+                folders: Optional[Dict[str, Dict[tuple, List[Tuple[str, str, int]]]]] = None,
                 listings: Optional[Dict[str, Optional[Dict]]] = None) -> List[str]:
-        """The cached files of the same block made from other sets of files, in the folder's order. folders: the
+        """The cached files of the same block made from other sets of files, or from the same set with another
+        newest year (a file's year changed, its key did not: wave A of the USA, part A-2), in the folder's
+        order. folders: the
         blocks' files of the folders listed so far, (i, j): [(path, key)], kept between the blocks of one prune
         (filled here): a folder holds a hundred blocks, and was listed and matched again for each. listings:
         existing()'s listings of the folders it listed (their entries in the order the system gave them, as
@@ -358,10 +368,11 @@ class ComposedBlocks(Versions):
                 path = os.path.join(folder, name)
                 b = self._block_of(path)
                 if b is not None:
-                    found.setdefault((b.i, b.j), []).append((path, b.key))
+                    found.setdefault((b.i, b.j), []).append((path, b.key, b.year))
             if folders is not None:
                 folders[folder] = found
-        return [path for path, key in found.get((block.i, block.j), ()) if key != block.key]
+        return [path for path, key, year in found.get((block.i, block.j), ())
+                if key != block.key or year != block.year]
 
     def prune(self, cache_dir: str, tiles: List[Block]) -> int:
         """Delete the cached files of the blocks' other sets of files, for the blocks whose own file is cached;
@@ -370,7 +381,7 @@ class ComposedBlocks(Versions):
         (tools/area_download.py: Utah's 207 897 on a share) took 317 s at the end of every pass
         (docs/performance.md, "The check of cached tiles"). The same files as before, in the same order
         (tests/test_parts.py)."""
-        folders: Dict[str, Dict[tuple, List[Tuple[str, str]]]] = {}
+        folders: Dict[str, Dict[tuple, List[Tuple[str, str, int]]]] = {}
         listings: Dict[str, Optional[Dict]] = {}
         older = []
         for block, there in zip(tiles, existing([self.path(cache_dir, b) for b in tiles], listings=listings)):
@@ -384,24 +395,72 @@ class ComposedBlocks(Versions):
         return transform_bounds(block.crs, "EPSG:4326", block.i * s, block.j * s, (block.i + 1) * s, (block.j + 1) * s)
 
     def update_tile(self, index: CachedIndex, cache_dir: str, lat: float, lon: float) -> Tuple[list, list]:
-        """The cached blocks (centred in the tile) over which the set of files changed: read
-        again, and their older files deleted."""
+        """The cached blocks (centred in the tile) over which the set of files changed, or its newest year: read
+        again, and their older files deleted. Also those whose files stayed but whose order changed (reordered:
+        a file's date or year changed), deleted first and read again."""
+        before = index.cached_items(cache_dir, lat, lon)
         index.answers(cache_dir, lat, lon, "all")
         todo = []
         for path in self._cached_paths(cache_dir):
             block = self._block_of(path)
             if block is None:
                 continue
-            west, south, east, north = self._block_wgs84(block)
-            if not (lat <= (south + north) / 2 < lat + osm.TILE_DEG and lon <= (west + east) / 2 < lon + osm.TILE_DEG):
+            if not self._centred(block, lat, lon):
                 continue
+            west, south, east, north = self._block_wgs84(block)
             s = block.size
             inner = (block.i * s + s / 4, block.j * s + s / 4, (block.i + 1) * s - s / 4, (block.j + 1) * s - s / 4)
             now = [b for b in self._blocks(self._items(index, cache_dir, west, south, east, north), {block.crs: inner})
                    if (b.i, b.j) == (block.i, block.j)]
-            if now and now[0].key != block.key and not os.path.exists(self.path(cache_dir, now[0])):
+            if now and (now[0].key != block.key or now[0].year != block.year) \
+                    and not os.path.exists(self.path(cache_dir, now[0])):
                 todo.append(now[0])
+        if before is not None:
+            moved = moved_items(before, index.cached_items(cache_dir, lat, lon) or [])
+            for block in self.reordered(index, cache_dir, {(lat, lon): before}, moved):
+                if self._centred(block, lat, lon) and block not in todo:
+                    cache.forget(cache_dir, [self.path(cache_dir, block)])
+                    todo.append(block)
         return todo, todo
+
+    def _centred(self, block: Block, lat: float, lon: float) -> bool:
+        """Whether a block's centre lies in the 0.25° index tile with this south-west corner."""
+        west, south, east, north = self._block_wgs84(block)
+        return lat <= (south + north) / 2 < lat + osm.TILE_DEG and lon <= (west + east) / 2 < lon + osm.TILE_DEG
+
+    def reordered(self, index: CachedIndex, cache_dir: str, before: Dict[Tuple[float, float], List[Dict]],
+                  moved: Sequence[Dict]) -> List[Block]:
+        """The cached blocks over the moved files (moved_items: the same URL with another year or date) whose set of
+        files and newest year stayed while the order of their files changed: their name (year and key) is the same,
+        so nothing else would read them again, but a block read now would be composed in another order (wave A of
+        the USA, part A-2: a file the TNM index lists since the last list of the bucket's unlisted files takes the
+        index's date in place of its upload time). before: the merged items (CachedIndex.cached_items) of the index
+        tiles as they were before their answers or the list changed; every other tile over a moved file as it is
+        now, its cached answer only (nothing is asked). The blocks of a file whose newest year changed get another
+        name and are read again anyway (prune then deletes the old one)."""
+        found: Dict[tuple, Block] = {}
+        margin = 0.01  # cached.INDEX_MARGIN_DEG
+        for item in moved:
+            west, south, east, north = transform_bounds(item["crs"], "EPSG:4326", *item["extent"], densify_pts=21)
+            tiles = osm.tiles(west - margin, south - margin, east + margin, north + margin)
+            # the tiles given last, so their files of before and of now win over a tile not asked again
+            tiles = [t for t in tiles if t not in before] + [t for t in tiles if t in before]
+            old: Dict[str, Dict] = {}
+            new: Dict[str, Dict] = {}
+            for tile in tiles:
+                now = index.cached_items(cache_dir, *tile)
+                for i in now or ():
+                    new[i["url"]] = i
+                for i in before[tile] if tile in before else now or ():
+                    old[i["url"]] = i
+            bounds = {item["crs"]: tuple(item["extent"])}
+            olds = {(b.crs, b.i, b.j): b for b in self._blocks(list(old.values()), bounds)}
+            for block in self._blocks(list(new.values()), bounds):
+                was = olds.get((block.crs, block.i, block.j))
+                if was is not None and (was.key, was.year) == (block.key, block.year) and was.files != block.files \
+                        and os.path.exists(self.path(cache_dir, block)):
+                    found[(block.crs, block.i, block.j)] = block
+        return list(found.values())
 
     def has_data_near(self, index: CachedIndex, lat: float, lon: float, cache_dir: str,
                       metres: float = 2000) -> Optional[bool]:
