@@ -41,6 +41,16 @@ from progress import progress
 WORLD_URL = "https://osmdata.openstreetmap.de/download/water-polygons-split-4326.zip"
 WORLD_MB = 910
 MARGIN_DEG = 0.02  # the coastline is fetched a little beyond the grid, so faces close properly
+# The texts sea_mask and sea_mask_rows give as the sea's source (search.py prints them as "Coastline: ..."; the
+# regression baselines store them and tests/regression.py tells the sources apart by them, so a change of one is a
+# change of every coastal baseline's stored text)
+SOURCE_WORLD = "OpenStreetMap water polygons (world file)"
+SOURCE_OVERPASS = "OpenStreetMap coastline (Overpass or extracts)"
+SOURCE_FALLBACK = "Copernicus water body mask (fallback)"
+SOURCE_COPERNICUS = "Copernicus water body mask"  # asked for (--coastline copernicus)
+SOURCE_NO_SEA = "no sea in the area"
+SOURCE_NO_COAST = "no coastline nearby (OpenStreetMap)"
+FALLBACK_WARNING = "OpenStreetMap coastline could not be downloaded from Overpass"  # the start of the fallback's note
 
 
 def _grid_bbox_wgs84(grid: Grid) -> Tuple[float, float, float, float]:
@@ -209,7 +219,7 @@ def sea_mask(grid: Grid, cache_dir: str, mode: str, copernicus_sea: np.ndarray,
     if not copernicus_sea.any():
         # Inland: the mask shows no sea anywhere in the area. Its shoreline is off by
         # about 100 m at most, so at worst a thin strip at the edge of the area is missed
-        return copernicus_sea, "no sea in the area", None
+        return copernicus_sea, SOURCE_NO_SEA, None
     # The world file holds the same OpenStreetMap data: once downloaded, Overpass is not needed
     downloaded = mode == "overpass" and world_file(cache_dir) is not None
     if mode == "world" or downloaded:
@@ -221,27 +231,27 @@ def sea_mask(grid: Grid, cache_dir: str, mode: str, copernicus_sea: np.ndarray,
         sea = _rasterize(water, grid)
         progress.compute.update(1)
         progress.compute.finish()
-        return sea, "OpenStreetMap water polygons (world file)", None
+        return sea, SOURCE_WORLD, None
 
     if mode == "overpass":
         try:
             lines = _osm_coastline(grid, cache_dir, update)
         except (requests.RequestException, ValueError) as e:
-            warning = Note(f"OpenStreetMap coastline could not be downloaded from Overpass ({cache.clean_error(e)}). "
+            warning = Note(f"{FALLBACK_WARNING} ({cache.clean_error(e)}). "
                            "Using the Copernicus water body mask instead: its shoreline is only accurate "
                            "to about 70 m (90% of the coast), so lines near the shore may be missed or "
                            "land next to the sea may be taken for water. Run again later, or use "
                            "--coastline world.", "coast_fallback")
-            return copernicus_sea, "Copernicus water body mask (fallback)", warning
+            return copernicus_sea, SOURCE_FALLBACK, warning
         if not lines:  # no coast near the area: the mask is right away from the shore
-            return copernicus_sea, "no coastline nearby (OpenStreetMap)", None
+            return copernicus_sea, SOURCE_NO_COAST, None
         progress.compute.start("sea mask (coastline)", 1, unit="step")
         sea = _sea_from_coastline(lines, grid, copernicus_sea)
         progress.compute.update(1)
         progress.compute.finish()
-        return sea, "OpenStreetMap coastline (Overpass or extracts)", None
+        return sea, SOURCE_OVERPASS, None
 
-    return copernicus_sea, "Copernicus water body mask", None
+    return copernicus_sea, SOURCE_COPERNICUS, None
 
 
 def sea_mask_rows(grid: Grid, cache_dir: str, mode: str, copernicus_rows, update: Optional[str],
@@ -259,7 +269,7 @@ def sea_mask_rows(grid: Grid, cache_dir: str, mode: str, copernicus_rows, update
         return out
 
     if not any(np.asarray(copernicus_rows(r0, r1)).any() for r0, r1 in strips):
-        return out, "no sea in the area", None  # inland (sea_mask)
+        return out, SOURCE_NO_SEA, None  # inland (sea_mask)
     downloaded = mode == "overpass" and world_file(cache_dir) is not None
     if mode == "world" or downloaded:
         from sources.filling import rasterize_into
@@ -272,22 +282,22 @@ def sea_mask_rows(grid: Grid, cache_dir: str, mode: str, copernicus_rows, update
         rasterize_into(water, grid, out)
         progress.compute.update(1)
         progress.compute.finish()
-        return out, "OpenStreetMap water polygons (world file)", None
+        return out, SOURCE_WORLD, None
     if mode == "overpass":
         try:
             lines = _osm_coastline(grid, cache_dir, update)
         except (requests.RequestException, ValueError) as e:
-            warning = Note(f"OpenStreetMap coastline could not be downloaded from Overpass ({cache.clean_error(e)}). "
+            warning = Note(f"{FALLBACK_WARNING} ({cache.clean_error(e)}). "
                            "Using the Copernicus water body mask instead: its shoreline is only accurate "
                            "to about 70 m (90% of the coast), so lines near the shore may be missed or "
                            "land next to the sea may be taken for water. Run again later, or use "
                            "--coastline world.", "coast_fallback")
-            return copernicus(), "Copernicus water body mask (fallback)", warning
+            return copernicus(), SOURCE_FALLBACK, warning
         if not lines:
-            return copernicus(), "no coastline nearby (OpenStreetMap)", None
+            return copernicus(), SOURCE_NO_COAST, None
         progress.compute.start("sea mask (coastline)", 1, unit="step")
         _sea_from_coastline_rows(lines, grid, copernicus_rows, out, rows)
         progress.compute.update(1)
         progress.compute.finish()
-        return out, "OpenStreetMap coastline (Overpass or extracts)", None
-    return copernicus(), "Copernicus water body mask", None
+        return out, SOURCE_OVERPASS, None
+    return copernicus(), SOURCE_COPERNICUS, None
