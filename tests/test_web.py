@@ -237,6 +237,22 @@ def _offline(monkeypatch):
         monkeypatch.setenv(key, value)
 
 
+def test_a_job_whose_id_is_taken_gets_another(tmp_path, monkeypatch):
+    """Two jobs added in one second that draw the same six digits: the second draws again (before 2026-11-23 its
+    insert failed with "UNIQUE constraint failed: jobs.id"; the 150 jobs of the test below met it about once in
+    1 500 runs)."""
+    import jobs as jb
+    jobs = Jobs(str(tmp_path))
+    drawn = iter(["20261123-120000-aaaaaa", "20261123-120000-aaaaaa", "20261123-120000-aaaaaa",
+                  "20261123-120000-bbbbbb"])
+    monkeypatch.setattr(jb, "_new_id", lambda: next(drawn))
+    first = jobs.add({"params": {}}, "first")
+    second = jobs.add({"params": {}}, "second")
+    assert (first, second) == ("20261123-120000-aaaaaa", "20261123-120000-bbbbbb")
+    assert {job["id"]: job["title"] for job in jobs.all()} == {first: "first", second: "second"}
+    assert next(drawn, None) is None  # an id is drawn only until one is free
+
+
 def test_status_events_in_the_order_of_the_changes(tmp_path):
     """A status change and its event are one transaction: a job set "ready" by its download process
     while the scheduler claims it for computing never gets the events "computing" before "ready"
