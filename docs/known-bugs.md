@@ -929,7 +929,8 @@ to 136; `tests/test_view_kit.py`). Left:
   (`FilterBar`'s bar, `LineDetails`, `LinesTable`, `ResultColumns`) keep their English and looks.
 - **The drawing tools on a touch tablet** keep Geoman's 30 px column, and the place map's corner keeps the screen's
   Tab order: the user's decisions of 2026-11-23, not open items (group A's entry above).
-- **"Data credits" on a phone** (T7, the user's pick; not built: it waits for the user). A hit test over the folded
+- **"Data credits" on a phone** (T7): left as it is, the user's decision of 2026-11-23 ("a: leave, in known-bugs"),
+  not an open item. A hit test over the folded
   pill's 44 px band (`elementFromPoint`, the fix round of 2026-11-23): at the sheet's low stop and at half a press
   reaches it on 27 px of the 44 on the iPhone (390 x 664) and at 360 px, 35 px on the Pixel: the credits' links of
   the line above take up to 8 px (round 6 put them over the target on purpose) and the sheet's handle under it 9 px.
@@ -939,13 +940,11 @@ to 136; `tests/test_view_kit.py`). Left:
   the three phones (its last half pixel lies under the sheet's edge), but at 360 px the link "report a map issue" lies
   wholly inside it and no press reaches that link; with the target moved but the links kept over it, 43 px where no
   link lies above, 26 px under a link (and 5 px above it).
-  Either costs a link's press or needs something drawn to move: the user's choice, with a mock-up first.
-- **The desktop card's key with "Rigging and layers" open** wraps to 3 rows (the 1:1 scale under the legend; the
-  card 380 px high against main's 344, today's page 381 against 345: the design review's F1). The user's F1 b
-  ("legend 12 px, one row") was tried in the fix round of 2026-11-23 and still wraps: at the card's 596 px (today's
-  594) the 12 px legend is 407 px, the gap 12 and the kit's 1:1 scale 186 px, 9 px too wide (13 px: 429 px; main's
-  legend 357 px beside a 164 px button). Reverted; it waits for the user (the brief: no shrinking of the button or
-  its words without them).
+  Either costs a link's press or needs something drawn to move.
+- **The desktop card with "Rigging and layers" open** (the design review's F1, mended by the user's F1 a of
+  2026-11-23: the profile's key at 12 px with 12 px gaps, DESIGN.md row 133): the key and the 1:1 scale on one row
+  again; the card is 358 px against main's 344 (the kit's 32 px button and the rigging rows' 24 px fields and 20 px
+  boxes). The row fits with 3 px to spare on the card (1 px on today's page, 594 px wide): a longer word wraps it.
 - `CoarserNote` joins the fallbacks' names with " and " in code. Today's page's own English the view never shows:
   `FilterBar`'s bar (its chips and "Close the filter") and `ResultNote`'s "Close" (`ResultSummary.tsx`); the guard
   (`tests/test_texts_in_catalogue.py` `MOVED`) covers the parts the view borrows (`MainEditor`, `MoreFilters`,

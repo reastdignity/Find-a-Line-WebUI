@@ -5,9 +5,12 @@
 .ui .r-profile .fal-swatch { display: inline-block; width: 14px; height: 3px; vertical-align: middle; }
 .ui .r-profile .fal-profile-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ui .r-profile .fal-profile-title { font-weight: 600; color: var(--ink); }
-/* the legend: the kit's (.u-legend-items, .u-legend-item, .u-legend-sw: 13 px, its gaps; step 3d G6, Q3 a), beside the
-   head's title 8 px off; its areas' swatches in the chart's colours */
+/* the legend: the kit's (.u-legend-items, .u-legend-item, .u-legend-sw; step 3d G6, Q3 a) at the profile's 12 px with
+   12 px between its items (the kit's 13 px and 16 px elsewhere: the user's F1 a of 2026-11-23, so the 1:1 scale stays
+   on the key's row in a desktop card), beside the head's title 8 px off; its areas' swatches in the chart's colours */
 .ui .r-profile .fal-profile-legend { display: inline-flex; margin-left: 8px; }
+.ui .r-profile .fal-profile-legend.u-legend-items { gap: 4px 12px; }
+.ui .r-profile .fal-profile-legend .u-legend-item { font-size: var(--fs-1); }
 .ui .r-profile .fal-sw-terrain { background: var(--r-terrain-fill); box-shadow: inset 0 0 0 1px var(--r-terrain-line); }
 .ui .r-profile .fal-sw-trees { background: var(--r-trees-fill); }
 .ui .r-profile .fal-sw-water { background: var(--r-water-fill); }
