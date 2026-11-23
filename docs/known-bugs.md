@@ -131,6 +131,15 @@ and six hex digits, and the test adds 150 jobs at once (about 1 run in 1 500 by 
 draws again while the id is taken (`test_a_job_whose_id_is_taken_gets_another`). The cause is read from the id's
 form; no run of the old code was made to fail on it.
 
+## `test_rclone_stderr_never_printed` failed when run at 22:22 UTC (mended 2026-11-23)
+
+`tests/test_mirror_publish.py::test_rclone_stderr_never_printed` looks for five words of rclone's stderr in the tool's
+output, the port "2222" among them, and the tool prints the trash folder's name at unpublish, with its time stamp:
+in CI 45277159653 (Windows, 2026-11-23 22:22:01 UTC) that was `madeira-20261123T222201Z`, and the test failed with
+nothing of the stderr printed. Any stamp with "2222" in it does that, about 100 seconds of a day. The test now holds
+the stamp (`mirror_publish._stamp`, as `test_a_move_never_lands_on_an_existing_target` does); with the tool's clock
+at that moment the test as it was fails and the new one passes.
+
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
 `tools/ui_shots.py`'s page `view3d-valid` (the 3D view at `?level=full`, the tool "Only valid lines" clicked, then a
