@@ -206,6 +206,11 @@ Rules for every step:
    - The search from the command line becomes a tool for the maintainer and the tests: README and
      setup-for-regular-folk.md document the web app only, which saves more in docs than in code.
    - Check: the full regression set keeps every checksum (no flag that changes results is touched).
+6. **Step 1's label array of the whole grid** (added by the user, 2026-11-24; a task of its own, the next one
+   after the access grid's). A tiled search's step 1 holds 4 to 5 B per pixel of its whole grid in memory, which no
+   check counts: it passes a compute slot of the public site at a grid of about 31 to 34 km a side at 1 m. What was
+   measured, why it matters and the candidates: *Step 1's label array of the whole grid*, below the access grid's
+   entry.
 
 ## Line volume: too many lines (2026-11-10 to 2026-11-14, branch `line-volume`)
 
@@ -461,6 +466,43 @@ step 2 once more (over the coasts of Malta and Gozo's 19 tiles 47.9 s, indicativ
   peak 32 to 48 MB higher (over the bound of 196 MB in the made-up worst strip); taking it means a full fuzz and the
   bound restated (docs/performance.md, "Measured and not taken").
 - Not measured: a wide grid of float heights; Linux on a wide grid (the constant is Windows's there, computed).
+
+### Step 1's label array of the whole grid (the user, 2026-11-24)
+The next task after the access grid's (the entry above). The user: "add step 1's label array to the roadmap, as a
+next step after this session". Nothing started.
+- **What it is.** A tiled search runs step 1 once on its whole grid, in strips of rows (`search.search_lines`:
+  `prepare_data(strips=True)`; "Very large areas", *Step 1 once per area*). The grids stay memory-mapped in the work
+  folder, but three fillings label their regions in one int32 array of the whole grid held in memory, 4 B per pixel
+  of the grid (`sources/filling.py`): the lakes (`_fill_water_rows`, only with a lake), the gaps filled from another
+  grid (`_fill_rows`) and the gaps at a border (`_border_gaps_rows`).
+- **Measured** (2026-11-23, gate 0 of the access grid's task, with its tool `tools/perf_access.py`; Windows, 7
+  cores, the private bytes above the process's start):
+  - the coasts of Malta and Gozo at 1 m, a grid of 36.1 × 33.7 km (1 217 Mpx), under a budget of 18 GB: 5.08 GB,
+    4.18 B per pixel of the grid, the peak in the gap filling; step 1 took 272 s and its work folder 31.6 GB;
+  - the Gozo coast at 1 m (126 Mpx) under a compute slot's budget: 0.65 GB, 5.15 B per pixel, in both runs.
+  The working set beside them is 22 to 23 B per pixel: file pages of the memory-mapped grids.
+- **Why it matters.** No check of a plan counts these bytes (read in `plan_search`, `_check_tiles` and
+  `estimate_search`): the tiles are sized per pixel of a tile (`PIXEL_BYTES`), the estimate counts the work
+  folder's disk. A compute slot of the public site has 4.95 GB, so step 1 alone passes it at a grid of about 0.96 to
+  1.18 thousand million pixels, 31 to 34 km a side at 1 m (computed from the two measurements), while the limits
+  allow a box of 75 km a side (`bbox_km_max`); the limit of 50 km² on the area does not help, the array follows the
+  box. Not measured: what such a search does on the server (it takes the other slots' memory, or the worker is
+  killed). The disk checks look only at the space free when a job is added and when a phase starts
+  (`free_disk_gb_min`), not at the work folder the search will need.
+- **Its place.** It is the ceiling right behind the access grid's: an access grid under about 4 B per pixel of the
+  grid gains no wider box until this array is gone too. The country layer is not touched: each of its tiles runs
+  step 1 on the tile's own grid, inside the worker's budget (`country.COUNT_PIXEL_BYTES`).
+- **Candidates**, none evaluated; each leaves every checksum of the regression set as it is:
+  - **The array memory-mapped in the work folder** (effort low), as the access grid's labels were until 2026-11-26:
+    the 4 B per pixel leave the private memory for file pages and 4 B per pixel more of disk; the reads per region
+    then go through the file.
+  - **Regions labelled strip by strip and joined across the seams** (medium to high), no array of the whole grid:
+    built for the access grid's own regions (`access._Regions`, 2026-11-26); whether that code can serve here
+    depends on what each filling needs of a region (its ring, its median, its level).
+  - **A term for step 1 in the plan's memory check** (low): a search that cannot fit is told so before it starts.
+    It changes which searches the public site accepts, so the user decides.
+- **First step:** a wide box in the worker's container under a slot's limit, to see what happens today; then the
+  choice among the candidates.
 
 ### Parked ideas of the line-volume task
 Written down, not evaluated: 153 ideas parked at gate 2 (2026-11-13) and the items parked at gate 3 (2026-11-14). Each
