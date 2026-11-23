@@ -7,6 +7,7 @@ from grid import Grid
 
 from ..composed import ComposedLayer
 from ..indexes.cached import CachedIndex
+from ..indexes.versions import ComposedBlocks
 
 
 class IndexedTiles(ComposedLayer):
@@ -38,10 +39,16 @@ class IndexedTiles(ComposedLayer):
 
     def update_index_tile(self, cache_dir: str, lat: float, lon: float) -> Tuple[int, int, int]:
         """Ask the index again for one tile and download the newer versions of the cached
-        tiles there (the older files are deleted). Returns (new tiles, MB, deleted)."""
-        todo, keep = self.index.update_tile(cache_dir, lat, lon)
+        tiles there (the older files are deleted). Returns (new tiles, MB, deleted). Blocks (ComposedBlocks) whose
+        files stayed but whose order changes are read again over their own path by update_tile itself, before the
+        answer that changes their order is written (download)."""
+        done: List[int] = []
+        download = None
+        if isinstance(self.index.versions, ComposedBlocks):
+            download = lambda block: done.append(self._download_and_record(block, cache_dir))  # noqa: E731
+        todo, keep = self.index.update_tile(cache_dir, lat, lon, download)
         received = sum(self._download_and_record(t, cache_dir) for t in todo)
-        return len(todo), received / 1e6, self.index.prune(cache_dir, keep)
+        return len(todo) + len(done), (received + sum(done)) / 1e6, self.index.prune(cache_dir, keep)
 
     def _use(self, cache_dir: str, update: Optional[str] = None):
         """What tiles() needs (it gets only the grid)."""

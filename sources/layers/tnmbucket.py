@@ -52,6 +52,7 @@ import servicecounts
 
 from .. import net
 from ..indexes.cached import INDEX_MARGIN_DEG, IndexUnavailable
+from ..indexes.listings import TNM_PAGE, tnm_answer, tnm_pages
 from ..indexes.s3listing import MAX_KEYS, PageBudget, S3Object, common_prefixes, list_objects
 from ..readers.windows import _forget, _same_crs
 from .tnm import TILE_ZONE, TNM_API, _survey_year, folder_year, tile_extent, tile_item, usgs_1m_item
@@ -75,7 +76,6 @@ REGIONS: Tuple[Tuple[float, float, float, float], ...] = (
     (144.5, 13.0, 146.0, 20.6),
     (-171.2, -14.7, -168.0, -11.0),
 )
-TNM_PAGE = 500     # products a page (the API's most)
 SPLIT_ABOVE = 2500  # a box holding more products is asked as its four quarters (at most 5 pages a box)
 MIN_SPLIT_DEG = 0.25
 # Requests at a time in each part: within the app's 8 connections a host (net.HOST_SLOTS), each still under a slot
@@ -189,10 +189,7 @@ def _tnm_page(cache_dir: Optional[str], api: str, dataset: str, box: Tuple[float
             if 400 <= response.status_code < 500 and not slow_down:
                 raise IndexUnavailable(f"TNM API: HTTP {response.status_code} {response.text[:200]}".strip())
             response.raise_for_status()
-            page = response.json()
-            if not isinstance(page, dict) or not isinstance(page.get("items") or [], list):
-                raise ValueError("not an answer of products")
-            return page
+            return tnm_answer(response.json())
         except IndexUnavailable:
             raise
         except (requests.RequestException, ValueError) as e:
@@ -213,11 +210,10 @@ def tnm_listed(cache_dir: Optional[str], api: str = TNM_API, dataset: str = DATA
 
     The API counts some products twice in its `total`, and pages over that count: on 2026-11-23 a box saying 572 gave
     500 items of 250 distinct URLs at offset 0 and 72 more at offset 500 (a file listed as two products), and two
-    of 151 boxes gave a page short by one or ten; the pages always reached `total`. So the next page starts after
-    what came (offset += the items' count, repeats included: pages overlap, never skip), a page shorter than the
-    total promises is asked once more and the two are joined, and completeness is the distinct URLs, never `total`.
-    A page that comes back empty, also when asked again, before `total` is reached is a dropped page:
-    IndexUnavailable."""
+    of 151 boxes gave a page short by one or ten; the pages always reached `total`. The pages of a box follow the
+    one paging rule of the TNM API (listings.tnm_pages, shared with a tile's answer, TnmProducts.fetch): a short
+    page asked once more and joined, an empty page before `total` IndexUnavailable; completeness is the distinct
+    URLs, never `total`."""
     budget = budget or PageBudget("the TNM index (1 m DEM)", TNM_PAGES)
     found: Dict[str, Dict] = {}
     lock = threading.Lock()
@@ -232,29 +228,16 @@ def tnm_listed(cache_dir: Optional[str], api: str = TNM_API, dataset: str = DATA
 
     def one(box) -> list:
         """The box's products kept; the quarters to ask instead, if any."""
-        page, offset = _tnm_page(cache_dir, api, dataset, box, 0, budget), 0
+        page = _tnm_page(cache_dir, api, dataset, box, 0, budget)
         west, south, east, north = box
         if (page.get("total") or 0) > SPLIT_ABOVE and east - west > MIN_SPLIT_DEG:
-            keep(page.get("items") or [])
+            keep(page["items"])
             mid_x, mid_y = (west + east) / 2, (south + north) / 2
             return [(west, south, mid_x, mid_y), (mid_x, south, east, mid_y),
                     (west, mid_y, mid_x, north), (mid_x, mid_y, east, north)]
-        while True:
-            items, total = page.get("items") or [], page.get("total") or 0
-            if len(items) < min(TNM_PAGE, total - offset):
-                again = _tnm_page(cache_dir, api, dataset, box, offset, budget).get("items") or []
-                keep(again)
-                items = again if len(again) > len(items) else items
-            keep(page.get("items") or [])
-            if not items:
-                if offset < total:
-                    raise IndexUnavailable(f"TNM API: an empty page at offset {offset} of {total} in the box "
-                                           f"{','.join(f'{v:g}' for v in box)} (a dropped page)")
-                return []
-            offset += len(items)
-            if offset >= total:
-                return []
-            page = _tnm_page(cache_dir, api, dataset, box, offset, budget)
+        keep(tnm_pages(lambda offset: _tnm_page(cache_dir, api, dataset, box, offset, budget), page,
+                       f"the box {','.join(f'{v:g}' for v in box)}", TNM_PAGE))
+        return []
 
     if at_once <= 1:
         boxes = list(regions)
@@ -517,13 +500,16 @@ def make_unlisted(cache_dir: str, out: Optional[str] = None, bucket: str = BUCKE
                   dataset: str = DATASET, regions: Sequence[Tuple[float, float, float, float]] = REGIONS,
                   projects: Optional[Sequence[str]] = None, log: Callable[[str], None] = print,
                   at_once: Optional[int] = None, allow_drop: bool = False,
-                  budgets: Optional[Callable[[Dict[str, PageBudget]], None]] = None) -> Dict:
+                  budgets: Optional[Callable[[Dict[str, PageBudget]], None]] = None,
+                  found: Optional[Dict] = None) -> Dict:
     """Make the list of the bucket's 1 m files the TNM index does not list and write it to out, by default the cached
     list (unlisted_path, with a row in the index of its top folder); cache_dir also holds the host slots. projects:
     only these of the bucket (a recorded test; then neither guard applies). at_once: requests at a time in each
     part (REQUESTS_AT_ONCE). allow_drop: the index may list fewer files than the list before by more than
     MAX_LISTED_DROP (checked by hand). budgets: given the three parts' budgets ("bucket", "index", "headers") before
-    the first request, so a caller can show their requests while they run (sources/renewal.py). Returns what it did:
+    the first request, so a caller can show their requests while they run (sources/renewal.py). found: filled with
+    the names of the bucket's files ("bucket") and of the files the index lists ("listed"), as sets, once the list is
+    made (the renewal tells apart why a file left the list). Returns what it did:
     files, bytes, how their zones and years were found, the names left out, the projects dated by their upload, the
     bucket's files and the index's, the requests, bytes and seconds of each part. IndexUnavailable when a step fails;
     the list there was stays."""
@@ -586,6 +572,9 @@ def make_unlisted(cache_dir: str, out: Optional[str] = None, bucket: str = BUCKE
                "seconds_by_part": seconds, "at_once": at_once, "seconds": round(time.monotonic() - started, 1)}
     path = out or unlisted_path(cache_dir)
     write_list(path, summary, items, bucket, api, dataset)
+    if found is not None:
+        found["bucket"] = {obj.key.rsplit("/", 1)[-1] for obj in objects}
+        found["listed"] = {url.rsplit("/", 1)[-1] for url in listed}
     if out is None:
         cache.record(cache_dir, path, url=bucket)
         with contextlib.suppress(OSError):
@@ -608,6 +597,8 @@ def write_list(path: str, summary: Dict, items: List[Dict], bucket: str, api: st
     head = {"made_at": summary["made_at"], "bucket": bucket, "index": api, "dataset": dataset,
             "counts": {k: summary.get(k, 0) for k in COUNT_KEYS},
             "upload_year_projects": summary.get("upload_year_projects", []), "left_out": summary["left_out"]}
+    if summary.get("carried"):  # sources/renewal.py: files the index lists now, kept until their answers hold them
+        head["carried"] = sorted(summary["carried"])
     text = json.dumps(head)[:-1] + ', "items": [\n' + ",\n".join(json.dumps(item) for item in items) + "\n]}\n"
     tmp = net._part(path)
     try:
@@ -667,9 +658,10 @@ def read_failed(cache_dir: str, top: str = TOP) -> Optional[Dict]:
 
 
 def failed_recently(cache_dir: str, top: str = TOP) -> Optional[Dict]:
-    """The record of a listing that failed less than FAILED_RETRY_DAYS ago, else None."""
+    """The record of a listing that failed less than FAILED_RETRY_DAYS ago, else None. A record dated in the future
+    (the clock was set back after it was written) blocks nothing."""
     record = read_failed(cache_dir, top)
-    if record is not None and (_utc_now() - record["at"]).total_seconds() < FAILED_RETRY_DAYS * 86400:
+    if record is not None and 0 <= (_utc_now() - record["at"]).total_seconds() < FAILED_RETRY_DAYS * 86400:
         return record
     return None
 
@@ -701,6 +693,17 @@ def list_items(cache_dir: str, top: str = TOP) -> Dict[str, Dict]:
         for item in items:
             found.setdefault(item["url"], item)
     return found
+
+
+def carried_urls(cache_dir: str, top: str = TOP) -> List[str]:
+    """The files the cached list carries (its "carried": the index lists them now, but some cached answer they reach
+    did not hold them yet when the list was made: sources/renewal.py); none for a list that cannot be read."""
+    try:
+        with open(unlisted_path(cache_dir, top), encoding="utf-8") as f:
+            carried = json.load(f).get("carried") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [url for url in carried if isinstance(url, str)]
 
 
 def list_tiles(cache_dir: str, top: str = TOP) -> Dict[Tuple[int, int], List[Dict]]:

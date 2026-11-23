@@ -280,11 +280,21 @@ def test_index_out_of_reach_is_no_success(setup):
     assert "could not be reached" in state["message"] and state["stage"] != "done"
 
 
-def test_a_row_without_tnm_data_is_not_renewed(setup):
+def test_a_row_without_tnm_data_is_not_renewed(setup, monkeypatch):
     """A source whose layers do not renew (sources/renewal.py: only the TNM datasets do): the first pass of a start
-    asks nothing more than before and notes no renewal."""
-    area = setup(FakeLayer(3))
+    asks nothing more than before (its three tiles; no HTTP request, the renewal never called) and notes no
+    renewal."""
+    import requests
+    from sources import renewal
+    sent = []
+    real = requests.Session.request
+    monkeypatch.setattr(requests.Session, "request", lambda self, method, url, *a, **k: (
+        sent.append(url), real(self, method, url, *a, **k))[1])
+    monkeypatch.setattr(renewal, "renew", lambda *a, **k: sent.append("renew"))
+    layer = FakeLayer(3)
+    area = setup(layer)
     assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert sorted(layer.fetched) == [0, 1, 2] and sent == []
     state = ad.read_state(area.state_dir, "land")
     assert "renewed" not in state and not state.get("renewal")
 
@@ -300,7 +310,9 @@ def test_the_row_shows_the_renewal_while_it_runs(setup, monkeypatch):
 
     def renew(layers, grid, cache_dir, say, asked):
         say("  the index of fake terrain: 1 of 2 answers, 0 changed, 0 failed")
-        time.sleep(0.4)
+        deadline = time.monotonic() + 60   # until the beat wrote it (a loaded machine: several beats), not a guess
+        while not ad.read_state(area.state_dir, "land").get("renewal") and time.monotonic() < deadline:
+            time.sleep(0.02)
         seen.append(ad.read_state(area.state_dir, "land").get("renewal"))
         return renewal.Renewal(asked=2)
     monkeypatch.setattr(ad, "STATE_SECONDS", 0.05)
@@ -346,6 +358,7 @@ def test_a_restarted_row_asks_the_index_again(tmp_path, monkeypatch, http_server
     tnm.asked.clear()
     assert ad.run_pass(area, 2) == ad.EXIT_DONE     # a later pass of the same start
     assert tnm.tile_requests() == {} and sorted(os.listdir(folder)) == first
+    assert ad.read_state(area.state_dir, "utah")["renewed"] == state["renewed"]   # what the start's renewal did
     assert ad.run_pass(area, 1) == ad.EXIT_DONE     # the row started again
     after = sorted(os.listdir(folder))
     assert len(after) == 4 and all(n.startswith("2025_") for n in after) and not set(after) & set(first)

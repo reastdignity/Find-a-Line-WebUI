@@ -8,7 +8,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import rasterio as rio
 import rasterio.warp
@@ -21,7 +21,7 @@ import osm
 from grid import Grid
 
 from ..readers.windows import BlockRequest, _same_crs
-from .cached import CachedIndex, Versions, index_tiles
+from .cached import CachedIndex, IndexUnavailable, Versions, index_tiles, merge_items
 
 
 # existing() lists a folder once when at least LISTING_FROM of the paths it is asked about lie in it, and asks
@@ -394,13 +394,36 @@ class ComposedBlocks(Versions):
         s = block.size
         return transform_bounds(block.crs, "EPSG:4326", block.i * s, block.j * s, (block.i + 1) * s, (block.j + 1) * s)
 
-    def update_tile(self, index: CachedIndex, cache_dir: str, lat: float, lon: float) -> Tuple[list, list]:
+    def update_tile(self, index: CachedIndex, cache_dir: str, lat: float, lon: float,
+                    download: Optional[Callable[[Block], None]] = None) -> Tuple[list, list]:
         """The cached blocks (centred in the tile) over which the set of files changed, or its newest year: read
-        again, and their older files deleted. Also those whose files stayed but whose order changed (reordered:
-        a file's date or year changed), deleted first and read again."""
-        before = index.cached_items(cache_dir, lat, lon)
-        index.answers(cache_dir, lat, lon, "all")
-        todo = []
+        again, and their older files deleted. Also those whose files stayed but whose order changes (reordered: a
+        file's date or year changed): before the new answer is written, each is read again over its own path
+        (download; the old block stays until its replacement is there, never deleted first), and when any of them
+        fails (the others still tried) the answer is not written (IndexUnavailable): the next update sees the change
+        again, so no block stays composed in the order of before under an answer of now. Without download (no
+        caller) they are returned to be read after the answer was written."""
+        old, answer = index.fresh_answer(cache_dir, lat, lon)
+        reread: List[Block] = []
+        if old is not None:
+            extra = index.extra(cache_dir, lat, lon)
+            before, after = merge_items(old, extra), merge_items(answer["sheets"], extra)
+            reread = [b for b in self.reordered(index, cache_dir, {(lat, lon): before}, moved_items(before, after),
+                                                {(lat, lon): after}) if self._centred(b, lat, lon)]
+        if download is not None and reread:
+            failed = []
+            for block in reread:
+                try:
+                    download(block)
+                except Exception as e:  # noqa: BLE001 (any failure of one block: the others still read)
+                    failed.append(block)
+                    print(f"{index.description}: the block {os.path.basename(self.path(cache_dir, block))} could not "
+                          f"be read again in its new order ({cache.clean_error(e)[:200]}); the old one stays")
+            if failed:
+                raise IndexUnavailable(f"{len(failed)} of the {len(reread)} blocks of {osm.tile_name(lat, lon)} whose "
+                                       f"order of files changed could not be read again: the cached answer is kept")
+        index.store(cache_dir, lat, lon, answer)
+        todo = [] if download is not None else list(reread)
         for path in self._cached_paths(cache_dir):
             block = self._block_of(path)
             if block is None:
@@ -415,13 +438,7 @@ class ComposedBlocks(Versions):
             if now and (now[0].key != block.key or now[0].year != block.year) \
                     and not os.path.exists(self.path(cache_dir, now[0])):
                 todo.append(now[0])
-        if before is not None:
-            moved = moved_items(before, index.cached_items(cache_dir, lat, lon) or [])
-            for block in self.reordered(index, cache_dir, {(lat, lon): before}, moved):
-                if self._centred(block, lat, lon) and block not in todo:
-                    cache.forget(cache_dir, [self.path(cache_dir, block)])
-                    todo.append(block)
-        return todo, todo
+        return todo, todo + [b for b in reread if b not in todo]
 
     def _centred(self, block: Block, lat: float, lon: float) -> bool:
         """Whether a block's centre lies in the 0.25° index tile with this south-west corner."""
@@ -429,15 +446,18 @@ class ComposedBlocks(Versions):
         return lat <= (south + north) / 2 < lat + osm.TILE_DEG and lon <= (west + east) / 2 < lon + osm.TILE_DEG
 
     def reordered(self, index: CachedIndex, cache_dir: str, before: Dict[Tuple[float, float], List[Dict]],
-                  moved: Sequence[Dict]) -> List[Block]:
+                  moved: Sequence[Dict], after: Optional[Dict[Tuple[float, float], List[Dict]]] = None) -> List[Block]:
         """The cached blocks over the moved files (moved_items: the same URL with another year or date) whose set of
         files and newest year stayed while the order of their files changed: their name (year and key) is the same,
         so nothing else would read them again, but a block read now would be composed in another order (wave A of
         the USA, part A-2: a file the TNM index lists since the last list of the bucket's unlisted files takes the
         index's date in place of its upload time). before: the merged items (CachedIndex.cached_items) of the index
-        tiles as they were before their answers or the list changed; every other tile over a moved file as it is
-        now, its cached answer only (nothing is asked). The blocks of a file whose newest year changed get another
-        name and are read again anyway (prune then deletes the old one)."""
+        tiles as they were before their answers or the list changed; after: those of tiles as they will be once the
+        change is written (the caller deletes or reads such blocks before it writes the change: a stop in between
+        leaves the change to be seen again); every other tile over a moved file as it is now, its cached answer only
+        (nothing is asked). The blocks of a file whose newest year changed get another name and are read again anyway
+        (prune then deletes the old one)."""
+        after = after or {}
         found: Dict[tuple, Block] = {}
         margin = 0.01  # cached.INDEX_MARGIN_DEG
         for item in moved:
@@ -448,7 +468,7 @@ class ComposedBlocks(Versions):
             old: Dict[str, Dict] = {}
             new: Dict[str, Dict] = {}
             for tile in tiles:
-                now = index.cached_items(cache_dir, *tile)
+                now = after[tile] if tile in after else index.cached_items(cache_dir, *tile)
                 for i in now or ():
                     new[i["url"]] = i
                 for i in before[tile] if tile in before else now or ():

@@ -3,7 +3,7 @@
 import json
 import math
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import requests
@@ -93,6 +93,11 @@ class IndexUnavailable(requests.RequestException):
     for listings whose client is not requests (see docs/sources-architecture.md)."""
 
 
+class DroppedFiles(IndexUnavailable):
+    """A fresh answer lacked files the cached answer held and a second one right away did not agree with it
+    (CachedIndex.confirms_drops): the cached answer stays."""
+
+
 class Listing:
     """Asks an index service what it lists in one 0.25° tile."""
     url = ""  # the index's address, recorded with each cached answer
@@ -145,7 +150,15 @@ class CachedIndex(Index):
     (ttl_days: "sheet-index" unless the index publishes more often) or with an update.
 
     tiles() gets only the grid: use() gives it the cache folder and the update mode first.
+
+    confirms_drops (the indexes of layers that renew, tnm.TnmBlocks: set per instance): an answer that replaces a
+    cached one and lacks URLs the cached one held is asked once more right away and written only when the two fresh
+    answers hold the same URLs (a real removal, taken at once); else DroppedFiles and the cached answer stays
+    (_fetch). An empty answer as such is never refused: most tiles hold nothing. Every path that replaces a cached
+    answer goes through it: answers() with an update, ask_again (sources/renewal.py), fresh_answer
+    (ComposedBlocks.update_tile, `cache update`). Off, an answer is fetched and written as before.
     """
+    confirms_drops = False
 
     def __init__(self, description: str, listing: Listing, versions: Versions, prefix: str, top: str,
                  ttl_days: Optional[float] = None):
@@ -171,9 +184,42 @@ class CachedIndex(Index):
         if due():
             with tile_lock(cache_dir, path):  # another search may be asking for it now
                 if due():
-                    self._store(cache_dir, path, self.listing.fetch(lat, lon))
+                    old = self._cached_sheets(path) if self.confirms_drops else None
+                    self._store(cache_dir, path, self._fetch(lat, lon, old))
         with open(path, encoding="utf-8") as f:
             return json.load(f)["sheets"]
+
+    def _fetch(self, lat: float, lon: float, old: Optional[List[Dict]]) -> Dict:
+        """The index's answer for a tile; with confirms_drops and a cached answer (old: its versions), one lacking URLs
+        the cached one held is asked once more and taken when both fresh answers hold the same URLs, else
+        DroppedFiles."""
+        answer = self.listing.fetch(lat, lon)
+        if not self.confirms_drops or old is None:
+            return answer
+        urls = lambda sheets: {s["url"] for s in sheets}  # noqa: E731
+        dropped = urls(old) - urls(answer["sheets"])
+        if not dropped:
+            return answer
+        again = self.listing.fetch(lat, lon)
+        if urls(again["sheets"]) == urls(answer["sheets"]):
+            return again
+        raise DroppedFiles(f"the index answer of {osm.tile_name(lat, lon)} lacked {len(dropped)} of the files the "
+                           f"cached one holds and, asked again at once, listed other files: the cached answer is kept")
+
+    def fresh_answer(self, cache_dir: str, lat: float, lon: float) -> Tuple[Optional[List[Dict]], Dict]:
+        """The cached versions of a tile (None without them) and the index's answer now (_fetch), asked under the
+        tile's lock and not written (store writes it): ComposedBlocks.update_tile reads the blocks whose order
+        changes before the answer that changes it is written."""
+        path = self.index_path(cache_dir, lat, lon)
+        with tile_lock(cache_dir, path):
+            old = self._cached_sheets(path)
+            return old, self._fetch(lat, lon, old)
+
+    def store(self, cache_dir: str, lat: float, lon: float, answer: Dict):
+        """An answer (fresh_answer's) written in place of the cached one, under the tile's lock."""
+        path = self.index_path(cache_dir, lat, lon)
+        with tile_lock(cache_dir, path):
+            self._store(cache_dir, path, answer)
 
     def _store(self, cache_dir: str, path: str, answer: Dict):
         """An answer of the index written in place of the cached one (atomically) and recorded."""
@@ -184,13 +230,16 @@ class CachedIndex(Index):
         os.replace(tmp, path)
         cache.record(cache_dir, path, url=self.listing.url)
 
-    def ask_again(self, cache_dir: str, lat: float, lon: float, since: Optional[str] = None) -> Optional[bool]:
+    def ask_again(self, cache_dir: str, lat: float, lon: float, since: Optional[str] = None,
+                  before_store: Optional[Callable[[Optional[List[Dict]], Dict], None]] = None) -> Optional[bool]:
         """Ask the index again for one tile (sources/renewal.py), under the tile's lock, and write its answer only
-        when the request succeeded: a failure raises (a requests.RequestException) and the cached answer stays.
-        None when the cached answer was checked at or after `since` (a time as cache.now_iso gives it, the start of
-        the renewal): another renewal asked it meanwhile, so it is not asked twice. Else whether the listed versions
-        changed (compared as sets: the index's order of its products is left aside); a tile without a cached answer
-        counts as changed."""
+        when the request succeeded: a failure raises (a requests.RequestException; DroppedFiles: _fetch) and the
+        cached answer stays. None when the cached answer was checked at or after `since` (a time as cache.now_iso
+        gives it, the start of the renewal): another renewal asked it meanwhile, so it is not asked twice. Else
+        whether the listed versions changed (compared as sets: the index's order of its products is left aside); a
+        tile without a cached answer counts as changed. before_store(cached versions or None, answer) runs under the
+        lock before the answer is written (the renewal deletes the blocks whose order the answer changes); when it
+        raises, nothing is written."""
         path = self.index_path(cache_dir, lat, lon)
         with tile_lock(cache_dir, path):
             old = self._cached_sheets(path)
@@ -198,7 +247,9 @@ class CachedIndex(Index):
                 row = cache.info(cache_dir, path)
                 if row and row.get("checked_at") and row["checked_at"] >= since:
                     return None
-            answer = self.listing.fetch(lat, lon)
+            answer = self._fetch(lat, lon, old)
+            if before_store is not None:
+                before_store(old, answer)
             self._store(cache_dir, path, answer)
         same = lambda sheets: sorted(json.dumps(s, sort_keys=True) for s in sheets)  # noqa: E731
         return old is None or same(old) != same(answer["sheets"])
@@ -249,8 +300,10 @@ class CachedIndex(Index):
     def prune(self, cache_dir: str, tiles: list) -> int:
         return self.versions.prune(cache_dir, tiles)
 
-    def update_tile(self, cache_dir: str, lat: float, lon: float) -> Tuple[list, list]:
-        return self.versions.update_tile(self, cache_dir, lat, lon)
+    def update_tile(self, cache_dir: str, lat: float, lon: float, download=None) -> Tuple[list, list]:
+        if download is None:
+            return self.versions.update_tile(self, cache_dir, lat, lon)
+        return self.versions.update_tile(self, cache_dir, lat, lon, download=download)
 
     def has_data_near(self, lat: float, lon: float, cache_dir: str) -> Optional[bool]:
         return self.versions.has_data_near(self, lat, lon, cache_dir)

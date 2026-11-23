@@ -263,6 +263,8 @@ class Reporter:
                       "tiles_done": 0, "tiles_total": 0, "failed": 0, "mb": self.mb_before,
                       "restarts": before.get("restarts", 0), "memory_gb": 0.0, "memory_peak_gb": 0.0,
                       "tiles_missing": 0}
+        if before.get("renewed") and before.get("source") == area.source:
+            self.state["renewed"] = before["renewed"]  # the start's renewal, through its later passes (pass 1 renews)
         self.next_minute = 0.0  # the free space and status.html
         # the history's next row: its own timer, so a listing's beats (no tiles_total yet) do not spend the first
         # row's minute (it was written up to HISTORY_SECONDS after the listing, or never in a short pass)

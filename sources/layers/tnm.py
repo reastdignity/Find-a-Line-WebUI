@@ -91,6 +91,9 @@ class TnmBlocks(IndexedTiles):
         self.dataset, self.block_m = dataset, block_m
         self.index = self.index_class(description, TnmProducts(api, dataset, self._item),
                                       ComposedBlocks(folder, block_m, native_res), prefix, folder.split("/")[0])
+        # An answer that lacks files the cached one held is asked once more before it replaces it (a renewal asks
+        # every answer of an area on each start: a short or empty answer must not delete good blocks)
+        self.index.confirms_drops = self.renews
         self.reader = Windows(description)
 
     def _item(self, product: Dict) -> Optional[Dict]:
