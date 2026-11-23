@@ -157,12 +157,26 @@ def test_cgroup_and_proc_readers(tmp_path):
     (cg / "memory.stat").write_text("anon 100\nfile 200\nkernel 9\nfile_mapped 50\nfile_dirty 5\nshmem 0\n")
     (cg / "memory.events").write_text("low 0\nhigh 0\nmax 3\noom 0\noom_kill 1\n")
     (cg / "memory.max").write_text("max\n")
-    assert pa.cgroup_sample(str(cg)) == {"current": 1234, "peak": 2000, "anon": 100, "file": 200, "file_mapped": 50,
-                                         "file_dirty": 5, "shmem": 0}
-    assert pa.cgroup_events(str(cg)) == {"low": 0, "high": 0, "max": 3, "oom": 0, "oom_kill": 1, "memory.max": -1}
+    assert pa.cgroup_sample(str(cg)) == {"v": 2, "current": 1234, "peak": 2000, "anon": 100, "file": 200,
+                                         "file_mapped": 50, "file_dirty": 5, "shmem": 0}
+    assert pa.cgroup_events(str(cg)) == {"v": 2, "low": 0, "high": 0, "max": 3, "oom": 0, "oom_kill": 1,
+                                         "memory.max": -1}
     (cg / "memory.max").write_text("4947666944\n")
     assert pa.cgroup_events(str(cg))["memory.max"] == 4947666944
     assert pa.cgroup_sample(str(tmp_path / "none")) is None and pa.cgroup_events(str(tmp_path / "none")) is None
+    v1 = tmp_path / "v1" / "memory"  # cgroup v1 (Docker Desktop on WSL2): the same names
+    v1.mkdir(parents=True)
+    (v1 / "memory.usage_in_bytes").write_text("3000\n")
+    (v1 / "memory.max_usage_in_bytes").write_text("3500\n")
+    (v1 / "memory.stat").write_text("cache 9\nrss 8\ntotal_cache 300\ntotal_rss 200\ntotal_mapped_file 70\n"
+                                    "total_dirty 6\ntotal_shmem 1\n")
+    (v1 / "memory.limit_in_bytes").write_text("4947666944\n")
+    (v1 / "memory.failcnt").write_text("12\n")
+    (v1 / "memory.oom_control").write_text("oom_kill_disable 0\nunder_oom 0\noom_kill 0\n")
+    assert pa.cgroup_sample(str(tmp_path / "v1")) == {"v": 1, "current": 3000, "peak": 3500, "anon": 200,
+                                                      "file": 300, "file_mapped": 70, "file_dirty": 6, "shmem": 1}
+    assert pa.cgroup_events(str(tmp_path / "v1")) == {"v": 1, "oom_kill_disable": 0, "under_oom": 0, "oom_kill": 0,
+                                                      "failcnt": 12, "memory.max": 4947666944}
     (tmp_path / "123").mkdir()
     (tmp_path / "123" / "status").write_text("Name:\tpython\nVmHWM:\t    2048 kB\nVmRSS:\t    1024 kB\n"
                                              "RssAnon:\t     512 kB\nRssFile:\t     256 kB\n")

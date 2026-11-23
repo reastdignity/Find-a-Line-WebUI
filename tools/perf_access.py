@@ -97,43 +97,77 @@ def strips(h: int, w: int, strip_px: int = STRIP_PX):
         yield r0, min(h, r0 + rows)
 
 
-def cgroup_sample(root: str = CGROUP) -> Optional[Dict[str, int]]:
-    """The cgroup v2 memory of the container now (bytes): memory.current, memory.peak and from memory.stat anon,
-    file, file_mapped, file_dirty, shmem; None outside a cgroup v2 with memory files."""
+# cgroup v1 (Docker Desktop on WSL2 here) under the v2 names: usage_in_bytes is memory.current, max_usage_in_bytes
+# memory.peak; memory.stat's hierarchical totals rss, cache, mapped_file, dirty, shmem are anon, file, file_mapped,
+# file_dirty, shmem
+V1_STAT = {"total_rss": "anon", "total_cache": "file", "total_mapped_file": "file_mapped", "total_dirty": "file_dirty",
+           "total_shmem": "shmem"}
+
+
+def _read_int(path: str) -> Optional[int]:
     try:
-        with open(os.path.join(root, "memory.current")) as f:
-            out = {"current": int(f.read().strip())}
+        with open(path) as f:
+            text = f.read().strip()
+        return -1 if text == "max" else int(text)
     except (OSError, ValueError):
         return None
+
+
+def _cgroup_kind(root: str) -> Optional[Tuple[int, str]]:
+    """(2, folder) for cgroup v2's memory files in root, (1, folder) for v1's in root/memory or root; None."""
+    if os.path.exists(os.path.join(root, "memory.current")):
+        return 2, root
+    for folder in (os.path.join(root, "memory"), root):
+        if os.path.exists(os.path.join(folder, "memory.usage_in_bytes")):
+            return 1, folder
+    return None
+
+
+def cgroup_sample(root: str = CGROUP) -> Optional[Dict[str, int]]:
+    """The container's cgroup memory now (bytes), under cgroup v2's names: current, peak and from memory.stat anon,
+    file, file_mapped, file_dirty, shmem (v1: V1_STAT); "v" the version; None outside a cgroup with memory files."""
+    kind = _cgroup_kind(root)
+    if kind is None:
+        return None
+    version, folder = kind
+    current = _read_int(os.path.join(folder, "memory.current" if version == 2 else "memory.usage_in_bytes"))
+    if current is None:
+        return None
+    out = {"v": version, "current": current}
+    peak = _read_int(os.path.join(folder, "memory.peak" if version == 2 else "memory.max_usage_in_bytes"))
+    if peak is not None:
+        out["peak"] = peak
+    names = {k: k for k in ("anon", "file", "file_mapped", "file_dirty", "shmem")} if version == 2 else V1_STAT
     try:
-        with open(os.path.join(root, "memory.peak")) as f:
-            out["peak"] = int(f.read().strip())
-    except (OSError, ValueError):
-        pass
-    try:
-        with open(os.path.join(root, "memory.stat")) as f:
+        with open(os.path.join(folder, "memory.stat")) as f:
             for line in f:
                 key, _, value = line.partition(" ")
-                if key in ("anon", "file", "file_mapped", "file_dirty", "shmem"):
-                    out[key] = int(value)
+                if key in names:
+                    out[names[key]] = int(value)
     except (OSError, ValueError):
         pass
     return out
 
 
 def cgroup_events(root: str = CGROUP) -> Optional[Dict[str, int]]:
-    """memory.events of the cgroup (low, high, max, oom, oom_kill ...), and memory.max; None outside one."""
+    """The cgroup's events and limit: v2 memory.events (low, high, max, oom, oom_kill) and memory.max; v1 failcnt,
+    memory.oom_control's under_oom and oom_kill, and limit_in_bytes as memory.max (-1: no limit); None outside one."""
+    kind = _cgroup_kind(root)
+    if kind is None:
+        return None
+    version, folder = kind
+    name = "memory.events" if version == 2 else "memory.oom_control"
     try:
-        with open(os.path.join(root, "memory.events")) as f:
+        with open(os.path.join(folder, name)) as f:
             out = {k: int(v) for k, v in (line.split() for line in f if line.strip())}
     except (OSError, ValueError):
-        return None
-    try:
-        with open(os.path.join(root, "memory.max")) as f:
-            text = f.read().strip()
-            out["memory.max"] = -1 if text == "max" else int(text)
-    except (OSError, ValueError):
-        pass
+        out = {}
+    out["v"] = version
+    if version == 1:
+        out["failcnt"] = _read_int(os.path.join(folder, "memory.failcnt"))
+    limit = _read_int(os.path.join(folder, "memory.max" if version == 2 else "memory.limit_in_bytes"))
+    if limit is not None:
+        out["memory.max"] = limit
     return out
 
 
