@@ -137,7 +137,7 @@ def _tiles_of(item: Dict) -> List[Tuple[float, float]]:
     return osm.tiles(west - m, south - m, east + m, north + m)
 
 
-def _ask(layer, cache_dir: str, tiles: List[Tuple[float, float]], since: str, asked: Set[tuple], result: Renewal,
+def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since: str, asked: Set[tuple], result: Renewal,
          say: Say, what: str, before: Optional[Dict[Tuple[float, float], List[Dict]]] = None) -> List[Dict]:
     """The answers of these tiles asked again (those not asked by this renewal yet), counted into result, and the
     cached blocks over the files whose date or year moved, whose order changed, deleted (_reread). before: each
@@ -282,7 +282,7 @@ def renew_list(layer, cache_dir: str, say: Say = print, result: Optional[Renewal
             if sheets is not None:  # an answer never cached is asked by whatever needs it, with the new list
                 before[(lat, lon)] = merge_items(sheets, old_tiles.get(tb.tile_key(lat, lon), []))
         failed_before, mark = result.failed + result.left, time.monotonic()
-        _ask(layer, cache_dir, list(before), since, asked, result, say, "the answers over the files that left the list",
+        _ask_answers(layer, cache_dir, list(before), since, asked, result, say, "the answers over the files that left the list",
              before)
         result.seconds["answers over departed files"] = round(time.monotonic() - mark, 1)
         say(f"{len(departed):,} files left the list (the index lists them now): the cached answers of the "
@@ -313,7 +313,7 @@ def renew(layers: Iterable, grid, cache_dir: str, say: Say = print, asked: Optio
     tiles = index_tiles(grid)
     for layer in layers:
         say(f"Asking the index of {layer.description} again: {len(tiles):,} answers")
-        _ask(layer, cache_dir, tiles, since, asked, result, say, f"the index of {layer.description}")
+        _ask_answers(layer, cache_dir, tiles, since, asked, result, say, f"the index of {layer.description}")
         layer.index._listed.clear()  # what tiles() found before the renewal
     result.seconds["answers"] = round(time.monotonic() - mark, 1)
     result.requests["answers"] = sum(getattr(listing, "requests", 0) - n for listing, n, _ in listings.values())
