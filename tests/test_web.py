@@ -795,6 +795,52 @@ def test_stale_temporary_files(tmp_path):
     assert not old.exists() and new.exists() and kept.exists()
 
 
+def test_opening_the_queue_tried_again_after_a_truncate_error(tmp_path, monkeypatch):
+    """jobs.sqlite's opening (jobs._wal, each connection's first statement) is tried again after SQLite's
+    SQLITE_IOERR_TRUNCATE, which Windows gives for a moment after a process that used the database was killed
+    (test_quick_lane below met it at its lane's kill, in 5 of 46 runs); any other error, and that one after the last
+    try, is raised with the connection closed."""
+    import sqlite3
+
+    import jobs as jb
+
+    class Connection:
+        def __init__(self, *codes):
+            self.codes, self.asked, self.closed = list(codes), 0, False
+
+        def execute(self, sql):
+            assert sql == "PRAGMA journal_mode=WAL"
+            self.asked += 1
+            if self.codes:
+                error = sqlite3.OperationalError("disk I/O error")
+                error.sqlite_errorcode = self.codes.pop(0)
+                raise error
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(jb, "OPEN_PAUSES", (0.0, 0.001, 0.002))
+    truncate = sqlite3.SQLITE_IOERR_TRUNCATE
+    twice = Connection(truncate, truncate)
+    jb._wal(twice)
+    assert (twice.asked, twice.closed) == (3, False)  # twice refused, then opened
+    always = Connection(*[truncate] * 9)
+    with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
+        jb._wal(always)
+    assert (always.asked, always.closed) == (4, True)  # once and after each of the three pauses
+    for code in (sqlite3.SQLITE_IOERR_READ, sqlite3.SQLITE_BUSY, None):
+        other = Connection(code)
+        with pytest.raises(sqlite3.OperationalError):
+            jb._wal(other)
+        assert (other.asked, other.closed) == (1, True), code  # not that error: raised at once
+    # Every connection of the queue is opened through it
+    opened = []
+    monkeypatch.setattr(jb, "_wal", lambda db: opened.append(db))
+    jobs = Jobs(str(tmp_path))
+    jobs.add({"params": {}}, "one")
+    assert len(opened) >= 2 and all(isinstance(db, sqlite3.Connection) for db in opened)
+
+
 def test_quick_lane(tmp_path, monkeypatch):
     """Estimates are answered by the worker's quick lane: without a worker the server says so; a
     task over the time limit gets its process killed, and a new one takes its place."""

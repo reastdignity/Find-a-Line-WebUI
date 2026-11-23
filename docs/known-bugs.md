@@ -105,6 +105,21 @@ free. The cause is not found: an SQLite file of the test's `tmp_path` held or re
 app closes is the first thing to check. Before calling a failure of it a regression, run it alone a few times on a
 clean checkout of `main`.
 
+**Found on 2026-11-23: it is the app's, on Windows, not the test's.** Alone on `main` b1434458 it failed 5 of 46
+runs, every time with SQLite's extended code `SQLITE_IOERR_TRUNCATE` at a new connection's
+`PRAGMA journal_mode=WAL` (in `quick_take`, `quick_forget` and the scheduler's `interrupted`, the last right after
+`kill_tree` and `join`): at the moment the scheduler kills the quick lane's process for a task over its time, not at
+the app's end as such. A connection that finds itself the only one resets the database's shared-memory file
+(`jobs.sqlite-shm`), and Windows refuses that while the process going away still has the file mapped. Shown with
+sqlite3 alone, no code of the repository: after the kill of a process holding 600 MB the error came in 16 of 60 and
+9 of 40 rounds, up to 77 ms after the kill; processes of 0, 3 000 and 8 000 MB gave none in 60, 16 and 8 rounds (so
+not simply the larger the longer); none in 60 rounds once the pragma was tried again. `jobs._wal` now tries a
+connection's opening again after that one error (six pauses, 1.6 s in all; any other error is raised at once). With
+`Jobs._db` under the same kill: `main`'s jobs.py 2 of 80 rounds with the error, the branch's 0 of 80; the test alone
+0 of 40 runs. **Left as it was:** the same opening in `accounts.py`, `audit.py`, `cache.py` (the cache's index:
+search processes use it and are killed on a cancel, so a search running beside a cancelled one can meet the error on
+Windows), `country.py` and `tools/test_lock.py`.
+
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
 `tools/ui_shots.py`'s page `view3d-valid` (the 3D view at `?level=full`, the tool "Only valid lines" clicked, then a

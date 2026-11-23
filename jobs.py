@@ -436,6 +436,28 @@ def _in(values: Iterable) -> str:
     return "(" + ", ".join("?" * len(tuple(values))) + ")"
 
 
+OPEN_PAUSES = (0.02, 0.05, 0.1, 0.2, 0.4, 0.8)  # seconds between the tries of a connection's opening (_wal)
+
+
+def _wal(db: sqlite3.Connection):
+    """`PRAGMA journal_mode=WAL`, a new connection's first statement, tried again (OPEN_PAUSES) after SQLite's
+    SQLITE_IOERR_TRUNCATE ("disk I/O error"). That error is Windows': right after a process that used the database
+    was killed (a quick task over its time, a cancelled job, the worker's stop), a connection that finds itself the
+    only one resets the database's shared-memory file, which Windows refuses while the process going away still
+    has that file mapped. Measured 2026-11-23 with a killed process of 600 MB: errors up to 77 ms after the kill,
+    none once the opening was tried again; `tests/test_web.py::test_quick_lane` met it in 5 of 46 runs. Any other
+    error, and this one after the last pause, is raised, with the connection closed."""
+    for pause in (*OPEN_PAUSES, None):
+        try:
+            db.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError as error:
+            if pause is None or getattr(error, "sqlite_errorcode", None) != sqlite3.SQLITE_IOERR_TRUNCATE:
+                db.close()
+                raise
+            time.sleep(pause)
+
+
 FACTS_TRIES = 3  # copies of jobs.sqlite run_facts reads at most before it gives up
 
 
@@ -521,7 +543,7 @@ class Jobs:
 
     def _db(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=60)
-        db.execute("PRAGMA journal_mode=WAL")
+        _wal(db)
         db.row_factory = sqlite3.Row
         return db
 
