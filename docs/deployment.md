@@ -466,7 +466,8 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
   compose.yaml, the address nginx's connections arrive from; only its `X-Forwarded-For` is
   believed), `FINDALINE_CONTACT`, `FINDALINE_GITHUB_CLIENT_ID`,
   `FINDALINE_GOOGLE_CLIENT_ID` and/or `FINDALINE_MICROSOFT_CLIENT_ID`, `FINDALINE_ADMINS` (below), `FINDALINE_SIGNUP` (`approval` by
-  default: new accounts wait for an administrator), the limits (README, *Limits of the web app*).
+  default: new accounts wait for an administrator; `open`: approved at once, the accounts still
+  waiting approved when `web` starts, and the sign-in page's note leaves out the wait), the limits (README, *Limits of the web app*).
   The public site has time limits by default: an hour for a search's download, two hours for
   its computing and for an OpenStreetMap extract, two minutes for an estimate or a profile
   (`FINDALINE_LIMIT_DOWNLOAD_SECONDS=3600`, `..._COMPUTE_SECONDS=7200`, `..._OSM_SECONDS=7200`,
@@ -519,7 +520,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
 `google:<sub>`, `microsoft:<sub>`. Google and Microsoft show the `sub` nowhere (Microsoft's is
 made for this app alone): start the site with GitHub as administrator (or with
 `FINDALINE_ADMINS` empty), sign in with Google or Microsoft once (the account waits for
-approval), and read it:
+approval, unless `FINDALINE_SIGNUP=open`), and read it:
 
 ```sh
 docker compose exec web python -c "
@@ -841,7 +842,8 @@ so (section 5).
    `docker inspect -f '{{.State.OOMKilled}}' findaline-worker-1` says `false` and the search
    finished (the search sizes its tiles from the container's memory limit).
 7. **Sign-in** with the real GitHub app (and Google, Microsoft): the account of an administrator lands in
-   the app, another one on *waiting for approval*; approve it in *Admin*.
+   the app, another one on *waiting for approval*; approve it in *Admin* (with `FINDALINE_SIGNUP=open` it lands
+   in the app at once, and the sign-in page does not mention a wait).
 8. **The firewall test** of section 2, and a **restore test** of section 11.
 9. **The monitoring**: the checks of section 15.
 10. **The visitors' real addresses**: open the site from a phone on mobile data, look up the

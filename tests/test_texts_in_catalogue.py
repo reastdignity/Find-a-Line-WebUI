@@ -136,14 +136,16 @@ def old_area_total(total) -> str:
             f"search{'' if searches == 1 else 'es'}</p>")
 
 
-def old_signin_page(providers, user=None, csrf=None, note: str = "", demos=None, total=None) -> str:
+def old_signin_page(providers, user=None, csrf=None, note: str = "", demos=None, total=None,
+                    signup: str = "approval") -> str:
     e = html.escape
     card = [f"<p class='p-error' role='alert'>{e(note)}</p>"] if note else []
     if user is None:
         card.append("<h2 class='u-h'>Sign in to search</h2><div class='p-providers'>" + "".join(
             f"<a class='p-provider p-{p}' href='/login/{p}'>{web.PROVIDER_SVG.get(p, '')}Sign in with {ac.NAMES[p]}</a>"
             for p in providers) + "</div>")
-        card.append("<p class='u-small'>A new account waits for an administrator's approval. The site keeps your "
+        wait = "A new account waits for an administrator's approval. " if signup != "open" else ""
+        card.append(f"<p class='u-small'>{wait}The site keeps your "
                     "provider's user id and display name, no e-mail address.</p>")
     else:
         state = ("is waiting for an administrator's approval" if user.status == "pending"
@@ -222,8 +224,9 @@ def test_about_page_as_before(contact, esri, ring):
 
 
 def test_signin_page_as_before():
-    """Every variant of the sign-in page: a visitor (providers, a note, examples, the total) and an account that is
-    not approved (pending or blocked, a name to escape, a provider without a name)."""
+    """Every variant of the sign-in page: a visitor (providers, a note, examples, the total, FINDALINE_SIGNUP: with
+    open the note under the links leaves out the wait; its words approved by the user on 2026-11-23) and an account
+    that is not approved (pending or blocked, a name to escape, a provider without a name)."""
     pages = 0
     for providers in PROVIDERS:
         for note in NOTES:
@@ -231,6 +234,9 @@ def test_signin_page_as_before():
                 for total in TOTALS:
                     assert (web.signin_page(providers, note=note, demos=demos, total=total)
                             == old_signin_page(providers, note=note, demos=demos, total=total))
+                    for signup in ("approval", "open", "closed"):
+                        assert (web.signin_page(providers, note=note, demos=demos, total=total, signup=signup)
+                                == old_signin_page(providers, note=note, demos=demos, total=total, signup=signup))
                     pages += 1
     for status in ("pending", "blocked"):
         for who in (user(status), user(status, "<Ann & Bob>", "google"), user(status, "X", "elsewhere")):
