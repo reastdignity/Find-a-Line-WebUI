@@ -324,6 +324,9 @@ def test_unanswered_data_server(kind):
     "Not enough steep terrain. Try a lower --slope-threshold or a larger --radius.\n",
     "Traceback (most recent call last):\n  File \"x.py\", line 1\nrequests.exceptions.ReadTimeout: Read timed out.\n",
     "Download failed: HTTP 503: busy\nTraceback (most recent call last):\nKeyError: 'x'\n",
+    "Download failed: Could not download T tile 0_0: HTTP 500: upstream timed out\n",  # an answer's own words
+    "Download failed: Could not download T tile 0_0: HTTP 400: <p>503 Service Unavailable: connection refused</p>\n",
+    "Area: 404 Client Error: Not Found for url: https://nominatim.example/search?... (timed out before)\n",
     "",
 ])
 def test_not_a_sign_of_no_answer(text):
@@ -399,6 +402,16 @@ def test_update_stores_an_entry_asking_for_the_copernicus_mask(harness, capsys):
     harness.results.update(R1=_result("Copernicus water body mask", lines=12))  # a re-baseline of its own
     code, out, tests = harness("R1", "--update", capsys=capsys)
     assert code == 0 and tests["R1"]["expected"]["lines"] == 12
+
+
+def test_update_of_an_ok_run_stores_its_own_coastline(harness, capsys):
+    """H1 as built: --update stores the source the search printed, also of an ok run on another source that is no
+    fallback (live Overpass on a scratch cache): the baseline then names that source."""
+    overpass = "OpenStreetMap coastline (Overpass or extracts)"
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result(overpass))
+    code, out, tests = harness("R1", "--update", capsys=capsys)
+    assert code == 0 and "R1: ok" in out and tests["R1"]["expected"]["coastline"] == overpass
 
 
 def test_update_of_a_different_entry_exits_as_before(harness, capsys):

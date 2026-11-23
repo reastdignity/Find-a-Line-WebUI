@@ -129,6 +129,10 @@ NO_ANSWER = (
     r"(?i)connection (?:refused|reset|aborted)|RemoteDisconnected|actively refused|forcibly closed",
     r"does not answer \((?:no answer|no answer in time|the connection broke|HTTP (?:429|502|503|504))\)",  # tilebases
 )
+# A status named in the text (net._get's "HTTP 500: <the server's text>", requests' "500 Server Error"): the first
+# decides, so the words of an answered error's page ("upstream timed out" in a 500) never count as no answer
+HTTP_STATUS = r"\bHTTP (?:response code: )?(\d{3})\b|\b(\d{3}) (?:Client|Server) Error\b"
+NO_ANSWER_STATUSES = (429, 502, 503, 504)
 # The shared data a scratch cache gets from the real one with --cold (seed): folders below the cache, by hard link
 # per file (never a junction: a recursive delete of the scratch cache then cannot reach the real files). They follow
 # the code that writes them (tests/test_regression_harness.py checks each): coast.world_file (the OSM water polygons;
@@ -398,6 +402,9 @@ def unanswered(stderr: str) -> Optional[str]:
         who = next((who for prefix, who in FAILED_PREFIXES if lines[k].startswith(prefix)), None)
         if who is not None:
             text = "\n".join(lines[k:])
+            status = re.search(HTTP_STATUS, text)  # the first status named is the error's; a server's text follows it
+            if status and int(status.group(1) or status.group(2)) not in NO_ANSWER_STATUSES:
+                return None  # answered (a 500 whose page says "timed out" too)
             if any(re.search(sign, text) for sign in NO_ANSWER):
                 first = lines[k].strip()
                 return f"{who} did not answer: {first[:200] + ('...' if len(first) > 200 else '')}"
