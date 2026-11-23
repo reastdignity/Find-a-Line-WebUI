@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -2026,6 +2027,105 @@ def test_averaged_product_masks_sea_and_floor_before_the_mean(tmp_path, monkeypa
     card = mt.card_text(ds)
     assert ("the files' own no-data value, the sea's value 0 and every value below -1 m made no data (on the 0.5 m "
             "pixels, before the mean)") in " ".join(card.split())
+
+
+@pytest.mark.parametrize("average", [1, 2])
+def test_a_floor_not_exact_in_float32(tmp_path, monkeypatch, average):
+    """A floor of -0.3 m (not exact in float32): a pixel equal to float32(-0.3) is no lower than the floor as the tiles
+    keep it, so the cut keeps it and verify's checks apart from the cut keep it too (one rule, no_data, compared in
+    float32 everywhere). Averaged: the block of one such pixel and three at -5.3 m is that pixel (a partly valid block
+    verify compares on purpose); without a factor, a raster of nothing but that value over the whole tile, every
+    random pixel of verify's check on it."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    res = 0.5 if average == 2 else 1.0
+    values = np.full((2000, 2000), np.float32(-0.3), np.float32)
+    top = 4000.0  # the whole tile 1_1
+    if average == 2:
+        values, top = np.full((40, 40), 100.0, np.float32), 2100.0
+        values[0, 0] = np.float32(-0.3)
+        values[0, 1] = values[1, 0] = values[1, 1] = -5.3
+    _tif(inputs / "f.tif", values, 2000.0, top, res=res, crs="EPSG:3812", nodata=-9999.0)
+    ds = _dataset(monkeypatch, "fl", _product([mt.Placed("f.tif")], res=1.0, crs="EPSG:3812", origin=(0.0, 0.0),
+                                              floor=-0.3, average=average))
+    mt.cut("fl", str(work), str(out), inputs=str(inputs))
+    tiles, _ = _tiles(out, ds)
+    assert abs(tiles["1_1"][int(4000 - top), 0] - np.float32(-0.3)) <= 0.0051
+    result = mt.verify("fl", str(work), str(out), inputs=str(inputs))["dtm"]
+    assert result["ok"], result["problems"]
+    if average == 2:
+        assert result["samples"][0]["partial_found"] == result["samples"][0]["partial_compared"] == 1
+    assert bool(mt.no_data(np.array([np.float32(-0.3)]), ds.products[0], None)[0]) is False
+
+
+def test_joined_blocks_whatever_the_count_of_rasters(tmp_path):
+    """The joined blocks of two touching rasters are found however many rasters the tile has before them: 254 small
+    rasters elsewhere in the tile, then the two (the index of a pixel's first raster held no more than 254 before)."""
+    product = _product([], res=1.0, crs="EPSG:3812", origin=(0.0, 0.0), nodata=(-9999.0,), average=2)
+    readers = []
+    for q in range(254):  # 2 x 2 px of 0.5 m each, on whole metres: whole blocks of their own
+        left, top = 100.0 + 3 * (q % 100), 1500.0 + 3 * (q // 100)
+        path = _tif(tmp_path / f"s{q}.tif", np.full((2, 2), 50.0), left, top, res=0.5, crs="EPSG:3812", strips=True)
+        readers.append((f"s{q}", str(path), (left, top - 1.0, left + 1.0, top)))
+    a = _tif(tmp_path / "a.tif", np.full((20, 21), 60.0), 0.0, 110.0, res=0.5, crs="EPSG:3812", strips=True)
+    b = _tif(tmp_path / "b.tif", np.full((20, 19), 70.0), 10.5, 110.0, res=0.5, crs="EPSG:3812", strips=True)
+    readers += [("a", str(a), (0.0, 100.0, 10.5, 110.0)), ("b", str(b), (10.5, 100.0, 20.0, 110.0))]
+    handles = {}
+    try:
+        (rows, cols, kinds), counts = mt._edge_blocks("0_0", product, readers, random.Random(0), handles)
+    finally:
+        for h in handles.values():
+            h.close()
+    assert counts == {"partial_found": 0, "seam_found": 0, "joined_found": 10}
+    assert sorted(set(cols.tolist())) == [10] and sorted(rows.tolist()) == list(range(1890, 1900))
+
+
+def test_compared_means_a_value_on_both_sides(tmp_path):
+    """The point check counts an edge block as compared only where both the tile and the inputs give it a value: of
+    two partly valid blocks passed, both with the tile as cut, one with that block of the tile made no data."""
+    values = np.repeat(np.repeat(_heights((20, 20), 41).astype(np.float32), 2, axis=0), 2, axis=1)
+    values[0, 0] = values[0, 2] = -9999.0  # blocks (0, 0) and (0, 1) partly valid
+    path = _tif(tmp_path / "c.tif", values, 2000.0, 2100.0, res=0.5, crs="EPSG:3812", nodata=-9999.0)
+    product = _product([mt.Placed("c.tif")], res=1.0, crs="EPSG:3812", origin=(0.0, 0.0), average=2)
+    readers = [("c.tif", str(path), (2000.0, 2080.0, 2020.0, 2100.0))]
+    extra = (np.array([1900, 1900]), np.array([0, 1]), ["partial", "partial"])
+    handles = {str(path): rio.open(path)}
+    try:
+        tile = mt.assemble((1, 1), product, [("c.tif", mt.footprint(str(path), product))], handles)
+        counted = {}
+        problems, _ = mt._point_problems("1_1", tile, product, readers, random.Random(0), 0, handles, extra=extra,
+                                         counted=counted)
+        assert counted == {"partial_compared": 2} and problems == []
+        tile[1900, 1] = np.nan
+        problems, _ = mt._point_problems("1_1", tile, product, readers, random.Random(0), 0, handles, extra=extra,
+                                         counted=counted)
+        assert counted == {"partial_compared": 1} and "differ in no data" in problems[0]
+    finally:
+        for h in handles.values():
+            h.close()
+
+
+def test_verify_in_the_cuts_order_of_rasters(tmp_path, monkeypatch):
+    """Two fetched rasters whose shared pixels differ by 4 mm ("agree"), cut in done.jsonl's order, then done.jsonl
+    written again in the other order: verify judges in the cut's order (inputs.jsonl), so the seam's pixels come from
+    the raster the cut took them from, says so in a note, and passes."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    area = inputs / "ord"
+    whole = _heights((300, 2500), 51).astype(np.float32)
+    rows = []
+    for name, c0, c1, shift in (("A.tif", 0, 1500, 0.0), ("B.tif", 1000, 2500, 0.004)):
+        path = _tif(area / name, whole[:, c0:c1] + np.float32(shift), float(c0), 1300.0, res=1.0, crs="EPSG:3812",
+                    nodata=-9999.0)
+        rows.append({"id": name, "group": "G", "path": name, "size": path.stat().st_size,
+                     "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+    (area / "status.json").write_text(json.dumps({"groups": {"G": {"files": 2}}}))
+    (area / "done.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    _dataset(monkeypatch, "ord", _product([mt.Fetched("ord", group="G")], res=1.0, crs="EPSG:3812", origin=(0.0, 0.0),
+                                          nodata=(-9999.0,), overlap="agree"))
+    assert mt.cut("ord", str(work), str(out), inputs=str(inputs)) == {"dtm": "cut"}
+    (area / "done.jsonl").write_text("\n".join(json.dumps(r) for r in reversed(rows)) + "\n")
+    result = mt.verify("ord", str(work), str(out), inputs=str(inputs))["dtm"]
+    assert result["ok"], result["problems"]
+    assert "the inputs' order of now differs from the cut's: judged in the cut's order (inputs.jsonl)" in result["notes"]
 
 
 def test_averaged_assemble_is_exact(tmp_path):

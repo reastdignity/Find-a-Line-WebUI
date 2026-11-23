@@ -1464,17 +1464,27 @@ def _write(path: str, tile: np.ndarray, crs: str, transform):
     _site("tile.after_replace")
 
 
-def mask(values: np.ndarray, product: Product, file_nodata: Optional[float]) -> np.ndarray:
-    """values as float32 with NaN for every no-data value: the file's own, the product's nodata and sea values, every
-    value below its floor (compared as float32, as the values are kept)."""
+def no_data(values: np.ndarray, product: Product, file_nodata: Optional[float]) -> np.ndarray:
+    """Which values are no data, the one rule of the cut (mask) and of verify's checks apart from it (_input_masks,
+    _point_problems): not finite, the file's own nodata, the product's nodata and sea values, below its floor; each
+    compared as float32 against the float32 of the value (as the tiles keep the values: a pixel equal to
+    float32(floor) is kept whatever the floor's float64)."""
     values = values.astype(np.float32, copy=False)
+    bad = ~np.isfinite(values)
     for value in tuple(product.nodata) + ((file_nodata,) if file_nodata is not None else ()) + \
             ((product.sea,) if product.sea is not None else ()):
         if not np.isnan(value):
-            values[values == np.float32(value)] = np.nan
+            bad |= values == np.float32(value)
     if product.floor is not None:
         with np.errstate(invalid="ignore"):
-            values[values < np.float32(product.floor)] = np.nan
+            bad |= values < np.float32(product.floor)
+    return bad
+
+
+def mask(values: np.ndarray, product: Product, file_nodata: Optional[float]) -> np.ndarray:
+    """values as float32 with NaN for every no-data value (no_data)."""
+    values = values.astype(np.float32, copy=False)
+    values[no_data(values, product, file_nodata)] = np.nan
     return values
 
 
@@ -2100,16 +2110,8 @@ def _own_reading(paths: Sequence[Tuple[str, str]], product: Product) -> Dict[str
 
 
 def _input_masks(src, product: Product, values: np.ndarray) -> np.ndarray:
-    """The valid input pixels of values read from src, masked by these few lines (not mask()): finite, none of the
-    product's nodata, the file's own and the sea's value, not below the floor."""
-    bad = ~np.isfinite(values)
-    for value in list(product.nodata) + [src.nodata, product.sea]:
-        if value is not None and not np.isnan(value):
-            bad |= values.astype(np.float32) == np.float32(value)
-    if product.floor is not None:
-        with np.errstate(invalid="ignore"):
-            bad |= values < product.floor
-    return ~bad
+    """The valid input pixels of values read from src (no_data's rule, read apart from the cut)."""
+    return ~no_data(values, product, src.nodata)
 
 
 def _edge_blocks(key: str, product: Product, readers: Sequence[Tuple[str, str, Tuple]], rng: random.Random,
@@ -2123,9 +2125,12 @@ def _edge_blocks(key: str, product: Product, readers: Sequence[Tuple[str, str, T
     a, fine, (ox, oy) = product.average, input_res(product), product.origin
     n = tile_px(fine)
     left, top = ox + i * TILE_M, oy + (j + 1) * TILE_M
-    valid_count = np.zeros((n, n), dtype=np.uint8)
-    owner = np.full((n, n), 255, dtype=np.uint8)  # the first raster with a value (the one the tile takes it from)
-    for k, (_, path, (b_left, b_bottom, b_right, b_top)) in enumerate(readers):
+    valid = np.zeros((n, n), dtype=bool)
+    twice = np.zeros((n, n), dtype=bool)  # a pixel valid in two rasters
+    # the first raster with a value (the one the tile takes it from): its index among the rasters over this tile
+    owner = np.full((n, n), -1, dtype=np.int32)
+    k = 0
+    for _, path, (b_left, b_bottom, b_right, b_top) in readers:
         if b_right <= left or b_left >= left + TILE_M or b_top <= top - TILE_M or b_bottom >= top:
             continue
         if path not in handles:
@@ -2138,17 +2143,18 @@ def _edge_blocks(key: str, product: Product, readers: Sequence[Tuple[str, str, T
             continue
         ok = _input_masks(src, product, src.read(1, window=Window(c_in, r_in, c_end - c_in, r_end - r_in)))
         window = (slice(r_in - r0, r_end - r0), slice(c_in - c0, c_end - c0))
-        valid_count[window] += ok.astype(np.uint8)
+        twice[window] |= valid[window] & ok
         first = owner[window]
-        first[ok & (first == 255)] = min(k, 254)
+        first[ok & ~valid[window]] = k
+        valid[window] |= ok
+        k += 1
 
     def blocks(grid):
         return grid.reshape(n // a, a, n // a, a)
-    valid = valid_count > 0
     per_block = blocks(valid).sum(axis=(1, 3))
-    seam = blocks(valid_count >= 2).any(axis=(1, 3))
-    lowest = blocks(np.where(valid, owner, 255)).min(axis=(1, 3))
-    highest = blocks(np.where(valid, owner, 0)).max(axis=(1, 3))
+    seam = blocks(twice).any(axis=(1, 3))
+    lowest = blocks(np.where(valid, owner, np.iinfo(np.int32).max)).min(axis=(1, 3))
+    highest = blocks(owner).max(axis=(1, 3))
     joined = (per_block > 0) & (lowest != highest) & ~seam
     rows, cols, kinds, counts = [], [], [], {}
     for kind, where in zip(EDGE_KINDS, ((per_block > 0) & (per_block < a * a), seam, joined)):
@@ -2167,11 +2173,11 @@ def _point_problems(key: str, got: np.ndarray, product: Product, readers: Sequen
                     counted: Optional[Dict[str, int]] = None) -> Tuple[List[str], int]:
     """A check apart from the cut's own reading: n random pixels of a tile (and the pixels of extra, (rows, cols,
     kinds): an averaged product's edge blocks), their centres' coordinates in the dataset's CRS read straight from the
-    input rasters through each raster's own transform (the rasters chosen by their own bounds), masked by these few
-    lines (not mask()), the first raster with a value taken; compared with the tile within 5 mm and for no data. An
-    averaged product's pixel is compared with the mean of its block's input pixels, each read so (the sum of the valid
-    ones over their count, here). counted: per kind of extra, the blocks compared (a value on both sides) added as
-    "<kind>_compared". The problems found and the random pixels compared."""
+    input rasters through each raster's own transform (the rasters chosen by their own bounds), masked by no_data's
+    rule (not through mask()), the first raster with a value taken; compared with the tile within 5 mm and for no
+    data. An averaged product's pixel is compared with the mean of its block's input pixels, each read so (the sum
+    of the valid ones over their count, here). counted: per kind of extra, the blocks compared (a value on both
+    sides) added as "<kind>_compared". The problems found and the random pixels compared."""
     i, j = map(int, key.split("_"))
     px, res, (ox, oy) = got.shape[0], product.res, product.origin
     rows = np.array([rng.randrange(px) for _ in range(n)], dtype=int)
@@ -2205,13 +2211,7 @@ def _point_problems(key: str, got: np.ndarray, product: Product, readers: Sequen
         r0, r1, c0, c1 = rr[inside].min(), rr[inside].max() + 1, cc[inside].min(), cc[inside].max() + 1
         block = src.read(1, window=Window(c0, r0, c1 - c0, r1 - r0)).astype(np.float64)
         v = block[rr[inside] - r0, cc[inside] - c0]
-        bad = ~np.isfinite(v)
-        for value in list(product.nodata) + [src.nodata, product.sea]:
-            if value is not None and not np.isnan(value):
-                bad |= v.astype(np.float32) == np.float32(value)
-        if product.floor is not None:
-            bad |= v < product.floor
-        v[bad] = np.nan
+        v[no_data(v, product, src.nodata)] = np.nan
         slots = np.flatnonzero(inside)
         found[slots[~np.isnan(v)]] = v[~np.isnan(v)]
     if a != 1:
@@ -2300,6 +2300,14 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
                     if row.get("id")} if os.path.exists(os.path.join(folder, INPUTS_FILE)) else None
         rasters = r.rasters if recorded is None else [x for x in r.rasters if x.id in recorded]
         if recorded is not None:
+            # Judged in the cut's own order of the rasters (inputs.jsonl's: which raster a seam's pixel came from),
+            # whatever the order of now (a fetch's done.jsonl written again)
+            cut_order = {rid: n for n, rid in enumerate(recorded)}
+            ordered = sorted(rasters, key=lambda x: cut_order[x.id])
+            if [x.id for x in ordered] != [x.id for x in rasters]:
+                notes.append("the inputs' order of now differs from the cut's: judged in the cut's order "
+                             "(inputs.jsonl)")
+            rasters = ordered
             later = [x.id for x in r.rasters if x.id not in recorded]
             if later:
                 notes.append(f"{len(later)} inputs arrived after this product was cut (not part of this edition): a "
