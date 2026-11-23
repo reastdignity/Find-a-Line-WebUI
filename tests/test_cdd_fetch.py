@@ -153,8 +153,8 @@ class Fake:
         request at a time: CI's Linux runs of 2026-11-17/18, e.g. 44311665737). So a second request that arrives
         while those bytes are written (for a 200 the whole body, written at once) is not counted, nor one sent after
         the headers of a 200 and before its body was read. Only answers made here are counted out so; every other
-        one (a reset, a slow or cut body, a close without an answer) still is when its handler returns (handle), and
-        a test asserting `most` over such an answer would meet the same race."""
+        one (a reset, a body sent in pieces or without its length, a close without an answer) still is when its
+        handler returns (handle), and a test asserting `most` over such an answer would meet the same race."""
         h.send_response(status)
         for name, value in (headers or {}).items():
             h.send_header(name, value)

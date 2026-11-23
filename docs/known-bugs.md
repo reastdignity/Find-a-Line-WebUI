@@ -359,8 +359,9 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   count and passed 3 of 3 on the new one. What that costs: a second request is no longer counted when it arrives
   while those bytes are written (for a 200 its whole body), or after a 200's headers and before its body was read;
   two requests at once are seen only while the fake works on the first. And only the answers of `Fake.send` are
-  counted out so: after a reset, a slow or cut body or a close, a request is counted out when its handler returns,
-  as before, so a later test asserting `most` over such an answer would race as this one did.
+  counted out so: after a reset, a body sent in pieces or without its length, or a close without an answer, a
+  request is counted out when its handler returns, as before, so a later test asserting `most` over such an answer
+  would race as this one did.
 - **The CI's view3d ring job timed out again** (`test_view3d_ring.py::test_ring_drawn_within_its_budget[full-None]`
   and `[full-edges]`, Edge stopped after 1 500 s, on 74de19ae and a86b86e8): the Windows 3D hang seen since
   CI 43618907225, nothing of store wave 4 in its path. Read on 2026-11-23 from the last 60 CI runs: the ring job
