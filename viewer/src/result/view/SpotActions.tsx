@@ -71,8 +71,8 @@ export function LineActions(p: Props) {
   return <>
     <div class="vl-lacts">
       {view3dOf && <Button icon="cliff" class="r-view3d" href={view3dOf(model, l) + also}>{t("ui.view3d.open")}</Button>}
-      <Button icon="link" class="r-copy" onClick={link}>{shown?.ok ? "Link copied" : "Copy link"}</Button>
-      {model.profileClosed && <Button icon="bars" class="r-reprofile" onClick={() => model.showProfile()}>Profile</Button>}
+      <Button icon="link" class="r-copy" onClick={link}>{t(shown?.ok ? "ui.spot.link_copied" : "ui.spot.copy_link")}</Button>
+      {model.profileClosed && <Button icon="bars" class="r-reprofile" onClick={() => model.showProfile()}>{t("ui.spot.profile")}</Button>}
     </div>
     {shown && !shown.ok && <LinkField text={shown.text} />}
     {shown?.ok && <input type="hidden" class="r-copied" value={shown.text} />}
@@ -95,7 +95,7 @@ export function ReportLine({view}: Props) {
   if (!sel || view.fan || !canReport()) return null;
   const l = sel.line;
   return <Button icon="warn" kind="ghost" class="r-report vl-report"
-                 onClick={() => openReport({category: "results", about: `a line of ${model.data.run.name}`,
+                 onClick={() => openReport({category: "results", about: t("ui.spot.report_about", {run: model.data.run.name}),
                                             context: {run: model.runOf(l), line: model.lineLink(l)}})}>
-    Report this line</Button>;
+    {t("ui.spot.report")}</Button>;
 }

@@ -5,7 +5,7 @@
 // the model's note (a link to a line, a favourite not saved).
 
 import { useState } from "preact/hooks";
-import { Button } from "../../ui/components";
+import { Button, CloseButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { COLORS } from "../../style";
 import { t } from "../../i18n";
@@ -30,8 +30,7 @@ export function ResultNote({model}: {model: ResultModel}) {
   if (!note) return null;
   return <div class="r-note" role="status"><Icon name="info" /><span class="u-grow">{note.text}</span>
     {note.action && <Button kind="ghost" onClick={() => note.onAction?.()}>{note.action}</Button>}
-    <button type="button" class="r-note-x" aria-label="Close" onClick={() => model.setNote(null)}>
-      <Icon name="close" /></button>
+    <CloseButton label="Close" class="r-note-x" onClick={() => model.setNote(null)} />
   </div>;
 }
 
@@ -58,8 +57,7 @@ export function WhyBox({model, found, onClose}: {model: ResultModel; found: numb
   const keys = ["ui.result.need_none", "ui.result.need_zone", "ui.result.need_lift"];
   return <section class="r-why" id="r-why" aria-label={t("ui.result.why_title")}>
     <div class="r-why-head"><b class="u-grow">{t("ui.result.why_title")}</b>
-      <button type="button" class="r-note-x" aria-label={t("ui.result.why_close")} onClick={onClose}>
-        <Icon name="close" /></button></div>
+      <CloseButton label={t("ui.result.why_close")} class="r-note-x" onClick={onClose} /></div>
     <p class="u-small r-why-text">{t("ui.result.why_text", {found: count(found)})}
       {needs && <>{" "}{t("ui.result.why_of", {n: count(model.count)})}</>}</p>
     {needs && <>
@@ -68,7 +66,7 @@ export function WhyBox({model, found, onClose}: {model: ResultModel; found: numb
       {needs.map((n, k) => <label key={k} class="r-why-row">
         <i class={`r-why-k${k}`} aria-hidden="true" />
         <span class="u-grow">{t(keys[k], {count: n, n: count(n)})}</span>
-        <span class="r-why-show"><input type="checkbox" checked={!f[NEED_FILTERS[k]]}
+        <span class="r-why-show"><input type="checkbox" class="u-check" checked={!f[NEED_FILTERS[k]]}
                                         onChange={(e) => model.setFilters({...f, [NEED_FILTERS[k]]: !e.currentTarget.checked})} />
           {t("ui.result.show")}</span>
       </label>)}
@@ -113,7 +111,7 @@ export function ResultSummary({model, legend = true, note = true}: ResultSummary
     {known && <>
       <p class="u-small r-found-line"><span class="r-found" title={t("ui.result.found_title", {m: square})}>
         {t("ui.result.found", {n: count(found as number)})}</span>{" "}
-        <button type="button" class="r-link r-why-link" aria-expanded={why} aria-controls="r-why"
+        <button type="button" class="u-link u-inline r-link r-why-link" aria-expanded={why} aria-controls="r-why"
                 onClick={() => setWhy(!why)}>{t("ui.result.why")}</button></p>
       {why && <WhyBox model={model} found={found as number} onClose={() => setWhy(false)} />}
     </>}

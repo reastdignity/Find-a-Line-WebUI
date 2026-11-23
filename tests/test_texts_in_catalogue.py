@@ -281,6 +281,15 @@ MOVED = {
             "PROCESSED_NOTE: a data credit word for word with sources.credit (tests/test_catalogue.py)",
         "which were resampled and combined onto a working grid (changed).": "PROCESSED_NOTE (as above)"},
     "download.ts": {}, "result/measured.ts": {}, "view3d/decode.ts": {}, "view3d/canopymesh.ts": {},
+    # step 3d G6: the result view's files (line volume's round 6) and what the view borrows of today's page
+    "Profile.tsx": {"border-top:2px dotted ": "a swatch's CSS (an inline style)",
+                    ";border:1px solid ": "a swatch's CSS (an inline style)",
+                    "border-top:2px dashed ": "a swatch's CSS (an inline style)"},
+    "result/view/ProfileDock.tsx": {}, "result/view/ProfileCard.tsx": {}, "result/view/RunActions.tsx": {},
+    "result/view/FavouritePicker.tsx": {}, "result/view/SpotActions.tsx": {}, "result/view/MapBar.tsx": {},
+    "result/view/SpotDetails.tsx": {}, "result/view/ViewFilters.tsx": {}, "result/view/SpotSummary.tsx": {},
+    "result/view/Hint.tsx": {}, "result/view/FanPanel.tsx": {}, "result/view/SpotChooser.tsx": {},
+    "coarser.ts": {}, "layersControl.ts": {}, "app/PlaceMap.ts": {},
 }
 STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')
 LITERAL = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'|`(?:[^`\\]|\\.)*`')

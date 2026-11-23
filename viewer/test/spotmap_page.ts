@@ -53,7 +53,7 @@ async function rested(): Promise<boolean> {
 }
 const text = (selector: string) => document.querySelector(selector)?.textContent ?? null;
 const pressed = () => Array.from(document.querySelectorAll<HTMLElement>(".v-levels button"),
-                                 (b) => [b.dataset.level, b.getAttribute("aria-pressed"), b.classList.contains("v-now")]);
+                                 (b) => [b.dataset.level, b.getAttribute("aria-checked"), b.classList.contains("v-now")]);  // a radio (step 3d G6)
 const measures = () => [...new Set(performance.getEntriesByType("measure").map((e) => e.name))].sort();
 /** The picture now: the page's own count of strokes, the numbers on the map, the legend's shapes (the canvas's and
  *  the page's), the thin lines the view counted, and whether the canvas holds any ink. */

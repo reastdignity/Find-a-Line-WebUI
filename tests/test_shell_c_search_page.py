@@ -830,6 +830,9 @@ def test_drawing_tools_on_a_phone(tmp_path):
                 page.evaluate(TWO_FRAMES)
                 found = r[size] = page.evaluate(CONTROLS_JS)
                 tools = r[size, "tools"] = page.evaluate(TOOLS_JS)
+                # each tool's link named by its title (step 3d G6, B2: axe's link-name)
+                r[size, "names"] = page.evaluate("() => [...document.querySelectorAll('.c-placemap .leaflet-pm-toolbar a.leaflet-buttons-control-button')]"
+                                                   ".filter((a) => a.getClientRects().length).map((a) => a.getAttribute('aria-label'))")
                 rect = tools[0][1]
                 _tap(page, (rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2)
                 page.wait_for_function(DRAWING, timeout=WAIT)
@@ -857,7 +860,8 @@ def test_drawing_tools_on_a_phone(tmp_path):
     print("the drawing tools: " + json.dumps({" ".join(k) if isinstance(k, tuple) else k: v for k, v in r.items()}))
     for size in sizes:
         found, tools = r[size], r[size, "tools"]
-        assert [t[0] for t in tools] == ["Draw Rectangle", "Draw Polygons", "Edit Layers", "Drag Layers", "Remove Layers"], (size, tools)
+        assert [t[0] for t in tools] == ["Draw a rectangle", "Draw a polygon", "Change the areas", "Move the areas", "Remove an area"], (size, tools)
+        assert r[size, "names"] == [t[0] for t in tools], (size, r[size, "names"])
         assert sorted(name for name, _, _ in found["controls"] if name.startswith("tool ")) == sorted("tool " + t[0] for t in tools), (size, found)
         small = [(name, box) for name, box, _ in tools if box[2] - box[0] < 43.5 or box[3] - box[1] < 43.5]
         assert not small, (size, "tools under 44 px", small)

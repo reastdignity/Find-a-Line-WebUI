@@ -506,7 +506,7 @@ def test_limit_legend_squares(site):
             assert legend["options"] == [WORDS[f"ui.view.map.by_{k}"] for k in ("spots", "lines", "clr", "len")]
             assert legend["note"] == WORDS["ui.view.map.squares_note"] and legend["by"] == "spots"
             assert legend["breaks"] == sorted(set(legend["breaks"])) and all(b == int(b) for b in legend["breaks"])
-            assert 2 <= len(legend["classes"]) <= 5 and legend["classes"][-1] == f"{legend['breaks'][3]}+"
+            assert 2 <= len(legend["classes"]) <= 5 and legend["classes"][-1] == f"from {legend['breaks'][3]}"  # R9: words (step 3d G6)
             page.select_option(".v-by", "len")
             page.evaluate("() => T.frames()")
             metres = page.evaluate("() => ({by: window.FINDALINE_VIEW.map.legend().by, breaks: window.FINDALINE_VIEW.map.legend().breaks, "
@@ -927,7 +927,7 @@ def test_phone_controls_apart(boxes_site):
                             # (1:1) and the access marks, which wrap once at the pilot's 13 px (112 px measured
                             # 2026-11-18; before R2 and the pilot: under 70); _apart keeps it clear of every control
                             assert ramp["lines"] == 2 and ramp["whole"] and ramp["swatches"] == 5 and ramp["height"] < 120, ramp
-                            assert ramp["text"].startswith("1") and ramp["text"].endswith("+") and "," in ramp["name"], ramp
+                            assert ramp["text"].startswith("1") and ramp["text"].endswith(" or more") and "," in ramp["name"], ramp
                 # the map's help, opened by its "i" on the access mark's key (the user's 7 b): a panel above the
                 # controls, the others still apart
                 _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
@@ -1450,7 +1450,7 @@ def test_landscape_phone_columns_fold_the_legend(site):
     from playwright.sync_api import sync_playwright
     hit = """([k]) => { const b = document.querySelector(`.v-levels button[data-level="${k}"]`), r = b.getBoundingClientRect(),
       x = r.left + r.width / 2, y = r.top + r.height / 2, e = document.elementFromPoint(x, y); return {x, y, hit: !!e && b.contains(e)}; }"""
-    pressed = "([k]) => document.querySelector(`.v-levels button[data-level=\"${k}\"]`).getAttribute('aria-pressed') === 'true'"
+    pressed = "([k]) => document.querySelector(`.v-levels button[data-level=\"${k}\"]`).getAttribute('aria-checked') === 'true'"
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:

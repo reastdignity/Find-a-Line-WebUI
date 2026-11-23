@@ -19,7 +19,7 @@
 .ui .v-result .v-map .v-info:focus-visible, .ui .v-result .u-shore-chip:focus-visible { box-shadow: var(--shadow), var(--focus); }
 
 /* ---- the switch and Best at the top ---- */
-.ui .v-switch { position: absolute; z-index: 800; top: 8px; left: 8px; right: 8px; display: flex; gap: 8px; align-items: center;
+.ui .v-switch { position: absolute; z-index: var(--z-map-box); top: 8px; left: 8px; right: 8px; display: flex; gap: 8px; align-items: center;
   justify-content: center; flex-wrap: wrap; pointer-events: none; }
 .ui .v-switch > * { pointer-events: auto; }
 .ui .v-levels { display: flex; gap: 4px; padding: 4px; }
@@ -35,7 +35,7 @@
 .ui .v-best.v-off { opacity: .5; }
 
 /* ---- the foot: the status line, the hint beside it (a desktop), the legend ---- */
-.ui .v-foot { position: absolute; z-index: 800; left: 8px; right: 8px; bottom: calc(var(--v-covered, 0px) + var(--v-corner, 32px)); display: flex;
+.ui .v-foot { position: absolute; z-index: var(--z-map-box); left: 8px; right: 8px; bottom: calc(var(--v-covered, 0px) + var(--v-corner, 32px)); display: flex;
   flex-direction: column; gap: 8px; align-items: flex-start; pointer-events: none; }
 .ui .v-foot > * { pointer-events: auto; max-width: 100%; }
 /* the status line's row is wider than its boxes: a press beside them goes to the map */
@@ -56,7 +56,7 @@
 .ui .v-legend b { color: var(--ink); font-weight: 600; }
 .ui .v-lg { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .ui .v-lg .r-sw { width: 16px; height: 4px; border-radius: var(--r-1); }
-.ui .v-pale { width: 16px; height: 2px; background: #FF10F0; opacity: .35; }  /* style.ts COLORS.clean, as the map draws it */
+.ui .v-pale { width: 16px; height: 2px; background: var(--map-clean); opacity: .35; }  /* style.ts COLORS.clean, as the map draws it */
 .ui .v-ring { width: 16px; height: 16px; border-radius: var(--r-round); border: 2px dashed var(--ink); }
 .ui .v-classes { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 .ui .v-class { gap: 4px; font-variant-numeric: tabular-nums; }
@@ -70,15 +70,15 @@
 .ui .v-by { font-weight: 600; max-width: 100%; }
 /* the marks of the map 1:1 (40 x 24 px, their text at 12 px: R1): the map's own paper and ink in both themes */
 .ui .v-sh { width: 40px; height: 24px; flex: none; }
-.ui .v-sh path { fill: #fff; stroke: #1b2530; stroke-width: 1.6; }
-.ui .v-sh text { fill: #1b2530; font: 600 var(--fs-1) system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; }
+.ui .v-sh path { fill: var(--map-paper); stroke: var(--map-ink); stroke-width: 1.6; }
+.ui .v-sh text { fill: var(--map-ink); font: 600 var(--fs-1) system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; }
 .ui .v-help { padding: 8px 12px; max-width: min(420px, 100%); max-height: 40vh; overflow-y: auto; font-size: var(--fs-2); }
 .ui .v-legend-phone { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 4px; padding: 8px 12px; max-width: 100%;
   overflow-y: auto; overscroll-behavior: contain; }
 .ui .v-legend-phone > * { flex: none; }
 /* a phone's panels opened by the person (the access mark's key; the legend where the foot has no room for a line
    of it): above every control of the map, as an opened layers list; they scroll inside the map's height */
-.ui .v-over { position: absolute; z-index: 1100; left: 8px; right: 8px; display: flex; flex-direction: column; gap: 8px;
+.ui .v-over { position: absolute; z-index: var(--z-map-top); left: 8px; right: 8px; display: flex; flex-direction: column; gap: 8px;
   align-items: flex-start; overflow-y: auto; overscroll-behavior: contain; pointer-events: none; }
 .ui .v-over > * { pointer-events: auto; flex: none; max-width: 100%; }
 .ui .v-over > .v-help { max-height: none; }
@@ -115,10 +115,9 @@
 .ui .v-about p { margin: 0; }
 .ui .v-about b { color: var(--ink); font-weight: 600; }
 /* its close (the mock-up's ×): 24 px on a desktop, a finger's 44 px on a touch screen */
-.ui .v-result .v-about .v-about-x { width: 24px; height: 24px; flex: none; color: var(--ink-2); }
+.ui .v-result .v-about .v-about-x { flex: none; }  /* the kit's close (.u-ib.u-x): 24 px, 44 px on a touch screen */
 .ui .v-result .v-about .v-about-x .u-ic { width: 16px; height: 16px; }
-@media (pointer: coarse) { .ui .v-result .v-about .v-about-x { width: 44px; height: 44px; } }
-.ui .v-map > .v-about-all { position: absolute; z-index: 1100; top: 56px; left: 50%; transform: translateX(-50%);
+.ui .v-map > .v-about-all { position: absolute; z-index: var(--z-map-top); top: 56px; left: 50%; transform: translateX(-50%);
   width: min(340px, calc(100% - 16px)); max-height: calc(100% - 72px); }
 @media (pointer: coarse) { .ui .v-map > .v-about-all { top: 68px; } }
 .ui .v-about-parts { padding-block: 0; }
@@ -128,14 +127,15 @@
 .ui .v-part:first-child { border-top: 0; }
 .ui .v-part .u-ic { width: 16px; height: 16px; flex: none; color: var(--ink-2); }
 .ui .v-part:focus-visible { box-shadow: var(--focus-in); border-radius: var(--r-1); }
+@media (forced-colors: active) { .ui .v-part:focus-visible { outline-offset: -2px; } }
 .ui .v-part-text { display: flex; flex-direction: column; gap: 8px; padding: 0 0 8px 24px; }
 .ui .v-part-text .ac-key { display: flex; flex-direction: column; gap: 8px; }
 
 /* The legend's signs of what is drawn besides the spots: a dashed outline (the search area's; another run's in its
    colour, after the bar of its lines) on a chip of the map's own paper, in both themes (the marks' paper and ink) */
 .ui .v-dash { display: block; width: 16px; height: 12px; flex: none; }
-.ui .v-dash rect { fill: #fff; }
-.ui .v-dash path { fill: none; stroke: #1b2530; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.ui .v-dash rect { fill: var(--map-paper); }
+.ui .v-dash path { fill: none; stroke: var(--map-ink); stroke-width: 1.5; stroke-dasharray: 4 3; }
 .ui .v-runmark { display: inline-flex; align-items: center; gap: 4px; }
 /* a favourite's sign: the line (4 px, as the legend's bars) inside its gold band (12 px; MapBar FavSign's colours) */
 .ui .v-fav { display: inline-flex; align-items: center; width: 16px; height: 12px; border-radius: var(--r-1); flex: none; }
@@ -169,7 +169,7 @@
 .ui .v-result .c-pill .r-actions .r-pop.u-panel { border: 1px solid var(--line); }
 
 /* the map's message on a desktop: a dark box at the top, under the switch (a phone: in the status line's box) */
-.ui .v-map > .v-toast { position: absolute; z-index: 810; top: 56px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px);
+.ui .v-map > .v-toast { position: absolute; z-index: var(--z-map-box-2); top: 56px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px);
   background: var(--ink); color: var(--surface); border-radius: var(--r-2); padding: 4px 12px; font-size: var(--fs-2); line-height: 18px;
   box-shadow: var(--shadow); pointer-events: none; }  /* a press on the message goes to the map under it */
 
@@ -198,6 +198,7 @@
 .ui :is(.v-result .v-map .leaflet-bar, .c-placemap .leaflet-control-zoom) a:last-child { border-bottom: 0; }
 /* the bar clips its buttons to its corners: the keyboard's ring inside the button (the rows' inset ring) */
 .ui :is(.v-result .v-map .leaflet-bar, .c-placemap .leaflet-control-zoom) a:focus-visible { box-shadow: var(--focus-in); border-radius: var(--r-2); }
+@media (forced-colors: active) { .ui :is(.v-result .v-map .leaflet-bar, .c-placemap .leaflet-control-zoom) a:focus-visible { outline-offset: -2px; } }
 .ui :is(.v-result .v-map .leaflet-bar, .c-placemap .leaflet-control-zoom) a .u-ic { width: 16px; height: 16px; }
 /* the layers' list opened: its rows 24 px (44 on a touch screen), their words 13 px (R1, R2), a thin rule before
    the overlays */
@@ -212,8 +213,20 @@
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers .leaflet-control-layers-toggle { display: flex; align-items: center;
   justify-content: center; background-image: none; filter: none; color: var(--ink); }
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers.leaflet-control-layers-expanded .leaflet-control-layers-toggle { display: none; }
-/* the rows' own radio and checkbox in the accent (the browser's blue otherwise) */
-.ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-selector { accent-color: var(--accent); }
+/* the rows' radio and checkbox: the kit's 20 px box and its round twin (layersControl.ts gives them .u-check, .u-radio;
+   step 3d G6, Q4 a), 8 px before their words as the kit's checkbox rows */
+.ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-selector { margin: 0; top: 0; }
+/* the layers button's keyboard ring inside it, and the map's own (Leaflet's box takes the focus): inside the map's
+   box, never on the tiles or under the panels beside it (step 3d G6, A7 and A8) */
+.ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-toggle:focus-visible { box-shadow: var(--focus-in); border-radius: var(--r-2); }
+/* (the map's own: an outline, painted over its panes, in the accent drawn on the tiles in both themes: --accent-map) */
+.ui :is(.v-map .c-leaflet, .c-placemap.leaflet-container):focus-visible { box-shadow: none; outline: none; }
+/* ... only after a key: a press marks the box (layersControl.ts pressMarks) */
+.ui :is(.v-map .c-leaflet, .c-placemap.leaflet-container):focus-visible:not(.u-map-pressed) { outline: 2px solid var(--accent-map);
+  outline-offset: -2px; }
+@media (forced-colors: active) {
+  .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-toggle:focus-visible { outline-offset: -2px; }
+}
 /* a desktop's top left boxes (the shore's, the coarser terrain's) end left of the layers button, also in a narrow map
    column (a 1024 px window: the second design review's N4) */
 .ui .v-result:not(.c-result-phone) .v-map .leaflet-top.leaflet-left { max-width: calc(100% - 64px); }
@@ -233,7 +246,7 @@
 /* the top bar over the sheet (columns.css: the sheet 7, the bar 6): the pill's menus (Share, Download) open under it,
    where the sheet at full stands (from 64 px), and lay under the sheet (L's walk on the merged tree). The sheet never
    reaches the bar (its highest top is 64 px, the bar ends at 52), so nothing else changes */
-.ui .v-result.c-result-phone .c-phone-top { z-index: 8; }
+.ui .v-result.c-result-phone .c-phone-top { z-index: var(--z-phone-bar); }
 .ui .v-result .c-pill { min-height: 44px; padding: 0 4px 0 0; gap: 4px; border-radius: var(--r-full); }
 .ui .v-result .c-pill-name { font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }
 .ui .c-result-phone .v-switch { top: 60px; justify-content: flex-start; }
@@ -264,7 +277,10 @@
   border-radius: var(--r-2) 0 0 var(--r-2); }
 .ui .c-placemap.c-map-phone .leaflet-pm-toolbar .button-container:last-child a.leaflet-buttons-control-button {
   border-radius: 0 var(--r-2) var(--r-2) 0; }
-.ui .c-placemap.c-map-phone .leaflet-pm-toolbar a.leaflet-buttons-control-button:focus-visible { box-shadow: var(--focus-in); }
+/* the drawing tools' ring inside their bar, on a phone and a desktop (over the tiles a ring outside would stand on
+   them: step 3d G6, A8) */
+.ui .c-placemap .leaflet-pm-toolbar a.leaflet-buttons-control-button:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .ui .c-placemap .leaflet-pm-toolbar a.leaflet-buttons-control-button:focus-visible { outline-offset: -2px; } }
 .ui .c-placemap.c-map-phone .leaflet-pm-toolbar .button-container .leaflet-pm-actions-container { top: calc(100% + 4px); left: 0; right: auto; }
 .ui .c-placemap.c-map-phone .leaflet-pm-toolbar .leaflet-pm-actions-container .leaflet-pm-action { height: 44px; line-height: 44px;
   padding: 0 12px; font-size: var(--fs-2); }
@@ -306,7 +322,7 @@
    above every layer of the view (its sheet 7, its top bar 8, the menus 1100) */
 .ui .v-upright { display: none; }
 @media (pointer: coarse) and (orientation: landscape) and (max-height: 499.98px) {
-  .ui .v-result .v-upright { display: flex; position: fixed; inset: 0; z-index: 2000; align-items: center; justify-content: center;
+  .ui .v-result .v-upright { display: flex; position: fixed; inset: 0; z-index: var(--z-notice); align-items: center; justify-content: center;
     padding: 24px; background: var(--surface); color: var(--ink); text-align: center; font: 600 var(--fs-5)/28px var(--display); }
   /* (its lines balanced: no word alone on the last one, the design review's G2-F4) */
   .ui .v-result .v-upright p { margin: 0; max-width: 32ch; text-wrap: balance; }

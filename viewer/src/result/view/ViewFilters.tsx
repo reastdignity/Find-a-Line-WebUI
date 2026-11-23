@@ -9,7 +9,7 @@
 // filters themselves are the ResultModel's (filters, state, ranges): the view follows them.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { Chip, Chips, IconButton } from "../../ui/components";
+import { Chip, Chips, CloseButton, IconButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { active, NEED_FILTERS, NO_FILTERS, type Filters } from "../../filters";
 import { t } from "../../i18n";
@@ -122,7 +122,7 @@ export function ViewFilters({view}: {view: SpotView}) {
                     class="vl-info vl-top-info" onClick={() => setHelp(!help)} /></span>
       <Chip add icon="filter" on={ui.editing === "more" || extra > 0} onClick={() => toggle("more")}>
         {t("ui.view.chip.more")}{extra > 0 && <span class="u-badge">{extra}</span>}</Chip>
-      {anything && <button type="button" class="r-link vl-clear" onClick={() => {
+      {anything && <button type="button" class="u-link r-link vl-clear" onClick={() => {
         clearAll(view);
         // the link goes: the focus to the chip before it, More filters
         keepFocus(".vl-filters .u-chip.u-add", ".vl-filters .vl-top", ...FOCUS_REST);
@@ -133,8 +133,7 @@ export function ViewFilters({view}: {view: SpotView}) {
     {editing && <div class="r-editor" role="group" aria-label={t("ui.view.chip.editor")}
                      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeEditor(e); } }}>
       <MainEditor model={model} which={editing} />
-      <button type="button" class="r-note-x r-editor-x" aria-label={t("ui.view.chip.editor_close")} onClick={closeEditor}>
-        <Icon name="close" /></button></div>}
+      <CloseButton label={t("ui.view.chip.editor_close")} class="r-note-x r-editor-x" onClick={closeEditor} /></div>}
     {/* not while no line passes the filters: the list's "No line passes the filters" with "Clear all" says it (the
         user's G-F a at the screenshot gate) */}
     {view.counts.lines > 0 && <p class="u-small vl-top-text">{topSentence(view)}</p>}

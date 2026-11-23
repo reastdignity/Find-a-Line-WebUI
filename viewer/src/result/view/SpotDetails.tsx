@@ -18,7 +18,7 @@
 
 import { useEffect, useRef } from "preact/hooks";
 import L from "leaflet";
-import { Button, IconButton } from "../../ui/components";
+import { Button, CloseButton, IconButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { AccessMark, AccessPair, accessState, accessWord, hasAccess, useAccessHelp } from "../../access";
 import { shortMetres } from "../../endzone";
@@ -98,7 +98,7 @@ export function SpotHead(p: PanelProps) {
       <IconButton icon="back" label={t("ui.view.spot_before")} plain class="vl-spot-prev" disabled={k <= 0} onClick={() => step(-1)} />
       <IconButton icon="next" label={t("ui.view.spot_next")} plain class="vl-spot-next" disabled={k < 0 || k >= tree.spots.length - 1}
                   onClick={() => step(1)} /></span>
-    <IconButton icon="close" label={t("ui.view.close")} plain class="vl-dclose" onClick={() => view.select(null)} />
+    <CloseButton label={t("ui.view.close")} class="vl-dclose" onClick={() => view.select(null)} />
   </>;
 }
 

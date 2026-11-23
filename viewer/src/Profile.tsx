@@ -17,6 +17,7 @@ import { estimateWidth, textWidth, type PlacedLabel } from "./labels";
 import { chartFrame, chartLabels, frameLeg, MARGIN as M, type ChartMarks, type MarkerMark } from "./profilechart";
 import * as Sag from "./sag";
 import { clearanceText } from "./tight";
+import { Icon } from "./ui/icons";
 import { COLORS } from "./style";
 import type { Line, Rigging } from "./types";
 
@@ -25,15 +26,15 @@ export const PROFILE = {terrain: "#8a7656", terrainFill: "#e3d8c3", trees: "#3f8
                         fallFill: "rgba(214,39,40,0.12)", athlete: "#222", water: "#2f6fc0",
                         waterFill: "rgba(47,111,192,0.45)", zone: "#2350c8", zoneFill: "rgba(35,80,200,0.11)",
                         frame: "#3c4e52"};
-const RIGGING: [keyof Rigging, string, number][] = [
-  ["pretension", "kN pretension", 0.1], ["stretch", "% stretch @ 10 kN", 0.5],
-  ["webbing_weight", "g/m webbing", 5], ["athlete_mass", "kg athlete", 5], ["fall_zone", "m fall zone", 0.5]];
+// a rigging field's step and its label's key (ui.profile.rig.<name>: the unit first, after the number field)
+const RIGGING: [keyof Rigging, number][] = [
+  ["pretension", 0.1], ["stretch", 0.5], ["webbing_weight", 5], ["athlete_mass", 5], ["fall_zone", 0.5]];
 type LayerName = "webbing" | "athlete" | "envelope" | "fall";
-const LAYERS: [LayerName, string, string][] = [
-  ["webbing", "webbing", "height:3px;background:" + COLORS.clean],
-  ["athlete", "athlete under cursor", "height:2px;background:" + PROFILE.athlete],
-  ["envelope", "sag envelope", "border-top:2px dotted " + PROFILE.envelope + ";height:0"],
-  ["fall", "fall zone", "height:8px;background:" + PROFILE.fallFill + ";border:1px solid " + PROFILE.limit]];
+const LAYERS: [LayerName, string][] = [
+  ["webbing", "height:3px;background:" + COLORS.clean],
+  ["athlete", "height:2px;background:" + PROFILE.athlete],
+  ["envelope", "border-top:2px dotted " + PROFILE.envelope + ";height:0"],
+  ["fall", "height:8px;background:" + PROFILE.fallFill + ";border:1px solid " + PROFILE.limit]];
 // The chart's height: fixed, or in fill mode its box's (a card the user resizes), at least CHART_MIN
 const HEIGHT = 170, CHART_MIN = 120;
 // The chart's text, px (R1's smallest: the user's "12 a", 11 before), and its labels' boxes for labels.ts' layout at
@@ -197,16 +198,16 @@ export function ProfilePanel(props: ProfileProps) {
   const minTerrain = measured ? smallest((i) => p.z[i]) : p.min;
   const minSurface = !measured ? p.min_nmpt || null : p.s ? smallest((i) =>
     p.s![i] === null || p.z[i] === null ? null : Math.max(p.s![i]!, p.z[i]!)) : null;
-  const markerOf = (min: [number, number], label: string, at: MarkerMark["at"]): MarkerMark | null => {
+  const markerOf = (min: [number, number], kind: "min" | "trees", at: MarkerMark["at"]): MarkerMark | null => {
     const topZ = limit(min[0]);
     if (!isFinite(topZ)) return null;
     // the clearance as the rows write it (tight.ts: a tight line's rounded down); over the trees as before
-    const value = label === "min. clearance" ? clearanceText(min[1]) : min[1].toFixed(1);
-    return {d: min[0], top: topZ, bottom: topZ - min[1], texts: [label + " " + value + " m"], at};
+    const value = kind === "min" ? clearanceText(min[1]) : min[1].toFixed(1);
+    return {d: min[0], top: topZ, bottom: topZ - min[1], texts: [t(`ui.profile.mark_${kind}`, {m: value})], at};
   };
-  const minMark = minTerrain ? markerOf(minTerrain, "min. clearance", "below") : null;
+  const minMark = minTerrain ? markerOf(minTerrain, "min", "below") : null;
   const treesMark = minTerrain && minSurface && minSurface[1] < minTerrain[1] - 0.05
-    ? markerOf(minSurface, "over trees", "above") : null;
+    ? markerOf(minSurface, "trees", "above") : null;
 
   // The webbing highest above the terrain, as the search saved it (helpers.webbing_height:
   // the safety limit plus the leash fall or the fall zone, on the A-frames)
@@ -215,7 +216,7 @@ export function ProfilePanel(props: ProfileProps) {
     const [d, h] = p.max_height, topZ = lim.strict(d) + allowance;
     if (isFinite(topZ)) {
       highMark = {d, top: topZ, bottom: topZ - h, at: "middle",
-                  texts: ["highest " + h.toFixed(0) + " m above terrain", t("ui.profile.highest_short", {m: h.toFixed(0)})]};
+                  texts: [t("ui.profile.highest", {m: h.toFixed(0)}), t("ui.profile.highest_short", {m: h.toFixed(0)})]};
     }
   }
 
@@ -249,14 +250,38 @@ export function ProfilePanel(props: ProfileProps) {
     <text class={"fal-label " + cls} x={q.x} y={q.y} text-anchor={q.anchor} fill={fill}
           font-weight={bold ? "bold" : undefined}>{q.text}</text>;
 
-  let summary = "Sag estimator did not converge for these values.";
+  let summary = t("ui.profile.sag_none");
   if (est) {
     const k = est.sag.indexOf(Math.max(...est.sag));
-    summary = "Sag estimator: max sag " + est.sag[k].toFixed(2) + " m below the chord with the athlete at " +
-      (est.f[k] * l.len).toFixed(0) + " m (line tension " + (est.H[k] / 1e3).toFixed(1) +
-      " kN); without the athlete " + Math.max(...est.unloaded.map((e) =>
-        e[1] - (l.e1 - l.e2) * e[0] / l.len)).toFixed(2) + " m.";
+    summary = t("ui.profile.sag", {sag: est.sag[k].toFixed(2), at: (est.f[k] * l.len).toFixed(0),
+                                   kn: (est.H[k] / 1e3).toFixed(1),
+                                   free: Math.max(...est.unloaded.map((e) => e[1] - (l.e1 - l.e2) * e[0] / l.len)).toFixed(2)});
   }
+
+  // The readout's parts under the cursor (and their widest values for its room): a label with a colon each, joined
+  // by "; " (R9 and docs/wording.md: no " · " between values); the water, a filled gap, the clearance over the trees
+  // and the zone in brackets after the part they belong to
+  type ReadValues = {at: string; z?: string; water?: boolean; gap?: boolean; s?: string; limit?: string; clear?: string;
+                     over?: string; zone?: boolean; sag?: string; kn?: string; above?: string};
+  const readText = (v: ReadValues): string => {
+    const parts = [t("ui.profile.read_at", {d: v.at})];
+    if (v.z !== undefined) {
+      parts.push([t("ui.profile.read_terrain", {m: v.z}), v.water && t("ui.profile.read_water"),
+                  v.gap && t("ui.profile.read_gap")].filter(Boolean).join(" "));
+    }
+    if (v.s !== undefined) parts.push(t("ui.profile.read_trees", {m: v.s}));
+    if (v.limit !== undefined) parts.push(t("ui.profile.read_limit", {m: v.limit}));
+    if (v.clear !== undefined) {
+      parts.push(v.over !== undefined ? t("ui.profile.read_clear", {m: v.clear}) + " " + t("ui.profile.read_over", {m: v.over})
+        : t("ui.profile.read_clear", {m: v.clear}));
+    }
+    if (v.zone) parts[parts.length - 1] += " " + t("ui.profile.in_zone");
+    if (v.sag !== undefined) {
+      parts.push(t("ui.profile.read_athlete", {sag: v.sag, kn: v.kn}) +
+                 (v.above !== undefined ? ", " + t("ui.profile.read_above", {m: v.above}) : ""));
+    }
+    return parts.join("; ");
+  };
 
   // Under the cursor: readout, the loaded webbing, the point on the map
   let readout = summary, athlete: Sag.Athlete | null = null;
@@ -266,25 +291,25 @@ export function ProfilePanel(props: ProfileProps) {
     while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (p.d[mid] < d) lo = mid; else hi = mid; }
     const k = (d - p.d[lo] < p.d[hi] - d) ? lo : hi;
     const z = p.z[k], s = p.s ? p.s[k] : null;
-    readout = d.toFixed(0) + " m from A1";
-    if (z !== null) readout += " · terrain " + z.toFixed(1) + " m";
-    if (p.w && p.w[k]) readout += " (water)";
-    if (p.g && p.g[k]) readout += " (filled gap)";
-    if (s !== null && s !== undefined) readout += " · trees/buildings " + s.toFixed(1) + " m";
+    const v: ReadValues = {at: d.toFixed(0)};
+    if (z !== null) v.z = z.toFixed(1);
+    if (p.w && p.w[k]) v.water = true;
+    if (p.g && p.g[k]) v.gap = true;
+    if (s !== null && s !== undefined) v.s = s.toFixed(1);
     const here = limit(d);
     if (isFinite(here)) {
-      readout += " · safety limit " + here.toFixed(1) + " m";
-      if (z !== null) readout += " · clearance " + (here - z).toFixed(1) + " m";
-      if (s !== null && s !== undefined && z !== null)
-        readout += " (over trees/buildings " + (here - Math.max(s, z)).toFixed(1) + " m)";
+      v.limit = here.toFixed(1);
+      if (z !== null) v.clear = (here - z).toFixed(1);
+      if (s !== null && s !== undefined && z !== null) v.over = (here - Math.max(s, z)).toFixed(1);
     }
-    if (zone > 0 && lim.inZone(d)) readout += " " + t("ui.profile.in_zone");
+    if (zone > 0 && lim.inZone(d)) v.zone = true;
     athlete = est && show.athlete && d > 0.01 * l.len && d < 0.99 * l.len ? est.athlete(d) : null;
     if (athlete) {
-      readout += " · athlete here: sag " + athlete.sag.toFixed(2) + " m, tension " +
-        (athlete.H / 1e3).toFixed(1) + " kN";
-      if (z !== null) readout += ", " + (chord(d) - athlete.sag - z).toFixed(1) + " m above terrain";
+      v.sag = athlete.sag.toFixed(2);
+      v.kn = (athlete.H / 1e3).toFixed(1);
+      if (z !== null) v.above = (chord(d) - athlete.sag - z).toFixed(1);
     }
+    readout = readText(v);
   }
 
   // The compact readout keeps one height while the cursor moves (the card around it does not jump): its box holds,
@@ -308,21 +333,23 @@ export function ProfilePanel(props: ProfileProps) {
         if (s !== null && s !== undefined && z !== null) over.push(here - Math.max(s, z));
       }
     });
-    let text = l.len.toFixed(0) + " m from A1";
-    if (zs.length) text += " · terrain " + widest(zs, 1) + " m";
-    if (p.w && p.w.some(Boolean)) text += " (water)";
-    if (p.g && p.g.some(Boolean)) text += " (filled gap)";
-    if (ss.length) text += " · trees/buildings " + widest(ss, 1) + " m";
+    const v: ReadValues = {at: l.len.toFixed(0)};
+    if (zs.length) v.z = widest(zs, 1);
+    if (p.w && p.w.some(Boolean)) v.water = true;
+    if (p.g && p.g.some(Boolean)) v.gap = true;
+    if (ss.length) v.s = widest(ss, 1);
     if (limits.length) {
-      text += " · safety limit " + widest(limits, 1) + " m";
-      if (clear.length) text += " · clearance " + widest(clear, 1) + " m";
-      if (over.length) text += " (over trees/buildings " + widest(over, 1) + " m)";
+      v.limit = widest(limits, 1);
+      if (clear.length) v.clear = widest(clear, 1);
+      if (clear.length && over.length) v.over = widest(over, 1);
     }
-    if (zone > 0) text += " " + t("ui.profile.in_zone");
+    if (zone > 0) v.zone = true;
     if (est && show.athlete) {
-      text += " · athlete here: sag " + widest(est.sag, 2) + " m, tension " + widest(est.H.map((h) => h / 1e3), 1) + " kN";
-      if (above.length) text += ", " + widest(above, 1) + " m above terrain";
+      v.sag = widest(est.sag, 2);
+      v.kn = widest(est.H.map((h) => h / 1e3), 1);
+      if (above.length) v.above = widest(above, 1);
     }
+    const text = readText(v);
     return text.length > summary.length ? text : summary;
   }
 
@@ -372,23 +399,29 @@ export function ProfilePanel(props: ProfileProps) {
     if (isFinite(v) && v >= 0) setHeights(k ? [heights[0], v] : [v, heights[1]]);
     else input.value = String(heights[k]);
   };
-  // The title: "Profile: <len> m, A1 … → A2 … (Δh …), min. clearance …"; its facts for a bar, the one that
-  // matters first (a narrow bar cuts the end): a measured profile's verdict, the clearance, the anchors, Δh.
-  // A found line's anchors are the ground's (on A-frames the webbing starts higher), a measured one's its ends'
+  // The title: "Profile: <len> m, from A1 at … to A2 at … (height difference …), min. clearance …" (one sentence: its
+  // parts joined by words and commas); its facts for a bar, the one that matters first: a measured profile's verdict,
+  // the clearance, the anchors, each a label with a colon, joined by "; " (R9; the user's answers of 2026-11-23: no
+  // height difference among the facts). A found line's anchors are the ground's (on A-frames the webbing starts
+  // higher), a measured one's its ends'
   const t1 = measured ? l.e1 : props.line.e1, t2 = measured ? l.e2 : props.line.e2;
-  const ends = "A1 " + t1.toFixed(1) + " m → A2 " + t2.toFixed(1) + " m", delta = "Δh " + Math.abs(t1 - t2).toFixed(1) + " m";
-  let clearance = "min. clearance " + clearanceText(l.clr) + " m", verdict = "";
+  const a1 = t1.toFixed(1), a2 = t2.toFixed(1), dh = Math.abs(t1 - t2).toFixed(1);
+  let clearance = t("ui.profile.clear", {m: clearanceText(l.clr)});
+  let factClear = t("ui.profile.fact_clear", {m: clearanceText(l.clr)}), verdict = "";
   if (measured) {
     const clr = minTerrain ? minTerrain[1] : NaN, clrN = minSurface ? minSurface[1] : null;
-    clearance = "min. clearance " + (isFinite(clr) ? clearanceText(clr) + " m" : "–") +
-      (clrN !== null ? " (over trees/buildings " + clrN.toFixed(1) + " m)" : "");
-    verdict = !isFinite(clr) ? "" : clr < 0 ? "does not fit" : clrN !== null && clrN < 0 ? "fits over terrain only"
-      : "fits";
+    clearance = isFinite(clr) ? t("ui.profile.clear", {m: clearanceText(clr)}) : t("ui.profile.clear_unknown");
+    factClear = isFinite(clr) ? t("ui.profile.fact_clear", {m: clearanceText(clr)}) : t("ui.profile.fact_clear_unknown");
+    if (clrN !== null) {
+      clearance += " " + t("ui.profile.clear_over", {m: clrN.toFixed(1)});
+      factClear += " " + t("ui.profile.fact_over", {m: clrN.toFixed(1)});
+    }
+    verdict = !isFinite(clr) ? "" : t(clr < 0 ? "ui.profile.verdict_bad" : clrN !== null && clrN < 0
+      ? "ui.profile.verdict_trees" : "ui.profile.verdict_ok");
   }
-  const title = (measured ? "Measured: " : "Profile: ") + l.len.toFixed(0) + " m, " + ends + " (" + delta + "), " +
-    clearance + (verdict ? " – " + verdict : "");
-  const facts = [verdict, clearance, "A1 " + t1.toFixed(1) + " → A2 " + t2.toFixed(1) + " m", delta]
-    .filter((f) => f).join(" · ");
+  const title = t(measured ? "ui.profile.title_measured" : "ui.profile.title",
+                  {len: l.len.toFixed(0), a1, a2, dh, clearance}) + (verdict ? " – " + verdict : "");
+  const facts = [verdict, factClear, t("ui.profile.fact_ends", {a1, a2})].filter((f) => f).join("; ");
   const onTitle = useRef(props.onTitle);
   onTitle.current = props.onTitle;
   useEffect(() => { onTitle.current?.(title, facts); }, [title, facts]);
@@ -405,18 +438,21 @@ export function ProfilePanel(props: ProfileProps) {
     {need.needed > runLift + 1e-9 && <span class="fal-bad-text">{t("ui.profile.need_over", {m: shortMetres(runLift)})}</span>}
   </div>;
 
-  const legend = <span class="fal-profile-legend">
-    <span><Swatch style={"height:8px;background:" + PROFILE.terrainFill + ";border:1px solid " + PROFILE.terrain} /> terrain</span>
-    <span><Swatch style={"height:8px;background:" + PROFILE.treesFill} /> trees/buildings</span>
-    <span><Swatch style={"height:8px;background:" + PROFILE.waterFill} /> water</span>
-    <span><Swatch style={"border-top:2px dashed " + PROFILE.limit + ";height:0"} /> safety limit
-      ({model === "sag" ? "sag model" : "formula"})</span>
-    {zone > 0 && <span><Swatch class="fal-swatch-zone" /> {t("ui.profile.legend_zone")}</span>}
-    {framed && <span><svg class="fal-swatch-frame" width="12" height="10" viewBox="0 0 12 10" aria-hidden="true">
-      <polyline points="1,10 6,1 11,10" fill="none" stroke={PROFILE.frame} stroke-width="2" /></svg> {t("ui.profile.legend_aframe")}</span>}
+  // The legend in the kit's look (docs/DESIGN.md row 90): the areas' swatches the kit's box (its inset edge), the
+  // lines' and the marks' signs drawn as on the chart (a legend's marks)
+  const legend = <span class="fal-profile-legend u-legend-items">
+    <span class="u-legend-item"><span class="u-legend-sw fal-sw-terrain" />{t("ui.profile.legend_terrain")}</span>
+    <span class="u-legend-item"><span class="u-legend-sw fal-sw-trees" />{t("ui.profile.legend_trees")}</span>
+    <span class="u-legend-item"><span class="u-legend-sw fal-sw-water" />{t("ui.profile.legend_water")}</span>
+    <span class="u-legend-item"><Swatch style={"border-top:2px dashed " + PROFILE.limit + ";height:0"} />
+      {t("ui.profile.legend_limit", {model: t(model === "sag" ? "ui.profile.model_sag" : "ui.profile.model_formula")})}</span>
+    {zone > 0 && <span class="u-legend-item"><Swatch class="fal-swatch-zone" />{t("ui.profile.legend_zone")}</span>}
+    {framed && <span class="u-legend-item"><svg class="fal-swatch-frame" width="12" height="10" viewBox="0 0 12 10" aria-hidden="true">
+      <polyline points="1,10 6,1 11,10" fill="none" stroke={PROFILE.frame} stroke-width="2" /></svg>{t("ui.profile.legend_aframe")}</span>}
   </span>;
-  const scale = <button class="fal-scale" onClick={() => setEqual(!equal)}>
-    {equal ? "Auto scale" : "1:1 scale (now vertical ×" + (sy / sx).toFixed(1) + ")"}</button>;
+  // the kit's button (the user kept "×1.6" as the 3D view's "×1": docs/wording.md)
+  const scale = <button type="button" class="u-btn fal-scale" onClick={() => setEqual(!equal)}>
+    {equal ? t("ui.profile.scale_auto") : t("ui.profile.scale_true", {f: (sy / sx).toFixed(1)})}</button>;
 
   // The A-frames: two legs from the ground to the anchor on top
   const aframes = framed ? ([[0, ground1, posts[0], 1], [l.len, ground2, posts[1], -1]] as [number, number, number, number][])
@@ -441,7 +477,10 @@ export function ProfilePanel(props: ProfileProps) {
       </div>
       <div>
         {scale}{" "}
-        <button class="fal-close" title="Close" aria-label="Close the profile" onClick={props.onClose}>×</button>
+        {/* the kit's close (components.tsx CloseButton's markup: this file is in the 3D view's bundle too, which
+            does not take the kit's components) */}
+        <button type="button" class="u-ib u-x fal-close" aria-label={t("ui.profile.close")} title={t("ui.profile.close")}
+                onClick={props.onClose}><Icon name="close" /></button>
       </div>
     </div>}
     {!props.needBelow && needRow}
@@ -449,14 +488,14 @@ export function ProfilePanel(props: ProfileProps) {
       {compact && <span class="fal-key">{legend}{scale}</span>}
       {measured && <span class="fal-heights">{(["A1", "A2"] as const).map((name, k) =>
         <label><input type="number" min={0} step={0.5} value={heights[k]}
-                      onChange={(e) => setHeight(k as 0 | 1, e.currentTarget)} /> m {name} above ground</label>)}</span>}
-      <span class="fal-rigging">{RIGGING.map(([key, label, step]) =>
+                      onChange={(e) => setHeight(k as 0 | 1, e.currentTarget)} /> {t("ui.profile.height", {name})}</label>)}</span>}
+      <span class="fal-rigging">{RIGGING.map(([key, step]) =>
         <label><input type="number" min={0} step={step} value={rigging[key]}
-                      onChange={(e) => setRig(key, e.currentTarget)} /> {label}</label>)}</span>
-      <span class="fal-layers">{LAYERS.map(([key, label, style]) =>
-        <label><input type="checkbox" checked={show[key]}
+                      onChange={(e) => setRig(key, e.currentTarget)} /> {t(`ui.profile.rig.${key}`)}</label>)}</span>
+      <span class="fal-layers">{LAYERS.map(([key, style]) =>
+        <label><input type="checkbox" class="u-check" checked={show[key]}
                       onChange={(e) => setShow({...show, [key]: e.currentTarget.checked})} />{" "}
-          <Swatch style={style} /> {label}</label>)}</span>
+          <Swatch style={style} /> {t(`ui.profile.layer.${key}`)}</label>)}</span>
     </div>
     <div class="fal-profile-chart" ref={chartRef}>
       <svg width={W} height={H} font-size={TEXT_PX}>
@@ -502,7 +541,7 @@ export function ProfilePanel(props: ProfileProps) {
         {hover !== null && <line class="fal-cursor" x1={X(hover)} x2={X(hover)} y1={M.t} y2={H - M.b}
                                  stroke="#333" stroke-dasharray="2 2" />}
         <rect class="fal-hover" x={M.l} y={M.t} width={pw} height={ph} fill="transparent" tabIndex={0}
-              role="slider" aria-label="Point along the line (← →, Home, End)" aria-valuemin={0}
+              role="slider" aria-label={t("ui.profile.slider")} aria-valuemin={0}
               aria-valuemax={Math.round(l.len)} aria-valuenow={hover === null ? undefined : Math.round(hover)}
               aria-valuetext={readout || undefined}
               onMouseMove={onMove} onMouseLeave={onLeave} onPointerDown={onPointer} onPointerMove={onPointer}

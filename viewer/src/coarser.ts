@@ -3,6 +3,7 @@
 // regions they filled. The pure parts: the shares as text, whether the result warns, the km² of each fallback in a
 // map's view (coarserLayer.ts draws them with Leaflet, tested in Node: tests/test_viewer.py).
 
+import { t } from "./i18n";
 import { overlaps, type LatLngBox } from "./shore";
 import type { CoarserRegion, TerrainLayer, TerrainSources } from "./types";
 
@@ -64,13 +65,14 @@ export function fallbacks(sources: TerrainSources): TerrainLayer[] {
   return sources.layers.filter((l) => l.role === "fallback");
 }
 
-/** The shares of every layer that gave some land ("97.6 % geoportal.gov.pl (1 m) · 2.4 % FABDEM … (30 m)"). */
+/** The shares of every layer that gave some land ("97.6 % geoportal.gov.pl (1 m); 2.4 % FABDEM … (30 m)": values joined
+ *  by "; ", R9 and docs/wording.md). */
 export function sharesText(sources: TerrainSources): string {
-  return sources.layers.filter((l) => l.share > 0).map((l) => `${percent(l.share)} % ${layerName(l)}`).join(" · ");
+  return sources.layers.filter((l) => l.share > 0).map((l) => `${percent(l.share)} % ${layerName(l)}`).join("; ");
 }
 
 /** km² as the map's box writes it: two decimals, three under 0.1, "under 0.001" below. */
 export function km2Text(km2: number): string {
-  if (km2 < 0.001) return "under 0.001";
+  if (km2 < 0.001) return t("ui.coarse.under_min");
   return km2 < 0.1 ? km2.toFixed(3) : km2.toFixed(2);
 }

@@ -79,7 +79,7 @@ export function SpotChooser({view, map, wide, choices, at, area, onClose}: Choos
   return <div ref={panel} class={cx("u-panel vl-choose", dock && "vl-choose-dock", !placed && "vl-choose-new")} role="dialog"
               aria-label={t("ui.view.chooser.label")} style={style}>
     <p class="u-small vl-choose-title"><span class="u-grow">{t("ui.view.chooser.title", {n: rows.length})}</span>
-      <button type="button" class="u-ib u-plain vl-choose-x" aria-label={t("ui.view.chooser.close")} onClick={onClose}>
+      <button type="button" class="u-ib u-x vl-choose-x" aria-label={t("ui.view.chooser.close")} onClick={onClose}>
         <Icon name="close" /></button></p>
     <div class="vl-cols" aria-hidden="true"><span /><span />
       <span>{t("ui.list.col.length")}</span><span>{t("ui.list.col.mean")}</span><span>{t("ui.view.col.clear")}</span></div>

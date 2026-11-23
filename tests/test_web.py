@@ -1708,7 +1708,7 @@ def test_run_map(tmp_path, monkeypatch):
     assert r["otherLines"] > 0 and r["xss"] is None and r["imgs"] == 0, r
     assert r["measured"].startswith(f"Measured: {r['expectedLength']} m"), r
     import re
-    assert re.match(r"(does not fit|fits over terrain only|fits) · min\. clearance ", r["measuredFacts"]), r
+    assert re.match(r"(does not fit|fits over terrain only|fits); min\. clearance: ", r["measuredFacts"]), r
     assert r["measuringHint"] == ["Select a line on the map or in the list.", True], r
     assert _violations(dom) == []
     # no runs/index.html since store wave 4 (the app lists the runs); runs.js lists both, the name as JSON

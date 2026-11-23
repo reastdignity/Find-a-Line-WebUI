@@ -470,7 +470,7 @@ def test_new_selection_ends_a_measured_line(site, how, device):
             page.evaluate("() => T.frames()")
             off = page.evaluate(MEASURED_NOW)
             assert (off["line"], off["link"], off["points"], off["docks"]) == (False, None, 0, 1 if phone else 0), off
-            assert len(off["titles"]) == 1 and off["titles"][0].startswith("Profile · "), off  # the selected line's
+            assert len(off["titles"]) == 1 and off["titles"][0].startswith("Profile: "), off  # the selected line's
             assert page.errors == []
         finally:
             browser.close()
@@ -536,7 +536,7 @@ def test_late_measure_answer_is_dropped(site, after):
         assert (got["measuring"], got["points"], got["frameMeasured"]) == (True, 1, False), got
     else:
         assert got["selected"] is not None and (got["points"], got["frameMeasured"]) == (0, False), got
-        assert len(got["titles"]) == 1 and got["titles"][0].startswith("Profile · "), got
+        assert len(got["titles"]) == 1 and got["titles"][0].startswith("Profile: "), got
 
 
 def test_phone_measured_line_kept_in_sight_with_a_selection(site):
@@ -2593,7 +2593,7 @@ def test_phone_dock_compact(site, device):
     assert line["need"] is True, line  # BIG's first line has a need row
     for got in (line, measured):
         assert got["head"] is False and got["sr"].strip() and got["under"] is True and got["need"] in (True, None), got
-        assert got["close"] and got["close"][1:] == [44, 44] and got["bar"][-1] == "button.r-note-x", got
+        assert got["close"] and got["close"][1:] == [44, 44] and got["bar"][-1] == "button.u-ib.u-x.r-note-x", got
         assert got["bar"][0] == "b." and "button.u-chip" in got["bar"] and "span.u-small.r-hint" not in got["bar"], got
         assert got["chartTop"] < got["height"], got  # the chart's top on the screen at half
     assert line["close"][0] == line["selRight"] and line["facts"] is None, line  # polish 10; the tiles hold the facts

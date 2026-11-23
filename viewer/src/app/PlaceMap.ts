@@ -14,6 +14,8 @@ import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import type { FeatureCollection, GeoJSON } from "geojson";
 import L from "leaflet";
 import { baseLayers } from "../baselayers";
+import { t } from "../i18n";
+import { TOUCH } from "../ui/components";
 import { Layers } from "../layersControl";
 import { keepScaleAboveAttribution } from "../result/view/corners";
 import { ICONS } from "../ui/icons";
@@ -27,6 +29,27 @@ const MAX_ZOOM = 21;
 /** Where the controls take the phone's arrangement: the app's narrow frame (components.tsx DESKTOP is 768 px), or a
  *  touch screen too low for the controls one above the other (a phone held sideways in the columns). */
 export const PHONE = "(max-width: 767px), (pointer: coarse) and (max-height: 480px)";
+
+/** Leaflet-Geoman's words for the tools the place map shows (its button titles, the actions under a tool, the
+ *  tooltips while drawing), from the catalogue; a tooltip that names a click takes its tap twin on a touch screen. */
+function geomanTexts() {
+  const touch = typeof matchMedia === "function" && matchMedia(TOUCH).matches;
+  const tip = (key: string) => t(`ui.draw.${key}${touch ? "_touch" : ""}`);
+  return {
+    tooltips: {firstVertex: tip("first_corner"), continueLine: tip("next_corner"), finishPoly: tip("finish_polygon"),
+               finishRect: tip("finish_rectangle")},
+    actions: {finish: t("ui.draw.finish"), cancel: t("ui.draw.cancel"), removeLastVertex: t("ui.draw.remove_last")},
+    buttonTitles: {drawPolyButton: t("ui.draw.polygon"), drawRectButton: t("ui.draw.rectangle"), editButton: t("ui.draw.edit"),
+                   dragButton: t("ui.draw.drag"), deleteButton: t("ui.draw.remove")},
+  };
+}
+
+/** Each drawing tool's link named by its title (Geoman puts the title on the link's box only: axe's link-name). */
+function nameTools(map: HTMLElement) {
+  for (const box of map.querySelectorAll<HTMLElement>(".leaflet-pm-toolbar .button-container[title]")) {
+    box.querySelector("a.leaflet-buttons-control-button")?.setAttribute("aria-label", box.title);
+  }
+}
 
 export class PlaceMap {
   map: L.Map;
@@ -82,6 +105,9 @@ export class PlaceMap {
     this.shown.addTo(this.map);
     this.preview.addTo(this.map);
     this.map.pm.setGlobalOptions({layerGroup: this.drawn, pathOptions: {color: COLOR}, exitModeOnEscape: true} as any);
+    // the drawing tools' words from the catalogue, in sentence case (Geoman's own are English in title case); a tap's
+    // words on a touch screen (B2 of step 3d's G6)
+    this.map.pm.setLang("findaline" as any, geomanTexts(), "en");
     this.map.on("pm:create", (e: any) => {
       e.layer.on("pm:edit", () => this.onDrawn());
       this.onDrawn();
@@ -141,6 +167,7 @@ export class PlaceMap {
       this.map.pm.addControls({position: this.phone ? "topleft" : this.controls, drawMarker: false, drawCircleMarker: false,
                                drawPolyline: false, drawText: false, drawCircle: false, cutPolygon: false,
                                rotateMode: false});
+      nameTools(this.map.getContainer());
     } else this.stopTools();
     const point = mode === "point";
     for (const layer of [this.marker, this.circle]) {

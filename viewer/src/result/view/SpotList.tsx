@@ -32,7 +32,7 @@ import type { SpotMap } from "../SpotMap";
 import type { Best, Pick as SpotPick, SectorRow, SpotView, ViewSort } from "../spots";
 import { BEST_ROWS } from "../viewgeom";
 import { Icon } from "../../ui/icons";
-import { IconButton } from "../../ui/components";
+import { CloseButton, IconButton } from "../../ui/components";
 import { count, cx, Swatch, TightIcon, TightKey } from "./common";
 import { FavouritePicker } from "./FavouritePicker";
 import { Shape } from "./Shape";
@@ -234,9 +234,9 @@ function RowPicker({view, picked}: {view: SpotView; picked: {id: string; row: nu
 function RowStar({view, row, id, label, sheet}: {view: SpotView; row: number; id: string; label: string; sheet?: PanelProps["sheet"]}) {
   const on = favouriteRows(view).has(row), model = view.model, picked = pickerOf.get(view);
   if (picked && picked.id === id && picked.row === row) return <RowPicker view={view} picked={picked} />;
-  return <button type="button" class={cx("vl-star", on && "vl-on")} tabIndex={-1} data-row={row}
+  return <button type="button" class={cx("vl-star u-ib u-plain", on && "vl-on")} tabIndex={-1} data-row={row}
                  aria-label={t(on ? "ui.view.star_remove" : "ui.view.star_add", {label})} aria-pressed={on}
-                 title={on ? "favourite" : "add to favourites"} onClick={() => {
+                 title={t(on ? "ui.view.star_title_on" : "ui.view.star_title_add")} onClick={() => {
                    sheet?.setSnap("full");
                    changePanels(view, () => { pickerOf.set(view, {id, row}); });
                  }}>
@@ -392,7 +392,7 @@ function Row({view, map, padding, sheet, spot, row, id, tab, mark, pick, height}
       {over && <OverWords />}
     </button>
     {stars && <RowStar view={view} row={row} id={id} label={mark ?? label} sheet={sheet} />}
-    {DOOR && <button type="button" class="vl-door" aria-label={t("ui.view.door_label", {label})} title={t("ui.view.door")}>›</button>}
+    {DOOR && <button type="button" class="u-ib u-plain vl-door" aria-label={t("ui.view.door_label", {label})} title={t("ui.view.door")}><Icon name="next" /></button>}
   </li>;
 }
 
@@ -591,7 +591,7 @@ function SectorRows({p, sector, k}: SectorProps) {
   const up = Number.isFinite(sector.hmeanMax) ? sector.hmeanMax.toFixed(0) : "–";
   return <div class="vl-sec" data-sector={n}>
     <div class="vl-sec-head">
-      <button type="button" class="vl-toggle" id={`vl-sec-${n + 1}`} aria-expanded={open}
+      <button type="button" class="u-item vl-toggle" id={`vl-sec-${n + 1}`} aria-expanded={open}
               onClick={() => changePanels(view, (s) => { s.open.set(n, !open); })}>
         <Icon name={open ? "down" : "next"} class="vl-caret" />
         <span><span class="vl-sec-name">{name}</span>
@@ -599,7 +599,7 @@ function SectorRows({p, sector, k}: SectorProps) {
           <span class="vl-meta2">{t("ui.view.sector_lines", {count: sector.lines, n: count(sector.lines),
                                                             a: Math.round(sector.len[0]), b: Math.round(sector.len[1])})}</span></span>
       </button>
-      <button type="button" class="vl-sec-map" aria-label={t("ui.view.sector_map_label", {n: n + 1})} title={t("ui.view.sector_map")}
+      <button type="button" class="u-ib vl-sec-map" aria-label={t("ui.view.sector_map_label", {n: n + 1})} title={t("ui.view.sector_map")}
               onClick={() => map?.showSector(n)}><Icon name="locate" /></button>
     </div>
     {open && <>
@@ -671,8 +671,8 @@ function ListNote({view}: {view: SpotView}) {
   if (!note) return null;  // a new note is brought into view by SpotList (useNoteInView)
   return <div class="vl-lnote" role="status"><Icon name="info" />
     <p class="vl-lnote-text">{note.text}
-      {note.action && <>{" "}<button type="button" class="r-link vl-lnote-act" onClick={() => note.onAction?.()}>{note.action}</button></>}</p>
-    <IconButton icon="close" label="Close" plain class="vl-lnote-x" onClick={() => {
+      {note.action && <>{" "}<button type="button" class="u-link u-inline r-link vl-lnote-act" onClick={() => note.onAction?.()}>{note.action}</button></>}</p>
+    <CloseButton label={t("ui.view.note_close")} class="vl-lnote-x" onClick={() => {
       model.setNote(null);
       keepFocus(...FOCUS_REST);  // the × goes with the note
     }} />

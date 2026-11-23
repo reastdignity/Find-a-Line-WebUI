@@ -914,7 +914,7 @@ def test_map_page_in_the_view(map_pages):
     # the length known apart from the page: the stubbed profile's 80 m (PROFILE_STUB), as C1's P13
     assert [bar, asked_profiles, length] == ["Measured profile", 1, 80], ("M13", r["measured"])
     assert title.startswith("Measured: 80 m"), ("M13: the measured length", title)
-    assert re.match(r"(does not fit|fits over terrain only|fits) · min\. clearance ", facts), ("M13: the verdict first", facts)
+    assert re.match(r"(does not fit|fits over terrain only|fits); min\. clearance: ", facts), ("M13: the verdict first", facts)
     assert r["hint"] == [WORDS["ui.view.empty"], True, True], ("M22: today's measuringHint", r["hint"])
     assert WORDS["ui.view.empty"] == "Select a line on the map or in the list."
     for name in ("app", "map"):
