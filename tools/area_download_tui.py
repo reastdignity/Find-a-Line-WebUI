@@ -141,9 +141,15 @@ class AreaRow(Horizontal):
         return self.box.value
 
     def show(self, state: Optional[Dict], starting: bool):
-        """The row's state from the state folder, and what can be done with it."""
+        """The row's state from the state folder, and what can be done with it. A row whose cells are gone keeps the
+        state and shows nothing: the app's interval can still call in while the window's widgets are being removed
+        (as Downloads._static says; NoMatches from here ended a window with a traceback, in full test runs and on
+        CI's runners)."""
         self.state = state
-        cell = self.query_one(".state", Static)
+        try:
+            cell = self.query_one(".state", Static)
+        except NoMatches:
+            return
         cell.update("starting" if starting else state_text(state) if state else "-")
         stage = state["stage"] if state else ""
         cell.set_class(stage == "done", "-done")

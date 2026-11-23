@@ -140,6 +140,18 @@ nothing of the stderr printed. Any stamp with "2222" in it does that, about 100 
 the stamp (`mirror_publish._stamp`, as `test_a_move_never_lands_on_an_existing_target` does); with the tool's clock
 at that moment the test as it was fails and the new one passes.
 
+## The download window's interval and a row without its cells (mended 2026-11-23)
+
+Tests of `tests/test_area_download_tui.py` failed now and then with `NoMatches: No nodes match '.state' on
+AreaRow(...)`: two tests once each on CI's Windows runners (2026-11-18) and
+`test_a_continent_without_rows_has_no_group` in a full run here (2026-11-23), each passing alone; two more had
+failed on CI on 2026-11-14 with the same error for '#summary', mended since (`Downloads._static`). The stack is the
+window's own: its 2 s interval (`refresh_states`) called `AreaRow.show` on a row whose cells were gone, as widgets are
+while the window closes; `Downloads._static` and `refresh_summary` already allowed for that, `AreaRow.show` did not,
+so a window closed at such a moment ended with a traceback too. `AreaRow.show` now keeps the state and shows nothing
+when the row has no cells (`test_a_row_without_its_cells_takes_a_state_quietly`; on a row never mounted the tool as
+it was raises NoMatches, the new one returns).
+
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
 `tools/ui_shots.py`'s page `view3d-valid` (the 3D view at `?level=full`, the tool "Only valid lines" clicked, then a

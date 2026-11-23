@@ -166,6 +166,19 @@ def test_folded_at_start_but_a_country_with_a_download(settings):
     _drive(app, opened)
 
 
+def test_a_row_without_its_cells_takes_a_state_quietly():
+    """The window's interval can show a row whose cells are gone (the widgets being removed while the window
+    closes): the row keeps the state and raises nothing. Before 2026-11-23 it raised NoMatches for '.state', which
+    ended the test's app, or the user's window, with a traceback: tests of this file failed so now and then, in
+    full runs and on CI's runners. A row never mounted has no cells either."""
+    row = tui.AreaRow(_row("finland", "Finland", source="finland"), "cache", "Finland")
+    state = {"name": "finland", "stage": "done", "stale": False}
+    row.show(state, False)
+    assert row.state == state
+    row.show(None, True)
+    assert row.state is None
+
+
 def test_a_continent_without_rows_has_no_group(settings):
     """Africa is in CONTINENTS before any row lies there: no group for it, until a row does, in its place."""
     assert "Africa" in ar.CONTINENTS
