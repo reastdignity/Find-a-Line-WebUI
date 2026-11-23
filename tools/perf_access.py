@@ -152,8 +152,12 @@ def cgroup_sample(root: str = CGROUP) -> Optional[Dict[str, int]]:
 
 
 def cgroup_events(root: str = CGROUP) -> Optional[Dict[str, int]]:
-    """The cgroup's events and limit: v2 memory.events (low, high, max, oom, oom_kill) and memory.max; v1 failcnt,
-    memory.oom_control's under_oom and oom_kill, and limit_in_bytes as memory.max (-1: no limit); None outside one."""
+    """The cgroup's events and limit: v2 memory.events (low, high, max, oom, oom_kill) and memory.max; v1
+    memory.oom_control's under_oom and oom_kill, limit_in_bytes as memory.max (an unlimited v1 cgroup reads about
+    9.2e18), and two counts of charges that met a limit: "failcnt" (memory.failcnt: the memory limit's) and
+    "memsw.failcnt" (memory.memsw.failcnt: memory and swap together). With --memory-swap equal to --memory (no swap,
+    as compose.yaml) the memory-and-swap limit is met first, so memory.failcnt stays 0 and memsw.failcnt counts the
+    squeeze (measured at gate 0: 0 and 2 459 237 under a limit of 1.17 GB); None outside a cgroup."""
     kind = _cgroup_kind(root)
     if kind is None:
         return None
@@ -167,6 +171,7 @@ def cgroup_events(root: str = CGROUP) -> Optional[Dict[str, int]]:
     out["v"] = version
     if version == 1:
         out["failcnt"] = _read_int(os.path.join(folder, "memory.failcnt"))
+        out["memsw.failcnt"] = _read_int(os.path.join(folder, "memory.memsw.failcnt"))
     limit = _read_int(os.path.join(folder, "memory.max" if version == 2 else "memory.limit_in_bytes"))
     if limit is not None:
         out["memory.max"] = limit

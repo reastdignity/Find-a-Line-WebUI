@@ -242,11 +242,13 @@ def test_cgroup_and_proc_readers(tmp_path):
                                     "total_dirty 6\ntotal_shmem 1\n")
     (v1 / "memory.limit_in_bytes").write_text("4947666944\n")
     (v1 / "memory.failcnt").write_text("12\n")
+    (v1 / "memory.memsw.failcnt").write_text("81419\n")
     (v1 / "memory.oom_control").write_text("oom_kill_disable 0\nunder_oom 0\noom_kill 0\n")
     assert pa.cgroup_sample(str(tmp_path / "v1")) == {"v": 1, "current": 3000, "peak": 3500, "anon": 200,
                                                       "file": 300, "file_mapped": 70, "file_dirty": 6, "shmem": 1}
     assert pa.cgroup_events(str(tmp_path / "v1")) == {"v": 1, "oom_kill_disable": 0, "under_oom": 0, "oom_kill": 0,
-                                                      "failcnt": 12, "memory.max": 4947666944}
+                                                      "failcnt": 12, "memsw.failcnt": 81419,
+                                                      "memory.max": 4947666944}
     (tmp_path / "123").mkdir()
     (tmp_path / "123" / "status").write_text("Name:\tpython\nVmHWM:\t    2048 kB\nVmRSS:\t    1024 kB\n"
                                              "RssAnon:\t     512 kB\nRssFile:\t     256 kB\n")
