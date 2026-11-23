@@ -183,7 +183,7 @@ class Usgs1mBlocks(TnmBlocks):
     both), with 6 pixels of overlap around; older names give no zone (USGS_one_meter_x..y..).
     The files of USGS's bucket that the TNM index does not list are merged into its answers
     (UnlistedIndex, sources/layers/tnmbucket.py). `cache update` asks its answers again after
-    28 days (update_ttl_days; the public site's monthly timer), a search's --update stale after
+    28 days (update_ttl_days; the public site's weekly timer), a search's --update stale after
     the sheet index's 180 as before."""
     index_class = UnlistedIndex
     update_ttl_days = cache.TTL_DAYS["usgs-1m-index"]

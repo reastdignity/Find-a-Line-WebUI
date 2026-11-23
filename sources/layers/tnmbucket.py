@@ -638,7 +638,7 @@ def unlisted_age_days(cache_dir: str, top: str = TOP) -> float:
 
 # The oldest list a download row or a country run starts on (the user's W3 of 2026-11-23, asked again with the
 # measured cost of a listing: about 8 minutes and 0.7 GB) and the age at which `cache update` makes it again (D3a:
-# every month): one constant, as the 1 m DEM's answers' (cache.TTL_DAYS["usgs-1m-index"])
+# every month; the public site's timer looks every week): one constant, as the 1 m DEM's answers' (cache.TTL_DAYS["usgs-1m-index"])
 LIST_MAX_AGE_DAYS = cache.TTL_DAYS["usgs-1m-index"]
 # A listing that failed or was refused is not tried again within this many days by any process of the machine
 # (failed.json beside the list): every try costs about 450 s of USGS's servers
