@@ -106,19 +106,30 @@ app closes is the first thing to check. Before calling a failure of it a regress
 clean checkout of `main`.
 
 **Found on 2026-11-23: it is the app's, on Windows, not the test's.** Alone on `main` b1434458 it failed 5 of 46
-runs, every time with SQLite's extended code `SQLITE_IOERR_TRUNCATE` at a new connection's
-`PRAGMA journal_mode=WAL` (in `quick_take`, `quick_forget` and the scheduler's `interrupted`, the last right after
-`kill_tree` and `join`): at the moment the scheduler kills the quick lane's process for a task over its time, not at
-the app's end as such. A connection that finds itself the only one resets the database's shared-memory file
-(`jobs.sqlite-shm`), and Windows refuses that while the process going away still has the file mapped. Shown with
-sqlite3 alone, no code of the repository: after the kill of a process holding 600 MB the error came in 16 of 60 and
-9 of 40 rounds, up to 77 ms after the kill; processes of 0, 3 000 and 8 000 MB gave none in 60, 16 and 8 rounds (so
-not simply the larger the longer); none in 60 rounds once the pragma was tried again. `jobs._wal` now tries a
-connection's opening again after that one error (six pauses, 1.6 s in all; any other error is raised at once). With
-`Jobs._db` under the same kill: `main`'s jobs.py 2 of 80 rounds with the error, the branch's 0 of 80; the test alone
-0 of 40 runs. **Left as it was:** the same opening in `accounts.py`, `audit.py`, `cache.py` (the cache's index:
-search processes use it and are killed on a cancel, so a search running beside a cancelled one can meet the error on
-Windows), `country.py` and `tools/test_lock.py`.
+runs with "disk I/O error"; in the three of them whose errors were recorded by name (six errors) it was SQLite's
+extended code `SQLITE_IOERR_TRUNCATE` at a new connection's `PRAGMA journal_mode=WAL` (in `quick_take`,
+`quick_forget` and the scheduler's `interrupted`, the last right after `kill_tree` and `join`): at the moment the
+scheduler kills the quick lane's process for a task over its time, not at the app's end as such. The likely
+mechanism (read from the error's name and SQLite's code for Windows, not shown): a connection that finds itself the
+only one resets the database's shared-memory file (`jobs.sqlite-shm`), and Windows refuses that while the process
+going away still has the file mapped. Shown with sqlite3 alone, no code of the repository: after the kill of a
+process holding 600 MB the error came in 16 of 60, 9 of 40 and 15 of 60 rounds, up to 149 ms after the kill; after
+the kill of one holding nothing in 0 of 60 rounds once and 3 of 60 another time; processes of 3 000 and 8 000 MB gave
+none in 16 and 8 rounds (so the size does not decide it simply); none in 240 rounds once the pragma was tried again.
+`jobs._wal` now tries a connection's opening again after that one error (six pauses, 1.6 s in all; any other error is
+raised at once; the pauses run in the web's thread pool, but for `web.quick`'s `quick_forget` on its error path,
+which runs on the event loop). With `Jobs._db` under the same kill: `main`'s jobs.py 2 of 80 rounds with the error,
+the branch's 0 of 80; the test alone 0 of 40 runs. **Left as it was:** the same opening in `accounts.py`,
+`audit.py`, `cache.py` (the cache's index: search processes use it and are killed on a cancel, so a search running
+beside a cancelled one can meet the error on Windows), `country.py` and `tools/test_lock.py`.
+
+## Two jobs added in one second could draw the same id (mended 2026-11-23)
+
+`tests/test_web.py::test_status_events_in_the_order_of_the_changes` failed once (a full run of the USA's 1 m task,
+2026-11-23) with `sqlite3.IntegrityError: UNIQUE constraint failed: jobs.id` in `jobs.add`: a job's id is its second
+and six hex digits, and the test adds 150 jobs at once (about 1 run in 1 500 by the count of pairs). `Jobs.add` now
+draws again while the id is taken (`test_a_job_whose_id_is_taken_gets_another`). The cause is read from the id's
+form; no run of the old code was made to fail on it.
 
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
@@ -329,8 +340,9 @@ read by share links, the result view then behind `?view=b`), none fixed:
   `tests/test_cdd_fetch.py::test_when_the_failing_step_comes_through_its_waits_restart` (waits [30, 60, 120, 240]
   instead of [30, 60, 30, 30]: the fake server's reset came as a ConnectionResetError before the headers) and
   `tests/test_cdd_fetch.py::test_a_login_page_broken_after_its_headers_is_a_failed_attempt` (the same fake server's
-  reset racing under load); `tests/test_web.py::test_quick_lane` (`sqlite3.OperationalError: disk I/O error` at
-  `PRAGMA journal_mode=WAL` while the app shut down, right after the test killed the quick lane's process; also seen
+  reset racing under load); `tests/test_web.py::test_quick_lane` (found and mended on 2026-11-23: its entry above;
+  `sqlite3.OperationalError: disk I/O error` at `PRAGMA journal_mode=WAL`, right after the quick lane's process
+  was killed; also seen
   on `main` alone: "`test_quick_lane` fails at some times" above). Run them alone before calling a failure of one a
   regression.
 - **Exports:** a real iPhone was not tried (only Playwright's WebKit profile); a worker that stops keeps a file made

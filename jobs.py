@@ -444,9 +444,11 @@ def _wal(db: sqlite3.Connection):
     SQLITE_IOERR_TRUNCATE ("disk I/O error"). That error is Windows': right after a process that used the database
     was killed (a quick task over its time, a cancelled job, the worker's stop), a connection that finds itself the
     only one resets the database's shared-memory file, which Windows refuses while the process going away still
-    has that file mapped. Measured 2026-11-23 with a killed process of 600 MB: errors up to 77 ms after the kill,
-    none once the opening was tried again; `tests/test_web.py::test_quick_lane` met it in 5 of 46 runs. Any other
-    error, and this one after the last pause, is raised, with the connection closed."""
+    has that file mapped. Measured 2026-11-23 with killed processes of up to 600 MB: errors up to 149 ms after the
+    kill, none once the opening was tried again; `tests/test_web.py::test_quick_lane` met it in 5 of 46 runs. Any
+    other error, and this one after the last pause, is raised, with the connection closed. The pauses run where the
+    opening runs: in the web's thread pool, but for `web.quick`'s `quick_forget` on its error path on the event
+    loop itself."""
     for pause in (*OPEN_PAUSES, None):
         try:
             db.execute("PRAGMA journal_mode=WAL")

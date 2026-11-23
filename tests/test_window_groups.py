@@ -142,7 +142,9 @@ def test_a_later_server_on_the_same_port_serves_its_own_file(tmp_path, monkeypat
     """GDAL keeps the ranges it read of a remote file for the process, under the file's address; a test server
     drops its files from them when it closes (HttpServer.close). So a later server that is given the same port
     and serves another file at the same path is read afresh: with the ranges kept, the test above read
-    tests/test_netherlands.py's other.tif (EPSG:32620 instead of EPSG:25833), once in a full run."""
+    tests/test_netherlands.py's other.tif (EPSG:32620 instead of EPSG:25833), once in a full run. The second
+    server binds the port the first one freed a moment before; another process given that port in between would
+    fail this test (two binds would have to draw the same port within that moment: not seen)."""
     from http_server import HttpServer
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
     said, port = [], 0
