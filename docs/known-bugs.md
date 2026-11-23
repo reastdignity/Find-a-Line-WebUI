@@ -359,7 +359,11 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   mended (2026-11-23):** `test_tuscany`'s fails in every process that ran `tests/test_regions.py` before it: that
   file's fixture `without_regional` took the regional sources out with `monkeypatch.delitem`, whose undo puts each
   back at the end of the dict for the rest of the process; the fixture now puts the catalogue in its order again, and
-  the file's last test checks it.
+  the file's last test checks it. `test_window_groups`'s was GDAL's cache as guessed: with every test server on one
+  port, `tests/test_netherlands.py` and then the three `test_a_layer_in_another_crs_fails` in one process failed
+  3 of 3 with "other is in EPSG:32620"; the test server now drops its files from GDAL's cache when it closes
+  (`HttpServer.close` of tests/http_server.py, `rasterio.cache.invalidate`), the same run passes, and
+  `test_a_later_server_on_the_same_port_serves_its_own_file` holds it.
 - **`tools/perf_country.py` decodes all 29 columns of a store** (`linestore.read`) though it uses 10: about 350 B a
   line at its peak plus the Arrow table, so a machine smaller than the one that made a very large run may not read it
   back; a column selection in `linestore.read` would cut it.

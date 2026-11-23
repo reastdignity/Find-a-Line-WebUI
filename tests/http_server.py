@@ -13,6 +13,7 @@ import json
 import mimetypes
 import os
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -80,7 +81,8 @@ class HttpServer:
 
     BOUNDARY = "findaline-test-boundary"
 
-    def __init__(self):
+    def __init__(self, port: int = 0):
+        """`port`: 0 for a free one (every test but the one of `close`, which takes the port of a server just closed)."""
         self.answers: Dict[Key, Answer] = {}
         self.routes: List[Tuple[str, Callable[[Request], Optional[Answer]]]] = []
         self.log: List[Request] = []
@@ -101,7 +103,7 @@ class HttpServer:
             def do_HEAD(self):
                 server._handle(self, head=True)
 
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
         self.httpd.daemon_threads = True
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
         # shutdown() waits until the serving loop next wakes: the default poll of 0.5 s cost every test that
@@ -111,8 +113,16 @@ class HttpServer:
         self.thread.start()
 
     def close(self):
+        """Stop the server, and drop its files from GDAL's cache of ranges: /vsicurl/ keeps what it read for the
+        process, under the file's address, and a later test's server that was given the same port had another
+        test's file read from them (tests/test_window_groups.py's other.tif came out as
+        tests/test_netherlands.py's, in EPSG:32620, once in a full run of 2026-11-18). Only in a process that has
+        rasterio loaded: nothing else here needs it."""
         self.httpd.shutdown()
         self.httpd.server_close()
+        if "rasterio" in sys.modules:
+            import rasterio.cache
+            rasterio.cache.invalidate(self.base)
 
     def url(self, path: str) -> str:
         return self.base + path
