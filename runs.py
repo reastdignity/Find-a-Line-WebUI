@@ -25,6 +25,7 @@ import math
 import os
 import re
 import secrets
+import unicodedata
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional
 
@@ -404,6 +405,74 @@ def map_page(run: Dict) -> str:
     return MAP_HTML.format(title=html.escape(run["name"]), viewer=VIEWER_FOLDER, notice_id=DISK_NOTICE,
                            run=html.escape(str(run["id"])), notice=html.escape(messages.text("ui.map.disk_notice")))
 
+
+def run_name(value) -> str:
+    """A run's name as a rename stores it (rename_run; the public site's POST /api/runs/<id>): in Unicode's composed
+    form (NFC: a composed and a decomposed spelling are one name), its runs of whitespace collapsed to one space,
+    stripped; 1 to params.MAX_NAME characters. Refused (UserError "run_name"; the error never holds the name): no
+    string, or a string holding a character of a Unicode category starting with "C" (control, format: the bidi and
+    zero-width marks, surrogates, private use, unassigned) or "Zl"/"Zp", checked before the whitespace is collapsed
+    (as jobs.rig_name does), so a tab or a line break is refused, not turned into a space."""
+    from messages import UserError
+    from params import MAX_NAME
+    if isinstance(value, str) and not any(unicodedata.category(c)[0] == "C" or unicodedata.category(c) in ("Zl", "Zp")
+                                          for c in value):
+        name = " ".join(unicodedata.normalize("NFC", value).split())
+        if 0 < len(name) <= MAX_NAME:
+            return name
+    raise UserError(f"a run's name: 1 to {MAX_NAME} characters, no control or invisible characters", "run_name",
+                    max=MAX_NAME)
+
+
+def _attribution_head(name: str, created: str) -> str:
+    """The first line of a run's ATTRIBUTION.txt (attribution_text's)."""
+    return f"Find-a-Line run \"{name}\" ({created})"
+
+
+def rename_run(runs_dir: str, run_id: str, name: str) -> Dict:
+    """Rename a saved run (the public site's POST /api/runs/<id>; `name` checked by run_name), under
+    cache.runs_lock(runs_dir), taken once. Each file is replaced whole or not at all (cache.replacing), in this order:
+    ATTRIBUTION.txt (only its first line, and only when it is the line attribution_text wrote for the old name: any
+    other file is left as it is; every other byte stays), map.html (only when the run has one: map_page with the new
+    name, its <title> and the disk notice's heading), run.json last (only its "name"; every other key, its value and
+    the order stay). Not touched: the run's id and folder, its store (lines.arrow, profiles.arrow: their head keeps
+    the name of the saving), progress.json, tiles/, the jobs.sqlite row, the job, runs.js (the public worker writes
+    none). If a step fails, run.json still holds the old name, so every list shows the old name, while
+    ATTRIBUTION.txt and map.html may already hold the new one: a second rename to the same name repairs it (a
+    rename to yet another name rewrites map.html but leaves an ATTRIBUTION.txt whose first line no longer names
+    run.json's name as it is). Raises KeyError for a run without a readable run.json, OSError when a file cannot be
+    replaced now (on Windows a file held open by another process; also filelock.Timeout). Returns the new run.json."""
+    folder = os.path.join(runs_dir, run_id)
+    meta_path = os.path.join(folder, "run.json")
+    with cache.runs_lock(runs_dir):
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                meta = json.load(f)
+        except (FileNotFoundError, NotADirectoryError, ValueError):  # no run (a missing or unreadable run.json)
+            raise KeyError(run_id) from None
+        if not isinstance(meta, dict) or not isinstance(meta.get("name"), str):
+            raise KeyError(run_id)
+        old, created = meta["name"], meta.get("created", "")
+        attribution = os.path.join(folder, "ATTRIBUTION.txt")
+        try:
+            with open(attribution, "rb") as f:
+                text = f.read()
+        except FileNotFoundError:
+            text = None
+        if text is not None:
+            first, newline, rest = text.partition(b"\n")
+            ending = b"\r" if first.endswith(b"\r") else b""
+            if first[:len(first) - len(ending)] == _attribution_head(old, created).encode("utf-8"):
+                with cache.replacing(attribution) as f:
+                    f.write(_attribution_head(name, created).encode("utf-8") + ending + newline + rest)
+        page = os.path.join(folder, "map.html")
+        if os.path.isfile(page):
+            with cache.replacing(page, "w", encoding="utf-8") as f:  # as mapping.save_map writes it
+                f.write(map_page({**meta, "name": name}))
+        meta["name"] = name  # the key keeps its place in the dict, so in the file
+        with cache.replacing(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+    return meta
 
 
 def save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, file: None,

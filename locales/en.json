@@ -505,6 +505,7 @@
   "error.rig_name": "Give the rig a name of 1 to {{max}} characters.",
   "error.rig_name_taken": "You already have a rig of that name.",
   "error.rig_missing": "This rig no longer exists.",
+  "error.run_name": "Give the run a name of 1 to {{max}} characters.",
 
   "intro.dont_show": "Do not show again",
   "intro.got_it": "Got it",
