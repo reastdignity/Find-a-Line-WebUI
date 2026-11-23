@@ -325,6 +325,25 @@ def test_the_row_shows_the_renewal_while_it_runs(setup, monkeypatch):
         "this start: 2 index answers asked in 1 pass, the renewal went through; this pass: 2 index answers asked again")
 
 
+def test_the_starts_time_is_on_disk_before_its_renewal(setup, monkeypatch):
+    """The start's time (renewal_since) is in the state file before the renewal begins, so a pass killed during it
+    (no final write of its state) leaves the time to the start's next pass, which then asks only what is open."""
+    from sources import renewal
+
+    class Renewing(FakeLayer):
+        renews = True
+    seen = []
+
+    def renew(layers, grid, cache_dir, say, asked, since=None):
+        seen.append((since, ad.read_state(area.state_dir, "land").get("renewal_since")))
+        return renewal.Renewal(asked=2)
+    monkeypatch.setattr(ad, "STATE_SECONDS", 3600)   # the beat writes nothing in between
+    monkeypatch.setattr(renewal, "renew", renew)
+    area = setup(Renewing(2))
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert len(seen) == 1 and seen[0][0] and seen[0][0] == seen[0][1]
+
+
 def test_a_restarted_row_asks_the_index_again(tmp_path, monkeypatch, http_server):
     """Every start of a row asks the USA's index again before the listing, and the list of the bucket's unlisted
     files (older than 28 days: none yet), on the stand-in TNM index and bucket: a finished row started again after
