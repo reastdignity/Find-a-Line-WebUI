@@ -241,6 +241,17 @@ Measured in batch 6 (2026-11-15/16): a 400 m search in Shizuoka's west reads 25 
 tile not cached yet lists for about 20 s; a 600 m search in Hong Kong reads 24 sheets, 137 MB, in over 6 minutes
 (0.36 MB/s). The providers publish whole sheet ZIPs only; nothing is changed.
 
+## An IfSAR block's key can depend on the grid
+
+`ComposedBlocks._blocks` clips each file to the grid's bounds before it finds the blocks a file covers, and Alaska's
+IfSAR files are listed with the API's box projected (a little larger than the cell, not a whole number of blocks):
+a narrow grid and a wide one can then give the same 1 km square different sets of files, so different keys (the
+second code review of wave A part A-2, 2026-11-23, ran `_blocks` directly: narrow grid `6dcd4ce2 [A]`, wide grid and
+`reordered`'s bounds `02775184 [C, A]`). What it costs: the square's block cached twice under two names (one per
+grid width), and a renewal's `ComposedBlocks.reordered`, which composes over a file's own extent, can miss a
+reordered block cached by a narrow grid at its edge. The 1 m DEM is not affected (its extents are the names' 10 km
+squares, which the 1 km blocks divide). Older than wave A; not changed.
+
 ## Line volume, the store and the access mark: known and left (2026-11-16)
 
 Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the access mark), none fixed:
