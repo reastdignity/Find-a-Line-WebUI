@@ -50,7 +50,12 @@ def test_ranges_check_of_a_made_up_table():
     r = ps.ranges_check(full, kept, side, filters=300, seed=1)
     assert r["found"] == 5000 > r["kept"] == r["check1"]["pairs"] and r["check1"]["ok"]
     assert r["check2"]["ok"] and set(r["check2"]["wrong"]) == {f"{v}_{e}" for v in ps.RANGE_VALUES for e in ("lo", "hi")}
-    assert r["check3"] == {"filters": 300, "seed": 1, "misses": 0, "ok": True}
+    assert r["check3"] == {"filters": 300 + 11, "seed": 1, "misses": 0, "ok": True}  # and the study's 11
+    study = r["study_filters"]
+    assert len(study) == 11 and all(s["misses"] == 0 and 0 <= s["share_of_kept_pct"] <= 100 for s in study.values())
+    worst = r["check4"]["study_filters"]
+    assert worst["worst_share_of_kept_pct"] == max(s["share_of_kept_pct"] for s in study.values()) > 0
+    assert study[worst["worst"]]["named_too_many"] == round(worst["worst_share_of_kept_pct"] * r["kept"] / 100)
     singles = [f for f in r["filters"] if len(f["filter"]) == 1]
     assert len(singles) == 20 * len(ps.RANGE_BOUNDS) and all(f["found_passing"] for f in singles[::5])
     assert not any({"liftMax", "liftMaxNoZone"} <= set(f["filter"]) for f in r["filters"])
@@ -72,7 +77,7 @@ def test_ranges_check_of_a_made_up_table():
         inward[v + "_lo"], inward[v + "_hi"] = own, own
     bad = ps.ranges_check(full, inward, side, filters=300, seed=1)
     assert not bad["check2"]["ok"] and bad["check2"]["wrong"]["length_hi"] > 0 and bad["check3"]["misses"] > 0
-    assert "| 3. misses under 300 random filters (seed 1) | 0 |" in ps.ranges_markdown(r)
+    assert "| 3. misses under 311 filters (random, seed 1, and the study's) | 0 |" in ps.ranges_markdown(r)
 
 
 def test_ranges_report_of_the_clip(tmp_path):

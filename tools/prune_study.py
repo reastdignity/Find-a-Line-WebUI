@@ -1491,7 +1491,9 @@ def ranges_check(full: Dict[str, np.ndarray], kept: Dict[str, np.ndarray], side:
     3. under `filters` random filters over the six values (single bounds, then 2 to 4 at once; bounds from the values'
        spread and at exact stored values; a fixed seed) no found line that passes has its kept line failing by
        "its own value or its range" (misses);
-    4. per filter, the share of kept lines shown although none of their found lines passes (named too many).
+    4. per filter, the share of kept lines shown although none of their found lines passes (named too many), of
+       those shown; and on the earlier study's combined filters (part P3a's, with the mean height added) of every
+       kept line, the study's own measure (its "1-17 %" on the worst combined filter); those count in 3 too.
     Returns a dict (JSON-able); nothing of a place is in it (counts, shares, bounds of values)."""
     import samelines
     out: Dict = {"side": side, "found": int(len(full["length"])), "kept": int(len(kept["length"]))}
@@ -1562,8 +1564,9 @@ def ranges_check(full: Dict[str, np.ndarray], kept: Dict[str, np.ndarray], side:
         pool = [name for name in bounds if name != other]
         names = list(rng.choice(pool, size=int(rng.integers(2, min(4, len(pool)) + 1)), replace=False))
         chosen.append({name: draw(name) for name in names})
-    rows, misses = [], 0
-    for f in chosen:
+    def judged(f):
+        """One filter: the found lines passing, the kept lines shown (own value or range), misses, named too many
+        (shown, no found line of the pair passing), as shares of the shown and of every kept line (the study's)."""
         found_pass = np.ones(len(owner), dtype=bool)
         kept_pass = np.ones(len(ka), dtype=bool)
         for name, bound in f.items():
@@ -1575,14 +1578,41 @@ def ranges_check(full: Dict[str, np.ndarray], kept: Dict[str, np.ndarray], side:
             kept_pass &= own
         passing = found_pass & (owner >= 0)
         missed = int((passing & ~kept_pass[np.maximum(owner, 0)]).sum())
-        misses += missed
         with_found = np.zeros(len(ka), dtype=bool)
         with_found[owner[passing]] = True
         shown = int(kept_pass.sum())
         too_many = int((kept_pass & ~with_found).sum())
-        rows.append({"filter": f, "found_passing": int(passing.sum()), "kept_shown": shown,
-                     "kept_with_a_passing_copy": int(with_found.sum()), "misses": missed, "named_too_many": too_many,
-                     "share_too_many_pct": round(100.0 * too_many / shown, 3) if shown else None})
+        return {"filter": f, "found_passing": int(passing.sum()), "kept_shown": shown,
+                "kept_with_a_passing_copy": int(with_found.sum()), "misses": missed, "named_too_many": too_many,
+                "share_too_many_pct": round(100.0 * too_many / shown, 3) if shown else None,
+                "share_of_kept_pct": round(100.0 * too_many / len(ka), 3) if len(ka) else None}
+    rows = [judged(f) for f in chosen]
+    misses = sum(r["misses"] for r in rows)
+    # The earlier study's filters (part P3a's records.py: the page's chips of length, clearance and height at the found
+    # lines' quartiles, combined; its "only clear" left out: no range of it), with the mean height added; its measure:
+    # the kept lines named too many over every kept line, on the worst combined filter (spec-store.md 3: "1-17 %")
+    q = {v: np.nanpercentile(full[v], [25, 50, 75]) if np.isfinite(full[v]).any() else [0.0] * 3
+         for v in ("length", "clearance", "height_max", "height_mean")}
+    p = lambda v, k: float(q[v][k])  # noqa: E731
+    study = {"length >= p50, clearance >= p50": {"lenMin": p("length", 1), "clrMin": p("clearance", 1)},
+             "clearance >= p50, height >= p50": {"clrMin": p("clearance", 1), "heightMin": p("height_max", 1)},
+             "length p25..p75, clearance >= p75": {"lenMin": p("length", 0), "lenMax": p("length", 2),
+                                                   "clrMin": p("clearance", 2)},
+             "clearance >= p75, height >= p75": {"clrMin": p("clearance", 2), "heightMin": p("height_max", 2)},
+             "length >= p75, height >= p75": {"lenMin": p("length", 2), "heightMin": p("height_max", 2)},
+             "length <= p50, clearance >= p75": {"lenMax": p("length", 1), "clrMin": p("clearance", 2)},
+             "length >= p50, clearance >= p50, height >= p50": {"lenMin": p("length", 1), "clrMin": p("clearance", 1),
+                                                                "heightMin": p("height_max", 1)},
+             "length <= p50, clearance >= p50, height >= p75": {"lenMax": p("length", 1), "clrMin": p("clearance", 1),
+                                                                "heightMin": p("height_max", 2)},
+             "clearance >= p50, mean height >= p50": {"clrMin": p("clearance", 1), "meanMin": p("height_mean", 1)},
+             "length >= p50, mean height >= p75": {"lenMin": p("length", 1), "meanMin": p("height_mean", 2)},
+             "length >= p50, clearance >= p50, mean height >= p50": {"lenMin": p("length", 1),
+                                                                     "clrMin": p("clearance", 1),
+                                                                     "meanMin": p("height_mean", 1)}}
+    study_rows = {label: judged(f) for label, f in study.items()}
+    misses += sum(r["misses"] for r in study_rows.values())
+
     def summed(of):  # the kept lines named too many over those shown, summed over the filters (a filter showing few
         shown = sum(r["kept_shown"] for r in of)  # lines weighs little, where its own share may be 100 %)
         return round(100.0 * sum(r["named_too_many"] for r in of) / shown, 3) if shown else None
@@ -1593,12 +1623,17 @@ def ranges_check(full: Dict[str, np.ndarray], kept: Dict[str, np.ndarray], side:
         own = [r["share_too_many_pct"] for r in mine if r["share_too_many_pct"] is not None]
         per_bound[name] = {"filters": len(own), "mean_pct": round(float(np.mean(own)), 3) if own else None,
                            "max_pct": round(float(np.max(own)), 3) if own else None, "pooled_pct": summed(mine)}
-    out["check3"] = {"filters": len(rows), "seed": seed, "misses": misses, "ok": misses == 0}
+    out["check3"] = {"filters": len(rows) + len(study_rows), "seed": seed, "misses": misses, "ok": misses == 0}
+    worst = max(study_rows, key=lambda label: study_rows[label]["share_of_kept_pct"] or 0.0)
     out["check4"] = {"study_pct": list(STUDY_SHARE), "single_bounds": per_bound,
                      "all_filters": {"median_pct": round(float(np.median(shares)), 3) if shares else None,
                                      "max_pct": round(float(np.max(shares)), 3) if shares else None,
-                                     "pooled_pct": summed(rows)}}
+                                     "pooled_pct": summed(rows)},
+                     "study_filters": {"worst": worst, "worst_share_of_kept_pct": study_rows[worst]["share_of_kept_pct"],
+                                       "worst_share_of_shown_pct": max(r["share_too_many_pct"] or 0.0
+                                                                       for r in study_rows.values())}}
     out["filters"] = rows
+    out["study_filters"] = study_rows
     return out
 
 
@@ -1639,13 +1674,17 @@ def ranges_markdown(r: Dict) -> str:
              f"| 1. pairs = kept lines, stands_for = its pair's count | {'yes' if c1['ok'] else 'NO'} "
              f"(stands_for differs: {c1['stands_for_differs']}, found without a kept line: {c1['found_without_kept']}) |",
              f"| 2. lo / hi = outward float32 of the least / most | {'yes' if c2['ok'] else 'NO: ' + wrong} |",
-             f"| 3. misses under {c3['filters']} random filters (seed {c3['seed']}) | {c3['misses']} |",
-             f"| 4. named too many, all filters: median / max / pooled | {c4['all_filters']['median_pct']} % / "
-             f"{c4['all_filters']['max_pct']} % / {c4['all_filters']['pooled_pct']} % (the study: "
-             f"{c4['study_pct'][0]:g} to {c4['study_pct'][1]:g} %) |"]
-    for name, s in c4["single_bounds"].items():
-        lines.append(f"| 4. {name} alone ({s['filters']} filters): mean / max / pooled | {s['mean_pct']} % / "
-                     f"{s['max_pct']} % / {s['pooled_pct']} % |")
+             f"| 3. misses under {c3['filters']} filters (random, seed {c3['seed']}, and the study's) | {c3['misses']} |",
+             f"| 4. the study's combined filters (P3a's, the mean height added): named too many of every kept line, "
+             f"worst filter | {c4['study_filters']['worst_share_of_kept_pct']} % ({c4['study_filters']['worst']}; "
+             f"of those shown: {c4['study_filters']['worst_share_of_shown_pct']} % at most; the study: "
+             f"{c4['study_pct'][0]:g} to {c4['study_pct'][1]:g} % of every kept line) |",
+             f"| 4. random filters, named too many of those shown: median / max / pooled | "
+             f"{c4['all_filters']['median_pct']} % / {c4['all_filters']['max_pct']} % / "
+             f"{c4['all_filters']['pooled_pct']} % |"]
+    for name, s in c4["single_bounds"].items():  # one bound: only the float32 step of a range can name too many
+        lines.append(f"| 4. {name} alone ({s['filters']} random): of those shown, mean / max / pooled | "
+                     f"{s['mean_pct']} % / {s['max_pct']} % / {s['pooled_pct']} % |")
     if "summary_found_ok" in r:
         lines.append(f"| run.json's found = the found lines; the same search but for the rule | "
                      f"{'yes' if r['summary_found_ok'] else 'NO'}; {'yes' if r['same_search'] else 'NO'} |")
