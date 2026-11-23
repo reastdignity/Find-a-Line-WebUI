@@ -86,6 +86,8 @@ PROC = "/proc"
 HOOKS = ("_whole_metres_rows", "_flat_lakes_rows", "_region_areas", "_region_bounds", "_spread_flat",
          "_open_ground_rows", "_answers")
 GROUPS = {"access_flat.npy": "flat lakes", "access_og_g.npy": "open ground", "access_og2_g.npy": "smoothed open ground"}
+# access._answers' parameters as the per-block hook mirrors them (another signature: the blocks are not split)
+ANSWERS_PARAMETERS = ["z", "water", "data", "res", "wm", "og", "alpine", "og2", "s"]
 
 
 # ---------------------------------------------------------------- readers (no search needed)
@@ -300,9 +302,8 @@ def summarise(samples: Sequence[Sequence], listings, events: Sequence[Tuple[floa
     samples and the longest gap between samples (from the part's start to its end), the peak working set and private
     bytes above the stage's start (base), the work folder's files at the working set's peak and the folder's own
     peak on disk, in a container the cgroup's peak above its start with memory.stat's split there. A part without a
-    sample takes the sample nearest to its start ("sampled": 0)."""
+    sample has no peaks (None) and no files ("no sample" in the table), never another part's sample."""
     i = {k: n for n, k in enumerate(SAMPLE_KEYS)}
-    times = [s[0] for s in samples]
     lt = [t for t, _ in listings]
     out: Dict[str, Dict] = {}
     for k, (t0, label) in enumerate(events):
@@ -310,15 +311,11 @@ def summarise(samples: Sequence[Sequence], listings, events: Sequence[Tuple[floa
         if t1 < t0:
             continue
         inside = [s for s in samples if t0 <= s[0] <= t1]
-        sampled = len(inside)
-        if not inside and samples:
-            inside = [min(samples, key=lambda s: abs(s[0] - t0))]
         row = out.setdefault(label, {"s": 0.0, "samples": 0, "max_gap_s": 0.0, "peak_rss": None, "peak_private": None,
-                                     "peak_disk": 0, "sampled": 0})
+                                     "peak_disk": None})
         row["s"] += t1 - t0
-        row["samples"] += sampled
-        row["sampled"] += sampled
-        edges = [t0] + [s[0] for s in inside if t0 <= s[0] <= t1] + [t1]
+        row["samples"] += len(inside)
+        edges = [t0] + [s[0] for s in inside] + [t1]
         row["max_gap_s"] = max(row["max_gap_s"], max(b - a for a, b in zip(edges, edges[1:])))
         if not inside:
             continue
@@ -331,7 +328,7 @@ def summarise(samples: Sequence[Sequence], listings, events: Sequence[Tuple[floa
         priv = [s[i["private"]] for s in inside if s[i["private"]] is not None]
         if priv:
             row["peak_private"] = max(row["peak_private"] or 0, max(priv))
-        row["peak_disk"] = max(row["peak_disk"], max(s[i["disk"]] or 0 for s in inside))
+        row["peak_disk"] = max(row["peak_disk"] or 0, max(s[i["disk"]] or 0 for s in inside))
         cgs = [s for s in inside if s[i["cg_current"]] is not None]
         if cgs:
             c = max(cgs, key=lambda s: s[i["cg_current"]])
@@ -346,7 +343,6 @@ def summarise(samples: Sequence[Sequence], listings, events: Sequence[Tuple[floa
         row["peak_private_above_start"] = _above(row.pop("peak_private"), base.get("private"))
         if "cg_peak" in row:
             row["cg_peak_above_start"] = _above(row["cg_peak"], (cg_base or {}).get("current"))
-        del row["sampled"]
     return out
 
 
@@ -361,13 +357,13 @@ def merge(parts: Dict[str, Dict], prefix: str) -> Optional[Dict]:
     rows = [r for label, r in parts.items() if label.startswith(prefix)]
     if not rows:
         return None
-    best = max(rows, key=lambda r: r["peak_rss_above_start"] or 0)
+    best = max(rows, key=lambda r: -1 if r["peak_rss_above_start"] is None else r["peak_rss_above_start"])
     out = {"s": round(sum(r["s"] for r in rows), 3), "samples": sum(r["samples"] for r in rows),
            "max_gap_s": max(r["max_gap_s"] for r in rows),
            "peak_rss_above_start": best["peak_rss_above_start"],
            "peak_private_above_start": max((r["peak_private_above_start"] for r in rows
                                             if r["peak_private_above_start"] is not None), default=None),
-           "peak_disk": max(r["peak_disk"] for r in rows),
+           "peak_disk": max((r["peak_disk"] for r in rows if r["peak_disk"] is not None), default=None),
            "peak_part": next(label for label, r in parts.items() if r is best),
            "files_at_peak": best.get("files_at_peak", {})}
     cgs = [r for r in rows if r.get("cg_peak") is not None]
@@ -638,7 +634,21 @@ def mask_child(way: str, spec: Dict) -> Dict:
            "os_peak_private_above_start": ((end["os_peak_private"] - start["private"])
                                            if end["os_peak_private"] and start["private"] is not None else None),
            "hashes": hashes}
+    headline(out)
     return out
+
+
+def headline(m: Dict) -> Dict:
+    """A way's headline peaks: the larger of the 20 ms thread's sample and the OS's own peak counter above the
+    child's start (a fresh process: the counter is exact; the thread waits for the GIL and misses short peaks, as
+    the bits way's two window copies). The thread's own figures stay as sampled_*. Works on a record of before too."""
+    for key in ("rss", "private"):
+        sampled = m.get(f"sampled_peak_{key}_above_start", m.get(f"peak_{key}_above_start"))
+        m[f"sampled_peak_{key}_above_start"] = sampled
+        os_peak = m.get(f"os_peak_{key}_above_start")
+        values = [v for v in (sampled, os_peak) if v is not None]
+        m[f"peak_{key}_above_start"] = max(values) if values else None
+    return m
 
 
 def run_masks(args) -> Dict:
@@ -771,8 +781,12 @@ class Marks:
         self.restore: List[Tuple[str, Callable]] = []
         self.windows: List[int] = []
         self.found: List[str] = []
+        self.readings: Dict[str, Dict] = {}  # label: this process's memory when the part starts (the blocks')
+        self.proc = psutil.Process()
 
-    def mark(self, label: str):
+    def mark(self, label: str, reading: bool = False):
+        if reading:
+            self.readings[label] = memory_now(self.proc)
         self.events.append((time.time(), label))
 
     def hook(self, access):
@@ -803,11 +817,6 @@ class Marks:
             name = a[6] if len(a) > 6 else k.get("name")
             return "smoothed open ground" if name == "og2" else "open ground"
 
-        def answers(a, k):
-            z = a[0] if a else k["z"]
-            self.windows.append(int(z.shape[0] * z.shape[1]))
-            return None
-
         wrap("_whole_metres_rows", leave=lambda a, k: "grid-wide: water (copy, flush)")
         wrap("_flat_lakes_rows", enter=lambda a, k: "grid-wide: flat lakes: mask",
              leave=lambda a, k: "grid-wide: water (copy, flush)")
@@ -821,12 +830,21 @@ class Marks:
              leave=lambda a, k: "grid-wide: masks opened")
         real_answers = getattr(access, "_answers", None)
         if callable(real_answers):
-            def hooked_answers(*a, **k):
-                answers(a, k)
+            import inspect
+            if list(inspect.signature(real_answers).parameters) != ANSWERS_PARAMETERS:
+                self.found = [n for n in self.found if n != "_answers"]  # another signature: no per-block parts
+                return
+
+            def hooked_answers(z, water, data, res, wm, og, alpine, og2=None, s=None):
+                # the windows of the open ground are handed on without a reference of this frame (popped from a
+                # list into the call): _answers' own `del og` / `del og2` free them as in a call without the hook
+                self.windows.append(int(z.shape[0] * z.shape[1]))
+                box = [s, og2, og]
+                del og, og2, s
                 try:
-                    return real_answers(*a, **k)
+                    return real_answers(z, water, data, res, wm, box.pop(), alpine, og2=box.pop(), s=box.pop())
                 finally:
-                    self.mark(f"blocks: block {len(self.windows) + 1}")
+                    self.mark(f"blocks: block {len(self.windows) + 1}", reading=True)
             self.restore.append(("_answers", real_answers))
             access._answers = hooked_answers
 
@@ -887,11 +905,14 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
         before = set(work_files(s.work))
         start = len(sidecar_events.events)
         sidecar_events.windows = []
+        sidecar_events.readings = {}
         sidecar_events.hook(access)
 
         def on_part(name):
-            sidecar_events.mark("grid-wide: whole-metre sample" if name == "grid-wide" else "blocks: block 1"
-                                if name == "blocks" else name)
+            if name == "blocks":  # the level when the blocks begin: the first block's own start
+                sidecar_events.mark("blocks: block 1", reading=True)
+            else:
+                sidecar_events.mark("grid-wide: whole-metre sample" if name == "grid-wide" else name)
         try:
             done = access.block_grid(z, water, res, filled, path, s.work, block_px, alpine=True, on_part=on_part)
         finally:
@@ -901,6 +922,7 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
         out["block_px"], out["blocks"], out["window_px"] = block_px, done["blocks"], done["window_px"]
         out["whole_metres"] = bool(done["whole_metres"])
         out["windows"] = list(sidecar_events.windows)
+        out["readings"] = dict(sidecar_events.readings)
         out["hooks"] = sidecar_events.found
         out["first_event"] = start
         gc.collect()
@@ -941,25 +963,64 @@ def stage_report(stage: Dict, parts: Dict[str, Dict], pixels: int) -> Dict:
             g["rss_b_per_grid_px"] = per_px(g["peak_rss_above_start"], pixels)
             g["private_b_per_grid_px"] = per_px(g["peak_private_above_start"], pixels)
         out["grid_wide"] = g
-        blocks = []
-        for n, window in enumerate(stage.get("windows", []), 1):
-            r = parts.get(f"blocks: block {n}")
-            if r:
-                blocks.append({"block": n, "window_px": window, "s": r["s"], "samples": r["samples"],
-                               "max_gap_s": r["max_gap_s"], "peak_rss_above_start": r["peak_rss_above_start"],
-                               "peak_private_above_start": r["peak_private_above_start"],
-                               "rss_b_per_window_px": per_px(r["peak_rss_above_start"], window),
-                               "private_b_per_window_px": per_px(r["peak_private_above_start"], window)})
-        out["blocks_list"] = blocks
+        out["blocks_list"] = block_rows(stage, parts)
         b = merge({k: v for k, v in parts.items() if k.startswith("blocks: block ")
                    and int(k.rsplit(" ", 1)[1]) <= len(stage.get("windows", []))}, "blocks: block ")
         if b:
             largest = stage.get("window_px") or max(stage.get("windows", [0]) or [0])
             b["largest_window_px"] = largest
-            b["rss_b_per_largest_window_px"] = per_px(b["peak_rss_above_start"], largest)
-            b["private_b_per_largest_window_px"] = per_px(b["peak_private_above_start"], largest)
+            # above the blocks STAGE's start (what is resident when the blocks begin and piles up block after block
+            # included): comparable with 2026-11-15's figures, not a window's own cost
+            b["stage_rss_b_per_largest_window_px"] = per_px(b["peak_rss_above_start"], largest)
+            b["stage_private_b_per_largest_window_px"] = per_px(b["peak_private_above_start"], largest)
+            level = (stage.get("readings") or {}).get("blocks: block 1")
+            if level:
+                start = stage["start"]
+                b["level_rss"], b["level_private"] = level["rss"], level["private"]
+                b["peak_rss_above_level"] = _shift(b["peak_rss_above_start"], start["rss"], level["rss"])
+                b["peak_private_above_level"] = _shift(b["peak_private_above_start"], start["private"],
+                                                       level["private"])
+                b["level_rss_b_per_largest_window_px"] = per_px(b["peak_rss_above_level"], largest)
+                b["level_private_b_per_largest_window_px"] = per_px(b["peak_private_above_level"], largest)
+            rows = [r for r in out["blocks_list"] if r["window_px"] == largest and r.get("own_rss") is not None]
+            if rows:  # the largest windows' own: each above its own start, the largest of them
+                b["own_rss_b_per_largest_window_px"] = per_px(max(r["own_rss"] for r in rows), largest)
+                b["own_private_b_per_largest_window_px"] = per_px(max(r["own_private"] for r in rows
+                                                                      if r["own_private"] is not None), largest)
         out["blocks_part"] = b
     return out
+
+
+def _shift(above_start: Optional[int], start: Optional[int], base: Optional[int]) -> Optional[int]:
+    """A peak given above one base, above another: above_start + start - base."""
+    return None if above_start is None or start is None or base is None else above_start + start - base
+
+
+def block_rows(stage: Dict, parts: Dict[str, Dict]) -> List[Dict]:
+    """Per block: its window, seconds, samples; its peak working set and private bytes above the blocks STAGE's start
+    (`stage_*`, as 2026-11-15 counted), above the level when the blocks begin (`level_*`: what the grid-wide pass left
+    resident taken off) and above the block's own start (`own_*`: the moment the previous block's measure returned,
+    so it still holds that block's write and its arrays' release); per pixel of the window each. A block whose part
+    has no sample has no peaks."""
+    rows = []
+    readings = stage.get("readings") or {}
+    start = stage["start"]
+    level = readings.get("blocks: block 1")
+    for n, window in enumerate(stage.get("windows", []), 1):
+        r = parts.get(f"blocks: block {n}")
+        if not r:
+            continue
+        own = readings.get(f"blocks: block {n}")
+        row = {"block": n, "window_px": window, "s": r["s"], "samples": r["samples"], "max_gap_s": r["max_gap_s"],
+               "stage_rss": r["peak_rss_above_start"], "stage_private": r["peak_private_above_start"]}
+        for key, base in (("level", level), ("own", own)):
+            row[f"{key}_rss"] = _shift(r["peak_rss_above_start"], start["rss"], base and base["rss"])
+            row[f"{key}_private"] = _shift(r["peak_private_above_start"], start["private"], base and base["private"])
+        for key in ("stage", "level", "own"):
+            row[f"{key}_rss_b_per_window_px"] = per_px(row[f"{key}_rss"], window)
+            row[f"{key}_private_b_per_window_px"] = per_px(row[f"{key}_private"], window)
+        rows.append(row)
+    return rows
 
 
 def run_stages(args) -> Dict:
@@ -1084,7 +1145,10 @@ def run_pieces(args) -> Dict:
     out["blocks_with_area"] = {name: blocks_holding(mask, px) for name, px in sides.items()}
     if args.anchors:
         rows, cols = anchors_of(s)
-        out["anchors"] = int(len(rows))
+        out["anchors_found_by_tiles"] = int(len(rows))  # each tile's, the overlaps' counted once a tile
+        unique = np.unique(rows * w + cols)
+        rows, cols = unique // w, unique % w
+        out["anchors"] = int(len(rows))  # each pixel once
         out["blocks_with_anchor"] = {name: blocks_holding_points(rows, cols, (h, w), px) for name, px in sides.items()}
     # the real grid-wide pass, stopped before its first block; each mask's strip pieces before today's labels
     masks = {}
@@ -1110,6 +1174,10 @@ def run_pieces(args) -> Dict:
             row["table_bytes_at_4_per_piece"] = 4 * row["pieces"]
             row["table_b_per_grid_px"] = round(4 * row["pieces"] / (h * w), 4)
             masks[GROUPS.get(os.path.basename(mask_path), os.path.basename(mask_path))] = row
+            if args.capture:  # the mask as labelled (before the regions' size), for a check of these counts
+                os.makedirs(args.capture, exist_ok=True)
+                row["captured"] = os.path.join(args.capture, f"{args.name}-{os.path.basename(mask_path)}")
+                shutil.copyfile(mask_path, row["captured"])
             return labels, n, count
         access._region_areas = region_areas
     t0 = time.time()
@@ -1214,8 +1282,9 @@ def print_table(out: Dict):
               f"({out['work_gb_with_access_disk']} GB with the access grid's files); step 1's labels "
               f"{out['step1_labels_gb']} GB; disk free {out['disk_free_gb']} GB")
     elif cmd == "stages":
-        print(f"\n{'part':52} {'s':>7} {'n':>5} {'gap':>5} {'WS MB':>7} {'priv MB':>7} {'B/px':>6} {'B/px p':>6}"
-              f" {'disk MB':>8}")
+        print("\nMiB = 2^20 bytes; peaks above the stage's start; B/px of the grid (WS, private)")
+        print(f"{'part':52} {'s':>7} {'n':>5} {'gap':>5} {'WS MiB':>7} {'prv MiB':>7} {'B/px':>6} {'B/px p':>6}"
+              f" {'diskMiB':>8}")
         for st in [out["step1"]] + out["stages"]:
             name = st["stage"] + (f" {st['run']}" if "run" in st else "")
             print(f"{name:52} {st['s']:7.1f} {'':5} {'':5} {_mb(st['peak_rss_above_start']):>7} "
@@ -1223,6 +1292,9 @@ def print_table(out: Dict):
                   f"{st['private_b_per_grid_px'] or '':>6}")
             for label, r in st["parts"].items():
                 if label.startswith("blocks: block ") or r["s"] < 0.05:
+                    continue
+                if not r["samples"]:
+                    print(f"  {label[:50]:50} {r['s']:7.1f} {0:5} {r['max_gap_s']:5.2f} no sample")
                     continue
                 print(f"  {label[:50]:50} {r['s']:7.1f} {r['samples']:5} {r['max_gap_s']:5.2f} "
                       f"{_mb(r['peak_rss_above_start']):>7} {_mb(r['peak_private_above_start']):>7} "
@@ -1236,10 +1308,20 @@ def print_table(out: Dict):
                           f"{g['rss_b_per_grid_px'] or '':>6} {g['private_b_per_grid_px'] or '':>6} "
                           f"{_mb(g['peak_disk']):>8}")
                 if b:
-                    print(f"  {'= blocks (B/px of the largest window)':50} {b['s']:7.1f} {b['samples']:5} "
+                    print(f"  {'= blocks, above the stage start: B/px largest window':50}"
+                          f" {b['s']:7.1f} {b['samples']:5} "
                           f"{b['max_gap_s']:5.2f} {_mb(b['peak_rss_above_start']):>7} "
-                          f"{_mb(b['peak_private_above_start']):>7} {b['rss_b_per_largest_window_px'] or '':>6} "
-                          f"{b['private_b_per_largest_window_px'] or '':>6}")
+                          f"{_mb(b['peak_private_above_start']):>7} {b['stage_rss_b_per_largest_window_px'] or '':>6} "
+                          f"{b['stage_private_b_per_largest_window_px'] or '':>6}")
+                    if b.get("peak_rss_above_level") is not None:
+                        print(f"  {'= blocks, above the level when they begin':50} {'':7} {'':5} {'':5} "
+                              f"{_mb(b['peak_rss_above_level']):>7} {_mb(b['peak_private_above_level']):>7} "
+                              f"{b['level_rss_b_per_largest_window_px'] or '':>6} "
+                              f"{b['level_private_b_per_largest_window_px'] or '':>6}")
+                    if b.get("own_rss_b_per_largest_window_px") is not None:
+                        print(f"  {'= largest windows, above their own start':50} {'':7} {'':5} {'':5} {'':7} {'':7} "
+                              f"{b['own_rss_b_per_largest_window_px']:>6} "
+                              f"{b['own_private_b_per_largest_window_px'] or '':>6}")
                 c = st.get("compare_with_once")
                 print(f"  {st['blocks']} blocks of {st['block_px']} px, largest window {st['window_px'] / 1e6:.1f} "
                       f"Mpx; left in work: {st['left_in_work'] or 'nothing'}"
@@ -1255,7 +1337,7 @@ def print_table(out: Dict):
             print(f"blocks of {name} ({b['block_px']} px): {b['holding']}/{b['blocks']} hold the area"
                   + (f", {a['holding']} an anchor" if a else ""))
         print(f"\n{'mask':24} {'pieces':>10} {'most/strip':>10} {'last row':>9} {'regions':>9} {'kept':>7} "
-              f"{'table MB':>9} {'B/px':>7}")
+              f"{'tableMiB':>9} {'B/px':>7}")
         for name, m in out["masks"].items():
             print(f"{name:24} {m['pieces']:10} {m['most_in_a_strip']:10} {m['most_in_a_last_row']:9} "
                   f"{m['regions']:9} {m['regions_kept_by_size']:7} {m['table_bytes_at_4_per_piece'] / MB:9.1f} "
@@ -1263,12 +1345,13 @@ def print_table(out: Dict):
     elif cmd == "masks":
         print(f"mask {out['shape'][1]} x {out['shape'][0]}, windows of blocks of {out['block_px']} px + "
               f"{out['margin_px']}; equal windows: {out['windows_equal']}")
-        print(f"{'way':8} {'kept MB':>8} {'write s':>8} {'read s':>8} {'WS MB':>7} {'priv MB':>8} {'OS WS MB':>8} "
-              f"{'OS priv':>8}")
+        print("MiB = 2^20 bytes; WS and private: the larger of the sampled peak and the OS's peak counter")
+        print(f"{'way':8} {'keptMiB':>8} {'write s':>8} {'read s':>8} {'WS MiB':>7} {'prvMiB':>8} {'smp WS':>8} "
+              f"{'smp prv':>8}")
         for way, m in out["ways"].items():
             print(f"{way:8} {m['kept_bytes'] / MB:8.1f} {m['write_s']:8.2f} {m['read_s']:8.2f} "
                   f"{_mb(m['peak_rss_above_start']):>7} {_mb(m['peak_private_above_start']):>8} "
-                  f"{_mb(m['os_peak_rss_above_start']):>8} {_mb(m['os_peak_private_above_start']):>8}")
+                  f"{_mb(m['sampled_peak_rss_above_start']):>8} {_mb(m['sampled_peak_private_above_start']):>8}")
     elif cmd == "compare":
         print(f"pixels that differ: {out['differ']} of {out['pixels']}" + (f", first {out['first']}"
                                                                            if out["first"] else ""))

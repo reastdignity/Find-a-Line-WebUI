@@ -122,6 +122,12 @@ def test_three_ways_of_a_mask_give_its_windows(tmp_path, source):
         assert m["hash_of_hashes"] == expected, way
         assert m["windows"] == n and m["window_px_read"] == sum((b - a) * (d - c)
                                                                 for a, b, c, d in pa.windows(h, w, 40, margin))
+    for m in out["ways"].values():  # the headline: the larger of the sampled peak and the OS's counter
+        assert m["peak_rss_above_start"] >= m["sampled_peak_rss_above_start"]
+        if m["os_peak_rss_above_start"] is not None:
+            assert m["peak_rss_above_start"] >= m["os_peak_rss_above_start"]
+    assert pa.headline({"peak_rss_above_start": 74, "os_peak_rss_above_start": 132, "peak_private_above_start": 5,
+                        "os_peak_private_above_start": None})["peak_rss_above_start"] == 132
     assert out["ways"]["bits"]["kept_bytes"] == h * ((w + 7) // 8)
     assert out["ways"]["file"]["kept_bytes"] == h * w
     assert h * w < out["ways"]["memmap"]["kept_bytes"] <= h * w + 4096  # the .npy header
@@ -145,8 +151,72 @@ def test_parts_from_samples():
     assert b["peak_rss_above_start"] == 200 and b["peak_private_above_start"] == 80 and b["samples"] == 2
     assert b["max_gap_s"] == 0.6 and b["files_at_peak"] == {"a.npy": 3, "b.npy": 4} and b["peak_disk"] == 7
     assert b["cg_peak_above_start"] == 600 and b["cg_split_at_peak"]["anon"] == 10
-    assert c["samples"] == 0 and c["peak_rss_above_start"] == 100  # the nearest sample (1.8 s)
+    # a part without a sample has no peaks and no files, never the next part's sample (1.8 s lies in b)
+    assert c["samples"] == 0 and c["peak_rss_above_start"] is None and c["peak_private_above_start"] is None
+    assert "files_at_peak" not in c and c["peak_disk"] is None
     assert pa.merge(parts, "")["peak_part"] == "b"
+
+
+def test_a_blocks_peaks_above_the_stage_the_level_and_its_own_start():
+    """block_rows / stage_report: a block's peak above the blocks stage's start (as 2026-11-15 counted), above the
+    level when the blocks begin and above its own start, per pixel of its window."""
+    mb = 2 ** 20
+    stage = {"stage": "blocks", "run": 1, "s": 9.0, "windows": [100 * mb, 100 * mb, 25 * mb], "window_px": 100 * mb,
+             "start": {"rss": 1000 * mb, "private": 500 * mb},
+             "readings": {"blocks: block 1": {"rss": 1300 * mb, "private": 510 * mb},
+                          "blocks: block 2": {"rss": 1500 * mb, "private": 520 * mb},
+                          "blocks: block 3": {"rss": 1700 * mb, "private": 530 * mb}}}
+
+    def part(rss, private, samples=3):
+        return {"s": 1.0, "samples": samples, "max_gap_s": 0.02, "peak_rss_above_start": rss,
+                "peak_private_above_start": private, "peak_disk": 0}
+    parts = {"grid-wide: whole-metre sample": part(200 * mb, 30 * mb), "blocks: block 1": part(900 * mb, 4410 * mb),
+             "blocks: block 2": part(1200 * mb, 4410 * mb), "blocks: block 3": part(None, None, 0)}
+    rep = pa.stage_report(stage, parts, 1000 * mb)
+    b1, b2, b3 = rep["blocks_list"]
+    assert (b1["stage_rss"], b1["level_rss"], b1["own_rss"]) == (900 * mb, 600 * mb, 600 * mb)
+    assert (b2["stage_rss"], b2["level_rss"], b2["own_rss"]) == (1200 * mb, 900 * mb, 700 * mb)
+    assert (b2["stage_private"], b2["level_private"], b2["own_private"]) == (4410 * mb, 4400 * mb, 4390 * mb)
+    assert b2["stage_rss_b_per_window_px"] == 12.0 and b2["level_rss_b_per_window_px"] == 9.0
+    assert b2["own_rss_b_per_window_px"] == 7.0 and b2["own_private_b_per_window_px"] == 43.9
+    assert b3["samples"] == 0 and b3["stage_rss"] is None and b3["own_rss"] is None  # no sample, no peak
+    b = rep["blocks_part"]
+    assert b["stage_rss_b_per_largest_window_px"] == 12.0 and b["level_rss_b_per_largest_window_px"] == 9.0
+    assert b["own_rss_b_per_largest_window_px"] == 7.0 and b["own_private_b_per_largest_window_px"] == 44.0
+    assert rep["grid_wide"]["rss_b_per_grid_px"] == 0.2
+
+
+def test_the_blocks_hook_keeps_no_window_alive():
+    """Marks.hook's _answers: the open ground's windows reach the measure without a reference of the hook, so the
+    measure's own `del og` / `del og2` free them as in a call without the hook (a wrapper of *args kept them)."""
+    import types
+    import weakref
+    freed = []
+
+    def _answers(z, water, data, res, wm, og, alpine, og2=None, s=None):
+        refs = weakref.ref(og), weakref.ref(og2)
+        del og
+        del og2
+        freed.append((refs[0]() is None, refs[1]() is None))
+        return np.zeros(z.shape, np.uint8)
+
+    fake = types.SimpleNamespace(_answers=_answers)
+    marks = pa.Marks()
+    marks.hook(fake)
+    assert marks.found == ["_answers"] and fake._answers is not _answers
+    z = np.zeros((4, 5), np.float32)
+    fake._answers(z, None, None, 1.0, False, np.zeros(9, bool), True, og2=np.zeros(9, bool))
+    assert freed == [(True, True)] and marks.windows == [20]
+    assert marks.events[-1][1] == "blocks: block 2" and "blocks: block 2" in marks.readings
+    marks.unhook(fake)
+    assert fake._answers is _answers
+
+    def other(z, og):  # another signature: no per-block parts, the measure left as it is
+        return None
+    fake = types.SimpleNamespace(_answers=other)
+    marks = pa.Marks()
+    marks.hook(fake)
+    assert fake._answers is other and marks.found == []
 
 
 def test_cgroup_and_proc_readers(tmp_path):
@@ -241,11 +311,19 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
                         "peak_disk"):
                 assert key in row, key
         if st["stage"] == "blocks":
-            assert st["block_px"] == 60 and st["blocks"] > 9 and len(st["blocks_list"]) in (0, st["blocks"])
+            assert st["block_px"] == 60 and st["blocks"] > 9
             assert st["compare_with_once"]["differ"] == 0
             assert st["left_in_work"] == []
             assert st["grid_wide"]["s"] > 0 and st["blocks_part"]["largest_window_px"] == st["window_px"]
-            assert "rss_b_per_largest_window_px" in st["blocks_part"]
+            assert "stage_rss_b_per_largest_window_px" in st["blocks_part"]
+            if "_answers" in st["hooks"]:  # every block's part, with the windows block_grid lays out
+                import access
+                h, w = saved["plan"]["grid"]
+                expected = [(b - a) * (d - c) for a, b, c, d in pa.windows(h, w, 60, access.margin_px(5.0))]
+                assert st["windows"] == expected and len(st["blocks_list"]) == st["blocks"] == len(expected)
+                assert "blocks: block 1" in st["readings"] and len(st["readings"]) == st["blocks"] + 1
+                assert all(r["window_px"] == e for r, e in zip(st["blocks_list"], expected))
+                assert st["blocks_part"]["peak_rss_above_level"] is not None
     assert not os.path.exists(saved["work"])
     assert not os.listdir(out_dir / "samples")  # the sidecar's files removed
     assert out["stages"][0]["compare_with_once"]["differ"] == 0
@@ -261,9 +339,17 @@ def test_pieces_and_compare_on_a_made_up_search(tmp_path, made_up_search):
     assert set(out["blocks_with_area"]) >= {"2 km", "4 km", "8 km"}
     assert all(b["holding"] >= 1 for b in out["blocks_with_area"].values())
     assert out["anchors"] > 10 and set(out["blocks_with_anchor"]) == set(out["blocks_with_area"])
-    if "_region_areas" in out["hooks"]:  # today's pass: the masks' pieces (never fewer than the regions)
-        assert out["masks"] and all(m["pieces"] >= m["regions"] for m in out["masks"].values())
-        assert os.path.exists(out["captured"]["og"])
+    if "_region_areas" in out["hooks"]:  # today's pass: each mask as labelled, its pieces and regions exactly
+        import access
+        assert out["masks"] and os.path.exists(out["captured"]["og"])
+        for name, m in out["masks"].items():
+            mask = np.load(m["captured"])
+            h, w = mask.shape
+            rows = list(pa.strips(h, w, access.STRIP_PX))
+            assert {k: m[k] for k in ("pieces", "most_in_a_strip", "most_in_a_last_row")} == \
+                {k: v for k, v in pa.strip_pieces(mask, rows).items() if k != "strips"}, name
+            assert m["regions"] == ndimage.label(mask, structure=np.ones((3, 3), bool))[1] > 3, name
+            assert m["true_pixels"] == int(mask.sum()), name
     assert not os.path.exists(os.path.join(str(tmp_path / "data"), "work", "perf-access-p"))
     got = pa.main(["compare", "--out", str(out_dir), "--name", "c", "--block-px", "50", *made_up_search])
     assert got["differ"] == 0 and got["blocks"] > 9 and got["pixels"] > 100_000
