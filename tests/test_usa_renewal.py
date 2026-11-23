@@ -723,28 +723,34 @@ def test_a_file_that_left_the_list_stays_outside_the_renewed_area(tmp_path, monk
     assert all("USGS_1M_13_x47y443_CO_New_2025" in [n for n, _, _ in b.files] for b in fresh.tiles(grid))
 
 
-def _scene(tmp_path, monkeypatch, cache="cache"):
+U2_BEFORE, U2_AFTER = "2025-06-01T10:00:00.000Z", "2026-06-01T10:00:00.000Z"
+
+
+def _scene(tmp_path, monkeypatch):
     """B listed (2020, 1001, published 2024-01-01); U1 (2020, 1002, uploaded 2026-02-12) and U2 (2020, 1004, uploaded
-    2026-03-01) unlisted: the blocks read U2 first (1004). The list made, the blocks downloaded."""
+    2025-06-01) unlisted: the blocks read U1 first (1002). The list made, the blocks downloaded."""
     tnm, files = Tnm(), tmp_path / "files"
     monkeypatch.setattr(requests, "get", tnm.get)
     _tile_1m(tnm, files, "CO_Bee_2020", 1001, published="2024-01-01")
     u1 = _tile_1m(FakeTnm(), files, "CO_Ay_2020", 1002, name="USGS_1M_13_x47y443_CO_Ay_2020.tif")
     u2 = _tile_1m(FakeTnm(), files, "CO_Dee_2020", 1004, name="USGS_1M_13_x47y443_CO_Dee_2020.tif")
-    state = {"list": [tile_item(u1, 13, "2026-02-12T17:17:41.000Z"), tile_item(u2, 13, "2026-03-01T10:00:00.000Z")]}
+    state = {"list": [tile_item(u1, 13, "2026-02-12T17:17:41.000Z"), tile_item(u2, 13, U2_BEFORE)]}
     _fake_listing(monkeypatch, state, tnm)
-    cache_dir, grid = str(tmp_path / cache), _grid()
+    cache_dir, grid = str(tmp_path / "cache"), _grid()
     renewal.renew([_layer()], grid, cache_dir, lambda text: None)
     _layer().download(grid, cache_dir, None, "test")
-    assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "scene") == 1004).all()
+    assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "scene") == 1002).all()
     return tnm, state, u1, u2, cache_dir, grid
 
 
-def _change(tnm, state, u1, u2, cache_dir):
-    """The index lists U1 now (dated 2023-06-01), U2 stays in the list with an earlier upload date (C7): every block
-    keeps its name (the same files, the same newest year) and B is read first (1001)."""
-    tnm.add(u1, "EPSG:26913", EXTENT, published="2023-06-01")
-    state["list"] = [tile_item(u2, 13, "2022-01-01T10:00:00.000Z")]
+def _change(tnm, state, u1, u2, cache_dir, what="both"):
+    """What changes, each alone turning the order of the blocks while their names stay (the same files, the same
+    newest year), U2 read first then (1004): "answer", the index lists U1 now, dated 2023-06-01 (it leaves the list);
+    "list", U2 stays in the list with a later upload date (C7: uploaded again); "both"."""
+    if what in ("answer", "both"):
+        tnm.add(u1, "EPSG:26913", EXTENT, published="2023-06-01")
+    u1_item = [] if what in ("answer", "both") else [state["list"][0]]
+    state["list"] = u1_item + [tile_item(u2, 13, U2_AFTER if what in ("list", "both") else U2_BEFORE)]
     _age(cache_dir, tb.unlisted_path(cache_dir), 29)
     _settle(cache_dir)
 
@@ -814,7 +820,7 @@ def test_a_carried_file_stays_while_its_answers_fail(tmp_path, monkeypatch, rene
     assert (done.list, done.indexed, done.carried, done.asked) == ("made", 1, 1, 0) and done.failed >= 1
     assert u1 in tb.list_items(cache_dir) and tb.carried_urls(cache_dir) == [u1]
     _layer().download(grid, cache_dir, None, "test")
-    assert _block_files(folder) == names and (_mosaic(_layer(), grid, cache_dir, tmp_path, "b") == 1004).all()
+    assert _block_files(folder) == names and (_mosaic(_layer(), grid, cache_dir, tmp_path, "b") == 1002).all()
 
     tnm.offline = False
     seen = []
@@ -862,16 +868,14 @@ def test_only_the_answers_lacking_a_carried_file_are_asked(tmp_path, monkeypatch
 
 
 def test_a_file_whose_date_changes_in_the_list_reorders_its_blocks(tmp_path, monkeypatch, renewing):
-    """C7: a file that stays in the list with another date (U2 dated before B now) changes the order of the blocks
+    """C7: a file that stays in the list with another date (U2 uploaded again, after U1) changes the order of the blocks
     while their names stay: they are deleted before the list is written, read again, and equal a fresh folder's."""
     tnm, state, u1, u2, cache_dir, grid = _scene(tmp_path, monkeypatch)
-    state["list"] = [state["list"][0], tile_item(u2, 13, "2022-01-01T10:00:00.000Z")]
-    _age(cache_dir, tb.unlisted_path(cache_dir), 29)
-    _settle(cache_dir)
+    _change(tnm, state, u1, u2, cache_dir, "list")
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
     assert (done.list, done.departed, done.moved, done.reread) == ("made", 0, 1, 4)
     _layer().download(grid, cache_dir, None, "test")
-    assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "after") == 1002).all()
+    assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "after") == 1004).all()
     _blocks_equal(cache_dir, _fresh(tmp_path, grid))
 
 
@@ -918,13 +922,15 @@ def _stop_at(monkeypatch, stop, kind, fired):
 
 @pytest.mark.parametrize("kind", [RuntimeError, KeyboardInterrupt])
 @pytest.mark.parametrize("stop", STOPS)
-def test_a_stop_anywhere_leaves_the_change_pending_or_done(tmp_path, monkeypatch, renewing, stop, kind):
+@pytest.mark.parametrize("what", ["answer", "list"])
+def test_a_stop_anywhere_leaves_the_change_pending_or_done(tmp_path, monkeypatch, renewing, what, stop, kind):
     """Point 3 (C2c, C7): a renewal stopped between any two steps of the list's renewal (made, departures decided,
     reordered blocks deleted, written, recorded) or of an answer's (fetched, its reordered blocks deleted, written),
-    by an exception or a Ctrl+C; then a second renewal (a day later: a failed listing's record cleared) and a pass:
-    the blocks equal a fresh folder's."""
+    by an exception or a Ctrl+C, for a change of the answers (a file the index lists now) and one of the list (C7)
+    each alone; then a second renewal (a day later: a failed listing's record cleared) and a pass: the blocks equal a
+    fresh folder's."""
     tnm, state, u1, u2, cache_dir, grid = _scene(tmp_path, monkeypatch)
-    _change(tnm, state, u1, u2, cache_dir)
+    _change(tnm, state, u1, u2, cache_dir, what)
     fired = []
     with monkeypatch.context() as m:
         _stop_at(m, stop, kind, fired)
@@ -938,7 +944,7 @@ def test_a_stop_anywhere_leaves_the_change_pending_or_done(tmp_path, monkeypatch
     _settle(cache_dir)
     renewal.renew([_layer()], grid, cache_dir, lambda text: None)
     _layer().download(grid, cache_dir, None, "test")
-    assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "after") == 1001).all()
+    assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "after") == 1004).all()
     _blocks_equal(cache_dir, _fresh(tmp_path, grid))
 
 
@@ -959,7 +965,7 @@ def test_a_block_that_cannot_be_deleted_keeps_the_change_pending(tmp_path, monke
         m.setattr(cache, "forget", locked)
         done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
     assert done.list == "made" and done.failed >= 1 and done.reread == 0 and done.moved == 0
-    assert tb.list_items(cache_dir)[u2]["published"].startswith("2026-03-01")   # the date of before: pending
+    assert tb.list_items(cache_dir)[u2]["published"] == U2_BEFORE   # the date of before: pending
     assert "could not be asked again (PermissionError" in capsys.readouterr().out
     _settle(cache_dir)
     _age(cache_dir, tb.unlisted_path(cache_dir), 29)
