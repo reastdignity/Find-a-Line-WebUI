@@ -2375,7 +2375,8 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
                     extra, edges = _edge_blocks(key, product, readers, rng, handles)
                     problems += [f"{key}: {kind} blocks found but none compared" for kind in ("partial", "seam")
                                  if edges[f"{kind}_found"] and not edges[f"{kind}_chosen"]]
-                found, n = _point_problems(key, got, product, readers, rng, points, handles, extra)
+                found, n = (_point_problems(key, got, product, readers, rng, points, handles) if extra is None else
+                            _point_problems(key, got, product, readers, rng, points, handles, extra=extra))
                 problems += found
                 pixels += n
                 compared.append({"tile": key, "data": True, "max_diff_m": round(worst, 5),

@@ -1987,9 +1987,9 @@ def test_averaged_mean_in_float64(tmp_path):
     count = np.isfinite(fine).sum(axis=(1, 3))
     with np.errstate(invalid="ignore"):
         want = (np.nansum(fine, axis=(1, 3)) / count).astype(np.float32)
+        float32 = (np.nansum(fine.astype(np.float32), axis=(1, 3), dtype=np.float32) / count).astype(np.float32)
     got = tile[1900:2000, 0:120]
     assert np.array_equal(got, want, equal_nan=True) and (count == 0).any() and ((count > 0) & (count < 4)).any()
-    float32 = (np.nansum(fine.astype(np.float32), axis=(1, 3), dtype=np.float32) / count).astype(np.float32)
     assert np.sum(float32 != want) > 1000  # the test can tell the two apart
 
 
