@@ -1613,16 +1613,24 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             return rn.list_runs(runs_dir)
         return rn.list_runs(runs_dir, (jobs.runs_of(user.id) if user else set()) | jobs.demo_runs())
 
+    def store_bytes(run: Dict) -> Optional[int]:
+        """A run's size as stored for Home's card: run.json's store.bytes (lines.arrow and profiles.arrow as
+        written, linestore.write; the number the page's loading line counts up to), None without a store block."""
+        store = run.get("store")
+        size = store.get("bytes") if isinstance(store, dict) else None
+        return size if isinstance(size, int) and not isinstance(size, bool) else None
+
     @app.get("/api/runs")
     def list_runs(user: ac.User = Depends(current_user)):
-        """The user's runs and the demo runs (locally all)."""
+        """The user's runs and the demo runs (locally all), each with its size as stored ("bytes")."""
         shared = jobs.shared_runs(user.id) if public else set()
         mine = jobs.runs_of(user.id) if public else None
         demo = jobs.demo_runs() if public else set()
         return {"public": bool(public),  # whether runs can be shared (by a link)
                 "runs": [{k: r.get(k) for k in ("id", "name", "created", "summary", "has_map")}
                          | {"description": rn.params_summary(r), "shared": r["id"] in shared,
-                            "own": mine is None or r["id"] in mine, "demo": r["id"] in demo}
+                            "own": mine is None or r["id"] in mine, "demo": r["id"] in demo,
+                            "bytes": store_bytes(r)}
                          for r in runs_of(user)]}
 
     @app.post("/api/runs/{run}/demo")
