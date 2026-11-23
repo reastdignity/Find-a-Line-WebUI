@@ -1,6 +1,7 @@
 """Version policies of a cached index: the newest survey per sheet or tile (NewestPerSheet), or blocks
 composed from every file over them, newest first (ComposedBlocks)."""
 
+import collections
 import glob
 import hashlib
 import math
@@ -8,7 +9,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import rasterio as rio
 import rasterio.warp
@@ -21,7 +22,7 @@ import osm
 from grid import Grid
 
 from ..readers.windows import BlockRequest, _same_crs
-from .cached import EXTRA, CachedIndex, IndexUnavailable, Versions, index_tiles, merge_items
+from .cached import EXTRA, CachedIndex, Versions, index_tiles
 
 
 # existing() lists a folder once when at least LISTING_FROM of the paths it is asked about lie in it, and asks
@@ -215,24 +216,45 @@ class NewestPerSheet(Versions):
         return sorted(sheets, key=_sheet_order, reverse=True)
 
 
-def keep_item(found: Dict[str, Dict], item: Dict):
-    """Add a listed version to found (by URL) as the files of several index tiles are joined: the later tile's
-    wins, as ever, except that a version merged in from a tile's extra versions (cached.EXTRA: the list of the
-    bucket's unlisted files) never replaces one an index answer lists: a file the index lists now but another tile's
-    answer does not yet (the list carries it, renewal.py) has the index's year and date whatever the grid. Without
-    extra versions (every other layer) the later tile's wins, byte for byte as before."""
-    old = found.get(item["url"])
-    if old is not None and item.get(EXTRA) and not old.get(EXTRA):
-        return
+def url_name(url: str) -> str:
+    """A file's name, the last part of its URL: the identity of "the same file" between an index answer and the list
+    of the bucket's unlisted files (tnmbucket.unlisted_objects goes by name; 126,767 names at as many URLs in the
+    index's listing of 2026-11-22)."""
+    return url.rsplit("/", 1)[-1]
+
+
+def keep_item(found: Dict[str, Dict], item: Dict, names: Dict[str, str]):
+    """Add a listed version to found (by URL; names: the URL found holds for a file name, kept beside it) as the files
+    of several index tiles are joined: the later tile's wins, as ever, except that a version merged in from a tile's
+    extra versions (cached.EXTRA: the list of the bucket's unlisted files) never replaces one an index answer lists,
+    and an index answer's version replaces an extra one of the same file name, at any URL: a file the index lists
+    now but another tile's answer does not yet (the list carries it, renewal.py) has the index's year and date
+    whatever tiles a grid reads (fewer flips between the two names of its block, _blocks). Without extra versions
+    (every other layer) the later tile's wins by URL, byte for byte as before."""
+    name = url_name(item["url"])
+    other = names.get(name)
+    if other is not None and other in found:
+        mine, theirs = bool(item.get(EXTRA)), bool(found[other].get(EXTRA))
+        if mine and not theirs:
+            return
+        if theirs and not mine and other != item["url"]:
+            del found[other]
     found[item["url"]] = item
+    names[name] = item["url"]
 
 
-def moved_items(before: Sequence[Dict], after: Sequence[Dict]) -> List[Dict]:
-    """The items of after whose URL before holds with another year or date ("published"): such a file keeps its
-    place in a block's set of files (its key) but may change its place in their order."""
-    old = {item["url"]: item for item in before}
-    return [item for item in after if item["url"] in old
-            and (old[item["url"]]["year"], old[item["url"]].get("published", "")) != (item["year"], item.get("published", ""))]
+def block_key(files: Sequence[Dict]) -> str:
+    """The key of a block's set of files (8 hex digits of a sha1): each file by its name, but a file of the list of
+    unlisted files (cached.EXTRA) that shares its year with another file of the block by its name and its date
+    ("published"): what decides the order of a block's files is then in its name, so when such a file's date
+    changes (the index lists it, with its own date in place of the upload time; or the list's date changes) the
+    block gets another name, is read again and the block of the old name pruned, like a block whose set of files
+    changed. A block without such a file keeps the name it always had (every block of every other layer; a list file
+    alone in its year, whose place in the order its date cannot change)."""
+    years = collections.Counter(f["year"] for f in files)
+    return hashlib.sha1(",".join(sorted(
+        f"{f['name']}@{f.get('published', '')}" if f.get(EXTRA) and years[f["year"]] > 1 else f["name"]
+        for f in files)).encode()).hexdigest()[:8]
 
 
 @dataclass(frozen=True)
@@ -253,8 +275,9 @@ class ComposedBlocks(Versions):
     """Squares of block_m on a fixed grid in the CRS of the listed files, each composed from
     every file over it, newest first (Windows reads them), cached as a GeoTIFF of its own:
     <folder>/<epsg>/<i // 10>_<j // 10>/<year>_<i>_<j>_<key>.tif, the key standing for its set
-    of files. A new file over a block changes its key, so the block is read again (update.py,
-    or a search after the answer was renewed) and the file of the older set deleted. Blocks
+    of files (and, for a list file tied on its year, its date: block_key, what decides the order). A
+    new file over a block changes its key, so the block is read again (update.py, or a search after
+    the answer was renewed) and the file of the older set deleted (prune, once the new one is there). Blocks
     in the working CRS come first: copied onto the grid as they are, they win where a tile
     is delivered in two UTM zones. The listed items are {name, url, crs, extent (in crs),
     year, published}.
@@ -271,11 +294,12 @@ class ComposedBlocks(Versions):
     @staticmethod
     def _items_of(index: CachedIndex, cache_dir: str, tiles: List[Tuple[float, float]],
                   update: Optional[str] = None) -> List[Dict]:
-        """The listed files of the given index tiles (south-west corners), each file once."""
+        """The listed files of the given index tiles (south-west corners), each file once (keep_item)."""
         items: Dict[str, Dict] = {}
+        names: Dict[str, str] = {}
         for lat, lon in tiles:
             for item in index.answers(cache_dir, lat, lon, update):
-                keep_item(items, item)
+                keep_item(items, item, names)
         return list(items.values())
 
     def _blocks(self, items: List[Dict], bounds: Dict[str, tuple], shape=None) -> List[Block]:
@@ -306,7 +330,7 @@ class ComposedBlocks(Versions):
         blocks = []
         for (crs, i, j), files in over.items():
             files = sorted(files, key=lambda f: (f["year"], f.get("published", ""), f["name"]), reverse=True)
-            key = hashlib.sha1(",".join(sorted(f["name"] for f in files)).encode()).hexdigest()[:8]
+            key = block_key(files)
             blocks.append(Block(crs, i, j, size, files[0]["year"], key,
                                 tuple((f["name"], f["url"], f["year"]) for f in files)))
         return blocks
@@ -406,36 +430,14 @@ class ComposedBlocks(Versions):
         s = block.size
         return transform_bounds(block.crs, "EPSG:4326", block.i * s, block.j * s, (block.i + 1) * s, (block.j + 1) * s)
 
-    def update_tile(self, index: CachedIndex, cache_dir: str, lat: float, lon: float,
-                    download: Optional[Callable[[Block], None]] = None) -> Tuple[list, list]:
-        """The cached blocks (centred in the tile) over which the set of files changed, or its newest year: read
-        again, and their older files deleted. Also those whose files stayed but whose order changes (reordered: a
-        file's date or year changed): before the new answer is written, each is read again over its own path
-        (download; the old block stays until its replacement is there, never deleted first), and when any of them
-        fails (the others still tried) the answer is not written (IndexUnavailable): the next update sees the change
-        again, so no block stays composed in the order of before under an answer of now. Without download (no
-        caller) they are returned to be read after the answer was written."""
+    def update_tile(self, index: CachedIndex, cache_dir: str, lat: float, lon: float) -> Tuple[list, list]:
+        """The cached blocks (centred in the tile) over which the set of files changed, or its newest year, or the
+        order its key holds (block_key): read again, and their older files deleted (prune: only once the new one is
+        there). The answer is asked through fresh_answer and store, so a refused drop fails the tile
+        (DroppedFiles: `cache update` counts it) instead of being read from the cache as a search does."""
         old, answer = index.fresh_answer(cache_dir, lat, lon)
-        reread: List[Block] = []
-        if old is not None:
-            extra = index.extra(cache_dir, lat, lon)
-            before, after = merge_items(old, extra), merge_items(answer["sheets"], extra)
-            reread = [b for b in self.reordered(index, cache_dir, {(lat, lon): before}, moved_items(before, after),
-                                                {(lat, lon): after}) if self._centred(b, lat, lon)]
-        if download is not None and reread:
-            failed = []
-            for block in reread:
-                try:
-                    download(block)
-                except Exception as e:  # noqa: BLE001 (any failure of one block: the others still read)
-                    failed.append(block)
-                    print(f"{index.description}: the block {os.path.basename(self.path(cache_dir, block))} could not "
-                          f"be read again in its new order ({cache.clean_error(e)[:200]}); the old one stays")
-            if failed:
-                raise IndexUnavailable(f"{len(failed)} of the {len(reread)} blocks of {osm.tile_name(lat, lon)} whose "
-                                       f"order of files changed could not be read again: the cached answer is kept")
         index.store(cache_dir, lat, lon, answer)
-        todo = [] if download is not None else list(reread)
+        todo = []
         for path in self._cached_paths(cache_dir):
             block = self._block_of(path)
             if block is None:
@@ -450,49 +452,12 @@ class ComposedBlocks(Versions):
             if now and (now[0].key != block.key or now[0].year != block.year) \
                     and not os.path.exists(self.path(cache_dir, now[0])):
                 todo.append(now[0])
-        return todo, todo + [b for b in reread if b not in todo]
+        return todo, todo
 
     def _centred(self, block: Block, lat: float, lon: float) -> bool:
         """Whether a block's centre lies in the 0.25° index tile with this south-west corner."""
         west, south, east, north = self._block_wgs84(block)
         return lat <= (south + north) / 2 < lat + osm.TILE_DEG and lon <= (west + east) / 2 < lon + osm.TILE_DEG
-
-    def reordered(self, index: CachedIndex, cache_dir: str, before: Dict[Tuple[float, float], List[Dict]],
-                  moved: Sequence[Dict], after: Optional[Dict[Tuple[float, float], List[Dict]]] = None) -> List[Block]:
-        """The cached blocks over the moved files (moved_items: the same URL with another year or date) whose set of
-        files and newest year stayed while the order of their files changed: their name (year and key) is the same,
-        so nothing else would read them again, but a block read now would be composed in another order (wave A of
-        the USA, part A-2: a file the TNM index lists since the last list of the bucket's unlisted files takes the
-        index's date in place of its upload time). before: the merged items (CachedIndex.cached_items) of the index
-        tiles as they were before their answers or the list changed; after: those of tiles as they will be once the
-        change is written (the caller deletes or reads such blocks before it writes the change: a stop in between
-        leaves the change to be seen again); every other tile over a moved file as it is now, its cached answer only
-        (nothing is asked). The blocks of a file whose newest year changed get another name and are read again anyway
-        (prune then deletes the old one)."""
-        after = after or {}
-        found: Dict[tuple, Block] = {}
-        margin = 0.01  # cached.INDEX_MARGIN_DEG
-        for item in moved:
-            west, south, east, north = transform_bounds(item["crs"], "EPSG:4326", *item["extent"], densify_pts=21)
-            tiles = osm.tiles(west - margin, south - margin, east + margin, north + margin)
-            # the tiles given last, so their files of before and of now win over a tile not asked again
-            tiles = [t for t in tiles if t not in before] + [t for t in tiles if t in before]
-            old: Dict[str, Dict] = {}
-            new: Dict[str, Dict] = {}
-            for tile in tiles:
-                now = after[tile] if tile in after else index.cached_items(cache_dir, *tile)
-                for i in now or ():
-                    keep_item(new, i)
-                for i in before[tile] if tile in before else now or ():
-                    keep_item(old, i)
-            bounds = {item["crs"]: tuple(item["extent"])}
-            olds = {(b.crs, b.i, b.j): b for b in self._blocks(list(old.values()), bounds)}
-            for block in self._blocks(list(new.values()), bounds):
-                was = olds.get((block.crs, block.i, block.j))
-                if was is not None and (was.key, was.year) == (block.key, block.year) and was.files != block.files \
-                        and os.path.exists(self.path(cache_dir, block)):
-                    found[(block.crs, block.i, block.j)] = block
-        return list(found.values())
 
     def has_data_near(self, index: CachedIndex, lat: float, lon: float, cache_dir: str,
                       metres: float = 2000) -> Optional[bool]:

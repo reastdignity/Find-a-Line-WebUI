@@ -68,8 +68,8 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   `alaska_ifsar` (`Source.instead_without_data`). The bucket holds 1 m files the TNM index does not list (1,410 on
   2026-11-22): `sources/layers/tnmbucket.py` lists them (`<cache>/usa/sheet-index/bucket1m/unlisted.json`, the names
   without a zone placed by their project's one zone or the file's header) and `tnm.UnlistedIndex` adds them when an
-  answer is read (the cached answer never rewritten; a file in both once, by its URL; both through `tnm.tile_item`,
-  so a block's key does not depend on which listing named a file). Where none is cached the shipped
+  answer is read (the cached answer never rewritten; a file in both once, by its name; both through `tnm.tile_item`,
+  a tied list file's date in its block's key: versions.block_key). Where none is cached the shipped
   `sources/catalogue/usa_unlisted_1m.json` is read: remade by `tools/usa_unlisted.py` before a release, never by hand;
   the tests keep it off (`FINDALINE_USA_UNLISTED_SHIPPED=off`, conftest). `sources/renewal.py` makes the list (over 28
   days old) and asks the answers again at a row's start and a cube's first tile; a test that lets it list serves the

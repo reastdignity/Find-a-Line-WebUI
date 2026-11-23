@@ -874,21 +874,6 @@ def _tiles(cache_dir: str, top: str) -> Dict[Tuple[int, int], List[Dict]]:
         return tiles
 
 
-def list_changed(cache_dir: str, top: str = TOP) -> bool:
-    """Whether the list this process read for a data folder changed on disk since (its files' stamps: one os.stat
-    each); then the next read reads it again. tnm.UnlistedIndex.tiles asks it once per query of a grid, so a list
-    another process renewed is never used for longer than a query (RECHECK_S bounds the reads between queries)."""
-    key = (os.path.abspath(cache_dir), top)
-    paths = [unlisted_path(cache_dir, top)] + ([] if _shipped_off() else [SHIPPED])
-    stamps = tuple(_stamp(path) for path in paths)
-    with _memo_lock:
-        memo = _memo.get(key)
-        if memo is None or memo[1] == stamps:
-            return False
-        _memo[key] = (float("-inf"), memo[1], memo[2])  # looked at again (and read) at its next use
-    return True
-
-
 def unlisted_in_tile(cache_dir: str, top: str, lat: float, lon: float) -> List[Dict]:
     """The unlisted files whose 10 km square reaches the 0.25° index tile with this south-west corner."""
     return _tiles(cache_dir, top).get((round(lat / osm.TILE_DEG), round(lon / osm.TILE_DEG)), [])

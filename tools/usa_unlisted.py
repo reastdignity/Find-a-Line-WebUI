@@ -61,7 +61,7 @@ def main(argv=None) -> int:
 
 def _cached(args) -> int:
     """--cached: the cache folder's list renewed by the renewal's list step (forced), never written past it: a list
-    written straight in place would skip the departures, the carried files and the reorder of the blocks."""
+    written straight in place would skip the departures and the carried files."""
     import sources as src
     from sources import renewal
     from sources.layers import tnmbucket

@@ -70,7 +70,7 @@ each part 4 requests at a time: about 8 minutes (2026-11-23: 481 s, 1,410 files,
 two projects without a year in their folders dated by their listed siblings, none by their upload). It refuses an
 index that lists clearly fewer files than the list before (`--allow-drop` after checking; `--cached` renews a cache
 folder's own list instead of the shipped copy through `sources.renewal.renew_list`, forced, so the departures,
-carried files and reorder of a renewal apply: a real shrink accepted at once on an installed machine) and names the projects
+carried files of a renewal apply: a real shrink accepted at once on an installed machine) and names the projects
 dated by their upload and the files left out. Run it again before a release and commit the file
 (`tests/test_usa_unlisted.py::test_shipped_copy`).
 

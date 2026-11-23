@@ -241,6 +241,17 @@ Measured in batch 6 (2026-11-15/16): a 400 m search in Shizuoka's west reads 25 
 tile not cached yet lists for about 20 s; a 600 m search in Hong Kong reads 24 sheets, 137 MB, in over 6 minutes
 (0.36 MB/s). The providers publish whole sheet ZIPs only; nothing is changed.
 
+## A block's order can change while its name stays (two cases left open by the key rule)
+
+A block's name holds what decides the order of its files only where a list file ties another on its year
+(`versions.block_key`, wave A of the USA, part A-2, fix round 3). Two changes of order keep the name, so a cached
+block stays composed in the order of before until its set of files or newest year changes: (1) a file of the list
+of unlisted files whose year changes inside a block of three or more files without tying another before or after
+(a year taken from the project's listed siblings once they are listed, say 2019 to 2017 between files of 2018 and
+2020); (2) older than wave A and on every layer: a listed file whose date the index changes while its name stays
+(a project published again), which can swap two files of one year. Cost: the overlap pixels of the two files in such
+blocks, until the block is read again. Not changed.
+
 ## An IfSAR block's key can depend on the grid
 
 `ComposedBlocks._blocks` clips each file to the grid's bounds before it finds the blocks a file covers, and Alaska's

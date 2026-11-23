@@ -46,7 +46,7 @@ def _survey_year(url: str, published: str) -> int:
 class UnlistedIndex(CachedIndex):
     """The cached answers of the TNM index for the 1 m DEM with the files of USGS's bucket the index does not list
     (sources/layers/tnmbucket.py) merged in when an answer is read: a tile's files are its cached answer plus the
-    unlisted files whose 10 km square reaches the tile and whose URL the answer does not hold. The cached answer
+    unlisted files whose 10 km square reaches the tile and whose name the answer does not hold. The cached answer
     stays what the index said (never rewritten), so an answer cached before the list gains its files at once and a
     block over one gets another key (it is read again, the older file pruned). Every reader of the files goes
     through answers(): ComposedBlocks.query, update_tile and has_data_near. The list is read once per process and
@@ -67,15 +67,6 @@ class UnlistedIndex(CachedIndex):
         """A file a fresh answer dropped, checked at its URL (CachedIndex._fetch): gone, there, or not known."""
         from .tnmbucket import file_gone
         return file_gone(url)
-
-    def tiles(self, grid: Grid) -> Optional[list]:
-        """CachedIndex.tiles, the list's stamp looked at first (one os.stat a query, tnmbucket.list_changed): a list
-        renewed by another process is read before this query, and what this process found over a grid before it is
-        found again, so a block another process's renewal just deleted is never composed in the order of before."""
-        from .tnmbucket import list_changed
-        if self.cache_dir is not None and list_changed(self.cache_dir, self.top):
-            self._listed.clear()
-        return super().tiles(grid)
 
 
 class TnmBlocks(IndexedTiles):

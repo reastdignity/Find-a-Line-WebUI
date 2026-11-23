@@ -61,15 +61,15 @@ place only once what left it is decided (`_make_list`, `_departures`: a file the
 the list's `carried`, while a cached answer of a tile its box meets lacks its URL, `_tiles_met`, no margin, and only
 those answers are asked, each at most once per listing, `_settle_carried`, on every renewal; a file the bucket's listing lacked has its project listed again,
 `RELIST_PAGES`, and leaves only when that listing lacks it too; one left out without a zone this time keeps its item
-of before), the blocks whose order the new list changes deleted first (`_reorder_list`, C7: files moving inside the
-list; a block that cannot be deleted keeps the file's item of before). (2) Every answer under the grid asked again
-(`CachedIndex.ask_again` with `_reorder_first`: the blocks whose order the answer changes deleted before it is
-written; any fault of one tile is that tile's; after `FAILED_IN_A_ROW` failures in a row the API counts as down for
+of before). (2) Every answer under the grid asked again (`CachedIndex.ask_again`; any fault of one tile is that
+tile's; after `FAILED_IN_A_ROW` failures in a row the API counts as down for
 the rest of the start, `("down", url)` in `asked`; `OWN_FAULTS_IN_A_ROW` faults of one type that are no request
-error stop the layer's, `("broken", top, prefix)`). So a stop anywhere leaves a change pending or done
-(`test_a_stop_anywhere_leaves_the_change_pending_or_done`). Returns `Renewal` (answers asked, changed, failed, left,
-skipped; the list made, kept or failed; departed files by why: indexed, carried, gone, relisted, zoneless; moved
-files; blocks to read again; requests, bytes and seconds by part) and tells its progress through `say` (`_Ticker`
+error stop the layer's, `("broken", top, prefix)`). (3) Nothing deleted: what decides a block's order is in its name
+(`versions.block_key`), so a renewed answer or list that changes it renames the block, read again when next needed
+and the old one pruned; a stop anywhere leaves rightly named blocks (`test_a_stop_anywhere_leaves_rightly_named_blocks`).
+Returns `Renewal` (answers asked, changed, failed, left, skipped; the list made, kept or failed; departed files by
+why: indexed, carried, gone, relisted, zoneless; requests, bytes and seconds by part); `renew` and `renew_list`
+forget what the layers found over grids (`_listed`) in a `finally` and tells its progress through `say` (`_Ticker`
 every `PROGRESS_SECONDS` while the list is made). Callers: `tools/area_download.py` `_renew` (the passes of a start until its renewal went through, `since` the
 start's time), `country._renew` (after "Start?", before a
 cube's first tile), `update.py` `_list_check`; never a search; never imported by the web process
@@ -225,12 +225,14 @@ so a tall area lost its top and bottom rows to the gap filler: Norway's mainland
 rows; a circle's tiles as before, `tests/test_sources.py::test_wcs_tiles_of_a_tall_area`)); `cached.py` `CachedIndex`
 (a `Listing`'s answers cached per 0.25° tile in `<top>/sheet-index/<prefix>/`, TTL (`ttl_days`: the sheet index's
 unless set, LidarBC's 30; update.py reads it), offline fallback, `update_tile`; `ask_again` (one tile's answer asked again under its lock, written only when
-its request succeeded, skipped when checked since the renewal started, `before_store` run first: `sources/renewal.py`),
-`confirms_drops` (the TNM layers': an answer replacing a cached one that drops URLs it held, not in `extra`
-either, is asked once more; a second answer dropping nothing is taken; else, with `check_gone` (the 1 m DEM's:
+its request succeeded, skipped when checked since the renewal started: `sources/renewal.py`),
+`confirms_drops` (the TNM layers': an answer replacing a cached one that drops file names it held (a file is its
+name: the same file at another URL is no drop), not in `extra` either, is asked once more; a second answer dropping nothing is taken; else, with `check_gone` (the 1 m DEM's:
 `tnmbucket.file_gone`, in the order of their URLs until the first not gone, `CHECK_GONE_MAX` gone in a row taking
 the drop of all), only when both agree and the dropped files are gone at their URLs, without it when both agree; else `DroppedFiles`: `_fetch`, used by `answers` with an update, `ask_again` and
-`fresh_answer`/`store`), `merge_items` marking the extra versions (`EXTRA`, for `versions.keep_item`), `cached_items`
+`fresh_answer`/`store`; a search's `answers` with an update reads a refused tile's cached answer, one line),
+`merge_items` adding the extra versions whose name the answer lacks, marked (`EXTRA`, for `versions.keep_item` and
+`block_key`), `cached_items`
 (what `answers` gives for a cached answer, nothing asked), `extra` and `merge_items` (the versions merged in:
 `tnm.UnlistedIndex`); a `Versions` policy;
 `IndexUnavailable`; `index_tiles(grid)`: the 0.25° tiles the versions ask for a grid: a circle's whole box, an area's
@@ -257,11 +259,12 @@ JSON must stay byte for byte: recorded answers in `tests/data/recorded/` (an err
 through `existing`: one listing of a folder from `LISTING_FROM` paths in it, kept for its second question
 (`listings=`), the answers of `os.path.exists`, since every question to a network share takes a round trip; per
 resolution for STAC; `_answers`: the 0.25° tiles `tiles_at_once` at a time when the listing says so (`WfsSheets`),
-merged in the tiles' order) and `ComposedBlocks` (`Block`, newest first, the key of a block's files; `prune` also
-deletes a block's file of another newest year with the same key; `update_tile` reads again a block whose newest
-year changed, and one whose order of files changed over its own path before the answer is written (`download`; a
-failed one stays and the answer is not written): `reordered` (`before`/`after` of the tiles), `moved_items`, a
-file's date or year moved); `metalink.py`
+merged in the tiles' order) and `ComposedBlocks` (`Block`, newest first, `block_key`: the key of a block's files by
+their names, a list file tied on its year with its date beside its name, so its date names the block; `keep_item`:
+an index answer's version of a file name wins over the list's among a grid's tiles; `prune` also deletes a block's
+file of another newest year with the same key, only for a block whose own file is there; `update_tile` asks the
+answer through `fresh_answer`/`store` (a refused drop fails the tile) and reads again a block whose key or newest
+year changed); `metalink.py`
 `MetalinkFiles` (Metalink 4 / RFC 5854 documents of a whole region, read once per TTL and kept in
 `<top>/metalink/<key>.json.gz`, each 0.25° tile picked from them; `parse_metalink`), `MetalinkIndex`, `ShaPerTile` (a
 file known by its SHA-256: `<E//10>_<N//10>/<E>_<N>[_<year>]_<sha8>.tif`, the newest year per place, a changed file
@@ -358,8 +361,7 @@ upload's) and writes `<cache>/usa/sheet-index/bucket1m/unlisted.json` with a row
 failure); `unlisted_in_tile` reads it, or the shipped `sources/catalogue/usa_unlisted_1m.json` (also in place of a
 cached list that cannot be used: `_load`), once per process and data folder; for the renewal `LIST_MAX_AGE_DAYS`
 (28), the failure record (`failed_path`, `failed_recently`, `write_failed`, `clear_failed`; `RENEW_ENV` off in the
-tests), `list_items`, `list_tiles`, `carried_urls`, `list_changed` (one `os.stat` per query of a grid,
-`tnm.UnlistedIndex.tiles`), `file_gone`, `list_status` (the line of `cache status`),
+tests), `list_items`, `list_tiles`, `carried_urls`, `file_gone`, `list_status` (the line of `cache status`),
 `make_unlisted(budgets=, found=)`; imported
 only when an answer is read,
 never by the web process),

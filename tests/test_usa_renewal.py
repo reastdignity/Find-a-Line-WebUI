@@ -290,8 +290,8 @@ def test_a_fault_of_one_tile_is_that_tiles(http_server, tmp_path, monkeypatch, r
 
 
 def test_a_fault_of_our_own_on_every_tile_stops_the_layer(http_server, tmp_path, monkeypatch, renewing):
-    """D5: the same fault that is no request error, OWN_FAULTS_IN_A_ROW times in a row (a fault of this code in
-    before_store), stops the layer's renewal for the start with one line: the rest keeps its cached answers, later
+    """D5: the same fault that is no request error, OWN_FAULTS_IN_A_ROW times in a row (a fault of this code, here in
+    writing an answer), stops the layer's renewal for the start with one line: the rest keeps its cached answers, later
     calls of the start return at once, no answer more is fetched and thrown away."""
     tnm, files, cache_dir = _start(tmp_path, monkeypatch, http_server)
     monkeypatch.setenv(tb.RENEW_ENV, "off")
@@ -302,11 +302,11 @@ def test_a_fault_of_our_own_on_every_tile_stops_the_layer(http_server, tmp_path,
         layer.index.answers(cache_dir, *t)
     _settle(cache_dir)
 
+    from sources.indexes.cached import CachedIndex
+
     def broken(*args):
-        def before_store(old, answer):
-            raise TypeError("'NoneType' object is not subscriptable")
-        return before_store
-    monkeypatch.setattr(renewal, "_reorder_first", broken)
+        raise TypeError("'NoneType' object is not subscriptable")
+    monkeypatch.setattr(CachedIndex, "_store", broken)
     tnm.asked.clear()
     asked, said = set(), []
     done = renewal.renew([_layer()], grid, cache_dir, said.append, asked)
@@ -314,23 +314,6 @@ def test_a_fault_of_our_own_on_every_tile_stops_the_layer(http_server, tmp_path,
     assert any("failed 2 times in a row with TypeError" in line for line in said)
     again = renewal.renew([_layer()], _grid(400100, 4424100), cache_dir, said.append, asked)
     assert again.left > 0 and len(tnm.tile_requests()) == 2
-
-
-def test_another_process_s_list_is_read_by_the_next_query(tmp_path, monkeypatch, renewing):
-    """D6: a process that read the list a moment ago reads it again at its next query of a grid once another process
-    renewed it (one os.stat a query), not up to RECHECK_S later, so it never composes a block in the order of before;
-    the list is still read once per change."""
-    tnm, state, u1, u2, cache_dir, grid = _scene(tmp_path, monkeypatch)
-    layer = _layer()
-    layer._use(cache_dir, None)
-    first = lambda: layer.tiles(grid)[0].files[0][0]  # noqa: E731
-    assert first() == "USGS_1M_13_x47y443_CO_Ay_2020"
-    reads = tb.READS
-    assert first() == "USGS_1M_13_x47y443_CO_Ay_2020" and tb.READS == reads    # nothing changed: not read again
-    tb.write_list(tb.unlisted_path(cache_dir), {"made_at": cache.now_iso(), "listed": 1, "left_out": []},
-                  [state["list"][0], tile_item(u2, 13, U2_AFTER)], "b", "a", "d")   # another process's renewal
-    assert first() == "USGS_1M_13_x47y443_CO_Dee_2020" and tb.READS == reads + 1
-    assert first() == "USGS_1M_13_x47y443_CO_Dee_2020" and tb.READS == reads + 1
 
 
 def test_renew_asks_an_ifsar_layer_too(tmp_path, monkeypatch, renewing):
@@ -517,10 +500,10 @@ def test_a_drop_of_many_files_is_checked_in_order_up_to_the_cap(tmp_path):
         index.check_gone = lambda url, answers=answers: (checked.append(url), answers.get(url, True))[1]
         Answers.sheets = []                                              # the index drops them all, twice
         if taken:
-            assert index.answers(cache_dir, 50.0, 10.0, "all") == []
+            assert index.ask_again(cache_dir, 50.0, 10.0) and index.answers(cache_dir, 50.0, 10.0) == []
         else:
             with pytest.raises(DroppedFiles):
-                index.answers(cache_dir, 50.0, 10.0, "all")
+                index.ask_again(cache_dir, 50.0, 10.0)
             assert len(index.answers(cache_dir, 50.0, 10.0)) == 30      # the cached answer stays
         assert checked == urls[:calls]
 
@@ -548,10 +531,117 @@ def test_a_file_the_index_delists_and_the_bucket_keeps(tmp_path, monkeypatch, re
     _age(cache_dir, tb.unlisted_path(cache_dir), 29)
     _settle(cache_dir)
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert (done.list, done.asked, done.failed, done.reread) == ("made", 1, 0, 4)
+    assert (done.list, done.asked, done.failed) == ("made", 1, 0)
     _layer().download(grid, cache_dir, None, "test")
     assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "b") == 1002).all()   # Ay uploaded 2026, read first
     _blocks_equal(cache_dir, _fresh(tmp_path, grid))
+
+
+def test_a_file_the_index_lists_at_another_url_is_the_same_file(tmp_path, monkeypatch, renewing):
+    """E2: the index lists a file at another URL (the name kept: a new host or folder) and adds a new file elsewhere:
+    nothing is dropped (the identity is the file's name), the answer is written at the first renewal, and the blocks
+    of the moved file are not read again (their names are its name's)."""
+    import shutil
+    tnm, files = Tnm(), tmp_path / "files"
+    monkeypatch.setattr(requests, "get", tnm.get)
+    monkeypatch.setenv(tb.RENEW_ENV, "off")
+    bee = _tile_1m(tnm, files, "CO_Bee_2020", 1001, published="2024-01-01")
+    cache_dir, grid = str(tmp_path / "cache"), _grid()
+    _layer().download(grid, cache_dir, None, "test")
+    folder = os.path.join(cache_dir, "usa", "test1m", "epsg26913", "47_442")
+    names = _block_files(folder)
+    moved = (tmp_path / "moved" / "Projects" / "CO_Bee_2020" / "TIFF" / _name(bee)).as_posix()
+    os.makedirs(os.path.dirname(moved))
+    shutil.copyfile(bee, moved)
+    tnm.products[0]["downloadURL"] = moved                              # the old URL still answers
+    _tile_1m(tnm, files, "CO_Next_2025", 1025, x=48)                    # a new file in the next cell
+    _settle(cache_dir)
+    done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
+    assert (done.asked, done.changed, done.failed) == (1, 1, 0)
+    answer = open(_layer().index.index_path(cache_dir, *index_tiles(grid)[0]), encoding="utf-8").read()
+    assert moved in answer and "CO_Next_2025" in answer
+    _layer().download(grid, cache_dir, None, "test")
+    assert _block_files(folder) == names
+
+
+def test_a_list_item_and_an_answer_item_of_one_name_are_one_file(tmp_path, monkeypatch, renewing):
+    """E2: the list holds a file at one URL and an index answer the same name at another: the merge (merge_items, and
+    keep_item across tiles) gives one file, the answer's, and a block names it once."""
+    tnm, files = Tnm(), tmp_path / "files"
+    monkeypatch.setattr(requests, "get", tnm.get)
+    _tile_1m(tnm, files, "CO_Bee_2020", 1001, published="2024-01-01")
+    u1 = _tile_1m(tnm, files, "CO_Ay_2020", 1002, name="USGS_1M_13_x47y443_CO_Ay_2020.tif", published="2023-06-01")
+    elsewhere = "https://bucket.example/Projects/CO_Ay_2020/TIFF/" + _name(u1)
+    state = {"list": [tile_item(elsewhere, 13, "2026-02-12T17:17:41.000Z")]}
+    _fake_listing(monkeypatch, state, tnm)
+    cache_dir, grid = str(tmp_path / "cache"), gd.make_grid((474100, 4426100, 475900, 4429900), RES, "EPSG:26913")
+    renewal.renew([_layer()], grid, cache_dir, lambda text: None)
+    layer = _layer()
+    layer._use(cache_dir, None)
+    for block in layer.tiles(grid):
+        names = [n for n, _, _ in block.files]
+        assert sorted(names) == sorted(set(names)) and len(names) == 2
+        assert dict((n, u) for n, u, _ in block.files)["USGS_1M_13_x47y443_CO_Ay_2020"] == u1
+    # the two places on their own: a tile's merge, and tiles joined with the list's item in the first one
+    from sources.indexes.cached import EXTRA, merge_items
+    from sources.indexes.versions import keep_item
+    answer_item, list_item = tile_item(u1, 13, "2023-06-01"), tile_item(elsewhere, 13, "2026-02-12T17:17:41.000Z")
+    assert merge_items([answer_item], [list_item]) == [answer_item]
+    found, by_name = {}, {}
+    keep_item(found, dict(list_item, **{EXTRA: True}), by_name)    # a tile whose answer lacks it
+    keep_item(found, answer_item, by_name)                         # a later tile's answer holds it
+    assert list(found.values()) == [answer_item]
+
+
+def test_a_search_with_update_reads_a_refused_tiles_cached_answer(tmp_path, monkeypatch, renewing, capsys):
+    """E3: a search with --update meets a refused drop in one tile (a file the index delisted that still answers):
+    one line, that tile's cached answer is read, the grid's other tiles are still asked and written, and the layer
+    is not turned to the cached files as a whole."""
+    tnm, files = Tnm(), tmp_path / "files"
+    monkeypatch.setattr(requests, "get", tnm.get)
+    monkeypatch.setenv(tb.RENEW_ENV, "off")
+    _tile_1m(tnm, files, "CO_Bee_2020", 1001, published="2024-01-01")
+    u1 = _tile_1m(tnm, files, "CO_Ay_2020", 1002, name="USGS_1M_13_x47y443_CO_Ay_2020.tif", published="2023-06-01")
+    cache_dir, grid = str(tmp_path / "cache"), _grid(474100, 4426100, 3800)
+    tile_a, tile_b = index_tiles(grid)
+    _layer().download(grid, cache_dir, None, "test")
+    get = tnm.get
+
+    def delisted_in_a(url, params=None, **kwargs):
+        response = get(url, params=params, **kwargs)
+        if str(url).startswith(TNM_API) and params.get("bbox") == _box(tile_a):
+            page = response.json()
+            page["items"] = [p for p in page["items"] if p["downloadURL"] != u1]
+            page["total"] = len(page["items"])
+            return Response(page)
+        return response
+    monkeypatch.setattr(requests, "get", delisted_in_a)
+    _tile_1m(tnm, files, "CO_New_2025", 1025, published="2026-01-01")   # a new file, in both tiles' answers
+    layer = _layer()
+    layer._use(cache_dir, "all")
+    assert layer.tiles(grid) is not None
+    assert "still answers at its URL" in capsys.readouterr().out
+    a_answer = open(layer.index.index_path(cache_dir, *tile_a), encoding="utf-8").read()
+    b_answer = open(layer.index.index_path(cache_dir, *tile_b), encoding="utf-8").read()
+    assert "CO_New_2025" not in a_answer and "CO_New_2025" in b_answer
+
+
+def test_what_a_layer_found_is_forgotten_after_a_raise(tmp_path, monkeypatch, renewing):
+    """E7: renew and renew_list forget what the layers found over grids (_listed) also when they raise after a list or
+    an answer was written, so no caller composes from what was found before."""
+    tnm, state, u1, u2, cache_dir, grid = _scene(tmp_path, monkeypatch)
+    _change(tnm, state, u1, u2, cache_dir, "answer")
+    layer = _layer()
+    layer.index._listed[("before",)] = ["found before the list"]
+    monkeypatch.setattr(renewal, "_settle_carried", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("locked")))
+    with pytest.raises(RuntimeError):
+        renewal.renew_list(layer, cache_dir, lambda text: None)
+    assert layer.index._listed == {}
+    layer.index._listed[("before",)] = ["found before the answers"]
+    monkeypatch.setattr(renewal, "_ask_answers", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("locked")))
+    with pytest.raises(RuntimeError):
+        renewal.renew([layer], grid, cache_dir, lambda text: None)
+    assert layer.index._listed == {}
 
 
 def test_a_searchs_first_answer_of_an_error_body_is_not_cached(tmp_path, monkeypatch, renewing):
@@ -766,6 +856,27 @@ def test_prune_deletes_a_block_whose_year_changed(tmp_path):
     assert [os.path.exists(p) for p in paths] == [True, False, False, True]
 
 
+def test_block_names_stay_without_a_tied_list_file():
+    """The key rule (versions.block_key) names every block as before unless a file of the list of unlisted files
+    shares its year with another file of the block: every block of every other layer and every block cached before
+    keeps its name; a list file alone in its year too; a tied one enters with its date, so its date names the block."""
+    import hashlib
+    from sources.indexes.cached import EXTRA
+    from sources.indexes.versions import block_key
+
+    def before(files):  # the key as it always was
+        return hashlib.sha1(",".join(sorted(f["name"] for f in files)).encode()).hexdigest()[:8]
+    listed = [{"name": "USGS_1M_13_x47y443_CO_Bee_2020", "year": 2020, "published": "2024-01-01"},
+              {"name": "USGS_1M_13_x47y443_CO_Cee_2020", "year": 2020, "published": "2025-01-01"},
+              {"name": "USGS_1M_13_x47y443_CO_Full_2013", "year": 2013, "published": "2016-01-01"}]
+    assert block_key(listed) == before(listed) == "7b7f6199"
+    alone = listed + [{"name": "USGS_1M_13_x47y443_CO_Ay_2019", "year": 2019, "published": "2026-02-12", EXTRA: True}]
+    assert block_key(alone) == before(alone)
+    tied = listed + [{"name": "USGS_1M_13_x47y443_CO_Ay_2020", "year": 2020, "published": "2026-02-12", EXTRA: True}]
+    moved = listed + [dict(tied[-1], published="2026-06-01")]
+    assert len({block_key(tied), block_key(moved), before(tied)}) == 3
+
+
 def _mosaic(layer, grid, cache_dir, tmp_path, name):
     return src.build_mosaic(layer.files(grid, cache_dir), grid, str(tmp_path / f"{name}.npy"), "test")
 
@@ -812,10 +923,10 @@ def _fake_listing(monkeypatch, state, tnm):
 
 
 def test_a_file_the_index_lists_since_reorders_its_blocks(tmp_path, monkeypatch, renewing):
-    """Two files of one year over the same blocks: the unlisted one first (its upload time is the later date), then
-    the index lists it with an earlier date and it leaves the list. The blocks keep their name (the same files, the
-    same newest year) but their order flips: a renewal deletes them, and the blocks read again equal those a data
-    folder that never had the list makes."""
+    """(a), point 9c: two files of one year over the same blocks: the unlisted one first (its upload time is the later
+    date), then the index lists it with an earlier date and it leaves the list. The order flips, and with it the
+    blocks' names (block_key: the tied list file's date was in them): the pass after the renewal reads them under
+    their new names, prunes the old ones, and they equal those of a data folder that never had the list."""
     tnm, files = Tnm(), tmp_path / "files"
     monkeypatch.setattr(requests, "get", tnm.get)
     _tile_1m(tnm, files, "CO_Bee_2020", 1001, published="2024-01-01")                        # listed
@@ -834,11 +945,13 @@ def test_a_file_the_index_lists_since_reorders_its_blocks(tmp_path, monkeypatch,
     _age(cache_dir, tb.unlisted_path(cache_dir), 29)
     _settle(cache_dir)
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert (done.list, done.departed, done.reread) == ("made", 1, 4)
-    assert _block_files(folder) == []                                  # the four read again when needed
+    assert (done.list, done.departed) == ("made", 1)
+    assert _block_files(folder) == names                               # nothing deleted by the renewal
     again = _layer()
     again.download(grid, cache_dir, None, "test")
-    assert _block_files(folder) == names and (_mosaic(again, grid, cache_dir, tmp_path, "b") == 1001).all()
+    after = _block_files(folder)
+    assert len(after) == 4 and not set(after) & set(names)             # new names; the old ones pruned
+    assert (_mosaic(again, grid, cache_dir, tmp_path, "b") == 1001).all()
     fresh_dir = str(tmp_path / "fresh")
     _layer().download(grid, fresh_dir, None, "test")
     _blocks_equal(cache_dir, fresh_dir)
@@ -981,7 +1094,7 @@ def test_a_carried_file_stays_while_its_answers_fail(tmp_path, monkeypatch, rene
     monkeypatch.setattr(requests, "get", watching)
     _settle(cache_dir)
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert done.list == "kept" and done.failed == 0 and done.reread == 4 and seen and all(seen)
+    assert done.list == "kept" and done.failed == 0 and done.asked >= 1 and seen and all(seen)
     _layer().download(grid, cache_dir, None, "test")
     _blocks_equal(cache_dir, _fresh(tmp_path, grid))
 
@@ -1016,13 +1129,17 @@ def test_only_the_answers_lacking_a_carried_file_are_asked(tmp_path, monkeypatch
 
 
 def test_a_file_whose_date_changes_in_the_list_reorders_its_blocks(tmp_path, monkeypatch, renewing):
-    """C7: a file that stays in the list with another date (U2 uploaded again, after U1) changes the order of the blocks
-    while their names stay: they are deleted before the list is written, read again, and equal a fresh folder's."""
+    """(d), C7: a file that stays in the list with another date (U2 uploaded again, after U1) changes the order of the
+    blocks and with it their names (U2 is tied on its year): the next pass reads them under their new names, prunes
+    the old ones, and they equal a fresh folder's."""
     tnm, state, u1, u2, cache_dir, grid = _scene(tmp_path, monkeypatch)
+    folder = os.path.join(cache_dir, "usa", "test1m", "epsg26913", "47_442")
+    names = _block_files(folder)
     _change(tnm, state, u1, u2, cache_dir, "list")
     done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert (done.list, done.departed, done.moved, done.reread) == ("made", 0, 1, 4)
+    assert (done.list, done.departed) == ("made", 0)
     _layer().download(grid, cache_dir, None, "test")
+    assert not set(names) & set(_block_files(folder))
     assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "after") == 1004).all()
     _blocks_equal(cache_dir, _fresh(tmp_path, grid))
 
@@ -1134,8 +1251,7 @@ def test_a_carried_files_blocks_do_not_depend_on_the_grid(tmp_path, monkeypatch,
     assert files_of(inside, cache_dir) == files_of(across, cache_dir) == fresh
 
 
-STOPS = ["listing made", "departures decided", "blocks deleted for the list", "list written", "list recorded",
-         "answer fetched", "blocks deleted for the answer", "answer written"]
+STOPS = ["listing made", "departures decided", "list written", "list recorded", "answer fetched", "answer written"]
 
 
 def _stop_at(monkeypatch, stop, kind, fired):
@@ -1155,22 +1271,15 @@ def _stop_at(monkeypatch, stop, kind, fired):
     if stop == "listing made":
         monkeypatch.setattr(tb, "make_unlisted", after(tb.make_unlisted))
     elif stop == "departures decided":
-        monkeypatch.setattr(renewal, "_reorder_list", lambda *a, **k: fire())
-    elif stop == "blocks deleted for the list":
-        monkeypatch.setattr(renewal, "_reorder_list", after(renewal._reorder_list))
+        monkeypatch.setattr(renewal, "_departures", after(renewal._departures))
     elif stop in ("list written", "list recorded"):
         write = tb.write_list
         monkeypatch.setattr(tb, "write_list", lambda path, *a, **k: (write(path, *a, **k), not path.endswith(".new")
                                                                      and stop == "list written" and fire()))
         if stop == "list recorded":
             monkeypatch.setattr(renewal, "_settle_carried", lambda *a, **k: fire())
-    elif stop in ("answer fetched", "blocks deleted for the answer"):
-        real = renewal._reorder_first
-
-        def first(*args):
-            hook = real(*args)
-            return lambda old, answer: (stop == "answer fetched" and fire(), hook(old, answer), fire())
-        monkeypatch.setattr(renewal, "_reorder_first", first)
+    elif stop == "answer fetched":
+        monkeypatch.setattr(CachedIndex, "_fetch", after(CachedIndex._fetch))
     elif stop == "answer written":
         monkeypatch.setattr(CachedIndex, "_store", after(CachedIndex._store))
 
@@ -1178,12 +1287,12 @@ def _stop_at(monkeypatch, stop, kind, fired):
 @pytest.mark.parametrize("kind", [RuntimeError, KeyboardInterrupt])
 @pytest.mark.parametrize("stop", STOPS)
 @pytest.mark.parametrize("what", ["answer", "list"])
-def test_a_stop_anywhere_leaves_the_change_pending_or_done(tmp_path, monkeypatch, renewing, what, stop, kind):
-    """Point 3 (C2c, C7): a renewal stopped between any two steps of the list's renewal (made, departures decided,
-    reordered blocks deleted, written, recorded) or of an answer's (fetched, its reordered blocks deleted, written),
-    by an exception or a Ctrl+C, for a change of the answers (a file the index lists now) and one of the list (C7)
-    each alone; then a second renewal (a day later: a failed listing's record cleared) and a pass: the blocks equal a
-    fresh folder's."""
+def test_a_stop_anywhere_leaves_rightly_named_blocks(tmp_path, monkeypatch, renewing, what, stop, kind):
+    """Point 3 (C2c, C7) under the key rule: a renewal stopped between any two steps of the list's renewal (made,
+    departures decided, written, recorded) or of an answer's (fetched, written), by an exception or a Ctrl+C, for a
+    change of the answers (a file the index lists now) and one of the list (C7) each alone; a pass then; a second
+    renewal (a day later: a failed listing's record cleared) and a pass: the blocks equal a fresh folder's, the
+    blocks of the old names gone. (The steps "the reordered blocks deleted" went with the deletions themselves.)"""
     tnm, state, u1, u2, cache_dir, grid = _scene(tmp_path, monkeypatch)
     _change(tnm, state, u1, u2, cache_dir, what)
     fired = []
@@ -1194,6 +1303,7 @@ def test_a_stop_anywhere_leaves_the_change_pending_or_done(tmp_path, monkeypatch
         except kind:  # what the callers do: a fault of the renewal never stops their pass
             pass
     assert fired
+    _layer().download(grid, cache_dir, None, "test")                     # a pass after the stop: right names
     tb.clear_failed(cache_dir)
     tb.forget_unlisted()
     _settle(cache_dir)
@@ -1218,95 +1328,132 @@ def test_a_stop_in_the_settling_is_made_good_by_a_renewal_elsewhere(tmp_path, mo
     elsewhere = _grid(400100, 4424100)                                 # x40: 70 km west, none of U1's tiles
     assert not set(index_tiles(elsewhere)) & set(index_tiles(grid))
     done = renewal.renew([_layer()], elsewhere, cache_dir, lambda text: None)
-    assert done.list == "kept" and done.reread == 4
+    assert done.list == "kept" and done.asked >= 1
     _layer().download(grid, cache_dir, None, "test")
     _blocks_equal(cache_dir, _fresh(tmp_path, grid))
 
 
-def test_a_block_that_cannot_be_deleted_keeps_the_change_pending(tmp_path, monkeypatch, renewing, capsys):
-    """C5 (Windows: a block open in another process): the answer whose reordered blocks cannot be deleted keeps its
-    cached one (one line, counted as failed), the list keeps the date of before of a file whose blocks cannot be
-    deleted; the rest goes on, and the next renewal completes the change."""
+GRID_B = (474100, 4428100)  # inside index tile B (40.0, -105.5); _grid() is inside tile A (39.75, -105.5)
+
+
+def _down(monkeypatch, tnm, boxes):
+    """The stand-in TNM index not answering for these boxes (tiles)."""
+    get = tnm.get
+
+    def answering(url, params=None, **kwargs):
+        if str(url).startswith(TNM_API) and params and params.get("bbox") in boxes:
+            raise requests.ConnectionError("the service does not answer this tile")
+        return get(url, params=params, **kwargs)
+    monkeypatch.setattr(requests, "get", answering)
+
+
+def _box(tile):
+    return f"{tile[1]},{tile[0]},{tile[1] + 0.25},{tile[0] + 0.25}"
+
+
+def _fresh_of(tmp_path, grids, name="fresh"):
+    fresh_dir = str(tmp_path / name)
+    renewal.renew([_layer()], grids[0], fresh_dir, lambda text: None)
+    for grid in grids:
+        _layer().download(grid, fresh_dir, None, "test")
+    return fresh_dir
+
+
+def test_a_grid_reading_a_tile_not_renewed_yet(tmp_path, monkeypatch, renewing):
+    """The third review's E1 through the real entry points: the index lists U1 now; a renewal asks tile A (its grid)
+    while tile B fails; a grid reading only B then composes its blocks from the list's item of U1 (the old order),
+    under the name that order has; B renewed later, a pass: the blocks of both grids equal a fresh folder's and the
+    blocks of the old names are gone."""
     tnm, state, u1, u2, cache_dir, grid = _scene(tmp_path, monkeypatch)
-    _change(tnm, state, u1, u2, cache_dir)
-    forget = cache.forget
-
-    def locked(cache_dir_, paths):
-        paths = list(paths)
-        if any(p.endswith(".tif") and os.path.exists(p) for p in paths):
-            raise PermissionError(13, "The process cannot access the file because it is used by another process")
-        return forget(cache_dir_, paths)
-    with monkeypatch.context() as m:
-        m.setattr(cache, "forget", locked)
-        done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    assert done.list == "made" and done.failed >= 1 and done.reread == 0 and done.moved == 0
-    assert tb.list_items(cache_dir)[u2]["published"] == U2_BEFORE   # the date of before: pending
-    assert "could not be asked again (PermissionError" in capsys.readouterr().out
-    _settle(cache_dir)
-    _age(cache_dir, tb.unlisted_path(cache_dir), 29)
-    renewal.renew([_layer()], grid, cache_dir, lambda text: None)
-    _layer().download(grid, cache_dir, None, "test")
-    _blocks_equal(cache_dir, _fresh(tmp_path, grid))
-
-
-def test_cache_update_reads_again_a_block_whose_order_changed(tmp_path, monkeypatch):
-    """update_index_tile (cache update): a listed file published again with another date flips the order of two files
-    of one year; the block keeps its name and is read again."""
-    import osm
-    from rasterio.warp import transform_bounds
-    tnm, files = Tnm(), tmp_path / "files"
-    monkeypatch.setattr(requests, "get", tnm.get)
-    _tile_1m(tnm, files, "CO_Bee_2020", 1001, published="2024-01-01")
-    _tile_1m(tnm, files, "CO_Cee_2020", 1003, published="2025-01-01")
-    layer, grid, cache_dir = _layer(), _grid(), str(tmp_path / "cache")
-    layer.download(grid, cache_dir, None, "test")
-    assert (_mosaic(layer, grid, cache_dir, tmp_path, "a") == 1003).all()
-    tnm.products[1]["publicationDate"] = "2023-01-01"
-    results = [_layer().update_index_tile(cache_dir, lat, lon)
-               for lat, lon in osm.tiles(*transform_bounds("EPSG:26913", "EPSG:4326", *grid.bounds))]
-    assert sum(r[0] for r in results) == 4
-    assert (_mosaic(_layer(), grid, cache_dir, tmp_path, "b") == 1001).all()
-    fresh_dir = str(tmp_path / "fresh")
-    _layer().download(grid, fresh_dir, None, "test")
-    _blocks_equal(cache_dir, fresh_dir)
-
-
-def test_cache_update_never_deletes_a_block_before_its_replacement(tmp_path, monkeypatch):
-    """C5: update_tile reads a reordered block again over its own path before the answer is written; one whose read
-    fails stays as it was (not deleted), the other blocks of the tile are still read, and the answer is not written
-    (the update fails for that tile), so the next update sees the change again and completes it."""
-    import osm
-    from rasterio.warp import transform_bounds
-    tnm, files = Tnm(), tmp_path / "files"
-    monkeypatch.setattr(requests, "get", tnm.get)
-    _tile_1m(tnm, files, "CO_Bee_2020", 1001, published="2024-01-01")
-    _tile_1m(tnm, files, "CO_Cee_2020", 1003, published="2025-01-01")
-    grid, cache_dir = _grid(), str(tmp_path / "cache")
-    _layer().download(grid, cache_dir, None, "test")
+    grid_b = _grid(*GRID_B)
+    tile_a, tile_b = index_tiles(grid)[0], index_tiles(grid_b)[0]
+    assert (tile_a, tile_b) == ((39.75, -105.5), (40.0, -105.5))
+    _layer().download(grid_b, cache_dir, None, "test")
     folder = os.path.join(cache_dir, "usa", "test1m", "epsg26913", "47_442")
-    blocks = {name: open(os.path.join(folder, name), "rb").read() for name in _block_files(folder)}
-    tile, = osm.tiles(*transform_bounds("EPSG:26913", "EPSG:4326", *grid.bounds))
-    answer = open(_layer().index_path(cache_dir, *tile), encoding="utf-8").read()
-    tnm.products[1]["publicationDate"] = "2023-01-01"
+    before = _block_files(folder)
+    _change(tnm, state, u1, u2, cache_dir, "answer")
+    with monkeypatch.context() as m:
+        _down(m, tnm, {_box(tile_b)})
+        done = renewal.renew([_layer()], grid, cache_dir, lambda text: None)
+    assert done.carried == 1 and done.failed == 1
+    _layer().download(grid_b, cache_dir, None, "test")                 # B's blocks: the old order, their old names
+    b_blocks = {n for n in before if "_4428_" in n or "_4429_" in n}
+    assert b_blocks <= set(_block_files(folder))
+    _settle(cache_dir)
+    renewal.renew([_layer()], grid_b, cache_dir, lambda text: None)    # B renewed
+    for g in (grid, grid_b):
+        _layer().download(g, cache_dir, None, "test")
+    assert not b_blocks & set(_block_files(folder))
+    _blocks_equal(cache_dir, _fresh_of(tmp_path, [grid, grid_b]))
+
+
+def test_two_grids_name_their_blocks_by_the_order_they_read(tmp_path, monkeypatch, renewing):
+    """(f): while tile A's answer holds U1 (the index's date) and tile B's does not (the list's), a grid reading only
+    B and a grid across A and B compose the same square in two orders, each under the name its order has (B's: U1
+    first, 1002; across: U2 first, 1004); once both answers hold it, one name is left after a pass."""
+    from sources.indexes.cached import EXTRA
+    from sources.indexes.versions import block_key
+    tnm, state, u1, u2, cache_dir, grid = _scene(tmp_path, monkeypatch)
+    grid_b, across = _grid(*GRID_B), _grid(474100, 4426100, 3800)
+    assert len(index_tiles(across)) == 2 and len(index_tiles(grid_b)) == 1
+    _layer().download(grid_b, cache_dir, None, "test")                 # B's answer cached before the change
+    _change(tnm, state, u1, u2, cache_dir, "answer")
+    with monkeypatch.context() as m:
+        _down(m, tnm, {_box(index_tiles(grid_b)[0])})
+        renewal.renew([_layer()], grid, cache_dir, lambda text: None)
+
+    def square(g):
+        layer = _layer()
+        layer._use(cache_dir, None)
+        block, = [b for b in layer.tiles(g) if (b.i, b.j) == (474, 4428)]
+        layer.download(g, cache_dir, None, "test")
+        with rio.open(layer.tile_path(cache_dir, block)) as src:
+            return block, float(src.read(1)[5, 5])
+    b_block, b_value = square(grid_b)
+    a_block, a_value = square(across)
+    assert (b_value, a_value) == (1002.0, 1004.0) and b_block.key != a_block.key
+    assert b_block.files[0][0].endswith("CO_Ay_2020") and a_block.files[0][0].endswith("CO_Dee_2020")
+    # the names: U1 by its name alone where an answer gives it, with its upload date where only the list does
+    plain = {"name": _name(u2)[:-4], "year": 2020, "published": U2_BEFORE, EXTRA: True}
+    bee = {"name": "USGS_1M_13_x47y443_CO_Bee_2020", "year": 2020}
+    assert a_block.key == block_key([bee, plain, {"name": _name(u1)[:-4], "year": 2020}])
+    assert b_block.key == block_key([bee, plain, {"name": _name(u1)[:-4], "year": 2020,
+                                                  "published": "2026-02-12T17:17:41.000Z", EXTRA: True}])
+    _settle(cache_dir)
+    renewal.renew([_layer()], grid_b, cache_dir, lambda text: None)    # B holds U1 now too
+    for g in (grid_b, across):
+        _layer().download(g, cache_dir, None, "test")
+    folder = os.path.join(cache_dir, "usa", "test1m", "epsg26913", "47_442")
+    assert [n for n in _block_files(folder) if "_474_4428_" in n] == [os.path.basename(
+        _layer().tile_path(cache_dir, a_block))]
+
+
+def test_cache_update_reads_the_renamed_block_and_keeps_the_old_until_then(tmp_path, monkeypatch, renewing):
+    """(e) and C5 under the key rule: `cache update` on a tile whose answer now holds U1 (tied on its year, the index's
+    date) reads the blocks under their new names; a read that fails leaves the old block in place (prune deletes it
+    only once the new one is there) and fails the update; the next update completes it, equal to a fresh folder's."""
+    tnm, state, u1, u2, cache_dir, grid = _scene(tmp_path, monkeypatch)
+    folder = os.path.join(cache_dir, "usa", "test1m", "epsg26913", "47_442")
+    old = {name: open(os.path.join(folder, name), "rb").read() for name in _block_files(folder)}
+    tnm.add(u1, "EPSG:26913", EXTENT, published="2023-06-01")
+    state["list"] = [state["list"][1]]
+    tile = index_tiles(grid)[0]
     layer = _layer()
     real, calls = layer._download_and_record, []
 
-    def flaky(block, cache_dir, *args, **kwargs):
+    def flaky(block, cache_dir_, *args, **kwargs):
         calls.append(block)
         if len(calls) == 1:
             raise RuntimeError("the connection broke")
-        return real(block, cache_dir, *args, **kwargs)
+        return real(block, cache_dir_, *args, **kwargs)
     layer._download_and_record = flaky
-    with pytest.raises(requests.RequestException, match="could not be read again"):
+    with pytest.raises(RuntimeError, match="the connection broke"):
         layer.update_index_tile(cache_dir, *tile)
-    assert len(calls) == 4 and _block_files(folder) == sorted(blocks)      # every block tried, none deleted
-    failed = os.path.basename(layer.tile_path(cache_dir, calls[0]))
-    assert open(os.path.join(folder, failed), "rb").read() == blocks[failed]
-    assert open(_layer().index_path(cache_dir, *tile), encoding="utf-8").read() == answer
+    assert set(old) <= set(_block_files(folder))                        # nothing deleted before its replacement
+    assert all(open(os.path.join(folder, n), "rb").read() == data for n, data in old.items())
     assert _layer().update_index_tile(cache_dir, *tile)[0] == 4
-    fresh_dir = str(tmp_path / "fresh")
-    _layer().download(grid, fresh_dir, None, "test")
-    _blocks_equal(cache_dir, fresh_dir)
+    assert not set(old) & set(_block_files(folder))
+    _blocks_equal(cache_dir, _fresh(tmp_path, grid))
 
 
 # 7. cache update and cache status

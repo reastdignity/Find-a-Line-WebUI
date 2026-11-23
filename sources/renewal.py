@@ -28,12 +28,13 @@ OPR); any other layer is left alone, without a request:
    rest of the start (every later call returns at once with its tiles left: one line), as the layer's renewal does
    after OWN_FAULTS_IN_A_ROW faults of one type that are no request error (a fault of this code: every answer would
    be fetched and thrown away);
-3. the cached blocks whose files stay but whose order changes (a file's date or year moved: the index's date in
-   place of its upload time) deleted before the answer or the list that changes their order is written
-   (ComposedBlocks.reordered; per tile, _reorder_first; for the list, _reorder_list), so a stop at any point leaves
-   the change still to be seen or the blocks gone (read again when next needed); a block that cannot be deleted
-   keeps the change pending. A block whose set of files or newest year changed has another name and is read again
-   anyway (prune deletes the old one).
+3. nothing is deleted by the renewal itself: what decides the order of a block's files is in the block's name
+   (versions.block_key: a list file tied on its year with another file enters the key with its date), so when a
+   renewed answer or list changes a file's date in a way that can change a block's order, the block gets another
+   name and is read again when next needed, and prune deletes the block of the old name once the new one is there,
+   as for a block whose set of files or newest year changed. A block composed from inputs that are stale by then
+   (a list another process renewed seconds ago, a tile not asked yet) is a second block with its own right name,
+   never a wrong block under the right name; a stop at any point of a renewal leaves rightly named blocks.
 
 Nothing fails the caller: it lists and downloads as before with what the index holds then. What it did is returned
 (Renewal: answers asked, changed, failed; the list made, kept or failed and why files left it; requests, bytes,
@@ -58,16 +59,14 @@ import cache
 import osm
 
 from . import net
-from .indexes.cached import INDEX_MARGIN_DEG, CachedIndex, DroppedFiles, index_tiles, merge_items
-from .indexes.versions import ComposedBlocks, moved_items
+from .indexes.cached import INDEX_MARGIN_DEG, CachedIndex, DroppedFiles, index_tiles
 
 # How long a renewal waits for another process making the list (a listing takes about 8 minutes at 4 requests at a
 # time, 33 one at a time): after that it goes on with the list there is
 LIST_LOCK_WAIT_S = 2700
 FAILED_IN_A_ROW = 5      # failed answers in a row after which the API counts as down for the rest of the start
-# Faults of one type in a row that are no request error (a fault of this code, as in before_store, or of this
-# machine) after which a layer's renewal stops for the rest of the start: every answer would be fetched and thrown
-# away at every start
+# Faults of one type in a row that are no request error (a fault of this code or of this machine) after which a
+# layer's renewal stops for the rest of the start: every answer would be fetched and thrown away at every start
 OWN_FAULTS_IN_A_ROW = 5
 PROGRESS_SECONDS = 30    # between the progress lines of a listing's part and of the answers
 RELIST_PAGES = 100       # the bucket's pages for listing again the projects of files a listing lacked
@@ -81,7 +80,7 @@ class Renewal:
     a day old, or the wait for another process ended), "failed", or "" (no layer with a list, or the list off)."""
     asked: int = 0     # answers asked and written
     changed: int = 0   # of those, whose listed files changed
-    failed: int = 0    # answers whose request failed, or not confirmed, or whose blocks could not be deleted (kept)
+    failed: int = 0    # answers whose request failed or whose drop was not confirmed (the cached ones kept)
     left: int = 0      # answers not asked after FAILED_IN_A_ROW failures in a row (the cached ones kept)
     skipped: int = 0   # answers asked since the renewal's `since` (another renewal, an earlier pass of the start)
     list: str = ""
@@ -91,8 +90,6 @@ class Renewal:
     gone: int = 0      # the bucket no longer holds them (its project listed again agrees): dropped
     relisted: int = 0  # the bucket's project listed again holds them after all: kept
     zoneless: int = 0  # left out this time without a zone (a header read refused): kept with their item of before
-    moved: int = 0     # files staying in the list with another year or date
-    reread: int = 0    # cached blocks deleted to be read again (the order of their files changed)
     requests: Dict[str, int] = field(default_factory=dict)  # by part: bucket, index, headers (the list), answers
     bytes: Dict[str, int] = field(default_factory=dict)
     seconds: Dict[str, float] = field(default_factory=dict)
@@ -109,8 +106,6 @@ class Renewal:
         if self.departed:
             parts.append(f"{self.departed:,} files left the list ({self.indexed:,} listed by the index now, "
                          f"{self.gone:,} gone from the bucket; {self.relisted + self.zoneless:,} kept)")
-        if self.reread:
-            parts.append(f"{self.reread:,} blocks to be read again")
         total = self.seconds.get("total", sum(self.seconds.values()))
         return "; ".join(parts) + f" ({sum(self.requests.values()):,} requests, " \
             f"{sum(self.bytes.values()) / 1e6:.1f} MB, {total:.0f} s)"
@@ -119,8 +114,7 @@ class Renewal:
         return {"asked": self.asked, "changed": self.changed, "failed": self.failed, "left": self.left,
                 "skipped": self.skipped, "list": self.list, "departed": self.departed, "indexed": self.indexed,
                 "carried": self.carried, "gone": self.gone, "relisted": self.relisted, "zoneless": self.zoneless,
-                "moved": self.moved, "reread": self.reread, "requests": dict(self.requests),
-                "bytes": dict(self.bytes), "seconds": dict(self.seconds)}
+                "requests": dict(self.requests), "bytes": dict(self.bytes), "seconds": dict(self.seconds)}
 
 
 def renewing(layers: Iterable) -> List:
@@ -177,38 +171,13 @@ def _tiles_met(item: Dict) -> List[Tuple[float, float]]:
             if lat < north and lat + osm.TILE_DEG > south and lon < east and lon + osm.TILE_DEG > west]
 
 
-def _reorder_first(layer, cache_dir: str, lat: float, lon: float, result: Renewal):
-    """CachedIndex.ask_again's before_store for one tile: the cached blocks whose files stay but whose order the new
-    answer changes (a file's date or year moved: ComposedBlocks.reordered) deleted before the answer is written, so
-    a stop at any point leaves either the change unwritten (seen again by the next renewal) or the blocks gone (read
-    again when next needed). A block that cannot be deleted (Windows: open in another process) raises: the tile
-    fails and its cached answer stays."""
-    index: CachedIndex = layer.index
-    versions = index.versions
-
-    def before_store(old: Optional[List[Dict]], answer: Dict):
-        if old is None or not isinstance(versions, ComposedBlocks):
-            return
-        extra = index.extra(cache_dir, lat, lon)
-        before, after = merge_items(old, extra), merge_items(answer["sheets"], extra)
-        moved = moved_items(before, after)
-        if not moved:
-            return
-        blocks = versions.reordered(index, cache_dir, {(lat, lon): before}, moved, {(lat, lon): after})
-        for block in blocks:
-            cache.forget(cache_dir, [versions.path(cache_dir, block)])
-            result.reread += 1
-    return before_store
-
-
 def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since: str, asked: Set[tuple],
                  result: Renewal, say: Say, what: str):
-    """The answers of these tiles asked again (those not asked by this renewal yet), counted into result; before each
-    answer is written the blocks whose order it changes are deleted (_reorder_first). Any failure of one tile but a
-    KeyboardInterrupt (a request, a dropped file not confirmed, a locked database, a block that cannot be deleted)
-    is that tile's: its cached answer stays, one line. After FAILED_IN_A_ROW requests in a row that did not reach the
-    service (a requests.RequestException; not DroppedFiles, not a fault of this machine: those neither add to the
-    streak nor end it) the API counts as down for the rest of the start (("down", its URL) in asked): this and every
+    """The answers of these tiles asked again (those not asked by this renewal yet), counted into result. Any failure of
+    one tile but a KeyboardInterrupt (a request, a dropped file not confirmed, a locked database) is that tile's: its
+    cached answer stays, one line. After FAILED_IN_A_ROW requests in a row that did not reach the service (a
+    requests.RequestException; not DroppedFiles, not a fault of this machine: those neither add to the streak nor
+    end it) the API counts as down for the rest of the start (("down", its URL) in asked): this and every
     later call for it count their tiles as left at once, one line each."""
     index: CachedIndex = layer.index
     todo = [t for t in tiles if (index.top, index.prefix, t) not in asked]
@@ -226,7 +195,7 @@ def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since:
     for k, (lat, lon) in enumerate(todo):
         asked.add((index.top, index.prefix, (lat, lon)))
         try:
-            changed = index.ask_again(cache_dir, lat, lon, since, _reorder_first(layer, cache_dir, lat, lon, result))
+            changed = index.ask_again(cache_dir, lat, lon, since)
         except Exception as e:  # noqa: BLE001 (one tile's fault: the rest of the grid is still asked)
             result.failed += 1
             # Only the service not answering counts toward its being down: a fault of this machine (a block open in
@@ -268,14 +237,24 @@ def _ask_answers(layer, cache_dir: str, tiles: List[Tuple[float, float]], since:
 def renew_list(layer, cache_dir: str, say: Say = print, result: Optional[Renewal] = None,
                asked: Optional[Set[tuple]] = None, since: Optional[str] = None, force: bool = False,
                allow_drop: bool = False) -> Renewal:
+    """_renew_list, after which what the layer found over grids before is forgotten, also after a raise (a list or an
+    answer may have been written by then: nothing composes from what was found before them)."""
+    try:
+        return _renew_list(layer, cache_dir, say, result, asked, since, force, allow_drop)
+    finally:
+        layer.index._listed.clear()
+
+
+def _renew_list(layer, cache_dir: str, say: Say, result: Optional[Renewal], asked: Optional[Set[tuple]],
+                since: Optional[str], force: bool, allow_drop: bool) -> Renewal:
     """Step 1 of renew for one layer (its index has a list: tnm.UnlistedIndex), also `cache update`'s check of the
     list and tools/usa_unlisted.py --cached's. force: made whatever its age (`cache update --all`, the tool); a
     failure less than a day old still waits. allow_drop: make_unlisted's (the tool's --allow-drop).
 
     The new list is made into a file beside the cached one (make_unlisted(out=)), and what left the list is decided
     before it replaces the cached one (_departures): no moment, in no process, finds a file some cached block was
-    composed from in neither the list nor the cached answers it reaches. The blocks whose order the new list changes
-    are deleted before it is written (_reorder_list). Then the files the list carries have the answers lacking them
+    composed from in neither the list nor the cached answers it reaches. Then the files the list carries have the
+    answers lacking them
     asked (_settle_carried; also when the list is kept, so a stop after the list was written is made good by the next
     start)."""
     from .layers import tnmbucket as tb
@@ -335,13 +314,12 @@ def renew_list(layer, cache_dir: str, say: Say = print, result: Optional[Renewal
         lock.release()
     if result.list != "failed":
         _settle_carried(layer, cache_dir, say, result, asked, since)
-    layer.index._listed.clear()
     return result
 
 
 def _make_list(layer, cache_dir: str, path: str, tmp: str, say: Say, result: Renewal, allow_drop: bool = False):
-    """renew_list's listing, under the list's lock: made into tmp, its departures decided, the reordered blocks
-    deleted, then written in place of the cached list (atomically) and recorded."""
+    """renew_list's listing, under the list's lock: made into tmp, its departures decided, then written in place of
+    the cached list (atomically) and recorded."""
     from .layers import tnmbucket as tb
     index = layer.index
     top = index.top
@@ -358,7 +336,6 @@ def _make_list(layer, cache_dir: str, path: str, tmp: str, say: Say, result: Ren
                                        log=say, budgets=ticker.watch, found=found, allow_drop=allow_drop)
         new, _ = tb.read_list(tmp)
         final, carried = _departures(layer, cache_dir, old, new, summary, found, say, result)
-        final = _reorder_list(layer, cache_dir, old_tiles, old, final, say, result)
         summary["carried"] = carried
         tb.write_list(path, summary, sorted(final, key=lambda item: item["url"]), bucket, index.listing.url,
                       index.listing.dataset)
@@ -453,40 +430,6 @@ def _departures(layer, cache_dir: str, old: Dict[str, Dict], new: List[Dict], su
     return new + kept, carried
 
 
-def _reorder_list(layer, cache_dir: str, old_tiles: Dict, old: Dict[str, Dict], final: List[Dict], say: Say,
-                  result: Renewal) -> List[Dict]:
-    """The files that stay in the list with another year or date (C7 of the review: an upload time that changed, a
-    year taken from the project's siblings now): the cached blocks whose order of files that changes deleted before
-    the list is written. A file whose blocks cannot all be deleted (open in another process) keeps its old item in
-    the list (one line): the next listing sees the change again."""
-    from .layers import tnmbucket as tb
-    index = layer.index
-    versions = index.versions
-    moved = moved_items(list(old.values()), final)
-    if not moved or not isinstance(versions, ComposedBlocks):
-        return final
-    new_tiles = tb._by_tile(final)
-    before, after = {}, {}
-    for lat, lon in dict.fromkeys(t for item in moved for t in _tiles_of(item)):
-        sheets = index._cached_sheets(index.index_path(cache_dir, lat, lon))
-        if sheets is not None:
-            key = tb.tile_key(lat, lon)
-            before[(lat, lon)] = merge_items(sheets, old_tiles.get(key, []))
-            after[(lat, lon)] = merge_items(sheets, new_tiles.get(key, []))
-    back = {}
-    for item in moved:
-        try:
-            for block in versions.reordered(index, cache_dir, before, [item], after):
-                cache.forget(cache_dir, [versions.path(cache_dir, block)])
-                result.reread += 1
-        except Exception as e:  # noqa: BLE001 (that file's change waits for the next listing)
-            back[item["url"]] = old[item["url"]]
-            say(f"The blocks of {item['name']} could not be deleted to be read in their new order "
-                f"({cache.clean_error(e)[:200]}): the list keeps its date of before until the next listing")
-    result.moved += len(moved) - len(back)
-    return [back.get(item["url"], item) for item in final]
-
-
 def _settle_carried(layer, cache_dir: str, say: Say, result: Renewal, asked: Set[tuple], since: str):
     """The answers that lack a file the list carries (the index lists it now) asked again: only the tiles its extent
     meets whose cached answer lacks its URL, and of those only the ones not asked since the list was made (its row's
@@ -540,15 +483,18 @@ def renew(layers: Iterable, grid, cache_dir: str, say: Say = print, asked: Optio
     listings = {id(layer): (layer.index.listing, getattr(layer.index.listing, "requests", 0),
                             getattr(layer.index.listing, "bytes", 0)) for layer in layers}
     started = time.monotonic()
-    for layer in layers:
-        if getattr(layer.index, "has_list", False):
-            renew_list(layer, cache_dir, say, result, asked, since)
-    mark = time.monotonic()
-    tiles = index_tiles(grid)
-    for layer in layers:
-        say(f"Asking the index of {layer.description} again: {len(tiles):,} answers")
-        _ask_answers(layer, cache_dir, tiles, since, asked, result, say, f"the index of {layer.description}")
-        layer.index._listed.clear()  # what tiles() found before the renewal
+    try:
+        for layer in layers:
+            if getattr(layer.index, "has_list", False):
+                renew_list(layer, cache_dir, say, result, asked, since)
+        mark = time.monotonic()
+        tiles = index_tiles(grid)
+        for layer in layers:
+            say(f"Asking the index of {layer.description} again: {len(tiles):,} answers")
+            _ask_answers(layer, cache_dir, tiles, since, asked, result, say, f"the index of {layer.description}")
+    finally:  # what tiles() found before the renewal, forgotten also after a raise (answers may be written by then)
+        for layer in layers:
+            layer.index._listed.clear()
     result.seconds["answers"] = round(time.monotonic() - mark, 1)
     departed = "answers over departed files"  # counted apart by _settle_carried
     result.requests["answers"] = sum(getattr(listing, "requests", 0) - n for listing, n, _ in listings.values()) \
