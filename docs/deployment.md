@@ -963,7 +963,8 @@ stays when `update` writes the unit again. For every installation: `USA_RENEWAL_
 it off, `deploy/vps.sh check` notes it; `update` enables the timer only at its first install, which
 ends with `/var/lib/findaline-monitoring/usa-renewal.enabled`); on again: `sudo systemctl enable --now
 findaline-usa-renewal.timer`. A timer or service the operator masked (`systemctl mask`) is left alone
-by `update` and noted by `check`.
+by `update` and noted by `check`. A timer that was only stopped (`systemctl stop`) and is still enabled is
+started again by `update`, as a reboot would start it: to keep it off, disable it.
 
 **Old runs: removed in two deploys** (store wave 4, docs/line-volume/spec-store.md section 2; the user's word of
 2026-11-14, "old runs removed - both on server and on this pc"). Since the first deploy a new run keeps its lines

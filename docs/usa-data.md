@@ -9,7 +9,7 @@ What USGS 3DEP offers beyond the 1 m DEM the `usa` source reads today: the lidar
   - **Our own DSM from the point clouds (best).** The EPT copy on AWS covers 89 % of CONUS land, and a window of 9 km² is read in about 4.5 min (323 MB). The trial at the Oregon cove works, but it needs a filter on height above the terrain: the point cloud has a layer of noise at 400–500 m in class 1 (unclassified), not in the noise classes.
   - **The Planetary Computer DSM (2 m).** It covers 50 % of CONUS land, from projects of 2008–2020, often older than the 1 m DEM. It is an IDW of all points, so it stands a median 3.8 m below our maximum under trees, and it keeps the noise.
   - **Alaska's IfSAR DSM (5 m).** It covers all of Alaska, but only as ZIP files of 0.8–1.6 GB.
-- **Where the 1 m DEM is missing, and what fills it** (measured 2026-11-22, [below](#where-the-1-m-dem-is-missing-and-what-could-fill-it)). Oregon lacks 1 m data on 28 % of its land and Washington on 17 %. Three things can fill holes, and not the same land: 1 m files that are in USGS's bucket but not in its index (1410 files; in Utah they are nearly all of the "holes"), the OPR DEMs (13 % of western Oregon's coast strip; all of Alaska's lidar), and the older 1/9″ DEM at 3 m (about 70 000 km² with no 1 m file). The user's decisions of that day close the section.
+- **Where the 1 m DEM is missing, and what fills it** (measured 2026-11-22, [below](#where-the-1-m-dem-is-missing-and-what-could-fill-it)). Oregon lacks 1 m data on 28 % of its land and Washington on 17 %. Three things can fill holes, and not the same land: 1 m files that are in USGS's bucket but not in its index (1410 files; in Utah they are nearly all of the "holes"), the OPR DEMs (13 % of western Oregon's coast strip; all of Alaska's lidar), and the older 1/9″ DEM at 3 m (about 70 000 km² with no 1 m file). The user's decisions of that day close the section; the first of the three is read by the app since 2026-11-23.
 - **The table of surveys (WESM).** USGS publishes one row per survey with its dates, pixel size, CRS codes and the status of each product ([below](#wesm-usgss-table-of-surveys)). It names the 357 lidar surveys that have an OPR DEM and no 1 m DEM. Its height unit, pixel size and CRS code are not reliable for a single survey: the files decide.
 - **The Seamless 1 m DEM (S1M) is not used** (the user, 2026-11-22): it is built from the same surveys as the 1 m DEM, beyond them it is backfill from coarser DEMs, and where both exist it is the worse input ([below](#why-the-seamless-1-m-dem-s1m-is-not-used)).
 - **Libraries for the point clouds:** laspy 2.7.0 (BSD-2, 2026-01) with lazrs 0.8.2 (MIT, 2026-07). Both have wheels up to Python 3.14 (lazrs 0.8.2 none for 3.15 on 2026-11-13, the Docker image's Python since that day) and no OSV advisories. The PDAL Python package is a source distribution that needs the native PDAL library.
@@ -130,6 +130,7 @@ The app finds the 1 m DEM's files through the TNM Access API. The bucket holds f
 - **Counted** (every `1m/Projects/<project>/TIFF/` folder of the bucket against the API's list of the box −125..−66, 24..50): 1410 of 127 289 files are unlisted, 285 GB, in 73 projects, 8 of them wholly unlisted. They were put in the bucket in 2026-02 (1174) and 2026-04 (234). By state prefix: South Dakota 233, Arizona 174, New Mexico 167, Utah 127, Montana 110, California 96, Minnesota 96, Maine 72, North Dakota 68, New Hampshire 64, Mississippi 42, Washington 39. Oregon has 5: western Oregon's hole is real.
 - **What they hold, in Utah:** the 125 unlisted files cover all 2829 squares that no listed file reaches (2417 km²), and 10 of 10 window reads there had data. So Utah's "holes" are almost all this gap. Outside Utah the land gained was not measured (a file covers at most 100 km², and some may lie under listed files); South Dakota's 233 match the 7 % of that state without 1 m data, not checked square by square.
 - The API's OPR list matched the bucket for the three Utah surveys checked.
+- **Read by the app since 2026-11-23.** `sources/layers/tnmbucket.py` makes the list of these files from the bucket's listing and the API's (1410 files on 2026-11-23; a copy ships with the code as `sources/catalogue/usa_unlisted_1m.json`) and makes it again when it is older than 28 days. At a spot in the Wasatch range (regression case R94) a search found 0 lines on terrain that was 88 % 1/3″ DEM before, and 2 lines on 100 % 1 m terrain with the list.
 
 ### OPR against the holes
 
@@ -150,7 +151,7 @@ USGS's older 3 m product, TNM dataset `National Elevation Dataset (NED) 1/9 arc-
 - **Reading.** A window of the unzipped `.img` through range requests: 3.9 MB, 65 requests and 15 s for 3 by 3 km at the cove, against 43 MB for the zip. The app allows window reads for `.tif` only today.
 - **Where it adds terrain.** A 1/9″ tile lies over 37 % of CONUS land, its data (by the footprints) over 24.5 %. With data and no 1 m file: about 70 000 km² (*est.*, 54 000 to 96 000 by how the sample is read), Oregon 24 265 and North Carolina 21 352 of it. Of 300 points sampled there 32 % have OPR lidar too (an upper bound: a listed file's box near a point is not data at the point), so about 47 000 km² have neither a 1 m file nor OPR (*est.*).
 - **Against the 1/3″ DEM.** At the cove the 1/3″ DEM is this data averaged 3 by 3 (median difference 0.14 m in the nested phase).
-- **At the cove** (formula; lines, spots): on its own 3 m grid 5656 and 161; resampled bilinearly to a 1 m grid 1603 and 25; the 1/3″ DEM on its 10 m grid 524 and 122. At Indian Beach 32 spots at 3 m, 2 at 1 m. Coarser data on a 1 m grid loses most of its spots: how a search should run on such data (its own grid, a slope threshold for the resolution) is being measured.
+- **At the cove** (formula; lines, spots): on its own 3 m grid 5656 and 161; resampled bilinearly to a 1 m grid 1603 and 25; the 1/3″ DEM on its 10 m grid 524 and 122. At Indian Beach 32 spots at 3 m, 2 at 1 m. Coarser data on a 1 m grid loses most of its spots: how a search runs on such data on its own grid was measured on 2026-11-23 at nine places ([roadmap.md](roadmap.md), *A slope threshold for the resolution*).
 
 ### What asking the index again costs
 
@@ -163,6 +164,8 @@ About 1 s and 73 KB per 0.25° index tile for the 1 m DEM (all 509 tiles of Utah
 3. The index is asked again by a started download row and by `country run` on every start, and on the public site every month; never by a search.
 4. OPR files of 1 m or finer only, until the rule for coarser terrain is measured; nothing marked along the seam between OPR and the 1 m DEM, with one real seam checked before that wave is done; a source of OPR alone (`usa_opr`) not offered on the public site.
 5. Not used: the Seamless 1 m DEM (below).
+
+Built on 2026-11-23: point 1 and point 3 (`sources/renewal.py`). On the public site the user chose a weekly check that renews what is older than 28 days, so the list and every index answer are asked again every 28 to 35 days ([deployment.md](deployment.md), section 13). OPR and the 1/9″ DEM are not built.
 
 ## Why the Seamless 1 m DEM (S1M) is not used
 
@@ -260,7 +263,7 @@ Decided by the user on 2026-11-22, on the findings below. What S1M is, its file 
 - Is rockyweb's 429 a lasting block of automated downloads or a short limit? Its terms and limits are not yet looked up (docs/data-sources.md, the row on usage limits). USGS's contact for TNM is tnm_help@usgs.gov.
 - The EPT copy against TNM's projects: which newer projects are missing, by outline and year. Its own limits on requests are not known.
 - The OPR files' height unit: answered on 2026-11-22 (WESM's vertical CRS is wrong for most surveys delivered as one or two files; measure each file against the 1/3″ DEM). Open: the four surveys the test could not decide (flat ground, or no 1/3″ DEM there).
-- How a search should run on terrain coarser than 1 m (its own grid, or a 1 m grid; a slope threshold for the resolution): being measured at 2, 3, 5, 10 and 30 m.
+- How a search should run on terrain coarser than 1 m: measured on 2026-11-23 on grids of 2, 3, 5, 10 and 30 m ([roadmap.md](roadmap.md), *A slope threshold for the resolution*; the user chose a lower default threshold only at 30 m). Still being measured: surveys whose pixels do not nest in the 1 m grid (0.5 to 3 m and sizes in feet), and a search with 1 m data beside coarser data.
 - The land gained by the unlisted 1 m files outside Utah; the unlisted files with old-style names (not counted).
 - A real seam between OPR and the 1 m DEM on steep ground.
 - The pixel origin of OPR projects other than the Oregon coast.
