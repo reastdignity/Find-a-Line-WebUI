@@ -805,7 +805,14 @@ Persistent=true
 WantedBy=timers.target
 EOF
     [ "$CHANGED" = 1 ] && systemctl daemon-reload
-    [ "$new" = 1 ] && systemctl enable -q --now "$USA_RENEWAL.timer"
+    # A first install that could not be enabled takes its timer away again, so the next run installs it anew (else it
+    # would count as turned off)
+    if [ "$new" = 1 ] && ! systemctl enable -q --now "$USA_RENEWAL.timer"; then
+        rm -f "$UNITS/$USA_RENEWAL.timer"
+        systemctl daemon-reload
+        todo "$USA_RENEWAL.timer could not be enabled (journalctl -u $USA_RENEWAL.timer): sudo $DEPLOY/vps.sh update, later"
+        return 0
+    fi
     if systemctl is-enabled -q "$USA_RENEWAL.timer"; then
         note "$(systemctl list-timers "$USA_RENEWAL.timer" --no-legend | awk '{print "next renewal:", $1, $2, $3}')"
     else

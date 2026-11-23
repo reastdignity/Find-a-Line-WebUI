@@ -562,6 +562,11 @@ def test_usa_renewal_units(tmp_path):
     units, results = _usa_renewal(tmp_path / "with", [""], notify=True)
     assert _unit_file(units / "findaline-usa-renewal.service")["Unit"]["OnFailure"] == "notify-failure@%N.service"
     assert "no notify-failure@.service" not in results[0][0]
+    # A first install whose enable fails: the timer taken away and listed, the next run installs and enables it
+    failing = 'systemctl() { echo "$*" >> "$LOG"; [ "$1" != enable ]; }'
+    units, results = _usa_renewal(tmp_path / "failing", [failing, ""])
+    assert "could not be enabled" in results[0][0] and "enable -q --now findaline-usa-renewal.timer" in results[1][1]
+    assert (units / "findaline-usa-renewal.timer").exists() and (units / "enabled").exists()
 
 
 def _unit_file(path):
