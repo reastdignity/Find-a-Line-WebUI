@@ -466,7 +466,8 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
   compose.yaml, the address nginx's connections arrive from; only its `X-Forwarded-For` is
   believed), `FINDALINE_CONTACT`, `FINDALINE_GITHUB_CLIENT_ID`,
   `FINDALINE_GOOGLE_CLIENT_ID` and/or `FINDALINE_MICROSOFT_CLIENT_ID`, `FINDALINE_ADMINS` (below), `FINDALINE_SIGNUP` (`approval` by
-  default: new accounts wait for an administrator), the limits (README, *Limits of the web app*).
+  default: new accounts wait for an administrator; `open`: approved at once, the accounts still
+  waiting approved when `web` starts, and the sign-in page's note leaves out the wait), the limits (README, *Limits of the web app*).
   The public site has time limits by default: an hour for a search's download, two hours for
   its computing and for an OpenStreetMap extract, two minutes for an estimate or a profile
   (`FINDALINE_LIMIT_DOWNLOAD_SECONDS=3600`, `..._COMPUTE_SECONDS=7200`, `..._OSM_SECONDS=7200`,

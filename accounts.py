@@ -16,7 +16,8 @@ accounts: its one user is LOCAL, an administrator.
 - A user is (provider, its id: the `sub` of Google's or Microsoft's ID token, GitHub's numeric
   id), no e-mail. New accounts
   are `pending` until an administrator approves them (FINDALINE_SIGNUP=approval), approved
-  at once (open), or refused (closed). Administrators are FINDALINE_ADMINS (github:12345):
+  at once (open), or refused (closed); with open, accounts still pending are approved when
+  the web process starts (Accounts()). Administrators are FINDALINE_ADMINS (github:12345):
   always approved, never blocked. An administrator can lift the limits of the site for a
   user (users.unlimited) without making them an administrator.
 - Sessions are our own, so they can be revoked: a random token of SESSION_BYTES in the
@@ -153,6 +154,9 @@ class Accounts:
         db = self._db()
         try:
             cache.migrate(db, MIGRATIONS)
+            if settings.signup == "open":  # no one waits once sign-ups are open (blocked accounts stay blocked)
+                with db:
+                    db.execute("UPDATE users SET status = 'approved' WHERE status = 'pending'")
         finally:
             db.close()
 
