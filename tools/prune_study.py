@@ -1583,16 +1583,21 @@ def ranges_check(full: Dict[str, np.ndarray], kept: Dict[str, np.ndarray], side:
         rows.append({"filter": f, "found_passing": int(passing.sum()), "kept_shown": shown,
                      "kept_with_a_passing_copy": int(with_found.sum()), "misses": missed, "named_too_many": too_many,
                      "share_too_many_pct": round(100.0 * too_many / shown, 3) if shown else None})
+    def summed(of):  # the kept lines named too many over those shown, summed over the filters (a filter showing few
+        shown = sum(r["kept_shown"] for r in of)  # lines weighs little, where its own share may be 100 %)
+        return round(100.0 * sum(r["named_too_many"] for r in of) / shown, 3) if shown else None
     shares = [r["share_too_many_pct"] for r in rows if r["share_too_many_pct"] is not None]
     per_bound = {}
     for name in bounds:
-        own = [r["share_too_many_pct"] for r in rows if list(r["filter"]) == [name] and r["share_too_many_pct"] is not None]
+        mine = [r for r in rows if list(r["filter"]) == [name]]
+        own = [r["share_too_many_pct"] for r in mine if r["share_too_many_pct"] is not None]
         per_bound[name] = {"filters": len(own), "mean_pct": round(float(np.mean(own)), 3) if own else None,
-                           "max_pct": round(float(np.max(own)), 3) if own else None}
+                           "max_pct": round(float(np.max(own)), 3) if own else None, "pooled_pct": summed(mine)}
     out["check3"] = {"filters": len(rows), "seed": seed, "misses": misses, "ok": misses == 0}
     out["check4"] = {"study_pct": list(STUDY_SHARE), "single_bounds": per_bound,
                      "all_filters": {"median_pct": round(float(np.median(shares)), 3) if shares else None,
-                                     "max_pct": round(float(np.max(shares)), 3) if shares else None}}
+                                     "max_pct": round(float(np.max(shares)), 3) if shares else None,
+                                     "pooled_pct": summed(rows)}}
     out["filters"] = rows
     return out
 
@@ -1635,10 +1640,12 @@ def ranges_markdown(r: Dict) -> str:
              f"(stands_for differs: {c1['stands_for_differs']}, found without a kept line: {c1['found_without_kept']}) |",
              f"| 2. lo / hi = outward float32 of the least / most | {'yes' if c2['ok'] else 'NO: ' + wrong} |",
              f"| 3. misses under {c3['filters']} random filters (seed {c3['seed']}) | {c3['misses']} |",
-             f"| 4. named too many, all filters: median / max | {c4['all_filters']['median_pct']} % / "
-             f"{c4['all_filters']['max_pct']} % (the study: {c4['study_pct'][0]:g} to {c4['study_pct'][1]:g} %) |"]
+             f"| 4. named too many, all filters: median / max / pooled | {c4['all_filters']['median_pct']} % / "
+             f"{c4['all_filters']['max_pct']} % / {c4['all_filters']['pooled_pct']} % (the study: "
+             f"{c4['study_pct'][0]:g} to {c4['study_pct'][1]:g} %) |"]
     for name, s in c4["single_bounds"].items():
-        lines.append(f"| 4. {name} alone ({s['filters']} filters): mean / max | {s['mean_pct']} % / {s['max_pct']} % |")
+        lines.append(f"| 4. {name} alone ({s['filters']} filters): mean / max / pooled | {s['mean_pct']} % / "
+                     f"{s['max_pct']} % / {s['pooled_pct']} % |")
     if "summary_found_ok" in r:
         lines.append(f"| run.json's found = the found lines; the same search but for the rule | "
                      f"{'yes' if r['summary_found_ok'] else 'NO'}; {'yes' if r['same_search'] else 'NO'} |")

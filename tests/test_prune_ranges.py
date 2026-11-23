@@ -56,6 +56,9 @@ def test_ranges_check_of_a_made_up_table():
     assert not any({"liftMax", "liftMaxNoZone"} <= set(f["filter"]) for f in r["filters"])
     assert all(0 <= f["share_too_many_pct"] <= 100 for f in r["filters"] if f["share_too_many_pct"] is not None)
     assert any(f["named_too_many"] for f in r["filters"])  # a range names lines none of whose copies pass
+    pooled = r["check4"]["all_filters"]["pooled_pct"]  # named too many over shown, summed over the filters
+    assert pooled == round(100 * sum(f["named_too_many"] for f in r["filters"])
+                           / sum(f["kept_shown"] for f in r["filters"]), 3) and 0 < pooled < 100
     assert ps.ranges_check(full, kept, side, filters=300, seed=1)["filters"] == r["filters"]  # the seed fixes them
     # broken kept lines
     dropped = {k: v[1:] for k, v in kept.items()}
