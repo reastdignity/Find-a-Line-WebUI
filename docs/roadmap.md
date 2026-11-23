@@ -92,6 +92,31 @@ Rules for every step:
      big walls the threshold hardly matters (Matterhorn: 9-10 spots at every threshold, none within 30 m of a
      1 m line). Real 30 m data (FABDEM, Copernicus: radar, trees removed by estimate) are likely worse than this
      averaged lidar.
+   - *Measured again* (2026-11-23; the same nine places and line settings; each place's 1 m grid averaged to
+     2, 3, 5, 10 and 30 m and searched on that grid, the formula; a 1 m spot counts as found, and a coarse
+     spot as real, when lines of the two have both anchors within 25 m; 1577 spots at 1 m):
+
+     | Grid, threshold | Spots | 1 m spots found | Spots that are real |
+     | --- | --- | --- | --- |
+     | 2 m, 45° | 1831 | 97 % | 91 % |
+     | 3 m, 45° | 2045 | 96 % | 87 % |
+     | 5 m, 45° | 2086 | 93 % | 82 % |
+     | 10 m, 45° | 1360 | 83 % | 78 % |
+     | 10 m, 35° | 1698 | 86 % | 71 % |
+     | 30 m, 45° | 100 | 20 % | 65 % |
+     | 30 m, 40° | 125 | 23 % | 60 % |
+     | 30 m, 35° | 148 | 26 % | 57 % |
+     | 30 m, 30° | 175 | 28 % | 53 % |
+     | 30 m, 25° | 199 | 30 % | 52 % |
+
+     The threshold that marks the same area of anchors as 45° at 1 m is 45.7 to 46.8° on every grid (the
+     median of the nine places). Up to 5 m every place lies within 43.4 to 47.7°; at 10 m Żabi Koń needs
+     40.0°, and at 30 m the places spread from 32.7° (Żabi Koń) to 48.3° (the Matterhorn). At 30 m a lower
+     threshold helps the small rocks (Żabi Koń, Delicate Arch, Bastei: 13 % found at 40°, 31 % at 25°, their
+     real share falling from 94 to 72 %) and not the walls and rims (29 % found at 40° and at 25°, their
+     real share falling from 55 to 45 %). Resampled to a 1 m grid the same data loses spots: 74 % found
+     from 2 m and 66 % from 3 m, every spot real.
+   - *Decided* (the user, 2026-11-23): "A lower default only at 30 m". The value is not chosen yet.
    - *To do*: a default threshold from the resolution (a rule like the first version's, or measured on more
      places and on FABDEM itself), the form's hint for coarse sources, and perhaps longer default lines at 30 m;
      the regression set's 30 m rows (R11, R12) re-baselined in the same commit.
@@ -1611,7 +1636,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
 - **Measured**: El Capitan (R22) on an empty cache 18 s with 9 blocks of 1 km, 15 MB (the two files hold 560 MB); Moab Rim (R23) composed from 2020 and 2018; Mount Juneau (R24) 2 IfSAR blocks of 5 km, 4 MB. `cache update usa` with the index aged: the index and the 1/3″ blocks checked, nothing changed. A job of the web app at Yosemite: estimate and run through the queue.
 - **Orthophoto**: USGS Imagery (NAIP) tiles up to zoom 16 (`base_max_zoom`); the USDA NAIP WMS did not answer (2026-10-30).
 - **Measured 2026-11-07/08** ([usa-data.md](usa-data.md)): coverage of the 1 m DEM, OPR DEMs and point clouds (95 % of CONUS land each, the same projects; western Oregon has lidar but no 1 m DEM), OPR formats (0.5–3 m, feet and State Plane in places), the DSM options with a trial DSM from the EPT copy at the Oregon coast (works with a cap on height above the terrain; the Planetary Computer DSM stands 3.8 m low under trees), Alaska's IfSAR DSM (ZIPs only). The fixes for the five places a user reported are tasks in [tasks-usa.md](tasks-usa.md): the fallback made visible, a sag rig for long lines, a hint to the end zone, OPR as a terrain layer, a DSM from the point clouds.
-- **Open**: the surface model (below: Planetary Computer or our own from the point clouds; see usa-data.md); the OPR DEMs where the 1 m DEM has holes (task 4 of [tasks-usa.md](tasks-usa.md); USGS's table of surveys, WESM, in usa-data.md); Alaska's OPR lidar DEMs (53 surveys, usa-data.md); Guam and American Samoa (1/3″ only, `--source usgs10m` by hand); the Aleutians west of 180° (outside the Alaska box: `usa` and 1/3″); the overviews of the files for coarse grids (a 5 m search reads the 1 m blocks).
+- **Decided** (the user, 2026-11-22, after the measurements of [usa-data.md](usa-data.md#where-the-1-m-dem-is-missing-and-what-could-fill-it)): three steps to fill the 1 m DEM's holes, in this order. (1) The app reads the listing of USGS's bucket too: 1410 of its 127 289 1 m files are not in the TNM index (in Utah they cover nearly all the "holes"); with it the renewal of the index: a started download row and `country run` ask again on every start, the public site every month, a search never. (2) The OPR DEMs as a second, lower-ranked member of `usa`'s and `alaska`'s own terrain, only where the 1 m DEM leaves holes, files of 1 m or finer only, the height unit measured per file, nothing marked at the seam. (3) The 1/9″ DEM (3 m, frozen) as a third member, once the rule for terrain coarser than 1 m is measured. Step (1) is built (wave A, 2026-11-23: the list of the unlisted files in `sources/layers/tnmbucket.py`, the renewal in `sources/renewal.py`; on the public site a weekly timer runs `cache update usa`, which asks again what is older than 28 days). Steps (2) and (3) are not built.
+- **Open**: the surface model (below: Planetary Computer or our own from the point clouds; see usa-data.md); steps (2) and (3) above (task 4 of [tasks-usa.md](tasks-usa.md)); Guam and American Samoa (1/3″ only, `--source usgs10m` by hand); the Aleutians west of 180° (outside the Alaska box: `usa` and 1/3″); the overviews of the files for coarse grids (a 5 m search reads the 1 m blocks).
 
 **Summary**
 - **Terrain (DTM): yes, at 1 m.** USGS (3D Elevation Program, 3DEP) publishes free 1 m ground elevation for nearly all of the USA, in the public domain. Each 10 km tile is a file, and a newer survey of the same place is another file. It could be added like the Polish or Swiss data.
@@ -1686,7 +1712,8 @@ Checked at Yosemite (El Capitan), Moab and Boulder (Flatirons) with the TNM API,
 - Choosing between the projects of one tile.
 - Range reads of the files that are not COGs.
 - S1M again only if USGS retires the per-project 1 m DEM, or if S1M tiles built from lidar appear where the 1 m DEM has none (2026-11-22: neither; usa-data.md, "Why the Seamless 1 m DEM (S1M) is not used").
-- The 1/9″ DEM (3 m, older lidar, 8128 zipped `.img` files) as terrain between the OPR DEMs and the 1/3″ DEM: it lies under the Oregon cove, Indian Beach and central North Carolina, where no 1 m DEM is listed (2026-11-22; not measured, not decided).
+- How a search should run on terrain coarser than 1 m (the 1/9″ DEM at 3 m, OPR surveys of 2 to 3 m): at the Oregon cove the 3 m data gave 161 spots on its own grid and 25 resampled to a 1 m grid. Measured on 2026-11-23 on each data's own grid (*A slope threshold for the resolution* under Priorities): 97 % of the 1 m spots found at 2 m and 96 % at 3 m, against 74 % and 66 % when the same data is resampled to a 1 m grid. Still being measured: surveys whose pixels do not nest in the 1 m grid (the OPR surveys' real sizes, 0.5 to 3 m and sizes in feet) and a search with 1 m data beside coarser data.
+- The land gained by the 1 m files the TNM index does not list, outside Utah; a real seam between OPR and the 1 m DEM on steep ground (usa-data.md, "Open questions").
 - How often lines in US places pass over trees or buildings, that is, how much a missing DSM would change the results.
 
 ## The project's data server (specified 2026-11-15, built 2026-11-16)
