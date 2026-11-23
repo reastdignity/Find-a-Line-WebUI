@@ -75,10 +75,19 @@ def harness(tmp_path, monkeypatch):
         with pytest.raises(SystemExit) as ended:
             regression.main()
         out = capsys.readouterr()
+        kept.extend(line.rsplit("logs in ", 1)[1].strip() for line in out.out.splitlines() if "; logs in " in line)
         return ended.value.code, out.out + out.err, json.loads(tests_file.read_text(encoding="utf-8"))
 
+    kept = []
+
     main.write, main.results, main.cache = write, results, cache_dir
-    return main
+    yield main
+    for work in kept:  # the log folders main kept (a difference): their links removed as links first
+        for root, dirs, _ in os.walk(work):
+            for name in [d for d in dirs if os.path.isjunction(os.path.join(root, d))]:
+                os.rmdir(os.path.join(root, name))
+                dirs.remove(name)
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def _entry(expected, sets=("quick",), **more) -> dict:
