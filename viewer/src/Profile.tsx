@@ -18,7 +18,7 @@ import { chartFrame, chartLabels, frameLeg, MARGIN as M, type ChartMarks, type M
 import * as Sag from "./sag";
 import { clearanceText } from "./tight";
 import { Icon } from "./ui/icons";
-import type { Line, Rigging } from "./types";
+import type { Line, Profile as ProfileData, Rigging } from "./types";
 
 // a rigging field's step and its label's key (ui.profile.rig.<name>: the unit first, after the number field)
 const RIGGING: [keyof Rigging, number][] = [
@@ -37,6 +37,22 @@ const TEXT_PX = 12, LABEL_BOXES = {ascent: 13, descent: 3, pad: 2};
 // and the zone in brackets after the part they belong to
 export type ReadValues = {at: string; z?: string; water?: boolean; gap?: boolean; s?: string; limit?: string; clear?: string;
                           over?: string; zone?: boolean; sag?: string; kn?: string; above?: string};
+/** The profile's sample nearest `d` m from A1 (`k`) and the readout's values it gives: the distance, the terrain, the
+ *  trees or buildings, and the water and a filled gap whatever the terrain holds there (none: the marks stand after the
+ *  distance, readText). */
+export function sampleAt(p: ProfileData, d: number): {k: number; v: ReadValues} {
+  let lo = 0, hi = p.d.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (p.d[mid] < d) lo = mid; else hi = mid; }
+  const k = (d - p.d[lo] < p.d[hi] - d) ? lo : hi;
+  const z = p.z[k], s = p.s ? p.s[k] : null;
+  const v: ReadValues = {at: d.toFixed(0)};
+  if (z !== null) v.z = z.toFixed(1);
+  if (p.w && p.w[k]) v.water = true;
+  if (p.g && p.g[k]) v.gap = true;
+  if (s !== null && s !== undefined) v.s = s.toFixed(1);
+  return {k, v};
+}
+
 export function readText(v: ReadValues): string {
   const parts = [t("ui.profile.read_at", {d: v.at})];
   // (the water and a filled gap stand after the terrain's part, or after the distance where the terrain has no value)
@@ -278,15 +294,8 @@ export function ProfilePanel(props: ProfileProps) {
   let readout = summary, athlete: Sag.Athlete | null = null;
   if (hover !== null) {
     const d = hover;
-    let lo = 0, hi = p.d.length - 1;  // nearest terrain sample
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (p.d[mid] < d) lo = mid; else hi = mid; }
-    const k = (d - p.d[lo] < p.d[hi] - d) ? lo : hi;
+    const {k, v} = sampleAt(p, d);  // the nearest terrain sample
     const z = p.z[k], s = p.s ? p.s[k] : null;
-    const v: ReadValues = {at: d.toFixed(0)};
-    if (z !== null) v.z = z.toFixed(1);
-    if (p.w && p.w[k]) v.water = true;
-    if (p.g && p.g[k]) v.gap = true;
-    if (s !== null && s !== undefined) v.s = s.toFixed(1);
     const here = limit(d);
     if (isFinite(here)) {
       v.limit = here.toFixed(1);

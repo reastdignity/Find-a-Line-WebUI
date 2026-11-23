@@ -62,14 +62,20 @@ def test_profile_and_shares_write_words_not_characters():
     assert "height difference" in en["ui.profile.title"]
 
 
+# A profile of three samples: the middle one with no terrain value over water and a filled gap, the last over water
+SAMPLES = {"d": [0, 10, 20], "z": [300, None, 301], "s": [None, None, 305], "w": [0, 1, 1], "g": [0, 1, 0],
+           "min": [0, 0], "water_m": 10, "filled_m": 5}
+
+
 @pytest.mark.skipif(not os.path.isdir(os.path.join(REPO, "viewer", "node_modules")), reason="needs npm install in viewer/")
 def test_readout_marks_water_and_gaps_without_terrain(tmp_path):
     """The profile's readout (Profile.tsx readText) writes "(water)" and "(filled gap)" where the terrain has no value
-    too, after the distance (as before G6: the code review's finding 2), and after the terrain's part where it has one."""
+    too, after the distance (as before G6: the code review's finding 2), and after the terrain's part where it has one;
+    the cursor's sample (sampleAt) passes them whatever the terrain holds (round 2's N3)."""
     import json
     import subprocess
     entry, bundle = tmp_path / "entry.ts", tmp_path / "profile.cjs"
-    entry.write_text(f'export {{ readText }} from "{SRC.replace(os.sep, "/")}/Profile";\n', encoding="utf-8")
+    entry.write_text(f'export {{ readText, sampleAt }} from "{SRC.replace(os.sep, "/")}/Profile";\n', encoding="utf-8")
     subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], bundle: true, "
                                   "format: 'cjs', platform: 'node', loader: {'.css': 'empty', '.png': 'dataurl', '.svg': 'text', "
                                   f"'.woff2': 'empty'}}, outfile: {json.dumps(str(bundle))}}})"],
@@ -78,10 +84,20 @@ def test_readout_marks_water_and_gaps_without_terrain(tmp_path):
              {"at": "12", "z": "300.0", "water": True, "gap": True}, {"at": "12", "z": "300.0"}]
     script = tmp_path / "readout.cjs"
     script.write_text(f"const m = require({json.dumps(str(bundle))});\n"
-                      f"console.log(JSON.stringify({json.dumps(cases)}.map((v) => m.readText(v))));\n", encoding="utf-8")
+                      f"console.log(JSON.stringify({json.dumps(cases)}.map((v) => m.readText(v))));\n"
+                      # the cursor's sample (Profile.tsx sampleAt; round 2's N3): water and a gap where the terrain has
+                      # no value reach the readout, as where it has one
+                      f"const p = {json.dumps(SAMPLES)};\n"
+                      "console.log(JSON.stringify([10, 20, 0].map((d) => { const s = m.sampleAt(p, d); "
+                      "return [s.k, s.v, m.readText(s.v)]; })));\n", encoding="utf-8")
     done = subprocess.run(["node", str(script)], capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert done.returncode == 0, done.stderr
-    assert json.loads(done.stdout) == ["12 m from A1 (water)", "12 m from A1 (filled gap); safety limit: 310.0 m",
+    lines = done.stdout.splitlines()
+    assert json.loads(lines[1]) == [[1, {"at": "10", "water": True, "gap": True}, "10 m from A1 (water) (filled gap)"],
+                                    [2, {"at": "20", "z": "301.0", "water": True, "s": "305.0"},
+                                     "20 m from A1; terrain: 301.0 m (water); trees or buildings: 305.0 m"],
+                                    [0, {"at": "0", "z": "300.0"}, "0 m from A1; terrain: 300.0 m"]]
+    assert json.loads(lines[0]) == ["12 m from A1 (water)", "12 m from A1 (filled gap); safety limit: 310.0 m",
                                        "12 m from A1; terrain: 300.0 m (water) (filled gap)", "12 m from A1; terrain: 300.0 m"]
 
 
@@ -341,3 +357,60 @@ def test_one_key_listener_for_the_maps(site, kit_site):
     finally:
         page.context.close()
     assert first == 1 and second == 1, (first, second)
+
+
+# The profile's key with "Rigging and layers" open in a desktop card: its legend's items, and the legend's and the 1:1
+# scale's boxes
+KEY_ROW = """() => { const l = document.querySelector('.r-card .fal-profile-legend'), s = document.querySelector('.r-card .fal-scale');
+  const a = l.getBoundingClientRect(), b = s.getBoundingClientRect(), key = document.querySelector('.r-card .fal-key').getBoundingClientRect();
+  return {items: [...l.querySelectorAll('.u-legend-item')].filter((e) => e.getClientRects().length).map((e) => e.textContent.trim()),
+          one: b.top < a.bottom && a.top < b.bottom && b.left >= a.right, legend: [a.left, a.top, a.right, a.bottom].map(Math.round),
+          scale: [b.left, b.top, b.right, b.bottom].map(Math.round), key: Math.round(key.width), card: Math.round(document.querySelector('.r-card').getBoundingClientRect().height)}; }"""
+
+
+from test_shell_c import big_clip  # noqa: E402,F401  (the clip's run without the no-fall zone or A-frames)
+
+
+@pytest.fixture
+def plain_site(tmp_path, big_clip):
+    """The clip's run of test_shell_c (no no-fall zone, no A-frames) as a search with the default line model (the
+    formula: its head's model; the curves are drawn by it), served by the app."""
+    from test_web import store_with
+    folder = tmp_path / "data"
+    copy_clip(big_clip, folder, BIG, "Clip")
+    store_with(folder / "runs" / BIG, head={"model": "formula"})
+    page_path = stub_page(folder, "plaintest")
+    with _server(folder) as port:
+        yield f"http://127.0.0.1:{port}/{page_path}?ui=c"
+
+
+@browser_test
+@pytest.mark.parametrize("where", ["view", "today"])
+def test_card_key_and_scale_on_one_row(site, plain_site, where):
+    """With "Rigging and layers" open in a desktop card, the profile's key (its four items: terrain, trees or
+    buildings, water, the safety limit) and the 1:1 scale stand on one row, in the result view and on today's page:
+    the legend at 12 px with 12 px gaps (the user's F1 a, DESIGN.md row 133; round 2's N1), for a search with the
+    default line model ("safety limit (formula)"). The sag model's longer word ("(sag model)": 11 px more) and a run
+    with the no-fall zone or A-frames (two more items) take two rows, as on main (docs/known-bugs.md)."""
+    import urllib.parse
+    browser = site[1]  # the module's browser (test_keyboard_app's site)
+    page = _view(browser, plain_site + f"#run={BIG}", VIEW_DESKTOP, script=HELP)
+    try:
+        if where == "today":
+            link = page.evaluate("() => { const {view} = window.FINDALINE_VIEW, m = view.model;"
+                                 " return m.lineLink(m.lineAt(view.shownOf(view.order[0]))); }")
+            page.context.close()
+            page = _view(browser, plain_site + f"#run={BIG}&line={urllib.parse.quote(link)}", VIEW_DESKTOP, flag=False, script=HELP)
+        else:
+            _state(page, "view.select(view.order[0]);")
+        page.wait_for_selector(".r-card .r-dock-bar .u-chip", timeout=WAIT)
+        page.click(".r-card .r-dock-bar .u-chip")
+        page.wait_for_selector(".r-card .fal-key .fal-scale", state="visible", timeout=WAIT)
+        page.evaluate("() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)))")
+        row = page.evaluate(KEY_ROW)
+        assert page.errors == []
+    finally:
+        page.context.close()
+    print("the card's key:", where, row)
+    assert len(row["items"]) == 4, row  # this test's run: no zone, no A-frames
+    assert row["one"], row
