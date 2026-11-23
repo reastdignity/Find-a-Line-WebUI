@@ -1,7 +1,7 @@
 """The result view's seams of step 3c (viewer/src/result/view/SpotColumns.tsx, SpotPanels.tsx) as the frame fills
 them: the run's actions in the header and in a phone's pill, the selected line's profile in a card over the desktop's
 map (the measured profile's dock in a phone's sheet comes only with a measured line); the slots of the details
-(the selected line's actions, a phone's dock: SpotDetails.tsx) as view-3c drew them; the elements around the slots
+(the selected line's actions, a phone's dock: SpotDetails.tsx) as round 6 drew them; the elements around the slots
 are the ones they were. Today's page still shows its run's actions and a selected line's profile (the card on a
 desktop, the dock in a phone's sheet). Playwright's Edge over the app's server, offline, on the result view's clip
 run (clip_runs.view_clip). Every wait is an event with a deadline. Run from PowerShell
@@ -51,7 +51,7 @@ NAMES = ("c-result-top", "c-cols", "c-col-list", "c-col-map", "c-col-details", "
 # The view's elements that hold the slots and those around them, with their children: per device, at first and with a
 # spot selected. The frame's own (step 3c's frame): the run's actions after the header's grow (desktop) and the
 # pill's name (phone), the profile's card last in the map's column with a selection (desktop). The details' own as
-# view-3c drew them (their slots are SpotDetails.tsx's). The notice to turn a phone upright (gate 2's 4 a,
+# round 6 drew them (their slots are SpotDetails.tsx's). The notice to turn a phone upright (gate 2's 4 a,
 # SpotColumns.tsx Upright) first in both frames, hidden by its CSS until a phone is held sideways: its alert region
 # must be in the page before its words go in, and a phone held sideways (844 px wide) draws the desktop frame
 FRAME = {

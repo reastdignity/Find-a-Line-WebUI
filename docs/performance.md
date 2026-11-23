@@ -4207,7 +4207,7 @@ numbers are indicative; headless WebKit on Windows draws in software and swings 
 | today's page, the same 79-line spot | Edge desktop | 181 | 209 | – |
 | today's page | Edge at the iPhone's size | 198 | 270 | – |
 | today's page | WebKit iPhone 13 | 181 | 246 | – |
-| the view, before (view-3c d45d8ace) | Edge desktop | 16.4 | 47.8 | 2.1 (1.3 ms) |
+| the view, before (d45d8ace, tag history/view-3c) | Edge desktop | 16.4 | 47.8 | 2.1 (1.3 ms) |
 | the view, before | Edge at the iPhone's size | 28.4 | 48.0 | 2.1 |
 | the view, before | WebKit iPhone 13 | 23.5 | 113 | 2.1 (2.6 ms) |
 | the view, after (`SpotMap.hoverAt` draws nothing for the point already shown) | Edge desktop | 16.4 | 47.5 | 1.0 (0.9 ms) |

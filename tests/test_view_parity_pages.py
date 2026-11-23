@@ -589,7 +589,7 @@ def test_access_column_at_kept_list_widths(pages, width):
     """A1-A3 (today's test_list_column_and_its_widths): the view's list of a marked run at its default width and kept
     at 340 px draws the column "Anchors" (before "Lines"), every row's two dots inside their cell; kept under 300 px
     (280, 260: layout.ts LIMITS lets a list be 260 px) the column is left out, as on today's page (gap G1, fixed by
-    B3's fix round 5 in view-3c), and the mark stays in the map's legend and the details of a selected line. At every width no
+    B3's fix round 5 in round 6), and the mark stays in the map's legend and the details of a selected line. At every width no
     part of a row over another, no value and no column head wider than its cell (its text drawn over the next)."""
     from playwright.sync_api import sync_playwright
     narrow = width is not None and width < 300

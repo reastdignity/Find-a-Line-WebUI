@@ -305,7 +305,7 @@ and its phone frames). Every count below is of the lines that pass the filters.
 - The list's follow on a selection from the map or the table of spots: the "Best in view" row when the spot has one
   there, else the tree's row; a selection made by pressing a row keeps that row in view.
 
-**As built in round 6** (steps 3c and 3d, 2026-11-20 to 2026-11-22; branch `view-3c`; the looks are
+**As built in round 6** (steps 3c and 3d, 2026-11-20 to 2026-11-22; tag `history/view-3c`; the looks are
 docs/DESIGN.md rows 100 to 130, each with its source: the user's words, or the planner's or a review's):
 - **Today's features joined** (the plan's answers 3 to 6, 11, 12; gate 1's 4 a, 4 d, 7 b, 10 a and question 11): the
   run's actions (Share, Download, Measure, Compare, Copy link, Report; on a phone in the pill without Compare); the
@@ -524,7 +524,7 @@ Round 4 builds 2 and 3. Its plan moves two things: wave 2 also takes the base la
 must avoid the real controls), and each wave ports its own checks of 5; 5 keeps the review on three devices and the
 change of the default. **Built** (2026-11-17, behind the flag): wave 1 (39785f8), wave 2 (70bef24), wave 3
 (d0553d7). Waves 4 and 5 are steps 3c and 3d of `spec.md` section 5; step 3c also takes the design review's list
-(`docs/roadmap.md`). **Built in round 6** (2026-11-20 to 2026-11-22, branch `view-3c`): wave 4 by wave A (the seams,
+(`docs/roadmap.md`). **Built in round 6** (2026-11-20 to 2026-11-22, tag `history/view-3c`): wave 4 by wave A (the seams,
 the link, a square's values, the access mark's parts, the numbers measured) and wave B (B1 the map's features, B2
 the details and the list, B3 the frame and the profile); wave 5 by wave C (C1 and C2 the parity lists and their
 tests, C3 the default's switch with `tools/ui_shots.py` and `tools/ui_walks.py` brought to the view, C4 the gaps P1,

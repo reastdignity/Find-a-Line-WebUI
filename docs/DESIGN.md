@@ -1019,7 +1019,7 @@ gate of wave B and wave C's parity answers P1 to P5) and gate 2's answers after 
 `local/line-volume-6/planner-decisions.md`. Each is "for now" as the rest. Built by wave B (B1 the map, B2 the details
 and the list, B3 the frame), wave C (C4: P1, P3, P4) and gate 2's rounds; the workers and their code reviewers ran
 each new test against the build without its change. These rows were written from the workers' notes and checked
-against the sources (2026-11-23: each named class, constant and test found in view-3c's tree); no row was switched
+against the sources (2026-11-23: each named class, constant and test found in the tree of tag `history/view-3c`); no row was switched
 for this file. Rows 101 to 104, 106, 108, 110, 117, 118, 120 and 124 name no test that pins them. The final design
 check (2026-11-22) found the user's 53 answers met; R2's known leftovers and the polish it left are in
 docs/known-bugs.md ("Line volume, round 6").

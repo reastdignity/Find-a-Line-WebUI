@@ -188,7 +188,7 @@ basisdata.nl, neither on a run's files). Then 2c's wave 4, second deploy, in `ma
 end of the page's reader of `data.js`: `spec-store.md` 1.9). Open: 2d, 2e, 2g, 3c (after the UX session's design
 pilot, the user's "a"), 3d.
 
-**State on 2026-11-22.** Done (round 6, branch `view-3c`; started once the UX session's pilot was accepted): 3c and
+**State on 2026-11-22.** Done (round 6, tag `history/view-3c`; started once the UX session's pilot was accepted): 3c and
 3d. Step 3c joined today's features to the result view in the places of an interactive mock-up the user judged at
 gate 1, with the design review's list of 2026-11-17 (`docs/roadmap.md`); step 3d listed every check of today's result
 page and of the pages around it, ported each missing one to the view or recorded a decision (`spec-view.md` B.7), and

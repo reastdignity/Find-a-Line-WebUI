@@ -235,7 +235,7 @@ how a result is organised), built the low-effort part and specified the rest.
   `--html` removed after one release (store U10: accepted and ignored since a0c511ac); a way to remove a tiled
   search stopped part-way (a folder without `run.json`, which `runs remove-old` skips); `linestore.read` of chosen
   columns (`tools/perf_country.py`, docs/known-bugs.md).
-- **State on 2026-11-22** (round 6, branch `view-3c`): the result view's steps 3c and 3d are built and the view is a
+- **State on 2026-11-22** (round 6, tag `history/view-3c`): the result view's steps 3c and 3d are built and the view is a
   run's page by default (`VIEW_DEFAULT`, on the user's word after gate 2's iPhone checks; today's page stays behind
   `?view=today` and for the runs the view cannot show). Step 3c joined today's features (the run's actions, the
   profile card and the phone's docks, favourites with folders, Compare drawn apart, Measure, links, the search area,
