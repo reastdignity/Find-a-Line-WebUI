@@ -252,3 +252,131 @@ def test_a_failed_rename_keeps_the_old_name(saved, failing):
         {**json.loads(before["run.json"]), "name": "New"})
     assert "<title>New - Find-a-Line</title>" in (folder / "map.html").read_text("utf-8")
 
+
+# --- The route POST /api/runs/<id> on the public site ---
+
+def _as_saved(folder):
+    """ATTRIBUTION.txt and map.html of a run folder as the search writes them for its run.json (test_public's
+    copy_run changes only run.json's name)."""
+    meta = json.loads((folder / "run.json").read_text("utf-8"))
+    with open(folder / "ATTRIBUTION.txt", "w", encoding="utf-8") as f:
+        f.write(rn.attribution_text(meta))
+    with open(folder / "map.html", "w", encoding="utf-8") as f:
+        f.write(rn.map_page(meta))
+
+
+def _listed_names(client) -> dict:
+    """{run id: name} of /runs/runs.js."""
+    text = client.get("/runs/runs.js").text
+    return {r["id"]: r["name"] for r in json.loads(text.split("window.FINDALINE_RUNS = ")[1].split(";\n")[0])}
+
+
+def test_rename_through_the_site(run_people, tmp_path):
+    """The owner renames a run: the answer gives the name as stored; run.json, ATTRIBUTION.txt's first line and
+    map.html follow; /api/runs, runs.js, favourites, the admin's list, the demo cards of the sign-in page and an
+    export's download name give the new name with no code of their own; the run's id, its map's address, its share
+    link and its favourites still open it; the audit log records run_rename without the name."""
+    import audit
+    import jobs as jb
+    a, admin, anonymous = run_people["a"], run_people["admin"], run_people["anonymous"]
+    folder = tmp_path / "runs" / RUN_A
+    _as_saved(folder)
+    store = {n: (folder / n).read_bytes() for n in ("lines.arrow", "profiles.arrow")}
+    token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    assert mark(a, RUN_A, LINE).status_code == 200
+    row = run_people["jobs"].run(RUN_A)
+
+    answer = a.post(f"/api/runs/{RUN_A}", json={"name": "  Sunny   édge <b>&\"q\"  "})
+    name = "Sunny édge <b>&\"q\""
+    assert answer.status_code == 200 and answer.json() == {"ok": True, "name": name}
+    meta = json.loads((folder / "run.json").read_text("utf-8"))
+    assert meta["name"] == name and meta["id"] == RUN_A
+    assert (folder / "ATTRIBUTION.txt").read_text("utf-8").splitlines()[0] == f"Find-a-Line run \"{name}\" " \
+        f"({meta['created']})"
+    page = a.get(f"/runs/{RUN_A}/map.html")
+    assert page.status_code == 200 and f"<title>{html.escape(name)} - Find-a-Line</title>" in page.text
+    assert "<b>" not in page.text
+    assert {n: (folder / n).read_bytes() for n in store} == store
+    assert run_people["jobs"].run(RUN_A) == row  # the runs row (owner, share hash, visibility) as it was
+
+    assert {r["id"]: r["name"] for r in a.get("/api/runs").json()["runs"]} == {RUN_A: name}
+    assert _listed_names(a) == {RUN_A: name}
+    assert [f["run_name"] for f in a.get("/api/favourites").json()["favourites"]] == [name]
+    assert {r["run_id"]: r["name"] for r in admin.get("/api/admin/runs").json()["runs"]}[RUN_A] == name
+    shared = anonymous.get(f"/s/{token}/map.html")
+    assert shared.status_code == 200 and f"<title>{html.escape(name)} - Find-a-Line</title>" in shared.text
+    assert admin.post(f"/api/runs/{RUN_A}/demo", json={"demo": True}).status_code == 200
+    assert f"<b>{html.escape(name)}</b>" in anonymous.get("/").text  # the sign-in page's demo card
+
+    # an export's download (its file put where the worker's quick lane puts it: the lane itself is test_public's)
+    exports = tmp_path / os.path.join(*jb.EXPORTS)
+    exports.mkdir(parents=True, exist_ok=True)
+    export_name = "A" * 22 + ".csv"
+    (exports / f"{RUN_A}-{export_name}").write_bytes(b"a,b\r\n")
+    assert a.post(f"/api/runs/{RUN_A}", json={"name": "Plain name"}).json()["name"] == "Plain name"
+    sent = a.get(f"/api/runs/{RUN_A}/export/{export_name}")
+    assert sent.status_code == 200 and sent.headers["content-disposition"].startswith(
+        'attachment; filename="Plain name.csv"')
+
+    entries = [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "run_rename"]
+    assert [(e["user_id"], e["target"], e["detail"]) for e in entries] == [(run_people["ids"]["a"], RUN_A, None)] * 2
+    assert "Sunny" not in json.dumps(audit.Audit(str(tmp_path)).entries()) and "Plain" not in json.dumps(entries)
+
+
+def test_rename_refused(run_people, tmp_path, monkeypatch):
+    """Another user's run and an administrator who is not the owner: 404; no session, a pending or blocked user:
+    the guard's answer; a refused name or a body without a string name: 400 with the coded error; a run without
+    run.json: 404; a file held: 409; each changes nothing and records nothing."""
+    import audit
+    a = run_people["a"]
+    folder = tmp_path / "runs" / RUN_A
+    _as_saved(folder)
+    before = _files(folder)
+    assert run_people["b"].post(f"/api/runs/{RUN_A}", json={"name": "Mine"}).status_code == 404
+    assert run_people["admin"].post(f"/api/runs/{RUN_A}", json={"name": "Mine"}).status_code == 404
+    assert a.post(f"/api/runs/{RUN_B}", json={"name": "Mine"}).status_code == 404
+    assert a.post("/api/runs/no-such-run", json={"name": "Mine"}).status_code == 404
+    for who, code in DENIED.items():
+        assert run_people[who].post(f"/api/runs/{RUN_A}", json={"name": "Mine"}).status_code == code, who
+    assert a.post(f"/api/runs/{RUN_A}", json={"name": "Mine"}, headers={"origin": "https://evil.example"}) \
+        .status_code == 403
+    for body in ({"name": ""}, {"name": "   "}, {"name": "x" * 101}, {"name": "a\x01b"}, {"name": "a‮b"},
+                 {"name": "a​b"}, {"name": 5}, {"name": None}, {}, {"title": "x"}):
+        refused = a.post(f"/api/runs/{RUN_A}", json=body)
+        assert refused.status_code == 400 and refused.json()["detail"] == {
+            "message": "Give the run a name of 1 to 100 characters.", "code": "run_name", "params": {"max": 100}}, body
+    assert a.post(f"/api/runs/{RUN_A}", json=["Mine"]).status_code == 422  # not an object: FastAPI's own answer
+    real = cache.replacing
+
+    @contextlib.contextmanager
+    def held(path, *args, **kwargs):
+        if os.path.basename(path) == "map.html":
+            raise PermissionError(13, "held by another process", path)
+        with real(path, *args, **kwargs) as f:
+            yield f
+    monkeypatch.setattr(cache, "replacing", held)
+    in_use = a.post(f"/api/runs/{RUN_A}", json={"name": "Mine"})
+    assert in_use.status_code == 409 and in_use.json()["detail"] == "the run is in use: try again in a moment"
+    monkeypatch.setattr(cache, "replacing", real)
+    after = _files(folder)
+    assert after["run.json"] == before["run.json"] and after["map.html"] == before["map.html"]
+    assert {r["name"] for r in a.get("/api/runs").json()["runs"]} == {"A's run"}
+    (folder / "run.json").unlink()
+    assert a.post(f"/api/runs/{RUN_A}", json={"name": "Mine"}).status_code == 404
+    assert not [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "run_rename"]
+
+
+def test_no_rename_in_the_local_app(tmp_path, clip_run):
+    """The local app has no rename (the runs folder is the user's own: findaline.py has no command either): 404 for
+    a run that exists, its files unchanged."""
+    import web
+    from fastapi.testclient import TestClient
+    local = tmp_path / "local"
+    shutil.copytree(clip_run, local / "runs" / clip_run.name)
+    before = _files(local / "runs" / clip_run.name)
+    with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
+        headers = {"x-findaline-token": TOKEN}
+        assert client.get(f"/runs/{clip_run.name}/map.html").status_code == 200
+        refused = client.post(f"/api/runs/{clip_run.name}", json={"name": "Mine"}, headers=headers)
+        assert refused.status_code == 404 and refused.json()["detail"] == "runs are renamed on the public site"
+    assert _files(local / "runs" / clip_run.name) == before
