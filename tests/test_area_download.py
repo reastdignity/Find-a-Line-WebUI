@@ -383,7 +383,7 @@ def test_a_restarted_row_asks_the_index_again(tmp_path, monkeypatch, http_server
     assert sum(1 for r in http_server.log if r.path == "/") == bucket   # the list looked at once in the start
     renewed = ad.read_state(area.state_dir, "utah")["renewed"]
     assert (renewed["passes"], renewed["asked"], renewed["open"], renewed["through"]) == \
-        (2, state["renewed"]["asked"], 0, True)
+        (1, state["renewed"]["asked"], 0, True)   # pass 2 did not renew (E4)
     _settle(str(data / "cache"))
     assert ad.run_pass(area, 1) == ad.EXIT_DONE     # the row started again
     after = sorted(os.listdir(folder))
@@ -452,7 +452,7 @@ def test_the_passes_of_a_start_renew_until_it_went_through(tmp_path, monkeypatch
     for number in (3, 4):                             # went through: nothing more in this start
         tnm.asked.clear()
         assert ad.run_pass(area, number) == ad.EXIT_DONE
-        assert tnm.tile_requests() == {} and renewed() == (number, 4, 0, True)
+        assert tnm.tile_requests() == {} and renewed() == (2, 4, 0, True)   # not called again (E4)
 
     _settle(cache_dir)                                # a new start, killed at its third answer
     tnm.asked, tnm.count, tnm.kill_at = [], 0, 3
@@ -461,7 +461,27 @@ def test_the_passes_of_a_start_renew_until_it_went_through(tmp_path, monkeypatch
     assert sorted(tnm.tile_requests()) == sorted([box[tiles[0]], box[tiles[1]]])
     tnm.asked, tnm.kill_at = [], None
     assert ad.run_pass(area, 2) == ad.EXIT_DONE       # the rest, not the two asked before the kill
-    assert tnm.tile_requests() == {box[tiles[2]]: 1, box[tiles[3]]: 1} and renewed()[2:] == (0, True)
+    assert tnm.tile_requests() == {box[tiles[2]]: 1, box[tiles[3]]: 1}
+    assert renewed() == (2, 4, 0, True)               # the killed pass's two asks counted (E6)
+    from sources import renewal
+    calls = []
+    real = renewal.renew
+    monkeypatch.setattr(renewal, "renew", lambda *a, **k: calls.append(1) or real(*a, **k))
+    tnm.asked.clear()
+    assert ad.run_pass(area, 3) == ad.EXIT_DONE       # went through: the renewal not called at all (E4)
+    assert calls == [] and tnm.tile_requests() == {}
+    monkeypatch.setattr(renewal, "renew", real)
+
+    _settle(cache_dir)                                # E5: a new start whose pass 1 dies before it plans
+    _tile_1m(tnm, files, "CO_New_2025", 1025, published="2026-01-01")
+    with monkeypatch.context() as m:
+        m.setattr(ad, "_planned", lambda area: (_ for _ in ()).throw(KeyboardInterrupt()))
+        with pytest.raises(KeyboardInterrupt):
+            ad.run_pass(area, 1)
+    assert "renewal_since" not in ad.read_state(area.state_dir, "utah")   # the older start's time gone at once
+    tnm.asked.clear()
+    assert ad.run_pass(area, 2) == ad.EXIT_DONE       # starts the start's renewal: every answer, the new file seen
+    assert tnm.tile_requests() == {box[t]: 1 for t in tiles} and renewed()[2:] == (0, True)
 
     _settle(cache_dir)                                # a new start: every answer again
     tnm.asked.clear()
