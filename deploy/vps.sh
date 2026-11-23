@@ -771,7 +771,7 @@ USA_RENEWAL_BOUND=6h
 # timer is enabled when it is first installed; one the operator turned off (systemctl disable) stays off.
 usa_renewal() {
     step "The USA's 1 m index every month (section 13)"
-    local on_failure= new=0
+    local on_failure='' new=0
     if [ -f "$NOTIFY_FAILURE" ]; then
         on_failure='OnFailure=notify-failure@%N.service'
     else
