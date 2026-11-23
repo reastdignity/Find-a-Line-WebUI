@@ -58,7 +58,7 @@ R9 (DESIGN, the user's pick "R9 b", 2026-11-17): in a text the user reads no cha
 | "/" for "and" | and | "About and data licences" | G5's row left-06 |
 | "/" for "or" | or | "trees/buildings" -> "trees or buildings" (the profile; the view's details said it so) | G6's row w-07 (the user, 2026-11-23) |
 | "@" | at | "% stretch @ 10 kN" -> "% stretch at 10 kN" | G6's row w-06 |
-| "+" after a legend's last class | from; at a ramp's end "or more" | "7+" -> "from 7" (the map's Area legend), "7 or more" (a phone's ramp) | G6's rows w-10, w-10b |
+| "+" after a legend's last class | from | "7+" -> "from 7" (the map's Area legend); a phone's ramp keeps "7+" (the user's F2 b, 2026-11-23: the room beside its select) | G6's rows w-10, w-10b; the fix round's F2 |
 | a sign in a chart's tick | the bare value, the word in the chart's title | "≥10", "<2", "≤1" -> "10", "2", "1" under a title that says "at least", "under" or "up to" | G5's row char-18 |
 
 Kept, where a sign stays:

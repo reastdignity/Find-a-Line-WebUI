@@ -245,8 +245,8 @@ how a result is organised), built the low-effort part and specified the rest.
   sticky heads that sort, the list's star with folders, the sideways notice, no page zoom outside the map, the layers
   menu at half, the 2D credits pill, the store's retry when a phone's screen went off and the scrollers' layer. What
   it decided and left: docs/DESIGN.md rows 100 to 130, docs/line-volume/spec-view.md B.2 and B.10 ("as built in round
-  6"), docs/known-bugs.md ("Line volume, round 6"), and the list below. Open: 2d, 2e, 2g; the UX task's G6 aligns the
-  view's own closes, links and legend with the control family.
+  6"), docs/known-bugs.md ("Line volume, round 6"), and the list below. Open: 2d, 2e, 2g. The UX task's G6 put the
+  view's own closes, links and legend on the control family (DESIGN.md rows 131 to 136).
 
 ### Line volume round 6: open (2026-11-22)
 From the gates and reviews of round 6, each with its source (the user's answers are in

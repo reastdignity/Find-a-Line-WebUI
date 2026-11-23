@@ -554,10 +554,11 @@ Leaflet close the box on a late mouseout; with taps only it opens, on main too: 
 
 The layers' box and the keyboard (measured 2026-11-19): mended in step 3d G6 (DESIGN.md row 132): Escape closes the
 box, Enter or Space opens it with the focus on its chosen row, a second tap where the button stood no longer switches
-the base map. Kept: on a desktop the Tab order in the map's corner is coverage, layers, zoom, their order on the
-screen from the top (WCAG 2.4.3 asks for that order). The tools have names since G6 (axe `link-name`: 0); their
-30 px column on a touch tablet stays: five buttons one under another leave no room for invisible 44 px targets
-that do not overlap (G1's way), so 44 px would be visible (a layout change: the user's choice, not taken in G6).
+the base map. Kept by the user's decisions of 2026-11-23: on a desktop the Tab order in the map's corner is coverage,
+layers, zoom, their order on the screen from the top ("a: screen order"; WCAG 2.4.3 asks for that order); the
+tools' 30 px column on a touch tablet ("a: leave, in known-bugs": five buttons one under another leave no room for
+invisible 44 px targets that do not overlap, so 44 px would be visible). The tools have names since G6 (axe
+`link-name`: 0).
 The coverage's 83 outlines are out of the Tab order since DESIGN.md row 81.
 
 The about page's long address ("ARSO's terms of use of its lidar data: http://...", plain text in a credit's notice)
@@ -617,7 +618,8 @@ word's help are written out since step 3d G5 (DESIGN.md choice 92).
 Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept (rows 40 to 49). Left as it is:
 
 - **Inherited from the profile chart** (`Profile.tsx`, `profile.css`: shared with today's result page and line
-  volume's round 6, not changed here): the card's facts joined by " · ", "→" and "Δh" (R9). Its text at 11 px and
+  volume's round 6, not changed here): the card's facts joined by " · ", "→" and "Δh" (R9) were put in words by step 3d
+  G6 (DESIGN.md row 136). Its text at 11 px and
   the controls of "Rigging and layers" under 44 px on a touch screen were mended by line volume's round 6 (the user's
   12 a: the chart's text 12 px, every control of the profile 44 px on touch, on both pages and the 3D card;
   DESIGN.md row 104).
@@ -814,7 +816,8 @@ rows 87 to 91; `tests/test_viewer.py::test_free_css_on_the_scales` and its `OFF_
   `--line` border) are two sizes for one level: left by the user's "Leave for now (Recommended)", 2026-11-22 (the
   design review's F4). The access mark's help panel, 28 px higher (13 px type, R7's padding), is cut by 37 px at
   rest in the result view's key on the iPhone (round 6's `.v-over`, 277 px high; 9 px before); it scrolls and reads
-  whole: room for it in `.v-over` is G6's (the design review's F2). The result view's and the profile's legends are on the kit's since G6 (DESIGN.md row 133).
+  whole: room for it in `.v-over` was offered to G6 as T3 and left by the user (2026-11-23). The result view's and the
+  profile's legends are on the kit's since G6 (DESIGN.md row 133).
 
 ## Step 3d, group G3 (one control family): known and left (2026-11-22)
 
@@ -924,13 +927,31 @@ to 136; `tests/test_view_kit.py`). Left:
 - **Today's result page follows the shared parts** (the user's G6-Q1 a and G6-Q2 a): its closes, text actions,
   checkboxes, More filters' heads, the dock's buttons and the profile's words are the view's now; its own components
   (`FilterBar`'s bar, `LineDetails`, `LinesTable`, `ResultColumns`) keep their English and looks.
-- **The drawing tools on a touch tablet** keep Geoman's 30 px column (group A's entry above: 44 px there would be a
-  layout change).
-- **"Data credits" on a phone** (T7): `ui_metrics` measured its target 35 px high in 12 states a pass on each phone;
-  a probe of `c-view` and `c-view-half` (iPhone, Pixel) found the whole 44 px (`local/ux-design-2026-11-16/3d/g6/
-  t7-probe-before.json`). The states where it is cut were not traced: no fix was made.
-- **The profile's curves** keep `Profile.tsx` `PROFILE` (SVG attributes, which take no custom property; as the
-  canvas's constants of rows 111 to 114); its legend's and labels' colours are tokens. `CoarserNote` joins the
-  fallbacks' names with " and " in code.
+- **The drawing tools on a touch tablet** keep Geoman's 30 px column, and the place map's corner keeps the screen's
+  Tab order: the user's decisions of 2026-11-23, not open items (group A's entry above).
+- **"Data credits" on a phone** (T7, the user's pick; not built: it waits for the user). A hit test over the folded
+  pill's 44 px band (`elementFromPoint`, the fix round of 2026-11-23): at the sheet's low stop and at half a press
+  reaches it on 27 px of the 44 on the iPhone (390 x 664) and at 360 px, 35 px on the Pixel: the credits' links of
+  the line above take up to 8 px (round 6 put them over the target on purpose) and the sheet's handle under it 9 px.
+  In `ui_metrics`' other 12 states a pass (`c-view-sector`, `-report`, `-picker` ...) the sheet stands over the pill:
+  none of its band is pressable and none needs to be (hidden). The whole 44 px without moving anything drawn: the
+  target moved above the pill (19 px over it, none under it) and laid over the links. Measured: 43 px of the band on
+  the three phones (its last half pixel lies under the sheet's edge), but at 360 px the link "report a map issue" lies
+  wholly inside it and no press reaches that link; with the target moved but the links kept over it, 43 px where no
+  link lies above, 26 px under a link (and 5 px above it).
+  Either costs a link's press or needs something drawn to move: the user's choice, with a mock-up first.
+- **The desktop card's key with "Rigging and layers" open** wraps to 3 rows (the 1:1 scale under the legend; the
+  card 380 px high against main's 344, today's page 381 against 345: the design review's F1). The user's F1 b
+  ("legend 12 px, one row") was tried in the fix round of 2026-11-23 and still wraps: at the card's 596 px (today's
+  594) the 12 px legend is 407 px, the gap 12 and the kit's 1:1 scale 186 px, 9 px too wide (13 px: 429 px; main's
+  legend 357 px beside a 164 px button). Reverted; it waits for the user (the brief: no shrinking of the button or
+  its words without them).
+- `CoarserNote` joins the fallbacks' names with " and " in code. Today's page's own English the view never shows:
+  `FilterBar`'s bar (its chips and "Close the filter") and `ResultNote`'s "Close" (`ResultSummary.tsx`); the guard
+  (`tests/test_texts_in_catalogue.py` `MOVED`) covers the parts the view borrows (`MainEditor`, `MoreFilters`,
+  `CoarserNote`, `WhyBox`, `AccessLegend`, `ResultSummary`).
+- **More filters' heads** differ from their labels by weight and grey only (13 px, 600, `--ink-2` over 13 px, 400,
+  `--ink`; the design review's P1): left. No one token mends it: a larger size token (`--fs-3`) would undo T5's
+  "the text's 13 px", and `--ink` would take the grey away as well.
 - **The access help cut in a phone's `.v-over`** (37 px at rest) and the map's switch after the credits in the Tab
   order: left by the user (T3, T2).

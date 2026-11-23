@@ -79,6 +79,8 @@ catalogue), `browser-tests.md`.
   counts the sheet at rest only once the credits' corner stands above it. Every move goes into the bar's room, a
   selection's fit through `selectedFit`; no move's padding grows for the controls. While P3's drop runs (a selection
   at full), `bar()` and `free()` count the sheet at half.
+- `Profile.tsx` draws no colour: each curve and swatch has a class that `profile.css` colours from a token (a new curve:
+  a class and a token, both themes).
 - `Profile.tsx` draws at `TEXT_PX` with `LABEL_BOXES` (measured at 12 px): a size change changes both; `labels.ts`'
   defaults stay its Node test's 11 px. `ProfileDock`'s `compact` is the view's phone docks' only; today's page and
   the cards never pass it. `layersControl.ts` holds the maps' layers control: the view never imports
