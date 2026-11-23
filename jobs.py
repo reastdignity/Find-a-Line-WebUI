@@ -447,8 +447,8 @@ def _wal(db: sqlite3.Connection):
     has that file mapped. Measured 2026-11-23 with killed processes of up to 600 MB: errors up to 149 ms after the
     kill, none once the opening was tried again; `tests/test_web.py::test_quick_lane` met it in 5 of 46 runs. Any
     other error, and this one after the last pause, is raised, with the connection closed. The pauses run where the
-    opening runs: in the web's thread pool, but for `web.quick`'s `quick_forget` on its error path on the event
-    loop itself."""
+    opening runs: in the web's thread pool for most calls, on the event loop itself where the web calls the queue
+    directly (`web.quick`'s `quick_forget` on its error path, the app's end with `scheduler.stop()`, `osm_job`)."""
     for pause in (*OPEN_PAUSES, None):
         try:
             db.execute("PRAGMA journal_mode=WAL")
