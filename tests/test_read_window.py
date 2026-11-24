@@ -107,7 +107,8 @@ def _prepare(layer, cache_dir: str, out_dir: str, quiet: bool = True) -> list:
 
 
 def _later(cache_dir: str, path: str, recorded):
-    """What a later comparison of the record with the cache says of one file (the harness, cache status)."""
+    """What a later comparison of the record with the cache's index says of one file (as `cache status` compares;
+    the regression harness compares with its stored record instead)."""
     if recorded is None:
         return "not known"
     return "same" if cache.stored_checksums(cache_dir, [path])[0] == recorded else "differs"
@@ -165,8 +166,8 @@ def test_the_limit_left_a_row_written_after_both_notes(tmp_path, monkeypatch):
     """What the two notes cannot see (docs/known-bugs.md, "The data record"): a writer moves the new file in first
     and writes its row after (cache.record hashes the file, waits for the index's lock), so a read that falls
     between the two, with both notes before the row, is recorded with the old checksum although the new bytes were
-    read. A later comparison then says "differs" (the index holds the new checksum), never "same" while the
-    content is another, unless the file is put back to the old content."""
+    read. Compared with the index now (`cache status`) it reads "differs"; compared with a stored record made
+    before the replacement (the regression harness's) it reads "same" although other bytes were read."""
     cache_dir = str(tmp_path / "cache")
     layer = Tiles()
     for t in range(2):

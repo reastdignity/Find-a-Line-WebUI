@@ -303,8 +303,9 @@ harness, `cache status` and `tools/record_check.py` compare by it. Known and lef
   before the mosaic reads them and after (`mosaic.noted_before`, `cache.touch`), and a file whose two notes are not
   the same known checksum is not known (`mosaic.read_window`). Left: a writer moves the new file in first and
   writes its row after (it hashes the file, waits for the index's lock), so a read inside that gap with both notes
-  before the row keeps the old checksum (a later comparison says "differs", never "same" unless the old content
-  comes back; on Windows a file open for the read cannot be replaced meanwhile). The OSM tiles of the coastline and
+  before the row keeps the old checksum: `cache status` then calls the file changed, the regression harness (its
+  stored record holds the old one too) "same data" (on Windows a file cannot be replaced while the read holds it
+  open). The OSM tiles of the coastline and
   of an area are noted once, after their read (`coast.identity` after the sea mask, `area.Inputs.identity` after the
   area's shape): a tile replaced in between is recorded as read; closing it needs the first note inside
   `osm.theme`, after a tile's fetch and before its read. A Nominatim answer is noted in the function that read it
