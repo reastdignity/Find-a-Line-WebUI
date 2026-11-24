@@ -2634,7 +2634,8 @@
       "over_trees": 0,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "USGS 3DEP (1 m DEM)"
+      "source": "USGS 3DEP (1 m DEM)",
+      "coastline": "no sea in the area"
     },
     "notes": "added 2026-11-22 (wave A of the USA's OPR task: gate 0's spot); before the list, on an empty cache: 5 of 12 blocks without data, terrain 11.9 % 1 m DEM and 88.1 % 1/3 arc-second DEM, 270 360 anchors, 514 open, 0 lines; with it every block has data and run.json's source_files name both unlisted files",
     "seconds": 27.0
