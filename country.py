@@ -1126,6 +1126,7 @@ class TileWork:
               threads_now: Optional[Callable[[], int]] = None) -> Dict:
         """One tile: step 1, the count, its file; returns its meta. threads_now: the threads the
         count may take as it goes on (_Rethreading), else threads throughout."""
+        import runs
         import search
         import sources as src
         from progress import progress
@@ -1183,7 +1184,10 @@ class TileWork:
                 "io": {"read": read1 - read0, "write": written1 - written0},
                 "threads": threads, "threads_max": getattr(sink, "most", threads), "peak_memory": _peak_memory(),
                 "commit": self.commit,
-                "data": json.loads(json.dumps(src.used_data)), "started": started, "finished": _now()}
+                # the data entries without the record of the data read (checksums: the user decides after a
+                # measurement, C2), each entry otherwise as the run's
+                "data": runs.without_identity(json.loads(json.dumps(src.used_data))), "started": started,
+                "finished": _now()}
         path = self.tile_path(band.name, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         countcube.save_tile(path, counts, meta)

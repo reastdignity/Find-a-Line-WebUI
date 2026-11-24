@@ -218,6 +218,8 @@ def test_cube_equals_one_grid(env, full):
     assert meta["neighbours_sha256"] == info["neighbours_sha256"]
     assert meta["lines"] == counts.lines and meta["spots"] == len(counts.spot_ids) and "dropped" in meta
     assert meta["seconds"]["count"] >= 0 and meta["threads"] >= 1 and meta["data"] and "peak_memory" in meta
+    # its data entries as a run's but without the record of the data read (`identity`: decided after measuring, C2)
+    assert "identity" not in json.dumps(meta["data"]) and all(list(e) == ["layer", "file"] for e in meta["data"])
     # its profile (`country profile`): seconds and CPU per stage, the counter, the memory, the file reads
     assert "finding anchors" in meta["stages"] and all(len(v) == 2 for v in meta["stages"].values())
     assert meta["memory"]["rss"] > 0 and meta["memory"]["private"] > 0 and meta["cpu_seconds"] > 0
