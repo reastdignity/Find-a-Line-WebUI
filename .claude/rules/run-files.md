@@ -144,8 +144,10 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   file's `size`/`modified`, the coastline's `edition` or tiles; the `area` block's OSM tiles and Nominatim answers;
   the top level's library versions, `slope_file`, `mixed`): with every `identity` removed run.json is what it was
   before; `runs.without_identity` is its one exit (`public_meta`, `_listed`, the country layer's `_credits`), so nothing that
-  leaves a run carries it (`tests/test_data_record.py`). `data_used.json` is `{"data", "mixed"}` (a list of before:
-  not mixed); a resumed session that read other data marks the run `mixed` (`search._record_differs`). The checksums
+  leaves a run carries it (`tests/test_data_record.py`). `data_used.json` is `{"data", "mixed", "area",
+  "slope_file"}` (a list or an object of before: what it lacks never marks); a resumed session that read other data
+  (`search._record_differs`) marks the run `mixed` only when a tile of an earlier session exists, and a resume with
+  no tile left takes the kept record whole (data, area, slope file). The checksums
   come from `cache.touch`'s SELECT of `fetched_at` (entries keep `fetched`, `cache status` reads both); the touch runs
   after the mosaic read the files, so a file replaced in between is recorded as read (a known limit).
 - Favourite lines are known by their anchors joined (`keys.lineCoords`, also the `#line=` of a map's link): the
