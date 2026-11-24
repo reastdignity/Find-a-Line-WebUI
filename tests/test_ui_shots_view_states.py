@@ -31,8 +31,8 @@ COVERED = {
     "C4 stepper, phone low": "c-view-stepper-low", "C4 Previous off": "c-view-stepper-first",
     "C4 Next off": "c-view-stepper-last", "C4 smallest first": "c-view-sort-asc",
     "C4 picker, phone": "c-view-picker-low",
-    # round 7's A3: a main filter's editor open, More filters open (every device)
-    "A3 editor": "c-view-editor", "A3 More filters": "c-view-more",
+    # round 7's A3: a main filter's editor open, More filters open, More filters scrolled to its end (every device)
+    "A3 editor": "c-view-editor", "A3 More filters": "c-view-more", "A3 More filters' end": "c-view-more-end",
 }
 SHORE = {"c-view-boxes", "c-view-chips-held", "c-view-box-coarser", "c-view-box-shore", "c-view-link-centre"}
 CLICKS = {ui_shots.VIEW_DESKTOP, ui_shots.VIEW_PHONE, ".r-card .r-fold"}  # the only steps that are clicks
@@ -151,6 +151,28 @@ def test_the_filters_panels_open():
     pages = list(ui_shots.PAGES)
     changing = [n for n in pages if any(FILTERS_CHANGED.search(s) for s in ui_shots.page_steps(ui_shots.PAGES[n][2]))]
     assert {"c-view-note", "c-view-none", "c-view-sort-asc"} <= set(changing)
-    assert pages.index("c-view-editor") < pages.index("c-view-more") < min(pages.index(n) for n in changing)
+    assert (pages.index("c-view-editor") < pages.index("c-view-more") < pages.index("c-view-more-end")
+            < min(pages.index(n) for n in changing))
     names = list(ui_shots.VIEW_STATES)
-    assert names.index("c-view-more") + 1 == names.index("c-view-note") and names[-1] == "c-view-sort-asc"
+    assert names.index("c-view-more-end") + 1 == names.index("c-view-note") and names[-1] == "c-view-sort-asc"
+
+
+def test_more_filters_end():
+    """A3's third state: More filters open as in c-view-more, then the element that scrolls them moved (a desktop's
+    list body, a phone's sheet body) until the section's end is in view, and waited for until its last control lies
+    wholly inside that body and the screen with nothing over it: a state that does not get there ends at the wait's
+    deadline. Scrolling is all it adds (no filter changes)."""
+    more, end = ui_shots.PAGES["c-view-more"][2], ui_shots.PAGES["c-view-more-end"][2]
+    assert end == more + ["js:" + ui_shots.VIEW_MORE_SCROLL, ui_shots.VIEW_MORE_END]
+    assert not any(FILTERS_CHANGED.search(s) for s in end)
+    assert ui_shots.VIEW_MORE == "wait:!!" + ui_shots.VIEW_MORE_SECTION
+    for step in (ui_shots.VIEW_MORE_SCROLL, ui_shots.VIEW_MORE_END):
+        assert ui_shots.VIEW_MORE_SECTION in step and "closest('.u-sheet-body, .vl-body')" in step
+    assert "scrollTop +=" in ui_shots.VIEW_MORE_SCROLL
+    assert ui_shots.VIEW_MORE_END.startswith("wait:") and "querySelectorAll('input, select, button')].pop()" in \
+        ui_shots.VIEW_MORE_END
+    assert "r.top >= o.top && r.bottom <= Math.min(o.bottom, innerHeight)" in ui_shots.VIEW_MORE_END
+    # nothing over it: the element at its centre is it, a part of it or holds it (a range takes the pointer on its thumb
+    # only: its row is hit)
+    assert "document.elementFromPoint(" in ui_shots.VIEW_MORE_END
+    assert "!!at && (at.contains(c) || c.contains(at))" in ui_shots.VIEW_MORE_END
