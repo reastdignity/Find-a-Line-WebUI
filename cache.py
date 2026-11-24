@@ -26,7 +26,8 @@ Every top-level folder has an index.sqlite with one row per file: its status
 ("ok", or "missing" when the service has no data there), when it was fetched,
 checked and last used, ETag / Last-Modified, sha256, the date of the source data and
 the processing version. URLs are stored without API keys. A row without its file
-counts as not downloaded; a file without a row is adopted.
+counts as not downloaded; a file without a row is adopted. A run records the stored sha256 of every
+cached file it read (touch's checksums: its data entries' `identity`), null for a file adopted without one.
 
 Updates (update.py, and --update of a search) never happen on their own. Data that
 can change is checked again after its interval (TTL_DAYS); versioned releases
@@ -52,7 +53,7 @@ import tempfile
 import time
 import tomllib
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Sequence
 
 LAYOUT = 1
 LOCKS = "locks"  # the lock files of downloads (sources.host_slot, tile_lock), not a dataset
@@ -604,8 +605,11 @@ def count_missing(cache_dir: str, paths: Iterable[str]) -> int:
     return count
 
 
-def touch(cache_dir: str, paths: Iterable[str]) -> Dict[str, Optional[str]]:
-    """Mark files as used now; return the range of their fetch times (oldest, newest)."""
+def touch(cache_dir: str, paths: Iterable[str],
+          checksums: Optional[Dict[str, Optional[str]]] = None) -> Dict[str, Optional[str]]:
+    """Mark files as used now; return the range of their fetch times (oldest, newest). checksums: filled with each
+    file's stored sha256 by its path relative to the cache (relative()), None where the index has none (a file
+    adopted by hand), read in the same query as its fetch time (a run's record, identity_of)."""
     by_top: Dict[str, List[str]] = {}
     for path in paths:
         top, inner = _split(cache_dir, path)
@@ -615,8 +619,37 @@ def touch(cache_dir: str, paths: Iterable[str]) -> Dict[str, Optional[str]]:
         with _connect(cache_dir, top) as db:
             db.executemany("UPDATE files SET last_used_at = ? WHERE path = ?", [(now, i) for i in inners])
             for inner in inners:
-                row = db.execute("SELECT fetched_at FROM files WHERE path = ?", (inner,)).fetchone()
+                row = db.execute("SELECT fetched_at, sha256 FROM files WHERE path = ?", (inner,)).fetchone()
                 if row and row[0]:
                     fetched.append(row[0])
+                if checksums is not None:
+                    checksums[f"{top}/{inner}"] = (row[1] or None) if row else None
         db.close()
     return {"oldest": min(fetched, default=None), "newest": max(fetched, default=None)}
+
+
+def stored_checksums(cache_dir: str, paths: Sequence[str]) -> List[Optional[str]]:
+    """The stored sha256 of each file (paths relative to the cache, with /), in their order, None where the index
+    has no row or no checksum; reads only, one connection per top-level folder, none for a folder without an index
+    (the OSM tiles of a run's coastline and of its area: a run's record)."""
+    answers: List[Optional[str]] = [None] * len(paths)
+    by_top: Dict[str, List[int]] = {}
+    for k, path in enumerate(paths):
+        by_top.setdefault(path.partition("/")[0], []).append(k)
+    for top, ks in by_top.items():
+        if not os.path.isfile(os.path.join(cache_dir, top, "index.sqlite")):
+            continue
+        db = _connect(cache_dir, top)
+        try:
+            for k in ks:
+                row = db.execute("SELECT sha256 FROM files WHERE path = ?", (paths[k].partition("/")[2],)).fetchone()
+                answers[k] = (row[0] or None) if row else None
+        finally:
+            db.close()
+    return answers
+
+
+def identity_of(paths: Sequence[str], checksums: Dict[str, Optional[str]]) -> Dict[str, List[Optional[str]]]:
+    """A data entry's `identity` (a run's record of the data it read, never in the public export: runs.public_meta):
+    the stored sha256 of each of its paths, parallel to them (touch's checksums), null where not known."""
+    return {"sha256": [checksums.get(p) for p in paths]}

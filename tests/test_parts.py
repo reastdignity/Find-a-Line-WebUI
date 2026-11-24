@@ -685,6 +685,47 @@ def test_composed_layer(tmp_path, capsys):
     assert layer.reader.fetched == []  # all cached or missing
 
 
+def _statements(monkeypatch):
+    """The SQL statements run on the cache's index connections from now on (cache._connect traced)."""
+    run, connect = [], cache._connect
+
+    def traced(cache_dir, top):
+        db = connect(cache_dir, top)
+        db.set_trace_callback(run.append)
+        return db
+    monkeypatch.setattr(cache, "_connect", traced)
+    return run
+
+
+def test_used_records_the_stored_checksums(tmp_path, monkeypatch):
+    """Layer.used gives its entry `identity`: the index's stored sha256 of each file, parallel to `paths`, None for a
+    file the index holds no checksum for (adopted by hand); read in the lookup cache.touch makes for the fetch
+    times, so noting a layer's files runs the same statements as touch alone, one SELECT per file."""
+    layer, cache_dir = FakeLayer(4), str(tmp_path)
+    src.download_layers([(layer, "fake")], None, cache_dir)
+    adopted = layer.tile_path(cache_dir, 1)
+    with open(adopted, "ab") as f:  # replaced by hand: its row loses the checksum
+        f.write(b"!")
+    db = cache._connect(cache_dir, "fake")
+    with db:
+        db.execute("UPDATE files SET sha256 = NULL WHERE path = ?", ("layer/1.bin",))
+    db.close()
+    used = layer.used(None, cache_dir)
+    assert used["paths"] == ["fake/layer/0.bin", "fake/layer/1.bin", "fake/layer/3.bin"]
+    expected = [cache.info(cache_dir, layer.tile_path(cache_dir, t))["sha256"] for t in (0, 3)]
+    assert used["identity"] == {"sha256": [expected[0], None, expected[1]]} and all(len(s) == 64 for s in expected)
+    assert list(used)[-1] == "identity" and set(used) == {"layer", "folder", "files", "fetched", "paths", "identity"}
+    files = layer.files(None, cache_dir)
+    run = _statements(monkeypatch)
+    cache.touch(cache_dir, files)
+    alone, run[:] = list(run), []
+    layer.used(None, cache_dir)
+    assert len(run) == len(alone) and sum(s.startswith("SELECT") for s in run) == len(files) == 3
+    assert cache.stored_checksums(cache_dir, used["paths"] + ["fake/layer/9.bin", "nothing/here.tif"]) == \
+        [expected[0], None, expected[1], None, None]
+    assert not os.path.exists(os.path.join(cache_dir, "nothing"))  # read only: no index made for a folder
+
+
 class GridLayer(FakeLayer):
     """A fake layer whose tiles are those of its grid: the tiles 0..grid-1, in a folder of its own; it records the
     grids it was asked about."""

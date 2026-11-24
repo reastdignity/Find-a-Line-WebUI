@@ -2488,18 +2488,35 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     return Lines(results, groups, hy.statistics(terrain, plan.resolution), shore, origins), run
 
 
+def _seen_checksums(seen: Dict[str, set], entry: Dict):
+    """Add an entry's checksums (its `identity`, parallel to its paths; None: not known) to those seen per path."""
+    sha256 = (entry.get("identity") or {}).get("sha256") or [None] * len(entry["paths"])
+    for path, sha in zip(entry["paths"], sha256):
+        seen.setdefault(path, set()).update([sha] if sha else [])
+
+
 def _merged_data() -> List[Dict]:
-    """src.used_data with the entries of several tiles merged per layer."""
+    """src.used_data with the entries of several tiles merged per layer. The checksums of the paths (`identity`)
+    stay parallel to the united paths: a path met with two different checksums gets None (its file changed during
+    the run), a checksum one entry knows and another does not (None) is kept."""
     merged: Dict[tuple, Dict] = {}
+    seen: Dict[tuple, Dict[str, set]] = {}  # the checksums met per path, per merged entry
     for entry in src.used_data:
         key = (entry.get("layer"), entry.get("folder"), entry.get("file"))
         if key not in merged:
             merged[key] = json.loads(json.dumps(entry))
+            if "paths" in entry:
+                _seen_checksums(seen.setdefault(key, {}), entry)
             continue
         m = merged[key]
         if "paths" in entry:  # files shared by tiles are listed once
             m["paths"] = sorted(set(m["paths"]) | set(entry["paths"]))
             m["files"] = len(m["paths"])
+            _seen_checksums(seen.setdefault(key, {}), entry)
+            if "identity" in m or "identity" in entry:
+                sums = seen[key]
+                m["identity"] = {**m.get("identity", {}), "sha256": [
+                    next(iter(sums[p])) if len(sums.get(p, ())) == 1 else None for p in m["paths"]]}
         for k, pick in (("oldest", min), ("newest", max)):
             values = [v for v in (m.get("fetched", {}).get(k), entry.get("fetched", {}).get(k)) if v]
             if values:
