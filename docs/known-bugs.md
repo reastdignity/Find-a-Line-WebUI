@@ -322,14 +322,26 @@ harness, `cache status` and `tools/record_check.py` compare by it. Known and lef
   same record gives the same result, but a cache built from a record alone is not always enough to run the search
   again (docs/regression-tests.md, "The completeness check").
 - **A filler or neighbour that read its files and filled no pixel** is left out of the record, as of the credits.
-- **What `cache status` still touches or misses** (it reads only since 2026-11-24): SQLite itself may make a `-shm`,
-  or a `-shm` and a `-wal`, beside an index in the two cases `update._read_only` names, and writes into a `-shm`
-  that is there already beside a `-wal` (another process has the index open, or one that was killed left them; the
-  next writer's close removes the two, which `status` used to do itself): on the real cache (2026-11-24) three such
-  `-shm` files got a new modification time and nothing else changed
-  (`tests/test_status_readonly.py::test_a_wal_and_shm_left_by_a_killed_writer`). The OSM extracts of a data folder
-  whose path holds `[` are not listed (`osmextract.extracts`' `glob`, as other `glob`s of the code that start at
-  the data folder; `coast.world_file`'s is mended).
+- **What `cache status` still touches or misses.** Since 2026-11-24 it changes no cached file, no index and no row
+  and makes no folder, but SQLite's own side files beside an index are not left alone by SQLite's reader:
+  - it writes into a `-shm` that is there (it notes its place there), which is the case beside an index a search
+    has open, beside a `-wal` that still holds rows, and beside an empty `-wal` a killed writer left (the next
+    writer's close removes those two, which `status` used to do itself, opening every index for writing): on the
+    real cache three such `-shm` files got a new modification time and nothing else changed
+    (`tests/test_status_readonly.py::test_a_wal_and_shm_left_by_a_killed_writer`);
+  - it makes a `-shm`, or a `-shm` and a `-wal`, in the two cases `update._read_only` names (a `-wal` without its
+    `-shm`; an index read again read-only after an immutable read that failed or that a writer may have torn).
+  Not used: SQLite's `readonly_shm` (undocumented), and an empty `-wal` read as no WAL (a live connection that has
+  only read, or has just checkpointed, shows one too). Beside a search an index's rows are read again when the
+  stamp check of `update._query` sees a writer (the file's time or size, or a `-wal`): it rests on the file's
+  modification time changing when a WAL is written into it, measured on local NTFS, not on a network share. An
+  index that cannot be read at the moment (a writer's lock over the timeout, a hot journal of a rollback-journal
+  index) is named with the error's class, and the runs that read its files as not checked. A world file put there
+  by hand gets its index rows only from `cache update` (`status` names it), so until then a search's
+  `--update stale` does not check it after a year (`coast.world_polygons`: no row, never stale); until 2026-11-24
+  the first `cache status` adopted it. The OSM extracts of a data folder whose path holds `[` are not
+  listed (`osmextract.extracts`' `glob`, as other `glob`s of the code that start at the data folder;
+  `coast.world_file`'s is mended).
 - A run made before the record is counted by the rule of before (fetch times) and marked approximate; a relative
   `--slope-file` is not checked; a resumed run marked because earlier tiles exist keeps its mark even if the
   marking session stopped before its own first tile.
