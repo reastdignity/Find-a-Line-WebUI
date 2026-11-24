@@ -322,13 +322,14 @@ harness, `cache status` and `tools/record_check.py` compare by it. Known and lef
   same record gives the same result, but a cache built from a record alone is not always enough to run the search
   again (docs/regression-tests.md, "The completeness check").
 - **A filler or neighbour that read its files and filled no pixel** is left out of the record, as of the credits.
-- **`cache status` reads only** since 2026-11-24 (it wrote before: it adopted a world file put there by hand, opened
-  each index for writing and marked a missing cache with its LAYOUT file). Left: SQLite itself may leave a `-shm`,
+- **What `cache status` still touches or misses** (it reads only since 2026-11-24): SQLite itself may make a `-shm`,
   or a `-shm` and a `-wal`, beside an index in the two cases `update._read_only` names, and writes into a `-shm`
-  that is there already beside a `-wal` (another process has the index open, or one that was killed left them):
-  on the real cache (2026-11-24) three such `-shm` files got a new modification time and nothing else changed; the
-  OSM extracts of a data folder whose path holds `[` are not listed (`osmextract.extracts`' `glob`, as other `glob`s
-  of the code that start at the data folder; `coast.world_file`'s is mended).
+  that is there already beside a `-wal` (another process has the index open, or one that was killed left them; the
+  next writer's close removes the two, which `status` used to do itself): on the real cache (2026-11-24) three such
+  `-shm` files got a new modification time and nothing else changed
+  (`tests/test_status_readonly.py::test_a_wal_and_shm_left_by_a_killed_writer`). The OSM extracts of a data folder
+  whose path holds `[` are not listed (`osmextract.extracts`' `glob`, as other `glob`s of the code that start at
+  the data folder; `coast.world_file`'s is mended).
 - A run made before the record is counted by the rule of before (fetch times) and marked approximate; a relative
   `--slope-file` is not checked; a resumed run marked because earlier tiles exist keeps its mark even if the
   marking session stopped before its own first tile.

@@ -378,6 +378,32 @@ def test_cache_status_beside_a_writer(tmp_path, monkeypatch, capsys):
     assert "spain/w/held.tif" in {row["path"] for row in cache.rows(cache_dir, "spain", update._query)}
 
 
+def test_a_wal_and_shm_left_by_a_killed_writer(tmp_path, monkeypatch):
+    """R1's limit, seen on the real cache: an index with a -wal (empty after its checkpoint) and a -shm left by a
+    writer that was killed is read read-only; SQLite may write into the -shm it finds (seen 2026-11-24: its bytes
+    changed), the database and the -wal stay as they were, nothing is made; the next writer's open and close removes
+    the two (main's
+    `status`, which opened every index for writing, removed them itself)."""
+    data, cache_dir = canned(tmp_path)
+    index = _index(cache_dir, "spain")
+    killed = (f"import os, sqlite3; db = sqlite3.connect({index!r}); db.execute(\"UPDATE files SET url = 'u'\"); "
+              "db.commit(); db.execute('PRAGMA wal_checkpoint(TRUNCATE)'); os._exit(0)")
+    import subprocess
+    subprocess.run([sys.executable, "-c", killed], check=True)
+    assert os.path.getsize(index + "-wal") == 0 and os.path.exists(index + "-shm")
+    assert update._mode(index) == "mode=ro"
+    before = listing(data)
+    _tripwire(monkeypatch)
+    assert _status(data) == 0
+    after = listing(data)
+    assert after == before  # the -shm by its name only
+    with open(index + "-wal", "rb") as f:
+        assert f.read() == b""
+    monkeypatch.undo()
+    cache.info(cache_dir, os.path.join(cache_dir, "spain", "t.tif"))  # a writer's open and close
+    assert not os.path.exists(index + "-wal") and not os.path.exists(index + "-shm")
+
+
 def test_a_data_folder_with_brackets(tmp_path, monkeypatch, capsys):
     """R6: in a data folder whose path holds "[" and "]" the world file is found (coast.world_file), its folder's
     files listed (coast._world_files: what `cache update` adopts and a newer edition's check stamps), `status` names
