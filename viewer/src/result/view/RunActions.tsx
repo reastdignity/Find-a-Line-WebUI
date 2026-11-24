@@ -140,13 +140,18 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
     if (item.status === "on" || item.status === "loading") { model.removeRun(item.run.id); change(item, "off"); return; }
     change(item, "loading");
     // its store's lines.arrow (load.ts loadOtherRun)
-    loadOtherRun(item.run, base).then((lines) => { model.addRun(item.run, lines); change(item, "on"); },
-                                      (e) => change(item, "error", causeOf(e)));
+    loadOtherRun(item.run, base).then((lines) => { model.addRun(item.run, lines); change(item, "on"); }, (e) => {
+      const cause = causeOf(e), at = document.activeElement;
+      // its box goes off under the focus: the focus moves to the list's box first (a box switched off loses it to
+      // the page, and the keyboard its place)
+      if (cause !== "failed" && at instanceof HTMLElement && at.dataset.other === item.run.id) at.closest<HTMLElement>(".r-pop")?.focus();
+      change(item, "error", cause);
+    });
   };
   const note = (item: OtherItem) => item.status === "loading" ? " · " + t("ui.actions.loading")
     : item.status === "error" ? " · " + t(CAUSE_TEXT[item.cause ?? "failed"]) : "";
   const row = (item: OtherItem) => <label class="r-check r-other" key={item.run.id} title={item.run.description}>
-    <input type="checkbox" class="u-check" checked={item.status === "on" || item.status === "loading"}
+    <input type="checkbox" class="u-check" data-other={item.run.id} checked={item.status === "on" || item.status === "loading"}
            disabled={item.status === "error" && item.cause !== "failed"} onChange={() => toggle(item)} />
     <Swatch color={colorOf(item.run.id)} />
     <span class="u-grow">{item.run.name}<span class="u-small"> · {day(item.run.created)} · {item.km < 1 ? t("ui.actions.here")
