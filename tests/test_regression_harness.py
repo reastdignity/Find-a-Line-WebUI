@@ -1191,7 +1191,8 @@ def test_run_log_line(harness, tmp_path, capsys, monkeypatch):
     assert record["v"] == 1 and record["exit"] == 3 and record["cache"] == harness.cache
     assert record["time"].endswith("+00:00") and record["worktree"] == os.path.basename(REPO)
     assert record["real_cache"] is True and record["cold"] is False and record["seeded"] == []  # the fixture's
-    assert record["args"] == {"ids": [], "all": True, "sets": [], "update": False, "browser": False}
+    assert record["args"] == {"ids": [], "all": True, "sets": [], "update": False, "update_data": False,
+                              "browser": False}
     assert record["entries"]["R1"]["outcome"] == "ok" and record["entries"]["R1"]["coastline"] == WORLD_FILE
     assert record["entries"]["R2"] == {"outcome": "unverified", "seconds": record["entries"]["R2"]["seconds"],
                                        "reason": f"coastline: {FALLBACK}; the baseline's: {WORLD_FILE}",
@@ -1601,7 +1602,10 @@ def test_two_entries_of_one_folder_are_merged():
 
 
 @pytest.mark.parametrize("name", ["C:/Users/someone/cache/poland/nmt/a.tif", "/home/someone/cache/a.tif",
-                                  "poland\\nmt\\a.tif", "poland/nmt/../../a.tif", "c:a.tif", ""])
+                                  "poland\\nmt\\a.tif", "poland/nmt/../../a.tif", "c:a.tif", "",
+                                  "file:///C:/Users/someone/cache/a.tif", "https://example.org/x/a.tif",
+                                  "x/C:/Users/someone/a.tif", "poland//nmt/a.tif", "poland/nmt/", "poland/nmt/a\n.tif",
+                                  "poland/nmt/a\x7f.tif"])
 def test_record_of_leaves_out_a_name_not_relative_to_the_cache(name):
     """A part with a name that is not relative to the cache is left out whole and named; the name is nowhere."""
     meta = _meta({f"{NMT}/a.tif": A, name: B} if name else {name: B})
@@ -1656,11 +1660,19 @@ def test_run_reads_the_record_of_its_run_json(tmp_path, monkeypatch):
 
 
 def test_the_record_is_never_a_result(harness, capsys, monkeypatch):
-    """The record never enters the compared or stored values (R17 stores every key of found)."""
+    """The record never enters the compared or stored values (R17 stores every key of found): what outcome() and
+    stored() are given holds no record."""
     harness.write({"R1": _entry(_expected())})
     harness.results.update(R1=_result(data_record=regression.record_of(_meta())))
+    seen = []
+    real_outcome, real_stored = regression.outcome, regression.stored
+    monkeypatch.setattr(regression, "outcome", lambda test, found, *rest: seen.append(dict(found))
+                        or real_outcome(test, found, *rest))
+    monkeypatch.setattr(regression, "stored", lambda found, old, ok: seen.append(dict(found))
+                        or real_stored(found, old, ok))
     code, out, tests = harness("R1", "--update", capsys=capsys)
     assert code == 0 and "R1: ok" in out and tests["R1"]["expected"] == _expected()
+    assert len(seen) == 2 and not any("data_record" in found for found in seen)
     # R17's kind stores every key of found: a record there (run_osm makes none) is popped before it, never a result
     harness.write({"R17": {"place": "x", "kind": "osm", "region": "malta", "bbox": [14.0, 36.0, 14.2, 36.2],
                            "themes": ["coastline"], "sets": ["network"], "expected": {"coastline": 3, "same": True}}})
@@ -1699,6 +1711,51 @@ def test_the_side_file_is_written_whole_and_stably(tmp_path):
     assert open(path, "rb").read() == b"{}\n"
 
 
+def test_the_side_file_is_never_torn(tmp_path, monkeypatch):
+    """Written through a temporary file and a rename: a write that fails before the rename (here the rename itself)
+    leaves the old file whole and no temporary file; a direct write would have changed it."""
+    path = str(tmp_path / "regression-data.json")
+    tests = {"R1": {}}
+    regression.write_data({"R1": _record()}, tests, path)
+    before = open(path, "rb").read()
+
+    def refused(source, target):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(regression.os, "replace", refused)
+    with pytest.raises(OSError):
+        regression.write_data({"R1": _record(gdal="3.11.0")}, tests, path)
+    assert open(path, "rb").read() == before and os.listdir(tmp_path) == ["regression-data.json"]
+
+
+def test_the_rename_is_tried_again_while_windows_refuses_it(tmp_path, monkeypatch):
+    """PermissionError (another handle on the file): tried again after each of REPLACE_PAUSES, on Windows."""
+    monkeypatch.setattr(regression.os, "name", "nt")
+    monkeypatch.setattr(regression.time, "sleep", lambda seconds: None)
+    real_replace, tries = os.replace, []
+
+    def busy(source, target):
+        tries.append(target)
+        if len(tries) < 3:
+            raise PermissionError(13, "The process cannot access the file")
+        real_replace(source, target)
+
+    monkeypatch.setattr(regression.os, "replace", busy)
+    path = str(tmp_path / "regression-data.json")
+    regression.write_data({"R1": _record()}, {"R1": {}}, path)
+    assert len(tries) == 3 and regression.load_data(path) == {"R1": _record()}
+    tries.clear()
+
+    def held(source, target):
+        tries.append(target)
+        raise PermissionError(13, "The process cannot access the file")
+
+    monkeypatch.setattr(regression.os, "replace", held)  # held all the time: the error after the last pause
+    with pytest.raises(PermissionError):
+        regression.write_data({}, {"R1": {}}, path)
+    assert len(tries) == len(regression.REPLACE_PAUSES) + 1 and os.listdir(tmp_path) == ["regression-data.json"]
+
+
 def _broken(**parts) -> str:
     """A side file whose record of R1 has the parts given in place of record_of's."""
     record = _record()
@@ -1710,8 +1767,21 @@ def _broken(**parts) -> str:
     return json.dumps({"R1": record})
 
 
-@pytest.mark.parametrize("text", ["{", "[]", '{"R1": []}', '{"R1": {"folders": {}}}', _broken(coastline={"x": 1}),
-                                  _broken(versions={"gdal": "3.10.0"}), _broken(inputs={"tiles": {}})])
+def _broken_folder(**place) -> str:
+    record = _record()
+    record["folders"][NMT].update(place)
+    return json.dumps({"R1": record})
+
+
+@pytest.mark.parametrize("text", [
+    "", "{", "[]", '{"R1": []}', '{"R1": {"folders": {}}}', _broken(coastline={"x": 1}),
+    _broken(versions={"gdal": "3.10.0"}), _broken(inputs={"tiles": {}}),
+    # the review's F1: parts that loaded and then made the comparison or the line raise after the searches
+    _broken_folder(layers=[["NMT"]]), _broken(left_out=[1]), _broken_folder(files={f"{NMT}/a.tif": 7}),
+    _broken_folder(files={"C:/cache/a.tif": None}), _broken(coastline={"edition": "../x"}), _broken(mixed="no"),
+    _broken(source=3), _broken(versions={"gdal": 3, "proj": None, "rasterio": None}),
+    _broken(inputs={"tiles": {}, "nominatim": {"search": {"Gozo": 5}}}), _broken(inputs={"tiles": {}, "nominatim": []}),
+    _broken(area={"type": "circle", "shape": "x", "inputs": None})])
 def test_a_broken_side_file_is_a_usage_error(harness, capsys, monkeypatch, text):
     """A file that is no JSON, or a record of another shape (also one the comparison would fail on after the
     searches): a usage error naming the file, before any search."""
@@ -1737,63 +1807,133 @@ def _explained(old: dict, new: dict) -> str:
     return regression.data_line(regression.compare_records(old, new))
 
 
-def test_data_as_the_baselines():
-    assert _explained(_record(), _record()) == "data as the baseline's"
-    assert _explained(_record(), _record(identity=False)) == "data as the baseline's (2 files not known)"
-    assert _explained(_record(identity=False), _record()) == "data as the baseline's (2 files not known)"
+def test_same_data_other_result():
+    """The user's words (W4a): "same data, other result"; where something is not known, said so."""
+    assert _explained(_record(), _record()) == "same data, other result"
+    assert _explained(_record(), _record(identity=False)) == "same data where known (2 files not known), other result"
+    assert _explained(_record(identity=False), _record()) == "same data where known (2 files not known), other result"
+    coast = _record(coastline={"edition": "2026-10-23"})
+    assert _explained(coast, _record(identity=False, coastline={"edition": "2026-10-23"})) == \
+        "same data where known (2 files, the coastline not known), other result"
 
 
-def test_data_differ_per_folder():
+def test_data_not_known():
+    """Nothing could be compared (the review's F6): no file, no coastline, no area inputs on both sides."""
+    empty = _meta()
+    empty["data"] = []
+    compared = regression.compare_records(regression.record_of(empty), regression.record_of(empty))
+    assert regression.data_line(compared) == "data not known" and regression.data_state(compared) == "unknown"
+
+
+def test_data_differs_per_folder():
     old = _record({f"{NMT}/a.tif": A, f"{NMT}/b.tif": B})
     new = _record({f"{NMT}/a.tif": D, f"{NMT}/c.tif": C})
-    assert _explained(old, new) == "data differ: poland/nmt 2 of 2 files, 1 new, 1 replaced under their names"
+    assert _explained(old, new) == "data differs: poland/nmt 2 of 2 files, 1 new, 1 replaced under their names"
     # a checksum not known never counts: only the file not read
-    assert _explained(old, _record({f"{NMT}/a.tif": A}, identity=False)) == "data differ: poland/nmt 1 of 2 files"
+    assert _explained(old, _record({f"{NMT}/a.tif": A}, identity=False)) == "data differs: poland/nmt 1 of 2 files"
     meta = _meta()
     meta["data"].append({"layer": "Copernicus water body mask", "folder": "copernicus30/2021/wbm",
                          "paths": ["copernicus30/2021/wbm/N49E019.tif"], "identity": {"sha256": [C]}})
-    assert _explained(old, regression.record_of(meta)) == "data differ: copernicus30/2021/wbm 0 of 0 files, 1 new"
+    assert _explained(old, regression.record_of(meta)) == "data differs: copernicus30/2021/wbm 0 of 0 files, 1 new"
 
 
-def test_data_differ_in_every_other_part():
+def test_data_differs_in_every_other_part():
     old = _record(coastline={"edition": "2026-10-23"}, area=_polygon(inputs=_inputs()))
     new = _record(coastline={"edition": "2026-11-30"}, area=_polygon(inputs=_inputs(tile=C, answer=D)),
                   source="europe", gdal="3.11.0", access_skipped="memory", mixed=True)
     assert _explained(old, new) == (
-        "data differ: coastline (the world file of 2026-10-23 -> the world file of 2026-11-30); the search area's "
-        "inputs (OSM tiles, Nominatim); the source (geoportal -> europe); GDAL 3.10.0 -> 3.11.0; the access mark left "
-        "out; sessions read different data")
+        "data differs: coastline (the world file of 2026-10-23 -> the world file of 2026-11-30); the search area's "
+        "inputs (OSM tiles, Nominatim); the source (geoportal -> europe); GDAL 3.10.0 -> 3.11.0; the access mark "
+        "left out; sessions read different data")
     tiles = _record(coastline={"paths": [TILE], "sha256": [A]})
     assert _explained(tiles, _record(coastline={"paths": [TILE], "sha256": [B]})) == \
-        "data differ: coastline 1 of 1 tiles, 1 replaced under their names"
+        "data differs: coastline 1 of 1 tiles, 1 replaced under their names"
     assert _explained(old, _record(coastline={"paths": [TILE], "sha256": [B]}, area=_polygon(inputs=_inputs()))) == \
-        "data differ: coastline (the world file of 2026-10-23 -> 1 OSM tiles)"
+        "data differs: coastline (the world file of 2026-10-23 -> 1 OSM tiles)"
     assert _explained(old, _record(area=_polygon(inputs=_inputs()))) == \
-        "data differ: coastline (the world file of 2026-10-23 -> none)"
+        "data differs: coastline (the world file of 2026-10-23 -> none)"
+
+
+def test_what_is_neither_data_nor_code_follows_the_data_part():
+    """A library's version, the access mark and mixed sessions are no data: after the data part, joined by "; ";
+    alone they never make the run log's data "differs"."""
+    compared = regression.compare_records(_record(), _record(gdal="3.11.0"))
+    assert regression.data_line(compared) == "same data, other result; GDAL 3.10.0 -> 3.11.0"
+    assert regression.data_state(compared) == "same"
     assert _explained(_record(access_skipped="memory"), _record()) == \
-        "data differ: the access mark left out in the baseline"
+        "same data, other result; the access mark left out in the baseline"
+    assert _explained(_record(), _record(mixed=True)) == "same data, other result; sessions read different data"
     unrecorded = _record()
-    unrecorded["versions"]["gdal"] = None  # a version not recorded on one side: not known, no difference
-    assert _explained(unrecorded, _record(gdal="3.11.0")) == "data as the baseline's"
+    unrecorded["versions"]["gdal"] = None  # a version not recorded on one side: not known, nothing said
+    assert _explained(unrecorded, _record(gdal="3.11.0")) == "same data, other result"
 
 
 def test_the_search_area_itself():
     """The outline's digest is named only when the inputs are equal or not known (then "code or OSM")."""
     moved = ((14.2, 36.06), (14.28, 36.06), (14.27, 36.085), (14.2, 36.06))
     old = _record(area=_polygon(inputs=_inputs()))
-    assert _explained(old, _record(area=_polygon(inputs=_inputs(), ring=moved))) == "data differ: the search area"
-    assert _explained(old, _record(area=_polygon(ring=moved))) == "data differ: the search area (code or OSM)"
+    assert _explained(old, _record(area=_polygon(inputs=_inputs(), ring=moved))) == "data differs: the search area"
+    assert _explained(old, _record(area=_polygon(ring=moved))) == "data differs: the search area (code or OSM)"
     assert _explained(old, _record(area=_polygon(inputs=_inputs(query="Gozo"), ring=moved))) == \
-        "data differ: the search area's inputs (Nominatim)"
+        "data differs: the search area's inputs (Nominatim)"
     gone = _inputs(answer=None)  # the stored answer's row gone: not known
-    assert _explained(old, _record(area=_polygon(inputs=gone))) == "data as the baseline's (1 files not known)"
+    assert _explained(old, _record(area=_polygon(inputs=gone))) == \
+        "same data where known (1 files not known), other result"
+    assert _explained(old, _record(area=_polygon())) == \
+        "same data where known (the search area's inputs not known), other result"
 
 
-def test_a_part_left_out_is_not_known():
-    meta = _meta({"C:/cache/poland/nmt/a.tif": A, f"{NMT}/b.tif": B})
-    assert _explained(_record(), regression.record_of(meta)) == (
-        "data as the baseline's; left out of the record (a name not relative to the cache): NMT (digital terrain "
-        "model)")
+def test_a_folder_with_a_part_left_out_is_not_known():
+    """A folder one of whose layers is left out on either side is not known as a whole, never a difference (the
+    review's F4: two layers of one folder, one left out); with nothing else compared: "data not known"."""
+    left = regression.record_of(_meta({"C:/cache/poland/nmt/a.tif": A, f"{NMT}/b.tif": B}))
+    assert _explained(_record(), left) == "data not known"
+    assert _explained(left, _record()) == "data not known"  # left out of the baseline's record
+    coast = {"coastline": {"edition": "2026-10-23"}}
+    assert _explained(_record(**coast), regression.record_of(_meta({"C:/cache/a.tif": A}, **coast))) == \
+        "same data where known (2 files not known), other result"
+    shared = _meta()
+    shared["data"].append({**shared["data"][0], "layer": "surface", "paths": [f"{NMT}/c.tif"],
+                           "identity": {"sha256": [C]}})
+    half = _meta()
+    half["data"].append({**half["data"][0], "layer": "surface", "paths": ["C:/cache/poland/nmt/c.tif"],
+                         "identity": {"sha256": [C]}})
+    assert _explained(regression.record_of(shared), regression.record_of(half)) == "data not known"
+    assert _explained(regression.record_of(shared), regression.record_of(_meta())) == \
+        "data differs: poland/nmt 1 of 3 files"  # nothing left out: the file not read is a difference
+
+
+def test_record_of_edge_cases():
+    """The branches the review found untested: two checksums of one name, a name twice in one list, a Nominatim
+    item that is no object, a bad edition, another version of the identity, two coastline entries that disagree."""
+    files = {}
+    regression._add_files(files, {"a.tif": A})
+    regression._add_files(files, {"a.tif": B})
+    regression._add_files(files, {"a.tif": A})
+    assert files == {"a.tif": None}
+    assert regression._named_files([f"{NMT}/a.tif", f"{NMT}/a.tif"], {"sha256": [A, B]}) == {f"{NMT}/a.tif": None}
+    assert regression._named_files([f"{NMT}/a.tif", f"{NMT}/a.tif"], {"sha256": [A, A]}) == {f"{NMT}/a.tif": A}
+    inputs = _inputs()
+    inputs["nominatim"].append("Gozo")
+    record = regression.record_of(_meta(area=_polygon(inputs=inputs)))
+    assert record["area"]["inputs"] is None and record["left_out"] == ["the search area's inputs"]
+    for edition in ("C:/x", "../2026-10-23", "latest", 20261023):
+        record = regression.record_of(_meta(coastline={"edition": edition}))
+        assert record["coastline"] == {} and record["left_out"] == ["the coastline"], edition
+    meta = _meta(mixed=True)
+    meta["identity"]["v"] = 2  # a later form of the record: its versions and mark not read
+    assert regression.record_of(meta)["versions"] is None and regression.record_of(meta)["mixed"] is False
+    meta = _meta(coastline={"edition": "2026-10-23"})
+    meta["data"].append({"layer": OVERPASS, "identity": {"paths": [TILE], "sha256": [A]}})
+    assert regression.record_of(meta)["coastline"] == {}
+
+
+@pytest.mark.parametrize("text", ["{", "[]", "\x00"])
+def test_a_run_json_that_cannot_be_read_gives_no_record(tmp_path, text):
+    folder = tmp_path / "runs" / "2026-11-24_x"
+    folder.mkdir(parents=True)
+    (folder / "run.json").write_text(text, encoding="utf-8")
+    assert regression.read_record(str(tmp_path / "runs")) is None
 
 
 def test_the_line_under_an_entry_through_main(harness, capsys):
@@ -1803,16 +1943,17 @@ def test_the_line_under_an_entry_through_main(harness, capsys):
                    "R4": _entry(_expected()), "R5": _entry(_expected())})
     harness.data_file.write_text(json.dumps({t: _record() for t in ("R1", "R2", "R3", "R4")}), encoding="utf-8")
     harness.results.update(
-        R1=_result(lines=9, data_record=_record()),
+        R1=_result(lines=9, data_record=_record(gdal="3.11.0")),
         R2=_result(FALLBACK, lines=9, warned=True, data_record=_record({f"{NMT}/a.tif": A})),
         R3=_result(data_record=_record({f"{NMT}/a.tif": C})),
         R4=_result(None, exit_code=1),
         R5=_result(lines=9, data_record=_record()))
     code, out, _ = harness("R1", "R2", "R3", "R4", "R5", capsys=capsys)
     assert code == 1
-    assert "R1: DIFFERENT (" in out and "\n    lines: 10 -> 9\n    data as the baseline's\n" in out
+    assert ("R1: DIFFERENT (" in out
+            and "\n    lines: 10 -> 9\n    same data, other result; GDAL 3.10.0 -> 3.11.0\n" in out)
     assert (f"R2: unverified (coastline: {FALLBACK}; the baseline's: {WORLD_FILE}) (" in out
-            and "\n    lines: 10 -> 9\n    data differ: poland/nmt 1 of 2 files\n" in out)
+            and "\n    lines: 10 -> 9\n    data differs: poland/nmt 1 of 2 files\n" in out)
     assert "R3: ok (" in out and "R3: ok" + out.split("R3: ok", 1)[1].split("\n", 1)[0] + "\nR4" in out
     assert "\n    exit code 1\nR5" in out  # R4: no run.json, no line
     assert "\n    no data record stored\n" in out  # R5
@@ -1821,14 +1962,57 @@ def test_the_line_under_an_entry_through_main(harness, capsys):
         {"R1": "same", "R2": "differs", "R3": "differs", "R4": None, "R5": None}
 
 
-def test_run_log_data_unknown(harness, capsys):
-    """Nothing comparable (every checksum not known on one side): "unknown", for an ok entry too."""
+def test_a_part_left_out_is_said_for_every_entry(harness, capsys):
+    """The scope review's H1g: a run whose record left a part out (a machine's path was about to reach the side
+    file) gets one line, whatever its outcome and whether a record is stored; the name itself is never printed."""
+    left = regression.record_of(_meta({"C:/Users/someone/cache/poland/nmt/a.tif": A}))
+    harness.write({"R1": _entry(_expected()), "R2": _entry(_expected()), "R3": _entry(_expected())})
+    harness.data_file.write_text(json.dumps({"R2": _record()}), encoding="utf-8")
+    harness.results.update(R1=_result(data_record=left), R2=_result(lines=9, data_record=left),
+                           R3=_result(lines=9, data_record=left))
+    code, out, _ = harness("R1", "R2", "R3", capsys=capsys)
+    said = "\n    left out of the data record (a name not relative to the cache): NMT (digital terrain model)"
+    assert code == 1 and out.count(said) == 3 and "someone" not in out
+    assert "R1: ok (" in out and out.split("R1: ok (", 1)[1].split("\n", 1)[1].startswith(said[1:])
+    assert "data not known" in out.split("R2: DIFFERENT", 1)[1].split("R3", 1)[0]  # nothing comparable left
+    assert "\n    no data record stored" + said in out  # R3
+
+
+def test_a_record_that_cannot_be_compared_never_costs_the_run(harness, capsys, monkeypatch):
+    """A comparison that raises for one entry (a guard beyond the side file's check): said under it, its data null in
+    the run log, the run and its --update go on."""
+    harness.write({"R1": _entry(_expected()), "R2": _entry(_expected())})
+    harness.data_file.write_text(json.dumps({"R1": _record(), "R2": _record()}), encoding="utf-8")
+    harness.results.update(R1=_result(lines=11, data_record=_record()), R2=_result(lines=11, data_record=_record()))
+    real = regression.compare_records
+
+    def compare(old, new):
+        if compare.calls:
+            raise KeyError("folders")
+        compare.calls += 1
+        return real(old, new)
+
+    compare.calls = 0
+    monkeypatch.setattr(regression, "compare_records", compare)
+    code, out, tests = harness("R1", "R2", "--update", capsys=capsys)
+    assert code == 0 and "\n    the stored data record cannot be compared (KeyError)\n" in out
+    assert tests["R1"]["expected"]["lines"] == 11 and tests["R2"]["expected"]["lines"] == 11
+    assert {t: e["data"] for t, e in _log_line(harness.data_file.parent)["entries"].items()} == \
+        {"R1": "same", "R2": None}
+
+
+def test_run_log_data_same_where_known(harness, capsys):
+    """Names equal, every checksum not known on one side (a run.json of before): "same", for an ok entry too, and
+    the ok entry prints nothing more; the run log's args name --update-data."""
     harness.write({"R1": _entry(_expected())})
     harness.data_file.write_text(json.dumps({"R1": _record()}), encoding="utf-8")
     harness.results.update(R1=_result(data_record=_record(identity=False)))
     code, out, _ = harness("R1", capsys=capsys)
     assert code == 0 and "data" not in out.split("R1: ok", 1)[1].split("\n\n", 1)[0]
-    assert _log_line(harness.data_file.parent)["entries"]["R1"]["data"] == "unknown"
+    line = _log_line(harness.data_file.parent)
+    assert line["entries"]["R1"]["data"] == "same" and line["args"]["update_data"] is False
+    harness("R1", "--update-data", capsys=capsys)
+    assert _log_line(harness.data_file.parent)["args"]["update_data"] is True
 
 
 # H5: --update stores the record with the results
@@ -1849,6 +2033,40 @@ def test_update_stores_the_record_with_the_results(harness, capsys):
     stored = regression.load_data(str(harness.data_file))
     assert stored == {"R1": _record(), "R3": old["R3"], "R4": old["R4"]}
     assert f"Data records updated in {harness.data_file}" in out
+
+
+def _refusing(monkeypatch, refused_path: str):
+    """os.replace refusing one target for good (another handle on it), the others replaced."""
+    real = os.replace
+    monkeypatch.setattr(regression.time, "sleep", lambda seconds: None)
+
+    def replace(source, target):
+        if os.path.normcase(str(target)) == os.path.normcase(str(refused_path)):
+            raise PermissionError(13, "The process cannot access the file")
+        real(source, target)
+
+    monkeypatch.setattr(regression.os, "replace", replace)
+
+
+def test_a_side_file_that_cannot_be_written_never_costs_the_run(harness, capsys, monkeypatch):
+    """--update: regression.json is written first, then the side file; when the side file cannot be replaced the run
+    says so, ends with its summary and run log line, and exits 3. When regression.json cannot be, neither is written."""
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result(lines=11, data_record=_record()))
+    _refusing(monkeypatch, harness.data_file)
+    code, out, tests = harness("R1", "--update", capsys=capsys)
+    assert code == 3 and tests["R1"]["expected"]["lines"] == 11 and not harness.data_file.exists()
+    assert (f"WARNING: {harness.data_file} could not be written (PermissionError: [Errno 13] The process cannot access "
+            f"the file); store the data records again with --update-data") in out
+    assert "1 ok, 0 different" not in out and "0 ok, 1 different, 0 unverified, 0 skipped" in out
+    assert _log_line(harness.data_file.parent)["exit"] == 3
+    assert "Data records updated" not in out and os.listdir(harness.data_file.parent).count("regression.json") == 1
+    harness.write({"R1": _entry(_expected())})
+    _refusing(monkeypatch, regression.TESTS)
+    code, out, tests = harness("R1", "--update", capsys=capsys)
+    assert code == 3 and tests["R1"]["expected"] == _expected() and not harness.data_file.exists()
+    assert f"WARNING: {regression.TESTS} could not be written" in out and "nothing of this run is stored" in out
+    assert not [n for n in os.listdir(harness.data_file.parent) if n.endswith(".tmp")]
 
 
 # H6: --update-data
@@ -1875,6 +2093,15 @@ def test_update_data_stores_only_the_records(harness, capsys):
     assert harness.data_file.read_bytes() == first
 
 
+def test_update_data_that_cannot_write_exits_3(harness, capsys, monkeypatch):
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result(data_record=_record()))
+    _refusing(monkeypatch, harness.data_file)
+    code, out, _ = harness("R1", "--update-data", capsys=capsys)
+    assert code == 3 and f"WARNING: {harness.data_file} could not be written" in out
+    assert "Data records: " not in out and "1 ok, 0 different" in out
+
+
 def test_update_data_is_refused_with_update_and_off_the_real_cache(harness, tmp_path, capsys, monkeypatch):
     harness.write({"R1": _entry(_expected())})
     harness.results.update(R1=_result(data_record=_record()))
@@ -1887,19 +2114,30 @@ def test_update_data_is_refused_with_update_and_off_the_real_cache(harness, tmp_
     assert not harness.data_file.exists() and not os.path.exists(scratch)
 
 
-# The real side file
+# The real side file (they bite once the session has filled it)
 
 
 def test_the_side_files_entries_are_regression_entries():
     tests = regression.load()
-    data = regression.load_data()
+    data = regression.load_data()  # it loads: every record of record_of's shape all the way down
     assert set(data) <= set(tests) and list(data) == [t for t in tests if t in data]
 
 
+MACHINE_PATH = regression.re.compile(r"[A-Za-z]:[\\/]|\\|://|^/|(^|/)\.\.(/|$)|[\x00-\x1f\x7f]")
+
+
 def test_the_side_files_names_are_relative_to_the_cache():
-    """Every stored name passes record_of's rule: no machine's path in the repository."""
+    """Every stored name passes record_of's rule (no colon among them); layer texts, the edition, the source and
+    Nominatim's queries hold nothing of a machine's path either."""
     for test_id, record in regression.load_data().items():
         names = [n for place in record["folders"].values() for n in place["files"]] + list(record["folders"])
         names += list((record["coastline"] or {}).get("tiles", {}))
-        names += list((record["area"]["inputs"] or {}).get("tiles", {}))
-        assert all(regression.cache_name(n) for n in names), test_id
+        inputs = record["area"]["inputs"] or {"tiles": {}, "nominatim": {}}
+        names += list(inputs["tiles"])
+        assert all(regression.cache_name(n) and ":" not in n for n in names), test_id
+        texts = [layer for place in record["folders"].values() for layer in place["layers"]] + record["left_out"]
+        texts += [query for answers in inputs["nominatim"].values() for query in answers] + list(inputs["nominatim"])
+        assert not [t for t in texts if MACHINE_PATH.search(t)], test_id
+        edition = (record["coastline"] or {}).get("edition")
+        assert edition is None or regression.re.fullmatch(r"\d{4}-\d{2}-\d{2}", edition), test_id
+        assert record["source"] is None or regression.re.fullmatch(r"[A-Za-z0-9_-]+", record["source"]), test_id

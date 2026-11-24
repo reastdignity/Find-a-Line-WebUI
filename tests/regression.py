@@ -71,11 +71,14 @@ The data record (record_of): what an entry's search read, from its run.json's "i
 the files with the cache index's checksums, the coastline's edition or tiles, the search area's shape and inputs, the
 source, the libraries' versions, the access mark, a resumed run's mixed sessions; names relative to the cache only),
 kept per entry in DATA_FILE (tests/regression-data.json), never in regression.json. Under an entry that is DIFFERENT
-or unverified one line says whether its data were the baseline's (data_line: "data as the baseline's", "data
-differ: ..." or "no data record stored"); the outcome and the exit code stay what the results say, a checksum not
-known is never a difference. --update stores an entry's record with its results; --update-data stores only the
-records of the ok entries, on the real cache only, never regression.json. Without either the side file is never
-written. The run log's entries carry "data" (data_state).
+or unverified one line says whether its data were the baseline's (data_line: "same data, other result", "same data
+where known (...), other result", "data not known", "data differs: ..." or "no data record stored", then the
+libraries' versions, the access mark and mixed sessions when they differ); under any entry whose record left a part
+out (a name not relative to the cache) one more line says so. The outcome and the exit code stay what the results
+say, a checksum not known is never a difference, and a stored record never costs the run (one that cannot be
+compared is said so). --update stores an entry's record with its results; --update-data stores only the records of
+the ok entries, on the real cache only, never regression.json. Without either the side file is never written. The
+run log's entries carry "data" (data_state).
 
 Exit code: 0 nothing different and nothing unverified (skips allowed); 1 something different (with
 --update: 0 as before, the new values are stored); 3 nothing different but something unverified, or
@@ -196,6 +199,8 @@ SHA256 = re.compile(r"[0-9a-f]{64}")  # a checksum as the cache index stores it 
 IDENTITY_VERSION = 1  # "v" of run.json's top-level "identity" read here
 LIBRARIES = (("gdal", "GDAL"), ("proj", "PROJ"), ("rasterio", "rasterio"))  # its versions, as the line names them
 RECORD_KEYS = ("access_skipped", "area", "coastline", "folders", "left_out", "mixed", "source", "versions")
+# Windows refuses to rename over a file another handle has open (a reader, a scanner): tried again after these
+REPLACE_PAUSES = (0.01, 0.05, 0.1, 0.25, 0.5, 1.0)
 
 
 def load() -> dict:
@@ -687,9 +692,11 @@ def not_storable(test: dict, found: dict, status: str, reason: Optional[str], wo
 
 def cache_name(name) -> bool:
     """Whether a file name of a run's record may be taken: relative to the cache with forward slashes (no drive
-    letter, no leading slash, no backslash, no ".." part). Any other name could be a machine's path."""
-    return (isinstance(name, str) and name != "" and "\\" not in name and not name.startswith("/")
-            and re.match(r"[A-Za-z]:", name) is None and ".." not in name.split("/"))
+    letter, no leading slash, no backslash, no ".." part, no empty part), and no colon or control character at all
+    (a URL, file:///C:/..., x/C:/...). No name in the cache has one; any other name could be a machine's path."""
+    return (isinstance(name, str) and name != "" and "\\" not in name and ":" not in name
+            and not name.startswith("/") and not any(ord(c) < 32 or ord(c) == 127 for c in name)
+            and all(part not in ("", "..") for part in name.split("/")))
 
 
 def _checksum(value) -> Optional[str]:
@@ -699,14 +706,16 @@ def _checksum(value) -> Optional[str]:
 
 def _named_files(paths, identity) -> Optional[dict]:
     """{name: checksum or None} of a list of names and its identity's parallel "sha256"; None when a name fails
-    cache_name (the part is left out whole). A checksum list of another length makes every checksum not known."""
+    cache_name (the part is left out whole). A checksum list of another length makes every checksum not known, and so
+    does a name listed twice with two checksums."""
     if not isinstance(paths, list) or not all(cache_name(p) for p in paths):
         return None
     sums = identity.get("sha256") if isinstance(identity, dict) else None
     if not isinstance(sums, list) or len(sums) != len(paths):
         sums = [None] * len(paths)
     files: Dict[str, Optional[str]] = {}
-    _add_files(files, dict(zip(paths, map(_checksum, sums))))
+    for name, value in zip(paths, sums):
+        _add_files(files, {name: _checksum(value)})
     return files
 
 
@@ -734,7 +743,8 @@ def shape_digest(area) -> Optional[str]:
 
 def _area_inputs(identity, left_out: list) -> Optional[dict]:
     """The OSM theme tiles and Nominatim answers an area was built from (run.json's area "identity"): {"tiles":
-    {name: checksum}, "nominatim": {table: {query: checksum}}}; None when not recorded or left out."""
+    {name: checksum}, "nominatim": {table: {query: checksum}}}; None when not recorded or left out (a tile's name
+    that fails cache_name, an answer that is no object with a table and a query)."""
     if not isinstance(identity, dict):
         return None
     tiles = _named_files(identity.get("paths", []), identity)
@@ -743,12 +753,15 @@ def _area_inputs(identity, left_out: list) -> Optional[dict]:
         if not isinstance(item, dict) or not isinstance(item.get("query"), str):
             tiles = None
             break
-        table = item.get("table") if isinstance(item.get("table"), str) else ""  # the table may be left unnamed
+        table = item.get("table") if isinstance(item.get("table"), str) else ""  # never seen: kept under ""
         _add_files(answers.setdefault(table, {}), {item["query"]: _checksum(item.get("sha256"))})
     if tiles is None:
         left_out.append("the search area's inputs")
         return None
     return {"tiles": tiles, "nominatim": answers}
+
+
+EDITION = re.compile(r"\d{4}-\d{2}-\d{2}")  # the world file's folder under osm/water-polygons/ (coast.world_file)
 
 
 def _coastline(identity, left_out: list) -> dict:
@@ -758,7 +771,7 @@ def _coastline(identity, left_out: list) -> dict:
         return {}
     if "edition" in identity:
         edition = identity["edition"]
-        if cache_name(edition) and "/" not in edition:
+        if isinstance(edition, str) and EDITION.fullmatch(edition):
             return {"edition": edition}
     elif "paths" in identity:
         tiles = _named_files(identity["paths"], identity)
@@ -812,7 +825,8 @@ def record_of(meta: dict) -> dict:
             "area": {"type": area.get("type") if isinstance(area.get("type"), str) else None,
                      "shape": shape_digest(area), "inputs": _area_inputs(area.get("identity"), left_out)},
             "coastline": coastline, "folders": folders, "left_out": sorted(set(left_out)),
-            "mixed": known and top.get("mixed") is True, "source": source.get("id"),
+            "mixed": known and top.get("mixed") is True,
+            "source": source.get("id") if isinstance(source.get("id"), str) else None,
             "versions": versions if known else None}
 
 
@@ -830,88 +844,107 @@ def read_record(run_dir: str) -> Optional[dict]:
     return record_of(meta) if isinstance(meta, dict) else None
 
 
+def left_out_line(record: Optional[dict]) -> List[str]:
+    """The line under every entry whose run's record left a part out (a name not relative to the cache: a machine's
+    path was about to reach the side file), whatever its outcome."""
+    if not record or not record["left_out"]:
+        return []
+    return [f"left out of the data record (a name not relative to the cache): {', '.join(record['left_out'])}"]
+
+
 def _compare_files(old: dict, new: dict) -> tuple:
-    """(not read or read with another checksum, new, replaced under their names, not known, compared equal) of two
-    {name: checksum} maps, the old one the baseline's. A checksum not known on either side counts as not known."""
+    """(not read or read with another checksum, new, replaced under their names, not known, compared) of two
+    {name: checksum} maps, the old one the baseline's. A checksum not known on either side counts as not known;
+    compared: the names on both sides."""
     missing = sum(name not in new for name in old)
     added = sum(name not in old for name in new)
-    replaced = unknown = equal = 0
-    for name in set(old) & set(new):
+    replaced = unknown = 0
+    both = set(old) & set(new)
+    for name in both:
         if old[name] is None or new[name] is None:
             unknown += 1
         elif old[name] != new[name]:
             replaced += 1
-        else:
-            equal += 1
-    return missing + replaced, added, replaced, unknown, equal
+    return missing + replaced, added, replaced, unknown, len(both)
 
 
 def _files_part(name: str, old: dict, new: dict, unit: str = "files") -> tuple:
-    """(the part's words or None when equal, not known, compared equal) of two file maps."""
-    differ, added, replaced, unknown, equal = _compare_files(old, new)
+    """(the part's words or None when equal, not known, compared) of two file maps."""
+    differ, added, replaced, unknown, compared = _compare_files(old, new)
     if not (differ or added):
-        return None, unknown, equal
+        return None, unknown, compared
     return (f"{name} {differ} of {len(old)} {unit}" + (f", {added} new" if added else "")
-            + (f", {replaced} replaced under their names" if replaced else "")), unknown, equal
+            + (f", {replaced} replaced under their names" if replaced else "")), unknown, compared
 
 
 def compare_records(old: dict, new: dict) -> dict:
-    """The data of a run (`new`) against the baseline's (`old`): {"parts": the parts that differ, as H3's line names
-    them, "unknown": the files (and Nominatim answers) named on both sides whose checksum is not known on either,
-    "known": the identities compared equal (checksums, the world file's edition), "left_out": the parts of either
-    record left out}. A checksum not known never counts as a difference."""
+    """The data of a run (`new`) against the baseline's (`old`): {"parts": the data's parts that differ (files,
+    coastline, the search area, the source), "other": what is neither data nor code and differs (the libraries'
+    versions, the access mark, mixed sessions), "unknown": the files (and Nominatim answers) named on both sides
+    whose checksum is not known on either, "unknown_parts": the parts not known as a whole (the coastline, the
+    search area's inputs, the source), "compared": the files, editions and answers compared at all}. A folder one of
+    whose layers is left out of either record is not known as a whole (its files counted in "unknown"). Not known
+    never counts as a difference."""
     parts: List[str] = []
-    unknown = known = 0
+    unknown_parts: List[str] = []
+    unknown = compared = 0
     left = set(old["left_out"]) | set(new["left_out"])
     for folder in sorted(set(old["folders"]) | set(new["folders"])):
         before, after = old["folders"].get(folder), new["folders"].get(folder)
-        if before is None and set(after["layers"]) & set(old["left_out"]):
-            continue  # its layer left out of the baseline's record: not known
-        if after is None and set(before["layers"]) & set(new["left_out"]):
+        files = [(side or {}).get("files", {}) for side in (before, after)]
+        if any(set(side["layers"]) & left for side in (before, after) if side is not None):
+            unknown += len(set(files[0]) | set(files[1]))  # a layer of it left out on a side: not known
             continue
-        part, n, k = _files_part(folder, (before or {}).get("files", {}), (after or {}).get("files", {}))
+        part, n, k = _files_part(folder, *files)
         parts += [part] if part else []
-        unknown, known = unknown + n, known + k
+        unknown, compared = unknown + n, compared + k
     was, now = old["coastline"], new["coastline"]
     if (was is None) != (now is None):
         parts.append(f"coastline ({_coast_words(was)} -> {_coast_words(now)})")
-    elif was and now:  # both recorded ({} is not known)
+    elif was is not None and not (was and now):  # {} on a side: recorded, not known
+        unknown_parts.append("the coastline")
+    elif was and now:
         if set(was) != set(now) or was.get("edition") != now.get("edition"):
             parts.append(f"coastline ({_coast_words(was)} -> {_coast_words(now)})")
         elif "edition" in was:
-            known += 1
+            compared += 1
         else:
             part, n, k = _files_part("coastline", was["tiles"], now["tiles"], "tiles")
             parts += [part] if part else []
-            unknown, known = unknown + n, known + k
+            unknown, compared = unknown + n, compared + k
     inputs, before, after = [], old["area"]["inputs"], new["area"]["inputs"]
     if before is not None and after is not None:
         part, n, k = _files_part("tiles", before["tiles"], after["tiles"])
         inputs += ["OSM tiles"] if part else []
-        unknown, known = unknown + n, known + k
+        unknown, compared = unknown + n, compared + k
         flat = [{(table, query): value for table, answers in side["nominatim"].items()
                  for query, value in answers.items()} for side in (before, after)]
         part, n, k = _files_part("answers", *flat)
         inputs += ["Nominatim"] if part else []
-        unknown, known = unknown + n, known + k
+        unknown, compared = unknown + n, compared + k
+    elif (before is None) != (after is None):
+        unknown_parts.append("the search area's inputs")
     if inputs:
         parts.append(f"the search area's inputs ({', '.join(inputs)})")
     elif None not in (old["area"]["shape"], new["area"]["shape"]) and old["area"]["shape"] != new["area"]["shape"]:
         guess = (before is None or after is None) and new["area"]["type"] == "polygon"
         parts.append("the search area" + (" (code or OSM)" if guess else ""))
-    if old["source"] != new["source"]:
+    if old["source"] is None or new["source"] is None:
+        unknown_parts.append("the source")
+    elif old["source"] != new["source"]:
         parts.append(f"the source ({old['source']} -> {new['source']})")
+    other: List[str] = []
     if old["versions"] and new["versions"]:  # a version not recorded on one side is not known
-        parts += [f"{label} {old['versions'][key]} -> {new['versions'][key]}" for key, label in LIBRARIES
+        other += [f"{label} {old['versions'][key]} -> {new['versions'][key]}" for key, label in LIBRARIES
                   if isinstance(old["versions"][key], str) and isinstance(new["versions"][key], str)
                   and old["versions"][key] != new["versions"][key]]
     if new["access_skipped"] and not old["access_skipped"]:
-        parts.append("the access mark left out")
+        other.append("the access mark left out")
     elif old["access_skipped"] and not new["access_skipped"]:
-        parts.append("the access mark left out in the baseline")
+        other.append("the access mark left out in the baseline")
     if new["mixed"]:
-        parts.append("sessions read different data")
-    return {"parts": parts, "unknown": unknown, "known": known, "left_out": sorted(left)}
+        other.append("sessions read different data")
+    return {"parts": parts, "other": other, "unknown": unknown, "unknown_parts": unknown_parts, "compared": compared}
 
 
 def _coast_words(coastline: Optional[dict]) -> str:
@@ -923,23 +956,40 @@ def _coast_words(coastline: Optional[dict]) -> str:
         f"{len(coastline['tiles'])} OSM tiles"
 
 
-def data_line(compared: dict) -> str:
-    """H3's line under an entry that differs or is unverified: whether its data were the baseline's."""
+def _data_kind(compared: dict) -> str:
+    """"differs", "unknown" (nothing could be compared), "where known" (nothing known differs, something is not
+    known) or "same"."""
     if compared["parts"]:
-        line = "data differ: " + "; ".join(compared["parts"])
+        return "differs"
+    if not compared["compared"]:
+        return "unknown"
+    return "where known" if compared["unknown"] or compared["unknown_parts"] else "same"
+
+
+def data_line(compared: dict) -> str:
+    """The line under an entry that differs or is unverified (the user's words of W4a): whether its data were the
+    baseline's, then what is neither data nor code and differs (the libraries' versions, the access mark, mixed
+    sessions), joined by "; "."""
+    kind = _data_kind(compared)
+    if kind == "differs":
+        line = "data differs: " + "; ".join(compared["parts"])
+    elif kind == "unknown":
+        line = "data not known"
+    elif kind == "where known":
+        what = ([f"{compared['unknown']} files"] if compared["unknown"] else []) + compared["unknown_parts"]
+        line = f"same data where known ({', '.join(what)} not known), other result"
     else:
-        line = "data as the baseline's" + (f" ({compared['unknown']} files not known)" if compared["unknown"] else "")
-    if compared["left_out"]:
-        line += f"; left out of the record (a name not relative to the cache): {', '.join(compared['left_out'])}"
-    return line
+        line = "same data, other result"
+    return "; ".join([line] + compared["other"])
 
 
 def data_state(compared: Optional[dict]) -> Optional[str]:
-    """The run log's "data" of an entry: "same" (every identity compared equal, at least one), "differs",
-    "unknown" (nothing differs and no identity could be compared), None (no record stored, or no run.json)."""
+    """The run log's "data" of an entry, of the data part alone (never a library's version): "same" (also where
+    known), "differs", "unknown" (nothing could be compared), None (no record stored, no run.json, or the stored
+    record could not be compared)."""
     if compared is None:
         return None
-    return "differs" if compared["parts"] else "same" if compared["known"] else "unknown"
+    return {"where known": "same"}.get(_data_kind(compared), _data_kind(compared))
 
 
 def _sorted_deep(value):
@@ -951,25 +1001,50 @@ def _sorted_deep(value):
     return value
 
 
-def _check_record(test_id: str, record) -> None:
-    """A stored record's shape (record_of's), or ValueError naming the entry."""
-    try:
-        good = (isinstance(record, dict) and tuple(sorted(record)) == RECORD_KEYS
-                and isinstance(record["folders"], dict) and isinstance(record["left_out"], list)
-                and all(cache_name(folder) and isinstance(place["layers"], list)
-                        and all(cache_name(name) for name in place["files"])
-                        for folder, place in record["folders"].items())
-                and (record["coastline"] is None or isinstance(record["coastline"], dict))
-                and isinstance(record["area"], dict) and {"type", "shape", "inputs"} == set(record["area"]))
-    except (KeyError, TypeError, AttributeError):
-        good = False
-    if not good:
-        raise ValueError(f"the record of {test_id} is not of the shape regression.py writes")
+def _string_or_none(value) -> bool:
+    return value is None or isinstance(value, str)
+
+
+def _files_map(files) -> bool:
+    """{name: checksum or None}, every name passing cache_name."""
+    return isinstance(files, dict) and all(cache_name(name) and (value is None or _checksum(value) == value)
+                                           for name, value in files.items())
+
+
+def _good_record(record) -> bool:
+    """Whether a stored record has record_of's shape all the way down: every part's type, every name and checksum."""
+    if not (isinstance(record, dict) and tuple(sorted(record)) == RECORD_KEYS):
+        return False
+    folders, coastline, area = record["folders"], record["coastline"], record["area"]
+    versions, inputs = record["versions"], (record["area"] or {}).get("inputs") if isinstance(area, dict) else None
+    return (isinstance(folders, dict)
+            and all(cache_name(folder) and isinstance(place, dict) and set(place) == {"files", "layers"}
+                    and _files_map(place["files"]) and isinstance(place["layers"], list)
+                    and all(isinstance(layer, str) for layer in place["layers"])
+                    for folder, place in folders.items())
+            and isinstance(record["left_out"], list) and all(isinstance(part, str) for part in record["left_out"])
+            and (coastline is None or coastline == {}
+                 or (isinstance(coastline, dict) and set(coastline) == {"edition"}
+                     and isinstance(coastline["edition"], str) and EDITION.fullmatch(coastline["edition"]) is not None)
+                 or (isinstance(coastline, dict) and set(coastline) == {"tiles"} and _files_map(coastline["tiles"])))
+            and isinstance(area, dict) and set(area) == {"type", "shape", "inputs"} and _string_or_none(area["type"])
+            and (area["shape"] is None or _checksum(area["shape"]) == area["shape"])
+            and (inputs is None or (isinstance(inputs, dict) and set(inputs) == {"tiles", "nominatim"}
+                                    and _files_map(inputs["tiles"]) and isinstance(inputs["nominatim"], dict)
+                                    and all(isinstance(table, str) and isinstance(answers, dict)
+                                            and all(isinstance(query, str) and (value is None
+                                                                                or _checksum(value) == value)
+                                                    for query, value in answers.items())
+                                            for table, answers in inputs["nominatim"].items())))
+            and isinstance(record["mixed"], bool) and _string_or_none(record["source"])
+            and _string_or_none(record["access_skipped"])
+            and (versions is None or (isinstance(versions, dict) and set(versions) == {key for key, _ in LIBRARIES}
+                                      and all(_string_or_none(v) for v in versions.values()))))
 
 
 def load_data(path: str = None) -> dict:
-    """The stored data records (DATA_FILE): {entry: record}; a missing file is an empty one; a broken one raises
-    ValueError naming it."""
+    """The stored data records (DATA_FILE): {entry: record}; a missing file is an empty one; a broken one (no JSON,
+    or a record not of record_of's shape all the way down) raises ValueError naming it."""
     path = path or DATA_FILE
     try:
         with open(path, encoding="utf-8") as f:
@@ -977,11 +1052,8 @@ def load_data(path: str = None) -> dict:
         if not isinstance(data, dict):
             raise ValueError("not a JSON object")
         for test_id, record in data.items():
-            _check_record(test_id, record)
-            try:  # every part the comparison reads is there: a wrong shape fails here, before any search
-                compare_records(record, record)
-            except (KeyError, TypeError, AttributeError, ValueError):
-                raise ValueError(f"the record of {test_id} is not of the shape regression.py writes") from None
+            if not _good_record(record):
+                raise ValueError(f"the record of {test_id} is not of the shape regression.py writes")
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as e:
@@ -989,22 +1061,65 @@ def load_data(path: str = None) -> dict:
     return data
 
 
-def write_data(data: dict, tests: dict, path: str = None):
-    """The data records into DATA_FILE, whole: the entries in the order of regression.json (a record of an entry no
-    longer there is dropped), every mapping sorted, one file name per line, UTF-8 with LF and a newline at the end,
-    through a temporary file renamed over it (never torn). Written again with nothing changed, its bytes stay."""
-    path = path or DATA_FILE
+def data_text(data: dict, tests: dict) -> str:
+    """The side file's text: the entries in the order of regression.json (a record of an entry no longer there is
+    dropped), every mapping sorted, one file name per line, a newline at the end. The same records give the same
+    text."""
     ordered = {test_id: _sorted_deep(data[test_id]) for test_id in tests if test_id in data}
-    text = json.dumps(ordered, ensure_ascii=False, indent=1) + "\n"
-    handle, temporary = tempfile.mkstemp(prefix=".regression-data-", suffix=".tmp", dir=os.path.dirname(path))
+    return json.dumps(ordered, ensure_ascii=False, indent=1) + "\n"
+
+
+def tests_text(tests: dict) -> str:
+    """regression.json's text, as --update has always written it."""
+    return json.dumps(tests, ensure_ascii=False, indent=2) + "\n"
+
+
+def _replace(source: str, target: str):
+    """os.replace, tried again after each of REPLACE_PAUSES on Windows while another handle holds the target (a
+    reader of the file, a scanner: PermissionError); then the error as it came."""
+    for pause in (REPLACE_PAUSES if os.name == "nt" else ()) + (None,):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if pause is None:
+                raise
+            time.sleep(pause)
+
+
+def write_files(texts: List[tuple]) -> Optional[tuple]:
+    """Each (path, text) written whole: all of them first into temporary files beside their paths, then each renamed
+    over its path in the order given (UTF-8, LF; never torn). Returns None, or (the path not written, the error):
+    that path and those after it keep their old content, the ones before it are written; no temporary file is
+    left."""
+    temporaries, current = [], None
     try:
-        with os.fdopen(handle, "wb") as f:
-            f.write(text.encode("utf-8"))
-        os.replace(temporary, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.remove(temporary)
-        raise
+        for path, text in texts:
+            current = path
+            handle, temporary = tempfile.mkstemp(prefix=f".{os.path.basename(path)}-", suffix=".tmp",
+                                                 dir=os.path.dirname(path))
+            temporaries.append(temporary)
+            with os.fdopen(handle, "wb") as f:
+                f.write(text.encode("utf-8"))
+        for (path, _), temporary in zip(texts, temporaries):
+            try:
+                _replace(temporary, path)
+            except OSError as e:
+                return path, e
+        return None
+    except OSError as e:  # a temporary file not written (a full disk): nothing replaced
+        return current, e
+    finally:
+        for temporary in temporaries:
+            with contextlib.suppress(OSError):
+                os.remove(temporary)
+
+
+def write_data(data: dict, tests: dict, path: str = None):
+    """The data records into DATA_FILE, whole (data_text, write_files); raises OSError when it cannot be written."""
+    failed = write_files([(path or DATA_FILE, data_text(data, tests))])
+    if failed:
+        raise failed[1]
 
 
 def number(n) -> str:
@@ -1584,13 +1699,17 @@ def main():
         diffs = (own_problems({"exit": found.get("exit")}) + values + list(found.get("problems", []))
                  + [line for line, _ in cross])  # in the order printed before
         slow = test.get("seconds") and seconds > SLOWER * test["seconds"] and seconds - test["seconds"] > 5
-        compared = compare_records(data[test_id], record) if record is not None and test_id in data else None
-        explained = []  # under an entry that differs or is unverified: whether its data were the baseline's
-        if status != "ok" and record is not None:
-            explained = [data_line(compared) if compared else "no data record stored"]
+        compared, line = None, "no data record stored"
+        if record is not None and test_id in data:
+            try:  # a stored record never costs the run: one that cannot be compared is said, the run goes on
+                compared = compare_records(data[test_id], record)
+                line = data_line(compared)
+            except Exception as e:
+                compared, line = None, f"the stored data record cannot be compared ({type(e).__name__})"
+        explained = [line] if status != "ok" and record is not None else []  # under an entry that differs
         print(f"{test_id}: {status}" + (f" ({reason})" if reason else "") + f" ({seconds:.0f} s"
               + (f", WARNING: recorded {test['seconds']:.0f} s" if slow else "")
-              + ")" + "".join(f"\n    {d}" for d in diffs + explained), flush=True)
+              + ")" + "".join(f"\n    {d}" for d in diffs + explained + left_out_line(record)), flush=True)
         (failed if status == "DIFFERENT" else unverified if status == "unverified" else []).append(test_id)
         entries[test_id] = with_counts({"outcome": status.lower(), "reason": reason,
                                         "coastline": None if osm_kind else found.get("coastline"),
@@ -1615,17 +1734,23 @@ def main():
                 records["stored"] += 1
                 records["changed"] += data.get(test_id) != record
                 data[test_id] = record
-    if args.update:
-        with open(TESTS, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(tests, f, ensure_ascii=False, indent=2)
-            f.write("\n")
+    # Both files prepared before either is replaced; regression.json first: when the side file then cannot be
+    # written the new baselines keep their old records (the line then says "data differs" until --update-data)
+    texts = ([(TESTS, tests_text(tests))] if args.update else []) + \
+        ([(DATA_FILE, data_text(data, tests))] if args.update or args.update_data else [])
+    not_written = write_files(texts) if texts else None
+    written = [path for path, _ in texts]
+    if not_written:
+        written = written[:written.index(not_written[0])]
+        print(f"WARNING: {not_written[0]} could not be written ({type(not_written[1]).__name__}: {not_written[1]})"
+              + ("; nothing of this run is stored in it" if not_written[0] == TESTS else
+                 "; store the data records again with --update-data"), flush=True)
+    if TESTS in written:
         print(f"Expected values updated in {TESTS}")
-    if args.update or args.update_data:
-        write_data(data, tests)
-    if args.update_data:
+    if args.update_data and DATA_FILE in written:
         print(f"Data records: {records['stored']} stored ({records['changed']} of them changed), "
               f"{len(ids) - records['stored']} tests left as they were; in {DATA_FILE}")
-    elif args.update:
+    elif args.update and DATA_FILE in written:
         print(f"Data records updated in {DATA_FILE}")
     if args.write_doc:
         write_doc(tests)
@@ -1639,9 +1764,9 @@ def main():
         print(f"\n{ok} ok, {len(failed)} different, {len(unverified)} unverified, {len(skipped)} skipped"
               + (f", {len(by_name)} by name only" if by_name else "") + f"; {where}")
     if args.update:
-        code = 3 if refused else 0
+        code = 3 if refused or not_written else 0
     else:
-        code = 1 if failed else 3 if unverified else 0
+        code = 1 if failed else 3 if unverified or not_written else 0
     if ids:
         write_run_log({
             "v": RUN_LOG_VERSION, "time": start_time.isoformat(timespec="seconds"),
@@ -1650,7 +1775,7 @@ def main():
             "cache": cache_dir, "cache_real": os.path.realpath(cache_dir), "real_cache": same_folder(cache_dir, real),
             "cold": args.cold, "seeded": seeded,
             "args": {"ids": args.ids, "all": args.all, "sets": args.set, "update": args.update,
-                     "browser": args.browser},
+                     "update_data": args.update_data, "browser": args.browser},
             "entries": entries,
             "counts": {"ok": ok, "different": len(failed), "unverified": len(unverified), "skipped": len(skipped),
                        "by_name": len(by_name)},
