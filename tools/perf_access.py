@@ -339,6 +339,11 @@ def summarise(samples: Sequence[Sequence], listings, events: Sequence[Tuple[floa
         priv = [s[i["private"]] for s in inside if s[i["private"]] is not None]
         if priv:
             row["peak_private"] = max(row["peak_private"] or 0, max(priv))
+            # the working set less the private bytes (Windows: private bytes are commit, so a lower bound of the
+            # file pages resident; it shows them apart from private pages faulted back after an emptied start)
+            fp = max(s[i["rss"]] - s[i["private"]] for s in inside if s[i["private"]] is not None)
+            row["peak_ws_less_private"] = fp if row.get("peak_ws_less_private") is None else max(
+                row["peak_ws_less_private"], fp)
         row["peak_disk"] = max(row["peak_disk"] or 0, max(s[i["disk"]] or 0 for s in inside))
         cgs = [s for s in inside if s[i["cg_current"]] is not None]
         if cgs:
@@ -352,6 +357,9 @@ def summarise(samples: Sequence[Sequence], listings, events: Sequence[Tuple[floa
         row["max_gap_s"] = round(row["max_gap_s"], 3)
         row["peak_rss_above_start"] = _above(row.pop("peak_rss"), base.get("rss"))
         row["peak_private_above_start"] = _above(row.pop("peak_private"), base.get("private"))
+        if "peak_ws_less_private" in row:
+            start_fp = (base["rss"] - base["private"]) if base.get("private") is not None else None
+            row["peak_ws_less_private_above_start"] = _above(row.pop("peak_ws_less_private"), start_fp)
         if "cg_peak" in row:
             row["cg_peak_above_start"] = _above(row["cg_peak"], (cg_base or {}).get("current"))
     return out
@@ -714,6 +722,9 @@ class Search:
         import params as pm
         import search
         self.search = search
+        # the names patched for this search, restored by close() (a second search in the process starts clean)
+        self._patched = {name: getattr(search, name) for name in ("available_memory", "ACCESS_AREA_BYTES",
+                                                                  "_access_budget")}
         if args.memory:
             search.available_memory = lambda: int(args.memory)  # before plan_search: _check_access and the tiles
         self.area_fixed = int(getattr(args, "area_fixed", None) or 0)
@@ -791,6 +802,8 @@ class Search:
 
     def close(self, keep: bool = False):
         self.data = None
+        for name, value in getattr(self, "_patched", {}).items():
+            setattr(self.search, name, value)
         gc.collect()
         if not keep:
             for _ in range(50):
@@ -971,12 +984,29 @@ def warm_up():
     access.access_grid(np.round(z), None, 5.0)
 
 
-def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block_px: Optional[int]) -> Dict:
-    """One stage of `stages` ("once" or "blocks"): its result and the grid's file."""
+def empty_working_set() -> Optional[Dict]:
+    """Windows: the process's working set emptied (psapi.EmptyWorkingSet): every page leaves it, file pages and
+    private ones (those fault back when touched). Returns the memory before and after; None elsewhere."""
+    if os.name != "nt":
+        return None
+    import ctypes
+    proc = psutil.Process()
+    before = memory_now(proc)
+    handle = ctypes.windll.kernel32.GetCurrentProcess()
+    done = bool(ctypes.windll.psapi.EmptyWorkingSet(handle))
+    return {"done": done, "before": before, "after": memory_now(proc)}
+
+
+def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block_px: Optional[int],
+              empty_start: bool = False) -> Dict:
+    """One stage of `stages` ("once" or "blocks"): its result and the grid's file. empty_start: the working set
+    emptied just before the start reading (a start that holds none of the files the stage reads)."""
     z, water, res, filled = s.inputs()
-    out = {"stage": kind, "run": k}
+    out = {"stage": kind, "run": k, "grid_px": s.pixels, "window_bytes": s.search.ACCESS_WINDOW_BYTES}
     proc = psutil.Process()
     gc.collect()
+    if empty_start:
+        out["emptied"] = empty_working_set()
     out["start"] = memory_now(proc)
     out["cg_start"] = cgroup_sample()
     out["work_bytes_at_start"] = sum(work_files(s.work).values())  # step 1's grids (and earlier stages' outputs)
@@ -1073,25 +1103,32 @@ def stage_report(stage: Dict, parts: Dict[str, Dict], pixels: int) -> Dict:
                 b["level_rss_b_per_largest_window_px"] = per_px(b["peak_rss_above_level"], largest)
                 b["level_private_b_per_largest_window_px"] = per_px(b["peak_private_above_level"], largest)
         out["blocks_part"] = b
-        out["needed"] = constant_needed(out, pixels)
+        out["needed"] = constant_needed(out, pixels, stage.get("window_bytes", 50))
+        rows = [r for r in out["blocks_list"] if r.get("ws_less_private_b_per_grid_px") is not None]
+        if rows:  # the file pages (WS less private) above the start: when the blocks begin and at the last block
+            lv = (stage.get("readings") or {}).get("blocks: block 1")
+            st0 = stage["start"]
+            if lv and lv.get("private") is not None and st0.get("private") is not None:
+                out["ws_less_private_at_level_b_per_grid_px"] = per_px(
+                    (lv["rss"] - lv["private"]) - (st0["rss"] - st0["private"]), pixels)
+            out["ws_less_private_last_block_b_per_grid_px"] = rows[-1]["ws_less_private_b_per_grid_px"]
     return out
 
 
-WINDOW_BYTES_COUNTED = 50  # search.ACCESS_WINDOW_BYTES (not imported here: a tree of before may differ)
-
-
-def constant_needed(st: Dict, pixels: int) -> Dict:
+def constant_needed(st: Dict, pixels: int, window_bytes: float = 50) -> Dict:
     """What the rule's per-pixel constant must cover on a blocks stage (the working set above the stage's start, as
-    the rule counts it): the grid-wide pass's peak per pixel of the grid, and the blocks' peak less 50 B (the rule's
-    window bytes) per pixel of the largest window measured, per pixel of the grid; the larger of the two is "the
-    constant needed". Also the blocks' with the window at its measured private bytes (above the level when the blocks
+    the rule counts it): the grid-wide pass's peak per pixel of the grid, and the blocks' peak less window_bytes (the
+    tree's search.ACCESS_WINDOW_BYTES) per pixel of the largest window measured, per pixel of the grid; the larger of
+    the two is "the constant needed". Above the stage's START: a start that already holds pages of the files the
+    stage reads (step 1 ran in the process) shows less than a cold one (`--empty-start`; code review G1-1). Also the blocks' with the window at its measured private bytes (above the level when the blocks
     begin) instead of 50. Beside them the pass's private peak in MiB and the mark's files: the work folder's peak
     during the stage less what it held at the stage's start, per pixel of the grid."""
     g, b = st.get("grid_wide") or {}, st.get("blocks_part") or {}
     largest = b.get("largest_window_px")
     out = {"pass_ws_b_per_px": per_px(g.get("peak_rss_above_start"), pixels)}
     if b.get("peak_rss_above_start") is not None and largest:
-        out["blocks_beyond_50_b_per_px"] = per_px(b["peak_rss_above_start"] - WINDOW_BYTES_COUNTED * largest, pixels)
+        out["window_bytes"] = window_bytes
+        out["blocks_beyond_50_b_per_px"] = per_px(b["peak_rss_above_start"] - window_bytes * largest, pixels)
         if b.get("peak_private_above_level") is not None:
             out["blocks_beyond_private_b_per_px"] = per_px(b["peak_rss_above_start"] - b["peak_private_above_level"],
                                                            pixels)
@@ -1130,6 +1167,8 @@ def block_rows(stage: Dict, parts: Dict[str, Dict]) -> List[Dict]:
         row = {"block": n, "window_px": window, "s": r["s"], "samples": r["samples"], "max_gap_s": r["max_gap_s"],
                "stage_rss": r["peak_rss_above_start"], "stage_private": r["peak_private_above_start"]}
         row["level_rss"] = _shift(r["peak_rss_above_start"], start["rss"], level and level["rss"])
+        row["ws_less_private_above_start"] = r.get("peak_ws_less_private_above_start")
+        row["ws_less_private_b_per_grid_px"] = per_px(row["ws_less_private_above_start"], stage.get("grid_px"))
         row["level_private"] = _shift(r["peak_private_above_start"], start["private"], level and level["private"])
         for key in ("stage", "level"):
             row[f"{key}_rss_b_per_window_px"] = per_px(row[f"{key}_rss"], window)
@@ -1184,11 +1223,13 @@ def run_stages(args) -> Dict:
         step1.update(s=round(t1 - t0, 2), t0=t0, t1=t1, end=memory_now(psutil.Process()),
                      work_after=work_files(s.work), first_event=0, cg_end=cgroup_sample())
         raw.append((step1, len(marks.events)))
+        if args.estimate_first:  # as a web job of a tiled area: the estimate between step 1 and the access grid
+            out["estimate"] = run_estimate(s)
         counts = {}
         for kind in out["order"]:
             counts[kind] = counts.get(kind, 0) + 1
             first = len(marks.events)
-            st = run_stage(s, marks, kind, counts[kind], access, block_px)
+            st = run_stage(s, marks, kind, counts[kind], access, block_px, args.empty_start)
             st["first_event"] = first
             raw.append((st, len(marks.events)))
             stages.append(st)
@@ -1221,6 +1262,24 @@ def run_stages(args) -> Dict:
     out["cg_final"] = cgroup_sample()
     out["work"] = s.work
     s.close(args.keep_work)
+    return out
+
+
+def run_estimate(s: Search) -> Dict:
+    """search._estimate_tiles(plan, area) between step 1 and the stage, as search_lines runs it in a web job of a
+    tiled area (where search._samples is true: the tool's plan has no limits, so it is called directly; without
+    limits and Plan.memory its decision refuses nothing). Its seconds and this process's memory before and after."""
+    proc = psutil.Process()
+    if not s.plan.tiles:
+        return {"run": False, "why": "a plan without tiles: the estimate of one grid runs inside _lines"}
+    gc.collect()
+    before = memory_now(proc)
+    t0 = time.time()
+    s.search._estimate_tiles(s.plan, s.data)
+    out = {"run": True, "s": round(time.time() - t0, 2), "before": before}
+    gc.collect()
+    out["after"] = memory_now(proc)
+    out["funnel_estimate"] = s.plan.funnel.get("estimate")
     return out
 
 
@@ -1487,6 +1546,10 @@ def print_table(out: Dict):
                               f"{_mb(b['peak_rss_above_level']):>7} {_mb(b['peak_private_above_level']):>7} "
                               f"{b['level_rss_b_per_largest_window_px'] or '':>6} "
                               f"{b['level_private_b_per_largest_window_px'] or '':>6}")
+                if st.get("ws_less_private_last_block_b_per_grid_px") is not None:
+                    print(f"  WS less private above the start: {st.get('ws_less_private_at_level_b_per_grid_px')} B/px "
+                          f"when the blocks begin, {st['ws_less_private_last_block_b_per_grid_px']} at the last block"
+                          + (" (emptied start)" if st.get("emptied") else ""))
                 n = st.get("needed") or {}
                 if n:
                     print(f"  constant needed {n.get('constant_needed')} B/px ({n.get('decided_by')}): pass "
@@ -1548,6 +1611,10 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-samples", action="store_true", help="stages: keep the sidecar's samples (<out>/samples)")
     p.add_argument("--order", default="once,blocks", help="stages: the stages after step 1, e.g. blocks,once,blocks")
     p.add_argument("--step1-only", action="store_true", help="stages: step 1 alone")
+    p.add_argument("--empty-start", action="store_true",
+                   help="stages: the working set emptied before each stage's start (Windows: EmptyWorkingSet)")
+    p.add_argument("--estimate-first", action="store_true",
+                   help="stages: the tiles' estimate (search._estimate_tiles) between step 1 and the stages")
     p.add_argument("--block-px", type=int, help="stages, compare, masks: the blocks' side instead of the rule's")
     p.add_argument("--area-bytes", type=float, help="the rule with this search.ACCESS_AREA_BYTES (this run only)")
     p.add_argument("--area-fixed", type=int, help="and this fixed term of the rule in bytes (this run only)")

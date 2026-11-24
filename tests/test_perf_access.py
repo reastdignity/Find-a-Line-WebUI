@@ -205,6 +205,27 @@ def test_a_blocks_peaks_above_the_stage_and_the_level():
     assert rep["grid_wide"]["rss_b_per_grid_px"] == 0.2
 
 
+def test_the_constant_needed_on_hand_made_numbers():
+    """constant_needed: the pass's peak per pixel of the grid, and the blocks' peak less the window bytes (the tree's,
+    given) times the largest window, per pixel of the grid; the larger decides. Numbers chosen by hand: a grid of
+    100 Mpx, the pass 450 MB above the start, the blocks 1 100 MB with a largest window of 10 Mpx."""
+    mb = 1_000_000
+    st = {"grid_wide": {"peak_rss_above_start": 450 * mb, "peak_private_above_start": 12 * 2 ** 20},
+          "blocks_part": {"peak_rss_above_start": 1100 * mb, "largest_window_px": 10 * mb,
+                          "peak_private_above_level": 430 * mb},
+          "parts": {"a": {"peak_disk": 900 * mb}, "b": {"peak_disk": 1300 * mb}}, "work_bytes_at_start": 900 * mb}
+    n = pa.constant_needed(st, 100 * mb)
+    assert n["pass_ws_b_per_px"] == 4.5 and n["blocks_beyond_50_b_per_px"] == 6.0  # (1100 - 500) / 100
+    assert n["constant_needed"] == 6.0 and n["decided_by"] == "blocks beyond their window"
+    assert n["blocks_beyond_private_b_per_px"] == 6.7 and n["pass_private_mib"] == 12.0
+    assert n["mark_files_bytes"] == 400 * mb and n["mark_files_b_per_px"] == 4.0
+    n = pa.constant_needed(st, 100 * mb, window_bytes=60)  # the tree's window bytes, not a fixed 50
+    assert n["blocks_beyond_50_b_per_px"] == 5.0 and n["constant_needed"] == 5.0 and n["window_bytes"] == 60
+    st["blocks_part"]["peak_rss_above_start"] = 900 * mb
+    n = pa.constant_needed(st, 100 * mb)
+    assert n["constant_needed"] == 4.5 and n["decided_by"] == "grid-wide pass"
+
+
 def test_the_blocks_hook_keeps_no_window_alive():
     """Marks.hook's _answers: the open ground's windows reach the measure without a reference of the hook, so the
     measure's own `del og` / `del og2` free them as in a call without the hook (a wrapper of *args kept them)."""
@@ -361,6 +382,20 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
     assert not os.path.exists(saved["work"])
     assert not os.listdir(out_dir / "samples")  # the sidecar's files removed
     assert out["stages"][0]["compare_with_once"]["differ"] == 0
+
+
+def test_the_rules_constants_for_one_run_only(tmp_path, made_up_search):
+    """plan with --area-bytes and --area-fixed: the rule's answer with them (recorded), and search's names as before
+    once the command ends (a second command in the process starts from the tree's constants)."""
+    import search
+    before = (search.ACCESS_AREA_BYTES, search._access_budget, search.available_memory)
+    out = pa.main(["plan", "--out", str(tmp_path / "out"), "--name", "r", "--memory", "3000000", "--area-bytes", "7",
+                   "--area-fixed", "1000", *made_up_search])
+    r = out["rule"]
+    assert r["ACCESS_AREA_BYTES"] == 7 and r["area_fixed"] == 1000 and r["budget"] == 3_000_000
+    if r["block_px"]:
+        assert r["counts_bytes"] == int(7 * out["plan"]["grid_px"] + 1000 + 50 * r["window_px_max"])
+    assert (search.ACCESS_AREA_BYTES, search._access_budget, search.available_memory) == before
 
 
 def test_pieces_and_compare_on_a_made_up_search(tmp_path, made_up_search):
