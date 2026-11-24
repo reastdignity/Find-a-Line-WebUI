@@ -414,6 +414,100 @@ def test_block_grid_leaves_no_scratch_file(tmp_path, whole):
     assert os.listdir(work) == ["access.npy"]
 
 
+class _Recorded:
+    """A function of numpy or scipy.ndimage whose every array it returns is recorded (its name, shape and type);
+    anything else (a ufunc's `at`, `reduce`) passes through."""
+
+    def __init__(self, name, f, seen):
+        self._name, self._f, self._seen = name, f, seen
+
+    def __call__(self, *a, **k):
+        out = self._f(*a, **k)
+        for x in out if isinstance(out, tuple) else (out,):
+            if isinstance(x, np.ndarray):
+                self._seen.add((self._name, x.shape, x.dtype.str))  # a set: the same strip shapes once
+        return out
+
+    def __getattr__(self, name):
+        return getattr(self._f, name)
+
+
+class _Recording:
+    """A module (numpy, scipy.ndimage, and the modules under them) whose functions record the arrays they make."""
+
+    def __init__(self, module, seen):
+        self._module, self._seen = module, seen
+
+    def __getattr__(self, name):
+        import types
+        attr = getattr(self._module, name)
+        if isinstance(attr, types.ModuleType):
+            return _Recording(attr, self._seen)
+        if callable(attr) and not isinstance(attr, type):
+            return _Recorded(f"{self._module.__name__}.{name}", attr, self._seen)
+        return attr
+
+
+@pytest.mark.parametrize("whole", [False, True], ids=["float", "whole-metres"])
+def test_the_grid_wide_pass_makes_nothing_of_4_bytes_a_pixel(tmp_path, monkeypatch, whole):
+    """The grid-wide pass of access.block_grid creates no array and no file of the grid's shape with more than 1 B per
+    pixel (spec A: no label array of the whole grid): every array access.py makes through numpy's and scipy.ndimage's
+    functions in the pass is recorded (shape and type), and every file it removes (its size); none has the grid's
+    shape (or as many elements) with more than 1 B an element, no file more bytes than the grid has pixels (and the
+    .npy header). Python's traced peak of the pass after the whole-metre sample (a fixed size, about
+    WHOLE_METRE_SAMPLE heights: 2.9 MB here) stays under 2 B per pixel of the grid (a catch-all for arrays made by
+    operators and methods). The blocks then run
+    unrecorded (numba compiles them with the real modules) and give the grid at once."""
+    import tracemalloc
+    z = _lakes(_hills(1600, 420, 5.0, 8))
+    z = (np.round(z) if whole else z).astype(np.float32)
+    h, w = z.shape
+    one = access.access_grid(z, None, 5.0, alpine=True)
+    monkeypatch.setattr(access, "STRIP_PX", 1)  # 64 rows a strip: 25 strips
+    monkeypatch.setattr(access, "GATHER_PX", 5_000)
+    seen, removed, peak = set(), [], []
+    real_np, real_ndimage, real_remove = access.np, access.ndimage, access._remove
+
+    def remove(path):
+        if os.path.exists(path):
+            removed.append((os.path.basename(path), os.path.getsize(path)))
+        real_remove(path)
+
+    def on_part(name):
+        if name == "blocks":
+            peak.append(tracemalloc.get_traced_memory()[1])
+            tracemalloc.stop()
+            access.np, access.ndimage = real_np, real_ndimage
+
+    def sample(*a, real=access._whole_metres_rows):
+        try:
+            return real(*a)
+        finally:  # the whole-metre sample: about WHOLE_METRE_SAMPLE heights whatever the grid (K's own test)
+            peak.append(tracemalloc.get_traced_memory()[1])
+            tracemalloc.reset_peak()
+
+    monkeypatch.setattr(access, "_remove", remove)
+    monkeypatch.setattr(access, "_whole_metres_rows", sample)
+    work = tmp_path / "work"
+    tracemalloc.start()
+    try:
+        access.np, access.ndimage = _Recording(real_np, seen), _Recording(real_ndimage, seen)
+        access.block_grid(z, None, 5.0, None, str(work / "access.npy"), str(work), 100, alpine=True, on_part=on_part)
+    finally:
+        access.np, access.ndimage = real_np, real_ndimage
+        if tracemalloc.is_tracing():
+            tracemalloc.stop()
+    assert seen and removed and len(peak) == 2
+    big = [(name, shape, str(dtype)) for name, shape, dtype in seen  # the grid's shape, or its pixels in a row
+           if np.dtype(dtype).itemsize > 1 and (tuple(shape) == (h, w) or int(np.prod(shape)) >= h * w)]
+    assert not big, big
+    assert all(size <= h * w + 4096 for _, size in removed), removed  # a bool grid and its .npy header at most
+    assert peak[0] < 16 * access.WHOLE_METRE_SAMPLE and peak[1] < 2 * h * w, (peak, h * w)
+    blocks = np.array(np.load(work / "access.npy", mmap_mode="r"))
+    assert np.array_equal(blocks, one), int((blocks != one).sum())
+    assert os.listdir(work) == ["access.npy"]
+
+
 def test_a_walk_too_large_is_refused(tmp_path, monkeypatch):
     """A grid at once, or a block's window, of access.WALK_PX_MAX pixels or more is refused (the walk's int32
     indices); the search's block rule keeps every window under it."""

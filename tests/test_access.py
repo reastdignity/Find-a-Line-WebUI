@@ -437,6 +437,187 @@ def test_whole_metre_sample_keeps_no_strip(monkeypatch):
     assert peak < z.nbytes / 2, (peak, z.nbytes)
 
 
+EIGHT = np.ones((3, 3), bool)
+
+
+def _spiral(n=200):
+    """A square spiral of width 1 with gaps of 1: one region winding through every strip many times."""
+    m = np.zeros((n, n), bool)
+    r0, c0, r1, c1 = 0, 0, n - 1, n - 1
+    while r0 <= r1 and c0 <= c1:
+        m[r0, c0:c1 + 1] = True
+        m[r0:r1 + 1, c1] = True
+        if r1 > r0:
+            m[r1, c0:c1 + 1] = True
+        if c1 > c0 + 2:
+            m[r0 + 2:r1 + 1, c0] = True
+        if c0 + 2 <= c1 - 2 and r0 + 2 < r1:
+            m[r0 + 2, c0:c0 + 3] = True  # step inward
+        r0, c0, r1, c1 = r0 + 2, c0 + 2, r1 - 2, c1 - 2
+    return m
+
+
+def _comb(rows=300, cols=161):
+    """Teeth of width 1 (gaps of 1) through five strips, joined only by the last row."""
+    m = np.zeros((rows, cols), bool)
+    m[:, ::2] = True
+    m[:-1, 1::2] = False
+    m[-1] = True
+    return m
+
+
+def _u_below():
+    """A U whose arms (strips 0 to 2) join only in strip 3; a second U inside it, joined in strip 2; an H whose bar lies
+    on a seam's first row; two arms carried side by side that join in the next strip only by a diagonal."""
+    m = np.zeros((280, 120), bool)
+    m[0:250, 5] = m[0:250, 60] = True
+    m[249, 5:61] = True
+    m[10:150, 20] = m[10:150, 40] = True
+    m[149, 20:41] = True
+    m[0:200, 80] = m[0:200, 90] = True
+    m[128, 80:91] = True  # the H's bar on the first row of strip 2
+    m[0:191, 100] = True
+    m[192, 102] = True  # 100 -> 101 -> 102 by diagonals across the seam of rows 191/192
+    m[191, 101] = True
+    m[0:192, 104] = True
+    m[192, 103] = True  # the second arm reaches 102 by another diagonal
+    return m
+
+
+def _diagonals(rows=260, cols=200):
+    """Lines one pixel wide at 45 degrees both ways, each crossing the seams only by a diagonal step."""
+    m = np.zeros((rows, cols), bool)
+    r = np.arange(rows)
+    for k in range(-rows, cols, 9):
+        c = k + r
+        ok = (c >= 0) & (c < cols)
+        m[r[ok], c[ok]] = True
+    for k in range(0, cols + rows, 23):
+        c = k - r
+        ok = (c >= 0) & (c < cols)
+        m[r[ok], c[ok]] = True
+    return m
+
+
+def _random(rows, cols, share, seed):
+    return np.random.default_rng(seed).random((rows, cols)) < share
+
+
+def _empty_strip():
+    m = _random(64 * 4, 150, 0.5, 5)
+    m[64:128] = False
+    m[60:64, 70:80] = True  # a region ending on a strip's last row before an empty strip
+    return m
+
+
+REGION_MASKS = {
+    "random-sparse": lambda: _random(300, 257, 0.3, 1),
+    "random-near-percolation": lambda: _random(320, 240, 0.42, 2),
+    "random-dense": lambda: _random(300, 257, 0.6, 3),
+    "comb": _comb,
+    "spiral": _spiral,
+    "u-below": _u_below,
+    "diagonals": _diagonals,
+    "width-1": lambda: _random(400, 1, 0.7, 4),
+    "shorter-than-a-strip": lambda: _random(40, 100, 0.5, 6),
+    "last-strip-one-row": lambda: _random(64 * 3 + 1, 90, 0.5, 7),
+    "empty": lambda: np.zeros((200, 100), bool),
+    "full": lambda: np.ones((200, 100), bool),
+    "empty-strip-between": _empty_strip,
+}
+
+
+def _mask_file(tmp_path, mask):
+    m = access._Mask(str(tmp_path / "mask.npy"), mask.shape)
+    m.write(0, mask.shape[0], mask)
+    m.flush()
+    return m
+
+
+def _regions_of(tmp_path, m, judge, heights=None, strips=None):
+    rows = None if heights is None else (lambda r0, r1: heights[r0:r1])
+    return access._Regions(m, str(tmp_path / "regions.bin"), judge, heights=rows, strips=strips)
+
+
+def _check_regions(tmp_path, mask, strips=None):
+    """_Regions of the mask in strips (64 rows, or `strips`) against ndimage.label of the whole mask: every region an
+    open question, their codes one to one with the whole mask's labels, their pixels, lowest and highest height and
+    first and last strip; then kept by a size, pixel for pixel."""
+    h, w = mask.shape
+    heights = (np.random.default_rng(9).normal(0, 300, (h, w))).astype(np.float32)
+    lab, n = ndimage.label(mask, structure=EIGHT)
+    count = np.bincount(lab.ravel(), minlength=n + 1)
+    m = _mask_file(tmp_path, mask)
+    regions = _regions_of(tmp_path, m, lambda p, lo, hi: np.full(len(p), access.ASK), heights, strips)
+    bounds = regions.strips
+    assert bounds[0][0] == 0 and bounds[-1][1] == h and all(a[1] == b[0] for a, b in zip(bounds, bounds[1:]))
+    codes = np.concatenate([regions.codes(s) for s in range(len(bounds))])
+    assert codes.shape == mask.shape and np.array_equal(codes >= access.ASK, mask)
+    q = regions.questions
+    assert len(q["pixels"]) == n
+    if n:
+        pairs = np.unique(np.stack([lab[mask], codes[mask] - access.ASK]), axis=1)
+        assert pairs.shape[1] == n  # one question per label and one label per question
+        of = np.empty(n + 1, np.int64)
+        of[pairs[0]] = pairs[1]
+        labels = np.arange(1, n + 1)
+        assert np.array_equal(np.array(q["pixels"])[of[1:]], count[1:])
+        assert np.array_equal(np.array(q["lowest"])[of[1:]], ndimage.minimum(heights, lab, labels).astype(np.float64))
+        assert np.array_equal(np.array(q["highest"])[of[1:]], ndimage.maximum(heights, lab, labels).astype(np.float64))
+        strip_of = np.zeros(h, np.int64)
+        for s, (r0, r1) in enumerate(bounds):
+            strip_of[r0:r1] = s
+        rows = [sl[0] for sl in ndimage.find_objects(lab)]
+        assert np.array_equal(np.array(q["first"])[of[1:]], strip_of[[r.start for r in rows]])
+        assert np.array_equal(np.array(q["last"])[of[1:]], strip_of[[r.stop - 1 for r in rows]])
+    regions.remove()
+    for least in (1, 3, 40, 500):
+        regions = _regions_of(tmp_path, m, lambda p, lo, hi, least=least: np.where(p >= least, access.KEEP,
+                                                                                          access.DROP),
+                              strips=strips)
+        kept = np.concatenate([regions.kept(s) for s in range(len(regions.strips))])
+        big = count >= least
+        big[0] = False
+        assert np.array_equal(kept, big[lab]), least
+        assert not regions.questions["pixels"]
+        regions.remove()
+    m.remove()
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("case", list(REGION_MASKS))
+def test_regions_in_strips_are_the_whole_masks(tmp_path, monkeypatch, case):
+    """access._Regions (the grid in blocks: regions labelled strip by strip, joined across the seams, no label array of
+    the whole grid) = ndimage.label of the whole mask, on made-up masks in strips of 64 rows; no file left."""
+    monkeypatch.setattr(access, "STRIP_PX", 1)  # 64 rows a strip
+    _check_regions(tmp_path, REGION_MASKS[case]())
+
+
+@pytest.mark.parametrize("case", ["random-near-percolation", "comb", "spiral", "u-below", "diagonals", "full"])
+def test_regions_in_strips_of_any_height(tmp_path, case):
+    """The same with strips of uneven heights, strips of one row among them."""
+    mask = REGION_MASKS[case]()
+    h = mask.shape[0]
+    cuts = sorted({0, h, *[c for c in (1, 2, 3, 50, 51, 64, 65, 66, 128, 129, 191, 192, 193, 250) if c < h]})
+    _check_regions(tmp_path, mask, strips=list(zip(cuts, cuts[1:])))
+
+
+def test_a_strip_labelled_twice_gives_the_same_labels(tmp_path, monkeypatch):
+    """ndimage.label of a strip's rows (copied from the memory-mapped mask) gives the same labels every time, and so
+    _Regions' reading gives the same codes: the reading sweep relies on it."""
+    monkeypatch.setattr(access, "STRIP_PX", 1)
+    mask = _random(320, 240, 0.42, 2)
+    m = _mask_file(tmp_path, mask)
+    regions = _regions_of(tmp_path, m, lambda p, lo, hi: np.where(p > 30, access.ASK, access.KEEP))
+    for s, (r0, r1) in enumerate(regions.strips):
+        first = ndimage.label(m.rows(r0, r1), structure=EIGHT)
+        again = ndimage.label(m.rows(r0, r1), structure=EIGHT)
+        assert first[1] == again[1] and np.array_equal(first[0], again[0])
+        assert np.array_equal(regions.codes(s), regions.codes(s))
+    regions.remove()
+    m.remove()
+
+
 def test_speed_logged(record_property):
     """About 0.3 s per megapixel (part P3d, indicative): logged, not asserted."""
     z = rough(n=1000)

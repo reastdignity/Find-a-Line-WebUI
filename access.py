@@ -54,6 +54,8 @@ import os
 import numpy as np
 from numba import njit, prange
 from scipy import ndimage
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import connected_components
 
 CAN, UNSURE, CANNOT = 2, 1, 0  # the grid's values: can walk, cannot tell, cannot walk
 NAMES = {CAN: "can walk", UNSURE: "cannot tell", CANNOT: "cannot walk"}
@@ -439,17 +441,188 @@ def _remove(path: str):
             time.sleep(0.1)
 
 
-def _region_areas(mask_path: str, labels_path: str, shape, res: float):
-    """The 8-connected regions of a memory-mapped mask: their labels (int32, memory-mapped), their count and their
-    pixels (by label)."""
-    mask = np.load(mask_path, mmap_mode="r")
-    labels = _new(labels_path, shape, np.int32)
-    n = ndimage.label(mask, structure=_EIGHT, output=labels)
-    del mask
-    count = np.zeros(n + 1, np.int64)
-    for r0, r1 in _strips(*shape):
-        count += np.bincount(np.asarray(labels[r0:r1]).ravel(), minlength=n + 1)
-    return labels, n, count
+class _Mask:
+    """A grid-wide bool mask of the work folder (the water with the flat lakes, a pass's mask, the open ground),
+    memory-mapped: written and read in rows, read in a block's window. Every read is a copy, so no view of the map
+    outlives a call (Windows holds a mapped file until its last view is gone)."""
+
+    def __init__(self, path: str, shape):
+        self.path, self.shape = path, (int(shape[0]), int(shape[1]))
+        self._map = _new(path, self.shape, bool)
+
+    def write(self, r0: int, r1: int, rows) -> None:
+        self._map[r0:r1] = rows
+
+    def rows(self, r0: int, r1: int) -> np.ndarray:
+        return np.array(self._map[r0:r1])
+
+    def window(self, r0: int, r1: int, c0: int, c1: int) -> np.ndarray:
+        return np.array(self._map[r0:r1, c0:c1])
+
+    def flush(self) -> None:
+        self._map.flush()
+
+    def remove(self) -> None:
+        """The map closed and its file removed."""
+        self._map = None
+        _remove(self.path)
+
+
+DROP, KEEP, ASK = 0, 1, 2  # a region's verdict (_Regions); an open question q gets the code ASK + q
+REGIONS_FILE = "access_regions.bin"  # the regions' tables of the pass running (one at a time)
+
+
+class _Regions:
+    """Which 8-connected regions of a grid-wide mask (a _Mask) are kept, found strip by strip with no label array of
+    the whole grid. It knows nothing of the measure: judge(pixels, lowest, highest) gives closed regions their
+    verdicts (int arrays: DROP, KEEP, or ASK for an open question, which gets the code ASK + q of its own and its
+    pixels, lowest and highest height, first and last strip in `questions`; the caller answers it).
+
+    - The forward sweep: each strip labelled by ndimage.label (8 neighbours, as access_grid labels the whole grid),
+      its pieces joined with the classes carried from the strip above across the seam (8 neighbours: columns c - 1, c
+      and c + 1; scipy.sparse.csgraph.connected_components). Each class sums its pixels (with `heights`, rows ->
+      float32: also its lowest and highest height, in float64) and keeps its first strip; a class that does not reach
+      the strip's last row is closed and judged at once, the others are carried (numbered again at every seam). Per
+      strip one table is appended to the scratch file `path`: piece -> class, class carried in -> class, class ->
+      verdict or "carried on as j".
+    - The backward sweep over the tables alone: a carried class takes the verdict of the class it joined below; each
+      strip's piece -> class becomes piece -> verdict, in place.
+    - Reading (`codes`, `kept`): a strip labelled again (the same call on the same rows gives the same labels; their
+      count is checked) and its pieces mapped to their verdicts. Every later step reads regions this way, a region's
+      own strips only (`questions` first and last).
+    Held: one strip's labels and tables, the seam's row and the carried classes (at most half the grid's width), the
+    open questions; on disk 4 B per piece and per class. The mask's rows must not change before they are read."""
+
+    def __init__(self, mask, path: str, judge, heights=None, strips=None):
+        self.mask, self.path = mask, path
+        self.strips = list(strips if strips is not None else _strips(*mask.shape))
+        self._tables = []  # per strip: its table's byte offset, pieces, classes carried in, classes
+        self.questions = {"pixels": [], "lowest": [], "highest": [], "first": [], "last": []}
+        self._forward(judge, heights)
+        self._backward()
+
+    def _label(self, s: int):
+        r0, r1 = self.strips[s]
+        return ndimage.label(self.mask.rows(r0, r1), structure=_EIGHT)
+
+    def _forward(self, judge, heights):
+        w, last = self.mask.shape[1], len(self.strips) - 1
+        # the carried classes: pixels, lowest and highest height, first and last strip with pixels; seam: the strip
+        # above's last row, its carried class + 1 (0: not in the mask)
+        c_pixels, c_first, c_last = np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros(0, np.int64)
+        c_low, c_high = np.zeros(0), np.zeros(0)
+        seam = np.zeros(w, np.int32)
+        with open(self.path, "wb") as f:
+            for s, (r0, r1) in enumerate(self.strips):
+                lab, n = self._label(s)
+                nc = len(c_pixels)
+                pixels = np.bincount(lab.ravel(), minlength=n + 1)[1:]
+                if heights is not None:
+                    low, high = np.full(n + 1, np.inf), np.full(n + 1, -np.inf)
+                    inside = lab > 0
+                    k, zk = lab[inside], heights(r0, r1)[inside]
+                    np.minimum.at(low, k, zk)
+                    np.maximum.at(high, k, zk)
+                    low, high = low[1:], high[1:]
+                    del inside, k, zk
+                # the seam's joins: a carried class (above, column c) and a piece of the first row (column c + dc)
+                top, a, b = lab[0], [], []
+                for dc in (-1, 0, 1):
+                    up, down = seam[max(0, -dc):w - max(0, dc)], top[max(0, dc):w - max(0, -dc)]
+                    hit = (up > 0) & (down > 0)
+                    a.append(up[hit].astype(np.int64) - 1)
+                    b.append(down[hit].astype(np.int64) + (nc - 1))
+                a, b = np.concatenate(a), np.concatenate(b)
+                nodes = nc + n  # the carried classes first, then the pieces
+                if nodes:
+                    graph = csr_matrix((np.ones(len(a), np.int32), (a, b)), shape=(nodes, nodes))
+                    k, comp = connected_components(graph, directed=False)
+                    comp = comp.astype(np.int32, copy=False)
+                else:
+                    k, comp = 0, np.zeros(0, np.int32)
+                cls_pixels = np.zeros(k, np.int64)
+                np.add.at(cls_pixels, comp, np.concatenate([c_pixels, pixels]))
+                cls_first = np.full(k, s, np.int64)
+                np.minimum.at(cls_first, comp[:nc], c_first)
+                cls_last = np.full(k, -1, np.int64)  # a class of carried classes alone ended above
+                cls_last[comp[nc:]] = s
+                np.maximum.at(cls_last, comp[:nc], c_last)
+                cls_low = cls_high = None
+                if heights is not None:
+                    cls_low, cls_high = np.full(k, np.inf), np.full(k, -np.inf)
+                    np.minimum.at(cls_low, comp, np.concatenate([c_low, low]))
+                    np.maximum.at(cls_high, comp, np.concatenate([c_high, high]))
+                # a class that reaches the strip's last row is carried on (none from the grid's last strip)
+                on = np.zeros(k, bool)
+                bottom = lab[-1]
+                below = bottom > 0
+                if s < last:
+                    on[comp[bottom[below].astype(np.int64) + (nc - 1)]] = True
+                number = np.cumsum(on) - 1  # a carried class's number in the next strip
+                status = np.where(on, -1 - number, DROP).astype(np.int32)
+                closed = np.flatnonzero(~on)
+                if len(closed):
+                    verdict = np.array(judge(cls_pixels[closed], None if cls_low is None else cls_low[closed],
+                                             None if cls_high is None else cls_high[closed]), np.int64)
+                    ask = np.flatnonzero(verdict == ASK)
+                    q = self.questions
+                    verdict[ask] = ASK + len(q["pixels"]) + np.arange(len(ask))
+                    status[closed] = verdict
+                    q["pixels"] += cls_pixels[closed[ask]].tolist()
+                    q["first"] += cls_first[closed[ask]].tolist()
+                    q["last"] += cls_last[closed[ask]].tolist()
+                    if cls_low is not None:
+                        q["lowest"] += cls_low[closed[ask]].tolist()
+                        q["highest"] += cls_high[closed[ask]].tolist()
+                self._tables.append((f.tell(), n, nc, k))
+                comp[nc:].tofile(f)
+                comp[:nc].tofile(f)
+                status.tofile(f)
+                c_pixels, c_first, c_last = cls_pixels[on], cls_first[on], cls_last[on]
+                if cls_low is not None:
+                    c_low, c_high = cls_low[on], cls_high[on]
+                seam = np.zeros(w, np.int32)
+                if s < last:
+                    seam[below] = number[comp[bottom[below].astype(np.int64) + (nc - 1)]] + 1
+                del lab, top, bottom, below, comp
+
+    def _backward(self):
+        down = into = None  # the strip below's verdicts by class and its classes carried in
+        with open(self.path, "r+b") as f:
+            for s in reversed(range(len(self.strips))):
+                at, n, nc, k = self._tables[s]
+                f.seek(at)
+                piece, carried_in = np.fromfile(f, np.int32, n), np.fromfile(f, np.int32, nc)
+                status = np.fromfile(f, np.int32, k)
+                on = status < 0
+                if on.any():
+                    status[on] = down[into[-1 - status[on]]]
+                f.seek(at)
+                status[piece].tofile(f)
+                down, into = status, carried_in
+
+    def codes(self, s: int) -> np.ndarray:
+        """The verdict of every pixel of strip s (int32: DROP outside the mask, KEEP, DROP, or ASK + q)."""
+        lab, n = self._label(s)
+        at, pieces, _, _ = self._tables[s]
+        if n != pieces:
+            raise RuntimeError("a strip labelled again gave other pieces")
+        table = np.zeros(n + 1, np.int32)
+        with open(self.path, "rb") as f:
+            f.seek(at)
+            table[1:] = np.fromfile(f, np.int32, n)
+        return table[lab]
+
+    def kept(self, s: int, answers=None) -> np.ndarray:
+        """The pixels of strip s whose region is kept (bool); answers: the open questions' (bool by question)."""
+        verdict = np.zeros(ASK + len(self.questions["pixels"]), bool)
+        verdict[KEEP] = True
+        if answers is not None:
+            verdict[ASK:] = answers
+        return verdict[self.codes(s)]
+
+    def remove(self):
+        _remove(self.path)
 
 
 def _whole_metres_rows(z, water, filled) -> bool:
@@ -475,21 +648,8 @@ def _whole_metres_rows(z, water, filled) -> bool:
 GATHER_PX = 4_000_000  # heights of flat regions gathered at a time for their exact percentiles (a larger region alone)
 
 
-def _region_bounds(labels, z, big: np.ndarray, n: int):
-    """The lowest and highest height of each region marked in `big` (float64, by label), strip by strip; every strip's
-    labels copied out of the map, so no view of it outlives the loop (Windows could not remove the file)."""
-    lo, hi = np.full(n + 1, np.inf), np.full(n + 1, -np.inf)
-    for r0, r1 in _strips(*z.shape):
-        lab = np.array(labels[r0:r1]).ravel()
-        sel = big[lab]
-        zz = np.asarray(z[r0:r1], np.float32).ravel()[sel]
-        np.minimum.at(lo, lab[sel], zz)
-        np.maximum.at(hi, lab[sel], zz)
-    return lo, hi
-
-
 def _batches(regions: np.ndarray, count: np.ndarray):
-    """The regions in batches of at most GATHER_PX pixels (a larger region alone), in label order."""
+    """The regions in batches of at most GATHER_PX pixels (a larger region alone), in their order."""
     batch, size = [], 0
     for b in regions.tolist():
         if batch and size + count[b] > GATHER_PX:
@@ -501,21 +661,27 @@ def _batches(regions: np.ndarray, count: np.ndarray):
         yield np.array(batch)
 
 
-def _spread_flat(labels, z, regions: np.ndarray, count: np.ndarray, keep: np.ndarray):
-    """flat_water's test of the regions' heights (p95 - p5 at most FLAT_WATER_SPREAD_M) for `regions`, setting keep:
-    a batch's heights gathered into one float32 array, each region's judged in place (np.percentile with
-    overwrite_input: no copy; two calls with scalar q, as flat_water, whose spread they give to the last bit) and
-    released with its batch."""
-    n = len(count) - 1
-    for batch in _batches(regions, count):
+def _spread_flat(regions: "_Regions", z) -> np.ndarray:
+    """flat_water's test of the open questions' heights (p95 - p5 at most FLAT_WATER_SPREAD_M), bool by question,
+    in batches: a batch's heights gathered into one float32 array (GATHER_PX at a time, a larger region alone) from
+    the batch's strips only, each region's judged
+    in place (np.percentile with overwrite_input: no copy; two calls with scalar q, as flat_water, whose spread they
+    give to the last bit) and released with its batch. The order of a region's heights is not that of the grid at
+    once: an order statistic does not depend on it."""
+    q = regions.questions
+    count = np.array(q["pixels"], np.int64)
+    first, last = np.array(q["first"], np.int64), np.array(q["last"], np.int64)
+    keep = np.zeros(len(count), bool)
+    for batch in _batches(np.arange(len(count)), count):
         sizes = count[batch]
         start = np.concatenate([[0], np.cumsum(sizes)])
-        slot = np.full(n + 1, -1, np.int64)
-        slot[batch] = np.arange(len(batch))
+        slot = np.full(ASK + len(count), -1, np.int64)  # by a pixel's code: its region's place in the batch
+        slot[ASK + batch] = np.arange(len(batch))
         heights = np.empty(int(start[-1]), np.float32)
         filled = np.zeros(len(batch), np.int64)
-        for r0, r1 in _strips(*z.shape):
-            k = slot[np.array(labels[r0:r1]).ravel()]
+        for s in range(int(first[batch].min()), int(last[batch].max()) + 1):
+            r0, r1 = regions.strips[s]
+            k = slot[regions.codes(s).ravel()]
             sel = k >= 0
             if not sel.any():
                 continue
@@ -524,8 +690,8 @@ def _spread_flat(labels, z, regions: np.ndarray, count: np.ndarray, keep: np.nda
             order = np.argsort(k, kind="stable")
             k, zz = k[order], zz[order]
             got = np.bincount(k, minlength=len(batch))
-            first = np.cumsum(got) - got  # where each region's pixels begin in this strip's sorted k
-            heights[start[k] + filled[k] + np.arange(len(k)) - first[k]] = zz
+            at = np.cumsum(got) - got  # where each region's pixels begin in this strip's sorted k
+            heights[start[k] + filled[k] + np.arange(len(k)) - at[k]] = zz
             filled += got
             del k, zz, order, sel
         for j, b in enumerate(batch.tolist()):
@@ -534,41 +700,41 @@ def _spread_flat(labels, z, regions: np.ndarray, count: np.ndarray, keep: np.nda
             if p95 - np.percentile(v, 5, overwrite_input=True) <= FLAT_WATER_SPREAD_M:
                 keep[b] = True
         del heights
+    return keep
 
 
-def _flat_lakes_rows(z, res: float, work: str, out) -> None:
-    """flat_water of the whole grid, strip by strip, ORed into `out` (a memory-mapped bool grid): the regions'
-    areas by their labels, their spreads from each region's lowest and highest height, the exact percentiles of
-    flat_water only for the regions whose highest less lowest is over FLAT_WATER_SPREAD_M (_spread_flat: their
-    heights GATHER_PX at a time, a larger region alone)."""
+def _flat_lakes_rows(z, res: float, work: str, out: _Mask) -> None:
+    """flat_water of the whole grid, strip by strip, ORed into `out` (the water): the regions of the flat pixels
+    (_Regions) judged by their area and their lowest and highest height, the exact percentiles of flat_water only for
+    the regions whose highest less lowest is over FLAT_WATER_SPREAD_M (open questions: _spread_flat)."""
     h, w = z.shape
-    flat_path, labels_path = os.path.join(work, "access_flat.npy"), os.path.join(work, "access_flat_labels.npy")
-    flat = _new(flat_path, (h, w), bool)
+    flat = _Mask(os.path.join(work, "access_flat.npy"), (h, w))
     for r0, r1 in _strips(h, w):
-        flat[r0:r1] = np.isfinite(np.asarray(z[r0:r1], np.float32)) & (_slope_rows(z, r0, r1, res) < FLAT_WATER_DEG)
+        flat.write(r0, r1, np.isfinite(np.asarray(z[r0:r1], np.float32))
+                   & (_slope_rows(z, r0, r1, res) < FLAT_WATER_DEG))
     flat.flush()
-    del flat
-    labels, n, count = _region_areas(flat_path, labels_path, (h, w), res)
-    big = count * res * res >= FLAT_WATER_MIN_M2
-    big[0] = False
-    lo, hi = _region_bounds(labels, z, big, n)
-    keep = big & (hi - lo <= FLAT_WATER_SPREAD_M - 1e-6)  # p95 - p5 lies within the lowest and highest
-    unsure = np.flatnonzero(big & ~keep)
-    if len(unsure):
-        _spread_flat(labels, z, unsure, count, keep)
-    for r0, r1 in _strips(h, w):
-        out[r0:r1] |= keep[np.array(labels[r0:r1])]
-    del labels
-    _remove(labels_path)
-    _remove(flat_path)
+
+    def judge(pixels, lowest, highest):
+        big = pixels * res * res >= FLAT_WATER_MIN_M2
+        keep = big & (highest - lowest <= FLAT_WATER_SPREAD_M - 1e-6)  # p95 - p5 lies within the lowest and highest
+        return np.where(keep, KEEP, np.where(big, ASK, DROP))
+
+    regions = _Regions(flat, os.path.join(work, REGIONS_FILE), judge,
+                       heights=lambda r0, r1: np.asarray(z[r0:r1], np.float32))
+    answers = _spread_flat(regions, z)
+    for s, (r0, r1) in enumerate(regions.strips):
+        out.write(r0, r1, out.rows(r0, r1) | regions.kept(s, answers))
+    regions.remove()
+    flat.remove()
 
 
-def _open_ground_rows(z, water, filled, wet, res: float, work: str, name: str, smoothed: bool) -> str:
+def _open_ground_rows(z, water, filled, wet: _Mask, res: float, work: str, name: str, smoothed: bool) -> _Mask:
     """_open_ground of the whole grid (on the smoothed heights with `smoothed`), strip by strip, into a memory-mapped
-    bool grid of the work folder; wet: the memory-mapped water with the flat lakes. Returns its path."""
+    bool grid of the work folder (returned); wet: the water with the flat lakes. The pass's mask is written first,
+    its regions found (_Regions), then each strip's kept pixels written over its own rows: the regions' reading labels
+    a strip before its rows are written, and no other strip's labels look at them."""
     h, w = z.shape
-    g_path, labels_path = os.path.join(work, f"access_{name}_g.npy"), os.path.join(work, f"access_{name}_labels.npy")
-    g = _new(g_path, (h, w), bool)
+    g = _Mask(os.path.join(work, f"access_{name}.npy"), (h, w))
     for r0, r1 in _strips(h, w):
         _, data = _data_rows(z, water, filled, r0, r1)
         if smoothed:
@@ -578,33 +744,28 @@ def _open_ground_rows(z, water, filled, wet, res: float, work: str, name: str, s
         else:
             s = _slope_rows(z, r0, r1, res)
         s = np.where(data, s, 90.0)
-        g[r0:r1] = (s < OPEN_DEG) & ~np.asarray(wet[r0:r1]) & data
+        g.write(r0, r1, (s < OPEN_DEG) & ~wet.rows(r0, r1) & data)
     g.flush()
-    del g
-    labels, n, count = _region_areas(g_path, labels_path, (h, w), res)
-    big = count * res * res >= OPEN_MIN_M2
-    big[0] = False
-    path = os.path.join(work, f"access_{name}.npy")
-    out = _new(path, (h, w), bool)
-    for r0, r1 in _strips(h, w):
-        out[r0:r1] = big[np.asarray(labels[r0:r1])]
-    out.flush()
-    del out, labels
-    _remove(labels_path)
-    _remove(g_path)
-    return path
+    regions = _Regions(g, os.path.join(work, REGIONS_FILE),
+                       lambda pixels, lowest, highest: np.where(pixels * res * res >= OPEN_MIN_M2, KEEP, DROP))
+    for s, (r0, r1) in enumerate(regions.strips):
+        g.write(r0, r1, regions.kept(s))
+    g.flush()
+    regions.remove()
+    return g
 
 
 def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int, alpine: bool = True,
                on_part=lambda name: None) -> dict:
     """The answers of access_grid for every pixel of a grid too large to hold at once, written into the uint8 grid
     `path` (memory-mapped): the grid-wide judgements once on the whole grid, strip by strip, their masks
-    memory-mapped in `work` (the whole-metre sample, the flat lakes on float heights, the open ground on the heights
-    and on whole metres on the smoothed heights); then every block of block_px x block_px pixels from its window of
-    margin_px(res) around it, by access_grid's own code (_answers) on the windows of those masks. Every other
-    distance of the measure is bounded by MARGIN_M, so each block's answers are the whole grid's, whatever the
-    blocks' size (tests/test_access_search.py). on_part(name): "grid-wide", then "blocks" (a progress bar's parts).
-    Returns the blocks' count and their largest window (pixels)."""
+    memory-mapped in `work` (_Mask: the whole-metre sample, the flat lakes on float heights, the open ground on the
+    heights and on whole metres on the smoothed heights; their regions found strip by strip, _Regions, with no label
+    array of the whole grid); then every block of block_px x block_px pixels from its window of margin_px(res) around
+    it, by access_grid's own code (_answers) on the windows of those masks. Every other distance of the measure is
+    bounded by MARGIN_M, so each block's answers are the whole grid's, whatever the blocks' size
+    (tests/test_access_search.py). on_part(name): "grid-wide", then "blocks" (a progress bar's parts). Returns the
+    blocks' count and their largest window (pixels)."""
     h, w = z.shape
     margin = margin_px(res)
     block_px = max(1, int(block_px))
@@ -612,17 +773,14 @@ def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int
     os.makedirs(work, exist_ok=True)
     on_part("grid-wide")
     wm = _whole_metres_rows(z, water, filled)
-    wet_path = os.path.join(work, "access_water.npy")
-    wet = _new(wet_path, (h, w), bool)
+    wet = _Mask(os.path.join(work, "access_water.npy"), (h, w))
     for r0, r1 in _strips(h, w):
-        wet[r0:r1] = np.asarray(water[r0:r1], bool) if water is not None else False
+        wet.write(r0, r1, np.asarray(water[r0:r1], bool) if water is not None else False)
     if not wm:
         _flat_lakes_rows(z, res, work, wet)
     wet.flush()
-    og_path = _open_ground_rows(z, water, filled, wet, res, work, "og", smoothed=False)
-    og2_path = _open_ground_rows(z, water, filled, wet, res, work, "og2", smoothed=True) if wm else None
-    og = np.load(og_path, mmap_mode="r")
-    og2 = np.load(og2_path, mmap_mode="r") if og2_path else None
+    og = _open_ground_rows(z, water, filled, wet, res, work, "og", smoothed=False)
+    og2 = _open_ground_rows(z, water, filled, wet, res, work, "og2", smoothed=True) if wm else None
     out = _new(path, (h, w), np.uint8)
     on_part("blocks")
     blocks = largest = 0
@@ -635,15 +793,15 @@ def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int
             if filled is not None:
                 dry = np.asarray(water[a:b, c:d], bool) if water is not None else np.zeros(zz.shape, bool)
                 data &= ~(np.asarray(filled[a:b, c:d], bool) & ~dry)
-            answers = _answers(zz, np.array(wet[a:b, c:d]), data, res, wm, np.array(og[a:b, c:d]), alpine,
-                               og2=np.array(og2[a:b, c:d]) if og2 is not None else None)
+            answers = _answers(zz, wet.window(a, b, c, d), data, res, wm, og.window(a, b, c, d), alpine,
+                               og2=og2.window(a, b, c, d) if og2 is not None else None)
             out[r0:r1, c0:c1] = answers[r0 - a:r1 - a, c0 - c:c1 - c]
             del zz, data, answers
             blocks += 1
             largest = max(largest, (b - a) * (d - c))
     out.flush()
-    del out, wet, og, og2
-    for p in (wet_path, og_path, og2_path):
-        if p:
-            _remove(p)
+    del out
+    for mask in (wet, og, og2):
+        if mask is not None:
+            mask.remove()
     return {"blocks": blocks, "window_px": largest, "whole_metres": wm}
