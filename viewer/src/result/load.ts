@@ -77,6 +77,19 @@ export class NewerStore extends Error {
   }
 }
 
+/** A failed load as its page shows it (RunLoading): the sentence, and whether a new try can help. */
+export interface LoadFailure { text: string; again: boolean }
+
+/** The failure of a load's error: the words of the three failures of a store (TooLarge, NewerStore, StoreFailed);
+ *  of any other error its own message, or with `worded` the catalogue's "could not be loaded" (a run's map.html).
+ *  A new try can help anything but a run too large for this browser or one made by a newer Find-a-Line (the same
+ *  failure would come again). */
+export function failureOf(e: unknown, worded = false): LoadFailure {
+  const known = e instanceof TooLarge || e instanceof NewerStore || e instanceof StoreFailed;
+  const text = e instanceof Error && e.message && (known || !worded) ? e.message : t("ui.result.store_failed");
+  return {text, again: !(e instanceof TooLarge || e instanceof NewerStore)};
+}
+
 interface Loading {
   promise: Promise<RunData>;
   listeners: Set<OnProgress>;

@@ -9,6 +9,7 @@
 .ui .c-result-wait .c-error { color: var(--bad); font-weight: 500; margin: 0; }
 .ui .c-result-wait .c-loading { align-self: stretch; max-width: 420px; }
 .ui .c-result-wait .c-loading .u-progress { font-size: 14px; gap: 8px; }
+.ui .c-result-wait .c-wait-more { margin: 0; }  /* a failed page's second sentence (a share link's visitor) */
 
 /* The header (as c.css's .c-subtop of C's focused pages) */
 .ui .c-result-top { flex: none; display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 16px; background: var(--surface);
