@@ -859,8 +859,18 @@ def test_the_cache_index_waits_out_a_truncate_error(tmp_path, monkeypatch):
                 raise error
             return super().execute(sql, *args)
 
-    connect = sqlite3.connect
-    monkeypatch.setattr(cache.sqlite3, "connect", lambda *args, **more: connect(*args, factory=Connection, **more))
+    class Sqlite:
+        """sqlite3 as cache.py sees it, its connections of the class above: only cache's own openings meet the
+        errors (a `connect` replaced in sqlite3 itself is every thread's of the process)."""
+
+        def __getattr__(self, name):
+            return getattr(sqlite3, name)
+
+        @staticmethod
+        def connect(*args, **more):
+            return sqlite3.connect(*args, factory=Connection, **more)
+
+    monkeypatch.setattr(cache, "sqlite3", Sqlite())
     Connection.refused = [sqlite3.SQLITE_IOERR_TRUNCATE] * 3
     db = cache._connect(str(tmp_path), "top")  # refused three times, then opened
     assert Connection.refused == [] and db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
@@ -874,17 +884,24 @@ def test_the_cache_index_waits_out_a_truncate_error(tmp_path, monkeypatch):
 def test_no_module_switches_a_database_to_wal_on_its_own():
     """A database goes into WAL mode through cache.wal (the test above); the pragma is written out only there, in
     the cache index's own wait (cache._connect) and in tools/test_lock.py, which imports nothing of the checkout
-    and has the same retry inline. A new module that writes it out would open its database without the retry."""
+    and has the same retry inline. A new module that writes it out would open its database without the retry.
+    The repository's modules are the .py files git tracks (a data folder's files and a session's scripts are none
+    of them); the tests are left out: they hold the pragma's text themselves."""
+    import subprocess
+
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        tracked = subprocess.run(["git", "ls-files", "-z", "--", "*.py"], cwd=repo, capture_output=True,
+                                 encoding="utf-8", check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        pytest.skip("not a git checkout")
     found = set()
-    for folder, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in ("node_modules", "local", "__pycache__", "tests")
-                   and not d.startswith(".")]
-        for name in files:
-            if name.endswith(".py"):
-                with open(os.path.join(folder, name), encoding="utf-8") as f:
-                    if "journal_mode=WAL" in f.read():
-                        found.add(os.path.relpath(os.path.join(folder, name), repo).replace(os.sep, "/"))
+    for name in filter(None, tracked.split("\0")):
+        path = os.path.join(repo, name)
+        if not name.startswith("tests/") and os.path.isfile(path):  # a file removed and not yet committed: none
+            with open(path, encoding="utf-8") as f:
+                if "journal_mode=WAL" in f.read():
+                    found.add(name)
     assert found == {"cache.py", "tools/test_lock.py"}
 
 

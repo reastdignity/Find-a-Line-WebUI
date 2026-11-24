@@ -514,8 +514,28 @@ def test_the_queues_opening_tried_again_after_a_truncate_error(tmp_path, monkeyp
                 raise error
             return super().execute(sql, *args)
 
-    connect = sqlite3.connect
-    monkeypatch.setattr(tl.sqlite3, "connect", lambda *args, **more: connect(*args, factory=Connection, **more))
+    class Sqlite:
+        """sqlite3 as the tool sees it, its connections of the class above: only the tool's own openings meet the
+        errors (a `connect` replaced in sqlite3 itself is every thread's of the process)."""
+
+        made = []
+
+        def __getattr__(self, name):
+            return getattr(sqlite3, name)
+
+        @staticmethod
+        def connect(*args, **more):
+            Sqlite.made.append(sqlite3.connect(*args, factory=Connection, **more))
+            return Sqlite.made[-1]
+
+    def closed(db):
+        try:
+            db.execute("SELECT 1")
+        except sqlite3.ProgrammingError:  # "Cannot operate on a closed database."
+            return True
+        return False
+
+    monkeypatch.setattr(tl, "sqlite3", Sqlite())
     Connection.refused = [sqlite3.SQLITE_IOERR_TRUNCATE] * 3
     queue = tl.Queue(str(tmp_path))  # refused three times, then opened
     assert Connection.refused == [] and queue.db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
@@ -524,10 +544,12 @@ def test_the_queues_opening_tried_again_after_a_truncate_error(tmp_path, monkeyp
     with pytest.raises(sqlite3.OperationalError):
         tl.Queue(str(tmp_path))
     assert Connection.refused == [sqlite3.SQLITE_IOERR_TRUNCATE]  # another error: not tried again
+    assert closed(Sqlite.made[-1])
     Connection.refused = [sqlite3.SQLITE_IOERR_TRUNCATE] * 20
     with pytest.raises(sqlite3.OperationalError):
         tl.Queue(str(tmp_path))
     assert len(Connection.refused) == 13  # seven tries, then the error
+    assert closed(Sqlite.made[-1]) and len(Sqlite.made) == 3  # as cache.wal: raised with the connection closed
 
 
 class Drained:

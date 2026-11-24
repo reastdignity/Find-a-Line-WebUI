@@ -362,7 +362,8 @@ def _connect(cache_dir: str, top: str) -> sqlite3.Connection:
     # Switching a new database to WAL fails at once ("locked", no busy wait) while another
     # connection switches it too (threads or searches downloading at the same time): wait for it. The same wait
     # after Windows' error of a moment after a process that used the index was killed (mapped_elsewhere: a
-    # cancelled search's, a quick task's over its time)
+    # cancelled search's, a quick task's over its time), within this loop's own bound: about 10 s, where wal() gives
+    # up after 1.6 s, so such an error that stays (a failing disk) is raised that much later
     for attempt in range(100):
         try:
             if db.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
