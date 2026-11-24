@@ -139,8 +139,9 @@ def _world_water(shapefile: str, bbox: Tuple[float, float, float, float], crs):
 
 
 def world_file(cache_dir: str) -> Optional[str]:
-    """The newest downloaded OSM water polygons shapefile of the whole world, or None."""
-    found = sorted(glob.glob(os.path.join(cache_dir, "osm", "water-polygons", "*", WORLD_SHAPEFILE)))
+    """The newest downloaded OSM water polygons shapefile of the whole world, or None. The cache folder's own name is
+    no pattern ("[" and "]" in a data folder's path)."""
+    found = sorted(glob.glob(os.path.join(glob.escape(cache_dir), "osm", "water-polygons", "*", WORLD_SHAPEFILE)))
     return found[-1] if found else None
 
 
@@ -180,7 +181,8 @@ def identity(grid: Grid, cache_dir: str, source: str) -> Optional[Dict]:
 
 
 def _world_files(folder: str):
-    return [p for p in glob.glob(os.path.join(folder, "**", "*"), recursive=True) if os.path.isfile(p)]
+    """The files under a world file's folder (its name is no pattern, as world_file's)."""
+    return [p for p in glob.glob(os.path.join(glob.escape(folder), "**", "*"), recursive=True) if os.path.isfile(p)]
 
 
 def world_polygons(cache_dir: str, update: Optional[str] = None) -> str:

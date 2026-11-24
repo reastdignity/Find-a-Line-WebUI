@@ -719,10 +719,11 @@ def carried_urls(cache_dir: str, top: str = TOP) -> List[str]:
     return [url for url in carried if isinstance(url, str)]
 
 
-def list_status(cache_dir: str, top: str = TOP) -> str:
-    """The list in one line, for `cache status`: its age and files, or the shipped copy in use, and a failed try."""
+def list_status(cache_dir: str, top: str = TOP, read: Optional[Callable] = None) -> str:
+    """The list in one line, for `cache status`: its age and files, or the shipped copy in use, and a failed try.
+    read: the index's reading door (cache.info; `status` gives update._query: nothing written)."""
     path = unlisted_path(cache_dir, top)
-    row = cache.info(cache_dir, path) if os.path.exists(path) else None
+    row = cache.info(cache_dir, path, read) if os.path.exists(path) else None
     if row:
         try:
             with open(path, encoding="utf-8") as f:

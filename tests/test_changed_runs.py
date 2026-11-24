@@ -440,9 +440,11 @@ def test_a_relative_slope_file_is_not_checked(tmp_path, monkeypatch):
 
 
 def test_an_immutable_read_that_fails_is_read_again(tmp_path, monkeypatch):
-    """F2: an immutable read that fails (here a first connection whose query raises, as a checkpoint tearing the
-    read would) is read once more read-only, whether or not a -wal is there now (that read leaves SQLite's -wal and
-    -shm: N2); a second failure is raised."""
+    """F2: an immutable read that fails (here a connection whose query raises, as a checkpoint tearing the read
+    would) is made again immutable, up to update.IMMUTABLE_TURNS reads, with no side file; at the bound the index is
+    read read-only (that read leaves SQLite's -wal and -shm: N2); a failure of that read is not tried again and
+    names the runs that read that folder's files as not checked (status-readonly's G2: the listing never ends
+    because one index cannot be read now)."""
     names = ["poland/nmt/a.tif", "poland/nmt/b.tif"]
     data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
     _run(data, "r", {"data": [_entry(cache_dir, names)], "identity": VERSIONS})
@@ -460,18 +462,17 @@ def test_an_immutable_read_that_fails_is_read_again(tmp_path, monkeypatch):
         modes.append(mode)
         return Torn() if len(modes) <= fail[0] else real(db_path, mode, timeout)
     monkeypatch.setattr(update, "_read_only", read_only)
-    assert _changes(data)["r"].changed == 1 and modes == ["immutable=1", "mode=ro"]
-    index = os.path.join(cache_dir, "poland", "index.sqlite")  # N2: the read-only retry left SQLite's side files
-    assert os.path.exists(index + "-wal") and os.path.exists(index + "-shm")
+    index = os.path.join(cache_dir, "poland", "index.sqlite")
+    assert _changes(data)["r"].changed == 1 and modes == ["immutable=1", "immutable=1"]
+    assert not os.path.exists(index + "-wal") and not os.path.exists(index + "-shm")
+    modes[:], fail[0] = [], 3
+    assert _changes(data)["r"].changed == 1 and modes == ["immutable=1"] * 3 + ["mode=ro"]
+    assert os.path.exists(index + "-wal") and os.path.exists(index + "-shm")  # N2: the read-only read left them
     os.remove(index + "-wal")
     os.remove(index + "-shm")
-    modes[:], fail[0] = [], 2
-    try:
-        _changes(data)
-        raise AssertionError("a second failure is raised")
-    except sqlite3.DatabaseError:
-        pass
-    assert modes == ["immutable=1", "mode=ro"]
+    modes[:], fail[0] = [], 4
+    assert _changes(data)["r"].line() == "r: not checked (the index of poland cannot be read now: DatabaseError)"
+    assert modes == ["immutable=1"] * 3 + ["mode=ro"]
 
 
 def test_nominatim_answers_that_cannot_be_read(tmp_path, monkeypatch):

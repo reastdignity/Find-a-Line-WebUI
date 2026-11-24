@@ -337,9 +337,32 @@ harness, `cache status` and `tools/record_check.py` compare by it. Known and lef
   same record gives the same result, but a cache built from a record alone is not always enough to run the search
   again (docs/regression-tests.md, "The completeness check").
 - **A filler or neighbour that read its files and filled no pixel** is left out of the record, as of the credits.
-- **`cache status` as a whole still writes** into the cache (it adopts a world file put there by hand and opens
-  each index); only its list of runs reads. With `[` in a data folder's path `coast.world_file` finds no world
-  file (an unescaped `glob`), so such runs would read "the world file is gone".
+- **What `cache status` still touches or misses.** Since 2026-11-24 it changes no cached file, no index and no row
+  and makes no folder, but SQLite's own side files beside an index are not left alone by SQLite's reader:
+  - it writes into a `-shm` that is there (it notes its place there), which is the case beside an index a search
+    has open, beside a `-wal` that still holds rows, and beside an empty `-wal` with its `-shm` left behind (by a
+    writer that was killed, made by a test, or by the read-only read below; the next writer's close removes the
+    two, which `status` used to do itself, opening every index for writing): on the real cache three `-shm` files
+    beside an empty `-wal`, of unknown origin, got a new modification time and nothing else changed
+    (`tests/test_status_readonly.py::test_a_wal_and_shm_left_by_a_killed_writer`);
+  - it makes a `-shm`, or a `-shm` and a `-wal`, in the two cases `update._read_only` names (a `-wal` without its
+    `-shm`; `update._query`'s bound: a writer changed the index during three immutable reads in a row, then it is
+    read read-only; none in the second code review's 40-s probes beside a busy writer, where reading read-only
+    after one such read made 15 a run).
+  Not used: SQLite's `readonly_shm` (undocumented), and an empty `-wal` read as no WAL (a live connection that has
+  only read, or has just checkpointed, shows one too). Beside a search an index's rows are read again when the
+  stamp check of `update._query` sees a writer (the file's time or size, or a `-wal`). It rests on the file's
+  modification time moving when a WAL is written into it, by at least a clock tick (NTFS up to 15.6 ms, ext4 and
+  xfs a jiffy), so a file written less than `STAMP_MARGIN_NS` (0.1 s) ago is waited out first (at most 0.1 s a
+  read, 0.3 s an index); measured on local NTFS. Not covered on FAT32 (2 s steps); not sound on a network share
+  (the Windows client caches a file's details for seconds; a cache shared between machines is not supported). An
+  index that cannot be read at the moment (a writer's lock over the timeout, a hot journal of a rollback-journal
+  index) is named with the error's class, and the runs that read its files as not checked. A world file put there
+  by hand gets its index rows only from `cache update` (`status` names it), so until then a search's
+  `--update stale` does not check it after a year (`coast.world_polygons`: no row, never stale); until 2026-11-24
+  the first `cache status` adopted it. The OSM extracts of a data folder whose path holds `[` are not
+  listed (`osmextract.extracts`' `glob`, as other `glob`s of the code that start at the data folder;
+  `coast.world_file`'s is mended).
 - A run made before the record is counted by the rule of before (fetch times) and marked approximate; a relative
   `--slope-file` is not checked; a resumed run marked because earlier tiles exist keeps its mark even if the
   marking session stopped before its own first tile.
