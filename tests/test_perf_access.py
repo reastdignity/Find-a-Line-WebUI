@@ -16,10 +16,22 @@ import pytest
 from scipy import ndimage
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, REPO)
+# the code measured: this checkout's, or a tree of before (PERF_ACCESS_REPO, as the tool takes it) under this file
+CODE = os.environ.get("PERF_ACCESS_REPO") or REPO
 sys.path.insert(0, os.path.join(REPO, "tools"))
+sys.path.insert(0, CODE)
 
 import perf_access as pa  # noqa: E402
+
+
+def test_the_code_measured_is_the_tree_asked():
+    """The tool and this test import access and search from PERF_ACCESS_REPO when it is set (a tree of before), else
+    from this checkout: a module imported from the other tree would measure the wrong code."""
+    import access
+    import search
+    for module in (access, search):
+        assert os.path.normcase(os.path.dirname(os.path.abspath(module.__file__))) == os.path.normcase(CODE)
+    assert os.path.normcase(pa.HERE) == os.path.normcase(CODE)
 
 LEFT, TOP, RES, SIZE = 500000.0, 300000.0, 5.0, 400  # the made-up search: EPSG:2180, 5 m pixels, 2 km
 
@@ -325,6 +337,16 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
             assert st["left_in_work"] == []
             assert st["grid_wide"]["s"] > 0 and st["blocks_part"]["largest_window_px"] == st["window_px"]
             assert "stage_rss_b_per_largest_window_px" in st["blocks_part"]
+            if "_Regions._forward" in st["hooks"]:  # wave 1's code: its sweeps are parts of their own
+                labels = set(st["parts"])
+                assert {"grid-wide: open ground: forward sweep", "grid-wide: open ground: backward sweep",
+                        "grid-wide: open ground: reading sweep (write)"} <= labels, labels
+            elif "_region_areas" in st["hooks"]:  # gate 0's code
+                assert "grid-wide: open ground: labels" in st["parts"]
+            n = st["needed"]
+            assert n["constant_needed"] == max(v for v in (n["pass_ws_b_per_px"], n.get("blocks_beyond_50_b_per_px"))
+                                               if v is not None)
+            assert n["mark_files_b_per_px"] > 0 and n["pass_private_mib"] is not None
             if "_answers" in st["hooks"]:  # every block's part, with the windows block_grid lays out
                 import access
                 h, w = saved["plan"]["grid"]
@@ -351,7 +373,7 @@ def test_pieces_and_compare_on_a_made_up_search(tmp_path, made_up_search):
     assert set(out["blocks_with_area"]) >= {"2 km", "4 km", "8 km"}
     assert all(b["holding"] >= 1 for b in out["blocks_with_area"].values())
     assert out["anchors"] > 10 and set(out["blocks_with_anchor"]) == set(out["blocks_with_area"])
-    if "_region_areas" in out["hooks"]:  # today's pass: each mask as labelled, its pieces and regions exactly
+    if out["hooks"]:  # the real pass: each mask as its regions are found, its pieces and regions exactly
         import access
         assert out["masks"] and os.path.exists(out["captured"]["og"])
         for name, m in out["masks"].items():
@@ -362,6 +384,9 @@ def test_pieces_and_compare_on_a_made_up_search(tmp_path, made_up_search):
                 {k: v for k, v in pa.strip_pieces(mask, rows).items() if k != "strips"}, name
             assert m["regions"] == ndimage.label(mask, structure=np.ones((3, 3), bool))[1] > 3, name
             assert m["true_pixels"] == int(mask.sum()), name
+            if "regions_by_tables" in m:  # wave 1's _Regions: its own counts agree, its scratch file was there
+                assert m["regions_by_tables"] == m["regions"] and m["pieces_by_regions"] == m["pieces"], name
+                assert m["scratch_file_bytes"] > 0, name
     assert not os.path.exists(os.path.join(str(tmp_path / "data"), "work", "perf-access-p"))
     got = pa.main(["compare", "--out", str(out_dir), "--name", "c", "--block-px", "50", *made_up_search])
     assert got["differ"] == 0 and got["blocks"] > 9 and got["pixels"] > 100_000

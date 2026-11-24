@@ -71,7 +71,9 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import psutil
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The code measured: this checkout's, or another checkout's (PERF_ACCESS_REPO: a tree of before, measured by this
+# file's code; its modules first on the path)
+HERE = os.environ.get("PERF_ACCESS_REPO") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 
 INTERVAL = 0.02  # seconds between samples
@@ -83,9 +85,13 @@ CGROUP = "/sys/fs/cgroup"
 PROC = "/proc"
 # access.py's private functions of today's grid-wide pass that `stages` wraps for its split and `pieces` for the
 # masks; a name missing (a later access.py) is listed under "hooks" and its part is not split
+# (until gate 0: _region_areas, _region_bounds and the label files; since wave 1 of 2026-11-24: _Regions' sweeps,
+# _spread_large for B)
 HOOKS = ("_whole_metres_rows", "_flat_lakes_rows", "_region_areas", "_region_bounds", "_spread_flat",
-         "_open_ground_rows", "_answers")
-GROUPS = {"access_flat.npy": "flat lakes", "access_og_g.npy": "open ground", "access_og2_g.npy": "smoothed open ground"}
+         "_open_ground_rows", "_answers", "_Regions._forward", "_Regions._backward", "_Regions.codes",
+         "_spread_large")
+GROUPS = {"access_flat.npy": "flat lakes", "access_og_g.npy": "open ground", "access_og2_g.npy": "smoothed open ground",
+          "access_og.npy": "open ground", "access_og2.npy": "smoothed open ground"}
 # access._answers' parameters as the per-block hook mirrors them (another signature: the blocks are not split)
 ANSWERS_PARAMETERS = ["z", "water", "data", "res", "wm", "og", "alpine", "og2", "s"]
 
@@ -710,6 +716,12 @@ class Search:
         self.search = search
         if args.memory:
             search.available_memory = lambda: int(args.memory)  # before plan_search: _check_access and the tiles
+        self.area_fixed = int(getattr(args, "area_fixed", None) or 0)
+        if getattr(args, "area_bytes", None) is not None:  # the rule with another per-pixel constant, this run only
+            search.ACCESS_AREA_BYTES = float(args.area_bytes)
+        if self.area_fixed:  # and a fixed term: the budget less it, for the check and for the blocks' side
+            real_budget = search._access_budget
+            search._access_budget = lambda plan: real_budget(plan) - self.area_fixed
         searches, options = pm.parse_cli(list(args.search) + ["--no-plot", "--yes", "--ortho", "never"])
         if len(searches) != 1:
             raise SystemExit("one search only")
@@ -742,13 +754,20 @@ class Search:
         block = s._access_block_px(plan)
         out = {"budget": int(s._access_budget(plan)), "access_memory": int(s.access_memory(plan)),
                "access_skipped": plan.access_skipped, "at_once": block is None, "block_px": block,
-               "margin_px": margin, "ACCESS_AREA_BYTES": s.ACCESS_AREA_BYTES,
+               "margin_px": margin, "ACCESS_AREA_BYTES": s.ACCESS_AREA_BYTES, "area_fixed": self.area_fixed,
                "ACCESS_WINDOW_BYTES": s.ACCESS_WINDOW_BYTES, "ACCESS_DISK_BYTES": s.ACCESS_DISK_BYTES}
+        if self.area_fixed:
+            out["budget"] += self.area_fixed  # the budget given; the rule's check used it less the fixed term
+            out["access_memory"] += self.area_fixed
         if block:
             h, w = plan.grid.height, plan.grid.width
             out["blocks"] = (-(-h // block)) * (-(-w // block))
             out["block_m"] = block * plan.resolution
             out["window_px_max"] = min(h, block + 2 * margin) * min(w, block + 2 * margin)
+            # what the rule counts for this search in blocks: the constant per pixel of the grid, the fixed term and
+            # the window bytes per pixel of its window
+            out["counts_bytes"] = int(s.ACCESS_AREA_BYTES * self.pixels + self.area_fixed
+                                      + s.ACCESS_WINDOW_BYTES * out["window_px_max"])
         return out
 
     def describe(self) -> Dict:
@@ -785,6 +804,19 @@ class Search:
                     time.sleep(0.1)
 
 
+def _owner(module, name: str):
+    """(the object holding `name`, its attribute): a module function, or "Class.method" of a class in the module."""
+    if "." in name:
+        cls, attr = name.split(".", 1)
+        return getattr(module, cls, None), attr
+    return module, name
+
+
+def _lookup(module, name: str):
+    owner, attr = _owner(module, name)
+    return getattr(owner, attr, None) if owner is not None else None
+
+
 class Marks:
     """The labels of the parts against time (time.time(), the sidecar's clock), and the hooks into access.py."""
 
@@ -794,6 +826,7 @@ class Marks:
         self.windows: List[int] = []
         self.found: List[str] = []
         self.readings: Dict[str, Dict] = {}  # label: this process's memory when the part starts (the blocks')
+        self.large: List[Dict] = []
         self.proc = psutil.Process()
 
     def mark(self, label: str, reading: bool = False):
@@ -802,42 +835,84 @@ class Marks:
         self.events.append((time.time(), label))
 
     def hook(self, access):
-        """Wrap today's functions of the grid-wide pass and the blocks' _answers: each only switches the label (no
-        argument is kept: a kept view of a memory-mapped mask would hold its file on Windows)."""
-        self.found = [n for n in HOOKS if callable(getattr(access, n, None))]
+        """Wrap the grid-wide pass's functions and the blocks' _answers: each only switches the label (no argument is
+        kept: a kept view of a memory-mapped mask would hold its file on Windows). Both trees: the code of gate 0
+        (_region_areas, _region_bounds: "labels", "bounds", "percentiles") and of wave 1 (_Regions' forward and
+        backward sweeps, the reading sweep that writes, "gather" and "B" of _spread_flat / _spread_large, with B's
+        sweeps counted by the region's codes read). Names are looked up; one missing is left out of "hooks"."""
+        self.found = [n for n in HOOKS if callable(_lookup(access, n))]
+        self.large = []  # B: per large region its pixels, strips, reads of a strip's codes, sweeps, seconds
+        swept = {"reads": None}
+        new_code = callable(getattr(access, "_Regions", None))
 
         def wrap(name, enter=None, leave=None):
-            real = getattr(access, name, None)
+            owner, attr = _owner(access, name)
+            real = getattr(owner, attr, None) if owner is not None else None
             if not callable(real):
                 return
 
             def hooked(*a, **k):
                 if enter:
-                    self.mark(enter(a, k))
+                    label = enter(a, k)
+                    if label:
+                        self.mark(label)
                 try:
                     return real(*a, **k)
                 finally:
                     if leave:
-                        self.mark(leave(a, k))
+                        label = leave(a, k)
+                        if label:
+                            self.mark(label)
             self.restore.append((name, real))
-            setattr(access, name, hooked)
+            setattr(owner, attr, hooked)
 
         def group(a, k):
             return GROUPS.get(os.path.basename(str(a[0] if a else k.get("mask_path"))), "mask")
+
+        def of_regions(a, k):  # a _Regions method's group: its mask's file
+            return GROUPS.get(os.path.basename(str(getattr(getattr(a[0], "mask", None), "path", ""))), "mask")
 
         def og(a, k):
             name = a[6] if len(a) > 6 else k.get("name")
             return "smoothed open ground" if name == "og2" else "open ground"
 
+        def large_enter(a, k):
+            regions, q = a[0], a[2] if len(a) > 2 else k["q"]
+            qs = regions.questions
+            self.large.append({"pixels": int(qs["pixels"][q]), "strips": int(qs["last"][q] - qs["first"][q] + 1),
+                               "t0": time.time()})
+            swept["reads"] = 0
+            return "grid-wide: flat lakes: B"
+
+        def large_leave(a, k):
+            row = self.large[-1]
+            row["codes_reads"] = swept["reads"]
+            row["sweeps"] = round(swept["reads"] / row["strips"], 2)
+            row["s"] = round(time.time() - row.pop("t0"), 3)
+            swept["reads"] = None
+            return "grid-wide: flat lakes: gather"
+
+        def codes_enter(a, k):
+            if swept["reads"] is not None:
+                swept["reads"] += 1
+            return None
+
         wrap("_whole_metres_rows", leave=lambda a, k: "grid-wide: water (copy, flush)")
         wrap("_flat_lakes_rows", enter=lambda a, k: "grid-wide: flat lakes: mask",
              leave=lambda a, k: "grid-wide: water (copy, flush)")
+        # gate 0's code
         wrap("_region_areas", enter=lambda a, k: f"grid-wide: {group(a, k)}: labels",
              leave=lambda a, k: f"grid-wide: {group(a, k)}: write")
         wrap("_region_bounds", enter=lambda a, k: "grid-wide: flat lakes: bounds",
              leave=lambda a, k: "grid-wide: flat lakes: write")
-        wrap("_spread_flat", enter=lambda a, k: "grid-wide: flat lakes: percentiles",
-             leave=lambda a, k: "grid-wide: flat lakes: write")
+        # wave 1's code
+        wrap("_Regions._forward", enter=lambda a, k: f"grid-wide: {of_regions(a, k)}: forward sweep")
+        wrap("_Regions._backward", enter=lambda a, k: f"grid-wide: {of_regions(a, k)}: backward sweep",
+             leave=lambda a, k: f"grid-wide: {of_regions(a, k)}: reading sweep (write)")
+        wrap("_Regions.codes", enter=codes_enter)
+        wrap("_spread_large", enter=large_enter, leave=large_leave)
+        wrap("_spread_flat", enter=lambda a, k: "grid-wide: flat lakes: " + ("gather" if new_code else "percentiles"),
+             leave=lambda a, k: "grid-wide: flat lakes: " + ("reading sweep (write)" if new_code else "write"))
         wrap("_open_ground_rows", enter=lambda a, k: f"grid-wide: {og(a, k)}: mask",
              leave=lambda a, k: "grid-wide: masks opened")
         real_answers = getattr(access, "_answers", None)
@@ -862,7 +937,8 @@ class Marks:
 
     def unhook(self, access):
         for name, real in reversed(self.restore):
-            setattr(access, name, real)
+            owner, attr = _owner(access, name)
+            setattr(owner, attr, real)
         self.restore.clear()
 
 
@@ -903,6 +979,7 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
     gc.collect()
     out["start"] = memory_now(proc)
     out["cg_start"] = cgroup_sample()
+    out["work_bytes_at_start"] = sum(work_files(s.work).values())  # step 1's grids (and earlier stages' outputs)
     t0 = time.time()
     if kind == "once":
         sidecar_events.mark(f"once {k}")
@@ -935,6 +1012,7 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
         out["whole_metres"] = bool(done["whole_metres"])
         out["windows"] = list(sidecar_events.windows)
         out["readings"] = dict(sidecar_events.readings)
+        out["large_regions"] = list(sidecar_events.large)  # B: each large flat region's sweeps and seconds
         out["hooks"] = sidecar_events.found
         out["first_event"] = start
         gc.collect()
@@ -995,6 +1073,38 @@ def stage_report(stage: Dict, parts: Dict[str, Dict], pixels: int) -> Dict:
                 b["level_rss_b_per_largest_window_px"] = per_px(b["peak_rss_above_level"], largest)
                 b["level_private_b_per_largest_window_px"] = per_px(b["peak_private_above_level"], largest)
         out["blocks_part"] = b
+        out["needed"] = constant_needed(out, pixels)
+    return out
+
+
+WINDOW_BYTES_COUNTED = 50  # search.ACCESS_WINDOW_BYTES (not imported here: a tree of before may differ)
+
+
+def constant_needed(st: Dict, pixels: int) -> Dict:
+    """What the rule's per-pixel constant must cover on a blocks stage (the working set above the stage's start, as
+    the rule counts it): the grid-wide pass's peak per pixel of the grid, and the blocks' peak less 50 B (the rule's
+    window bytes) per pixel of the largest window measured, per pixel of the grid; the larger of the two is "the
+    constant needed". Also the blocks' with the window at its measured private bytes (above the level when the blocks
+    begin) instead of 50. Beside them the pass's private peak in MiB and the mark's files: the work folder's peak
+    during the stage less what it held at the stage's start, per pixel of the grid."""
+    g, b = st.get("grid_wide") or {}, st.get("blocks_part") or {}
+    largest = b.get("largest_window_px")
+    out = {"pass_ws_b_per_px": per_px(g.get("peak_rss_above_start"), pixels)}
+    if b.get("peak_rss_above_start") is not None and largest:
+        out["blocks_beyond_50_b_per_px"] = per_px(b["peak_rss_above_start"] - WINDOW_BYTES_COUNTED * largest, pixels)
+        if b.get("peak_private_above_level") is not None:
+            out["blocks_beyond_private_b_per_px"] = per_px(b["peak_rss_above_start"] - b["peak_private_above_level"],
+                                                           pixels)
+    values = [v for v in (out["pass_ws_b_per_px"], out.get("blocks_beyond_50_b_per_px")) if v is not None]
+    out["constant_needed"] = max(values) if values else None
+    out["decided_by"] = None if not values else ("grid-wide pass" if out["constant_needed"] == out["pass_ws_b_per_px"]
+                                                 else "blocks beyond their window")
+    out["pass_private_mib"] = (round(g["peak_private_above_start"] / MB, 1)
+                               if g.get("peak_private_above_start") is not None else None)
+    disks = [r["peak_disk"] for r in st["parts"].values() if r.get("peak_disk") is not None]
+    if disks and st.get("work_bytes_at_start") is not None:
+        out["mark_files_bytes"] = max(disks) - st["work_bytes_at_start"]
+        out["mark_files_b_per_px"] = per_px(out["mark_files_bytes"], pixels)
     return out
 
 
@@ -1190,6 +1300,42 @@ def run_pieces(args) -> Dict:
             extra[0] += time.time() - t
             return labels, n, count
         access._region_areas = region_areas
+    regions_cls = getattr(access, "_Regions", None)
+    real_init = regions_cls.__init__ if regions_cls is not None and not callable(real) else None
+    if real_init is not None:  # wave 1's code: the regions found by _Regions, its own counts and scratch file
+        def regions_init(self, mask, path, judge, *a, **k):
+            t = time.time()
+            row = strip_pieces(_MaskRows(mask), strip_rows)
+            row["true_pixels"] = int(sum(np.count_nonzero(mask.rows(r0, r1)) for r0, r1 in strip_rows))
+            name = os.path.basename(mask.path)
+            if args.capture:  # the mask as its regions are found (before the regions' size), for a check
+                os.makedirs(args.capture, exist_ok=True)
+                row["captured"] = os.path.join(args.capture, f"{args.name}-{name}")
+                shutil.copyfile(mask.path, row["captured"])
+            judged = {"regions": 0, "not_dropped": 0}
+
+            def counted(pixels, lowest, highest):
+                verdict = np.asarray(judge(pixels, lowest, highest))
+                judged["regions"] += len(verdict)
+                judged["not_dropped"] += int((verdict != access.DROP).sum())
+                return verdict
+            extra[0] += time.time() - t
+            real_init(self, mask, path, counted, *a, **k)
+            t = time.time()
+            tables = self._tables  # per strip: offset, pieces, classes carried in, classes
+            row["regions"] = judged["regions"]
+            row["regions_kept_by_size"] = judged["not_dropped"]  # kept or an open question (the flat lakes')
+            row["regions_by_tables"] = int(sum(k_ - (tables[j + 1][2] if j + 1 < len(tables) else 0)
+                                               for j, (_, _, _, k_) in enumerate(tables)))
+            row["pieces_by_regions"] = int(sum(n_ for _, n_, _, _ in tables))
+            row["most_carried"] = int(max((nc for _, _, nc, _ in tables), default=0))
+            row["scratch_file_bytes"] = os.path.getsize(path)
+            row["scratch_b_per_grid_px"] = round(row["scratch_file_bytes"] / (h * w), 4)
+            row["table_bytes_at_4_per_piece"] = 4 * row["pieces"]
+            row["table_b_per_grid_px"] = round(4 * row["pieces"] / (h * w), 4)
+            masks[GROUPS.get(name, name)] = row
+            extra[0] += time.time() - t
+        regions_cls.__init__ = regions_init
     t0 = time.time()
     try:  # the blocks' side does not matter: the pass stops before the first block
         access.block_grid(z, water, res, filled, os.path.join(s.work, "access.npy"), s.work,
@@ -1199,9 +1345,11 @@ def run_pieces(args) -> Dict:
     finally:
         if callable(real):
             access._region_areas = real
+        if real_init is not None:
+            regions_cls.__init__ = real_init
     out["pass_s"] = round(time.time() - t0 - extra[0], 1)  # the pass alone
     out["tool_s_in_pass"] = round(extra[0], 1)  # the pieces' counting and the --capture copies, taken off
-    out["hooks"] = ["_region_areas"] if callable(real) else []
+    out["hooks"] = ["_region_areas"] if callable(real) else ["_Regions.__init__"] if real_init else []
     out["masks"] = masks
     gc.collect()
     if args.capture:
@@ -1216,6 +1364,16 @@ def run_pieces(args) -> Dict:
     del data, z, water, filled, mask
     s.close(args.keep_work)
     return out
+
+
+class _MaskRows:
+    """A _Mask (wave 1) read by rows as an array: mask[r0:r1] and .shape, as strip_pieces reads a mapped mask."""
+
+    def __init__(self, mask):
+        self.mask, self.shape = mask, mask.shape
+
+    def __getitem__(self, rows: slice):
+        return self.mask.rows(rows.start, rows.stop)
 
 
 def anchors_of(s: Search) -> Tuple[np.ndarray, np.ndarray]:
@@ -1329,6 +1487,16 @@ def print_table(out: Dict):
                               f"{_mb(b['peak_rss_above_level']):>7} {_mb(b['peak_private_above_level']):>7} "
                               f"{b['level_rss_b_per_largest_window_px'] or '':>6} "
                               f"{b['level_private_b_per_largest_window_px'] or '':>6}")
+                n = st.get("needed") or {}
+                if n:
+                    print(f"  constant needed {n.get('constant_needed')} B/px ({n.get('decided_by')}): pass "
+                          f"{n.get('pass_ws_b_per_px')}, blocks beyond 50 B a window pixel "
+                          f"{n.get('blocks_beyond_50_b_per_px')}, beyond their private bytes "
+                          f"{n.get('blocks_beyond_private_b_per_px')}; pass private {n.get('pass_private_mib')} MiB; "
+                          f"the mark's files {n.get('mark_files_b_per_px')} B/px")
+                for r in st.get("large_regions") or []:
+                    print(f"  B: a large flat region of {r['pixels'] / 1e6:.1f} Mpx over {r['strips']} strips: "
+                          f"{r['sweeps']} sweeps, {r['s']} s")
                 c = st.get("compare_with_once")
                 print(f"  {st['blocks']} blocks of {st['block_px']} px, largest window {st['window_px'] / 1e6:.1f} "
                       f"Mpx; left in work: {st['left_in_work'] or 'nothing'}"
@@ -1381,6 +1549,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--order", default="once,blocks", help="stages: the stages after step 1, e.g. blocks,once,blocks")
     p.add_argument("--step1-only", action="store_true", help="stages: step 1 alone")
     p.add_argument("--block-px", type=int, help="stages, compare, masks: the blocks' side instead of the rule's")
+    p.add_argument("--area-bytes", type=float, help="the rule with this search.ACCESS_AREA_BYTES (this run only)")
+    p.add_argument("--area-fixed", type=int, help="and this fixed term of the rule in bytes (this run only)")
     p.add_argument("--anchors", action="store_true", help="pieces: the share of blocks holding an anchor too")
     p.add_argument("--capture", help="pieces: keep the pass's final masks in this folder")
     p.add_argument("--mask", help="masks: the mask (.npy, one byte a pixel)")
