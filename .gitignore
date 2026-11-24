@@ -234,3 +234,5 @@ secrets/*
 !secrets/README.md
 # The monitoring project's variables (written by deploy/vps.sh; .env.example is committed)
 deploy/monitoring/.env
+# Temporary files of the regression harness's writes (tests/regression.py write_files: left only by a killed run)
+tests/.regression*.json-*.tmp
