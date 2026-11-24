@@ -580,12 +580,30 @@ VIEW_STEPPER = "wait:document.querySelector('.vl-dhead .vl-spot-next, .vl-sheet-
 VIEW_STEP_OFF = "wait:document.querySelector('.vl-dhead .vl-spot-{0}, .vl-sheet-row .vl-spot-{0}')?.disabled === true".format
 # The filters' panels (ViewFilters.tsx) opened by their chips: the first chip that opens an editor (Length's; More
 # filters' chip opens none, a set filter's chip is a span of two buttons), its editor waited for under the pressed chip;
-# More filters' chip, its section waited for in the list's flow (the columns' body, a phone's sheet)
+# More filters' chip, its section waited for in the list's flow (the columns' body, a phone's sheet). With all three
+# main filters set the chip's selector matches nothing and the state ends at its wait's deadline; in a pass that cannot
+# happen today (the storage starts empty and no page before the filters' states sets a filter)
 VIEW_EDIT_CHIP = ".vl-filters .u-chips > .u-chip[aria-expanded]"
 VIEW_EDITOR = ("wait:!!document.querySelector('.vl-filters .u-chips [aria-expanded=true]') && "
                "!!document.querySelector('.vl-filters .r-editor')")
 VIEW_MORE_CHIP = ".vl-filters .u-chip.u-add"
-VIEW_MORE = "wait:!!document.querySelector('.vl-body > section.r-more, .vl-list > section.r-more')"
+VIEW_MORE_SECTION = "document.querySelector('.vl-body > section.r-more, .vl-list > section.r-more')"
+VIEW_MORE = "wait:!!" + VIEW_MORE_SECTION
+# More filters scrolled to its end: the element that scrolls them (a desktop's list body .vl-body, columns.css
+# .c-col-body; a phone's sheet body, ui.css .u-sheet-body) moved so that the section's bottom stands 12 px above its
+# bottom edge; then the section's last control (the last range of its last part) waited for wholly inside that body and
+# the screen, and not under anything: the element at its centre is the control, a part of it (a button's icon) or one
+# that holds it (a range takes no pointer but on its thumb, ui.css .u-range: its centre hits its row, .r-limit)
+VIEW_MORE_SCROLL = ("(() => { const s = %s, b = s?.closest('.u-sheet-body, .vl-body'); if (b) "
+                    "b.scrollTop += s.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom + 12; })()"
+                    % VIEW_MORE_SECTION)
+VIEW_MORE_END = ("wait:(() => { const s = %s, b = s?.closest('.u-sheet-body, .vl-body'), "
+                 "c = s ? [...s.querySelectorAll('input, select, button')].pop() : null; if (!b || !c) return false; "
+                 "const r = c.getBoundingClientRect(), o = b.getBoundingClientRect(), "
+                 "at = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2); "
+                 "return r.top >= o.top && r.bottom <= Math.min(o.bottom, innerHeight) && !!at && "
+                 "(at.contains(c) || c.contains(at)); })()"
+                 % VIEW_MORE_SECTION)
 VIEW_STATES = {
     # B1: the map fitted to the search area at Area, its dashed outline, the legend open (the gate's G5); two best
     # spots' lines favourites (their halos); Lines with the best line a favourite and selected; Measure's finished line
@@ -678,15 +696,18 @@ VIEW_STATES = {
                                               "wait:document.querySelector('.vl-sheet-row .r-fav')",
                                               "js:" + VIEW_PRESS % ".vl-sheet-row .r-fav", "wait:document.querySelector('.r-picker')",
                                               "wait:!!document.activeElement?.closest('.r-pop')"]),
-    # line volume's round 7 (A3): a main filter's editor open (Length's, under the chips) and More filters open (after
-    # the chips in the list's flow), on every device; a phone's sheet at full first (at half the editor runs on under
-    # the screen's edge on both phones). Their chips' presses are all they do: no filter changes (which panel is open
-    # is the page's own, not kept in the browser), and they stand before the states that set filters, so they show the
-    # chips a run opens with
+    # line volume's round 7 (A3): a main filter's editor open (Length's, under the chips), More filters open (after the
+    # chips in the list's flow) and More filters scrolled to its end, on every device; a phone's sheet at full first (at
+    # half the editor runs on under the screen's edge on both phones). Their chips' presses and the scroll are all they
+    # do: no filter changes (which panel is open is the page's own, not kept in the browser), and they stand before the
+    # states that set filters, so they show the chips a run opens with
     "c-view-editor": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_PRESS % VIEW_EDIT_CHIP,
                                           VIEW_EDITOR]),
     "c-view-more": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_PRESS % VIEW_MORE_CHIP,
                                         VIEW_MORE]),
+    "c-view-more-end": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF,
+                                            "js:" + VIEW_PRESS % VIEW_MORE_CHIP, VIEW_MORE, "js:" + VIEW_MORE_SCROLL,
+                                            VIEW_MORE_END]),
     # last of all (the filters they set are kept in the browser, "findaline.filters", for the pass's later pages): a link
     # to a line the filters hide (the note first in the list); no line passing the filters (the sentence, "Clear all")
     "c-view-note": ("c", "#run={run}", [VIEW_READY, VIEW_NOTE, "wait:document.querySelector('.vl-lnote')"]),
