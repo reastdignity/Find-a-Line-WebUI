@@ -303,8 +303,10 @@ harness, `cache status` and `tools/record_check.py` compare by it. Known and lef
   each file is noted before the mosaic reads it and after (`mosaic.noted_before`, `cache.touch`), each note its
   stored checksum and its identity on disk (`os.stat`'s inode, time in ns, size), and a file whose two notes differ
   is not known (`mosaic.read_window`); a layer prepared twice in a run (a fallback's terrain for the terrain and the
-  surface) never covers such a null (`search._merged_data`). Left (every writer moves the new file in first and
-  writes its row after, hashing the file and waiting for the index's lock):
+  surface) never covers such a null (`search._merged_data`). A file written again with the same content while a
+  layer reads it (a tile fetched again unchanged, or encoded again by another process) is not known too: files are
+  never hashed for the record. Left (every writer moves the new file in first and writes its row after, hashing
+  the file and waiting for the index's lock):
   - a file moved in before the note before the read whose row lands after the note after it (a writer's gap longer
     than the layer's whole read): the old checksum is recorded although the new bytes were read, `cache status`
     calls the file changed, the regression harness (its stored record holds the old one too) "same data";
