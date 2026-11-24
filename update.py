@@ -34,7 +34,6 @@ than its interval (stale); --all checks everything that can change.
 
 import argparse
 import glob
-import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -49,6 +48,7 @@ import coast
 import orthophoto
 import osm
 import osmextract
+import runs as rn
 import settings
 import sources as src
 from progress import progress
@@ -360,13 +360,14 @@ def _date(timestamp: Optional[str]) -> str:
 
 
 def changed_runs(cache_dir: str, runs_dir: str) -> List[Tuple[str, int, int]]:
-    """Runs computed on data that has changed since: (run folder, changed files, files)."""
+    """Runs computed on data that has changed since: (run folder, changed files, files). Every run of the folder is
+    read, also one a search saves at this moment: its run.json through runs.read_meta, which waits out Windows'
+    refusal of a file that has just appeared (the command ended with the PermissionError)."""
     found = []
     for path in sorted(glob.glob(os.path.join(runs_dir, "*", "run.json"))):
         if os.path.basename(os.path.dirname(path)).startswith((".", "_")):  # no run (runs.list_runs' rule)
             continue
-        with open(path, encoding="utf-8") as f:
-            meta = json.load(f)
+        meta = rn.read_meta(path)
         created = datetime.fromisoformat(meta["created"]).astimezone(timezone.utc)
         files = [p for entry in meta.get("data", []) for p in entry.get("paths", [])]
         changed = 0

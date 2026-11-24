@@ -2882,6 +2882,40 @@ def test_a_listing_waits_for_a_run_json_windows_refuses(tmp_path, monkeypatch):
     assert bool(pauses) == (os.name == "nt") and sum(pauses) < 5  # a listing never waits long (the runs lock)
 
 
+def test_cache_status_waits_for_a_run_json_windows_refuses(tmp_path, monkeypatch):
+    """`findaline.py cache status` (update.changed_runs) goes through every run of the runs folder, as runs.list_runs
+    does, so it can meet a run.json at the moment another process saves that run, which Windows refuses for a moment
+    (PermissionError: the command ended with it). It reads through the listing's waiting read (runs.read_meta): the
+    file is opened again after each of runs.READ_PAUSES, and after the last pause the error is raised."""
+    import json
+
+    import runs
+    runs_dir = tmp_path / "runs"
+    for second, name in enumerate(("one", "two")):
+        (runs_dir / name).mkdir(parents=True)
+        (runs_dir / name / "run.json").write_text(json.dumps(  # a data file the cache has not: a run on changed data
+            {"id": name, "created": f"2026-11-24T10:00:0{second}+00:00", "data": [{"paths": ["no/such.tif"]}]}),
+            encoding="utf-8")
+    refused = []  # the errors the next opens of a run.json meet
+
+    def opened(path, *args, **more):
+        if os.path.basename(path) == "run.json" and refused:
+            raise refused.pop(0)(13, "Permission denied", str(path))
+        return open(path, *args, **more)
+
+    for module in (update, runs):  # the name as each module sees it, wherever changed_runs opens the file
+        monkeypatch.setattr(module, "open", opened, raising=False)
+    monkeypatch.setattr(runs, "READ_PAUSES", (0.0, 0.001, 0.002), raising=False)
+    cache_dir = str(tmp_path / "cache")
+    refused[:] = [PermissionError] * 3
+    assert update.changed_runs(cache_dir, str(runs_dir)) == [("one", 1, 1), ("two", 1, 1)]
+    assert refused == []  # all three met, then read
+    refused[:] = [PermissionError] * 9
+    with pytest.raises(PermissionError):
+        update.changed_runs(cache_dir, str(runs_dir))
+    assert len(refused) == 5  # once and after each of the three pauses
+
+
 def test_labels_topics_and_presets():
     """Every field the web may set has a label, a unit and a hint in the message catalogue
     (locales/en.json), and every choice of a choice field a label; every such field belongs to one

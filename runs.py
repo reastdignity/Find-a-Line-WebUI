@@ -425,20 +425,21 @@ def _local_time(created: str) -> str:
         return created[:16].replace("T", " ")
 
 
-# The pauses of a listing whose open of a run.json Windows refuses (PermissionError): the file is held for a moment
-# after save_results moved it to its name (cache.replacing), while another process saves that run. Measured on a
-# loaded PC, 2026-11-24, with a reader that opens the file as it appears: refused at 1 816 of 3 000 new files, each
-# read 7 ms after its first refusal at the median, 29 ms at the longest (docs/known-bugs.md); 1.58 s in all here,
-# over fifty times the longest, for a slower machine. On every other system a refusal is a fault of the folder: no
-# pause, the error at once
+# The pauses of a reader that goes through the runs folder (read_meta: list_runs, update.changed_runs) whose open of
+# a run.json Windows refuses (PermissionError): the file is held for a moment after save_results moved it to its
+# name (cache.replacing), while another process saves that run. Measured on a loaded PC, 2026-11-24, with a reader
+# that opens the file as it appears: refused at 1 816 of 3 000 new files, each read 7 ms after its first refusal at
+# the median, 29 ms at the longest (docs/known-bugs.md); 1.58 s in all here, over fifty times the longest, for a
+# slower machine. On every other system a refusal is a fault of the folder: no pause, the error at once
 READ_PAUSES = (0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.8) if os.name == "nt" else ()
 
 
-def _listed_meta(path: str) -> Dict:
-    """A run's run.json for list_runs, opened again after each of READ_PAUSES while Windows refuses it: two compute
-    slots ending together, one listing the runs (write_index, under the runs lock) at the moment the other's
-    run.json appeared (written outside the lock), ended that search as failed, its run saved. After the last pause
-    the PermissionError is raised; any other error at once."""
+def read_meta(path: str) -> Dict:
+    """A run's run.json for a reader that goes through the runs folder, and so can meet a run at the moment it is
+    saved (list_runs; update.changed_runs, the command `cache status`), opened again after each of READ_PAUSES while
+    Windows refuses it: two compute slots ending together, one listing the runs (write_index, under the runs lock)
+    at the moment the other's run.json appeared (written outside the lock), ended that search as failed, its run
+    saved. After the last pause the PermissionError is raised; any other error at once."""
     for pause in (*READ_PAUSES, None):
         try:
             with open(path, encoding="utf-8") as f:
@@ -458,7 +459,7 @@ def list_runs(runs_dir: str, only: Optional[Iterable[str]] = None) -> List[Dict]
                 continue
             path = os.path.join(runs_dir, run_id, "run.json")
             if os.path.isfile(path):
-                run = _listed_meta(path)
+                run = read_meta(path)
                 run["created"] = cache.utc_iso(run.get("created")) or ""  # without an offset before 2026-10-31
                 run["has_map"] = os.path.isfile(os.path.join(runs_dir, run_id, "map.html"))
                 # Lines another map can show (Compare): its store's lines (linestore.LINES_FILE)
