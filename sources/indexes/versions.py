@@ -83,8 +83,12 @@ class Sheet:
 
 
 def _sheet_order(sheet: Sheet) -> tuple:
-    """Newer year first; within a year, the later publication (higher numbers in the file name)."""
-    return (sheet.year,) + tuple(int(n) for n in re.findall(r"\d+", sheet.name)[:2])
+    """Newer year first; within a year, the later publication (higher numbers in the file name); then the name, so
+    the order is total: two sheets of equal year and numbers never keep the index answer's order, which no run
+    records (none such in the real cache's answers on 2026-11-24: Poland, Lower Saxony, Sardinia, swisstopo). A name
+    of fewer than two numbers takes -1 for each one missing: before the name, as the shorter tuple was."""
+    numbers = [int(n) for n in re.findall(r"\d+", sheet.name)[:2]]
+    return (sheet.year, *numbers, *[-1] * (2 - len(numbers)), sheet.name)
 
 
 def _answers(index: CachedIndex, cache_dir: str, tiles: List[Tuple[float, float]],

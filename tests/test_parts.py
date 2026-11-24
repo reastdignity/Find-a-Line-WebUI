@@ -378,6 +378,32 @@ def test_index_tiles_at_once(tmp_path):
     assert [s.url for s in sheets] == [f"https://x.example/{order[0][0]}_{order[0][1]}/A.asc"]
 
 
+def test_tied_sheets_in_one_order(tmp_path):
+    """NewestPerSheet's order is total: two overlapping sheets of equal year and equal first two numbers come in the
+    same order whatever order the answer lists them in (the name decides), and so do two versions of one godło; a
+    name of fewer numbers sorts as before (its missing numbers below any)."""
+    from sources.indexes.cached import CachedIndex, Listing
+    from sources.indexes.versions import NewestPerSheet, Sheet, _sheet_order
+    grid = Grid(left=500000.0, top=700000.0, res=100.0, height=20, width=20, crs="EPSG:2180")
+
+    def item(name, godlo):
+        return {"year": 2020, "godlo": godlo, "url": f"https://x.example/{name}.asc", "crs": "EPSG:2180",
+                "res": 1.0, "extent": [499000, 697000, 503000, 701000]}
+
+    listed = [item("7_5_B", "B"), item("7_5_A", "A"), item("7_5_C1", "C"), item("7_5_C2", "C")]
+    orders = []
+    for k, items in enumerate((listed, listed[::-1])):
+        class Answer(Listing):
+            def fetch(self, lat, lon, items=items):
+                return {"sheets": items}
+        index = CachedIndex("test", Answer(), NewestPerSheet("t/sheets", "EPSG:2180", 1.0), f"p{k}", "t")
+        index.use(str(tmp_path / "cache"), None)
+        orders.append([s.name for s in index.tiles(grid)])
+    assert orders[0] == orders[1] == ["7_5_C2", "7_5_B", "7_5_A"]
+    sheet = lambda name: Sheet(2020, name, name, "", "", 1.0)  # noqa: E731
+    assert _sheet_order(sheet("x")) < _sheet_order(sheet("x7")) < _sheet_order(sheet("x7_0")) < _sheet_order(sheet("x8"))
+
+
 def _area_grid(parts, crs="EPSG:2180", res=100.0, margin=2000.0):
     """A grid over shapely parts (in crs) with their union as its outline."""
     from shapely.ops import unary_union
