@@ -362,7 +362,8 @@ def merge(parts: Dict[str, Dict], prefix: str) -> Optional[Dict]:
     rows = [r for label, r in parts.items() if label.startswith(prefix)]
     if not rows:
         return None
-    best = max(rows, key=lambda r: -1 if r["peak_rss_above_start"] is None else r["peak_rss_above_start"])
+    # a part without a sample never wins, also when every sampled peak lies below the stage's start (negative)
+    best = max(rows, key=lambda r: float("-inf") if r["peak_rss_above_start"] is None else r["peak_rss_above_start"])
     out = {"s": round(sum(r["s"] for r in rows), 3), "samples": sum(r["samples"] for r in rows),
            "max_gap_s": max(r["max_gap_s"] for r in rows),
            "peak_rss_above_start": best["peak_rss_above_start"],

@@ -157,6 +157,10 @@ def test_parts_from_samples():
     assert c["samples"] == 0 and c["peak_rss_above_start"] is None and c["peak_private_above_start"] is None
     assert "files_at_peak" not in c and c["peak_disk"] is None
     assert pa.merge(parts, "")["peak_part"] == "b"
+    # every sampled peak below the stage's start (memory given back): the sampled part still wins over one without
+    low = pa.summarise(samples, listings, [(0.0, "a"), (1.95, "c")], 2.0, {"rss": 1000, "private": 1000}, None)
+    assert low["a"]["peak_rss_above_start"] == -700 and low["c"]["peak_rss_above_start"] is None
+    assert pa.merge(low, "")["peak_rss_above_start"] == -700 and pa.merge(low, "")["peak_part"] == "a"
 
 
 def test_a_blocks_peaks_above_the_stage_and_the_level():
