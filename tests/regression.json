@@ -21,7 +21,8 @@
       "over_trees": 914,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "geoportal.gov.pl"
+      "source": "geoportal.gov.pl",
+      "coastline": "no sea in the area"
     },
     "notes": "Spot 1: 102 m, clearance 8.0 m, 50.156507, 19.755129 → 50.155960, 19.756268; no coastline lookup (inland)",
     "seconds": 3.0
@@ -46,7 +47,8 @@
       "clearance_max": 17.27,
       "over_trees": 118,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "`Coastline: no sea in the area`",
     "seconds": 3.3
@@ -72,7 +74,8 @@
       "clearance_max": 17.43,
       "over_trees": 344,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "re-baselined 2026-11-14: the sag model's fall zone 6 m by default (3 m before; the user's decision): 11 989 → 630 lines, 99 → 24 spots, the largest clearance 3 m lower",
     "seconds": 9.4
@@ -96,7 +99,8 @@
       "clearance_max": 7.9,
       "over_trees": 1892,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "no gaps (the WCS data had 0.05 km² filled from FABDEM)",
     "seconds": 4.0
@@ -121,7 +125,8 @@
       "clearance_max": 12.65,
       "over_trees": 5051,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "re-baselined 2026-11-14: the sag model's fall zone 6 m by default (3 m before; the user's decision): 52 657 → 5 139 lines, 457 → 126 spots, the largest clearance 3 m lower (the map was ~150 MB at 3 m)",
     "seconds": 24.6
@@ -148,7 +153,8 @@
       "empty_tiles": 0,
       "sea_km2": 1.24,
       "water_lines": 11723,
-      "water_spots": 292
+      "water_spots": 292,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "",
     "seconds": 6.7
@@ -179,7 +185,8 @@
       "filled_from": "Malta 2018 (MSDI)",
       "sea_km2": 1.25,
       "water_lines": 7124,
-      "water_spots": 245
+      "water_spots": 245,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "",
     "seconds": 6.3
@@ -206,7 +213,8 @@
       "empty_tiles": 0,
       "sea_km2": 3.25,
       "water_lines": 11714,
-      "water_spots": 338
+      "water_spots": 338,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "",
     "seconds": 6.6
@@ -231,7 +239,8 @@
       "over_trees": 2299,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "IGN Spain (MDT05/MDS05)"
+      "source": "IGN Spain (MDT05/MDS05)",
+      "coastline": "no sea in the area"
     },
     "notes": "",
     "seconds": 19.3
@@ -259,7 +268,8 @@
       "empty_tiles": 0,
       "source": "IGN Canary Islands (MDT05/MDS05)",
       "water_lines": 15004,
-      "water_spots": 521
+      "water_spots": 521,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "",
     "seconds": 10.2
@@ -283,7 +293,8 @@
       "clearance_max": 39.63,
       "over_trees": 30,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "grouping distance 60 m",
     "seconds": 2.0
@@ -307,7 +318,8 @@
       "clearance_max": 66.24,
       "over_trees": 0,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "",
     "seconds": 1.8
@@ -341,7 +353,8 @@
       "coverage": 97.64,
       "empty_tiles": 0,
       "filled_km2": 0.3,
-      "filled_from": "ÚGKK SR (DMR 5.0 / DMP 1.0)"
+      "filled_from": "ÚGKK SR (DMR 5.0 / DMP 1.0)",
+      "coastline": "no sea in the area"
     },
     "notes": "PL-1992 input; the filled gaps are on the Slovak side; with `--cache` on an empty folder it also tests the geoportal sheet download (index WFS, ASCII grid sheets, NMPT at 0.5 m); since the neighbours (2026-11-01) the Slovak side comes from ÚGKK SR (FINDALINE_MIRROR), the rest from FABDEM; since 2026-11-05 the Slovak side comes from the 1 m tiles again, averaged by the mosaic (the tiles averaged to 5 m go only to a grid of their own CRS: reprojected onto Poland's grid they were smoothed twice), with the anchors of before 2026-11-04",
     "seconds": 3.2
@@ -368,7 +381,8 @@
       "coverage": 100.0,
       "empty_tiles": 0,
       "filled_km2": 0.74,
-      "filled_from": "FABDEM + Copernicus DEM"
+      "filled_from": "FABDEM + Copernicus DEM",
+      "coastline": "no sea in the area"
     },
     "notes": "anchors, open anchors and checked pairs are those of the first tile; must equal R1 in lines and spots; since 2026-11-04 step 1 runs once on the whole grid, so the Filled line is the area's (0.24 km² of the first tile before)",
     "same_as": "R1",
@@ -397,7 +411,8 @@
       "empty_tiles": 0,
       "sea_km2": 0.54,
       "water_lines": 422,
-      "water_spots": 21
+      "water_spots": 21,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "the edge tile must come from Malta 2018: when it was lost (404 beyond the coverage) FABDEM filled the land, leaving 19 anchors and no lines",
     "seconds": 2.9
@@ -428,7 +443,8 @@
       "filled_from": "FABDEM + Copernicus DEM",
       "sea_km2": 6.08,
       "water_lines": 9261,
-      "water_spots": 232
+      "water_spots": 232,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "re-baselined 2026-11-04: step 1 runs once on the whole grid, so the data lines are the area's (coverage 51.53 → 49.48 %, filled 0.98 → 2.58 km², sea 1.87 → 6.08 km², of the first tile before) and the gap offsets are the area's: the same 25 906 lines and 421 spots, 12 lines near 36.0795 N 14.2497 E with height_max/height_mean moved by 1-3 cm; re-baselined 2026-11-14: the sag model's fall zone 6 m by default (3 m before; the user's decision): 28 322 → 9 337 lines, 430 → 240 spots, 27 570 → 9 261 lines over water, the largest clearance 3 m lower",
     "seconds": 51.2
@@ -485,7 +501,8 @@
       "sea_km2": 0.88,
       "water_lines": 2416,
       "water_spots": 44,
-      "lines_in_region": 1700
+      "lines_in_region": 1700,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "before 2026-10-25 within clipped the band to the land of the named area: no line reached the islet",
     "seconds": 3.3
@@ -511,7 +528,8 @@
       "over_trees": 222,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "swisstopo (swissALTI3D / swissSURFACE3D)"
+      "source": "swisstopo (swissALTI3D / swissSURFACE3D)",
+      "coastline": "no sea in the area"
     },
     "notes": "first run on an empty cache: 18 s (4 DTM tiles 5 MB, 4 DSM tiles 70 MB); all lines cross the forest under the west wall (over trees)",
     "seconds": 2.3
@@ -536,7 +554,8 @@
       "over_trees": 2259,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "swisstopo (swissALTI3D / swissSURFACE3D)"
+      "source": "swisstopo (swissALTI3D / swissSURFACE3D)",
+      "coastline": "no sea in the area"
     },
     "notes": "downloads the 0.5 m terrain tiles (about 80 MB) next to R19's 2 m ones",
     "seconds": 3.5
@@ -567,7 +586,8 @@
       "over_trees": 1450,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "ÚGKK SR (DMR 5.0 / DMP 1.0)"
+      "source": "ÚGKK SR (DMR 5.0 / DMP 1.0)",
+      "coastline": "no sea in the area"
     },
     "notes": "skipped without FINDALINE_MIRROR; --source auto picks Slovakia (the centre is in SK); first run on an empty cache: 9 s, 2 DTM tiles 12 MB and 2 DSM tiles 14 MB copied from the mirror; forest everywhere: most lines over trees (all of them before obstacles.py's envelope, 2026-11-02)",
     "seconds": 2.6
@@ -593,7 +613,8 @@
       "over_trees": 0,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "USGS 3DEP (1 m DEM)"
+      "source": "USGS 3DEP (1 m DEM)",
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks usa (the centre is in US); first run on an empty cache: 18 s, 9 blocks of 1 km, 15 MB; working grid in NAD83 / UTM 11N, the blocks copied onto it as they are",
     "seconds": 17.9
@@ -618,7 +639,8 @@
       "over_trees": 0,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "USGS 3DEP (1 m DEM)"
+      "source": "USGS 3DEP (1 m DEM)",
+      "coastline": "no sea in the area"
     },
     "notes": "run.json lists both files read (source_files) and the survey years 2018-2020",
     "seconds": 11.7
@@ -644,7 +666,8 @@
       "over_trees": 0,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "USGS 3DEP (Alaska IfSAR 5 m)"
+      "source": "USGS 3DEP (Alaska IfSAR 5 m)",
+      "coastline": "no sea in the area"
     },
     "notes": "the reason printed: alaska has no terrain data near it; 5 m by default; first run on an empty cache: 11 s, 2 blocks of 5 km, 4 MB",
     "seconds": 9.8
@@ -670,7 +693,8 @@
       "over_trees": 1994,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "BEV (ALS DTM / DSM)"
+      "source": "BEV (ALS DTM / DSM)",
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks austria (the centre is in AT); first run on an empty cache: 9 blocks of 1 km per layer, about 2 MB each; most lines cross the forest below the wall (over_trees; all of them before obstacles.py's envelope, 2026-11-02)",
     "seconds": 13.4
@@ -696,7 +720,8 @@
       "over_trees": 3462,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "Environment Agency LIDAR Composite (DTM / DSM)"
+      "source": "Environment Agency LIDAR Composite (DTM / DSM)",
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks england (the centre is in GB-ENG); first run on an empty cache: 2 tiles of 2 km per layer, 16.8 MB each (uncompressed GeoTIFF from the WCS)",
     "seconds": 13.2
@@ -722,7 +747,8 @@
       "over_trees": 628,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "Welsh Government LiDAR (DTM / DSM)"
+      "source": "Welsh Government LiDAR (DTM / DSM)",
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks wales (the centre is in GB-WLS); quarry walls of 50-100 m spans; replaced Llanberis Pass (32 short lines) on 2026-11-01",
     "seconds": 3.0
@@ -748,7 +774,8 @@
       "over_trees": 777,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "LGLN (DGM1 / DOM1)"
+      "source": "LGLN (DGM1 / DOM1)",
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks lower_saxony (the centre is in DE-NI); first run on an empty cache: 9 tiles of 1 km per layer, about 5 MB each; the limestone wall above the forest: a quarter of the lines cross trees (over_trees; nearly all before obstacles.py's envelope, 2026-11-02, the wall's own rim)",
     "seconds": 13.8
@@ -776,7 +803,8 @@
       "empty_tiles": 0,
       "source": "LVermGeo (DGM1 / DOM1)",
       "filled_km2": 0.02,
-      "filled_from": "FABDEM + Copernicus DEM"
+      "filled_from": "FABDEM + Copernicus DEM",
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks saxony_anhalt (the centre is in DE-ST); first run on an empty cache: 3 tiles of 2 km per layer, 16 MB each from the WCS (18 s); the 0.02 km² filled are the grid's corners outside the WCS tiles of the circle; most lines cross the forest of the gorge (over_trees; nearly all before obstacles.py's envelope, 2026-11-02)",
     "seconds": 18.4
@@ -803,7 +831,8 @@
       "coverage": 89.65,
       "empty_tiles": 0,
       "filled_km2": 0.47,
-      "filled_from": "Trento (LiDAR 2014, 0.5 m)"
+      "filled_from": "Trento (LiDAR 2014, 0.5 m)",
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks south_tyrol (the centre is in IT-BZ); first run on an empty cache: 2 tiles of 5 km per layer, DEFLATE-compressed by the server (1.4-8 MB each); the 3 pixels next to the province's edge (blended with zero) are dropped and filled from FABDEM, since 2026-11-02 (wave 3 of batch 2) from Trento's LiDAR 2014 as its neighbour (0.47 km²; 19196 anchors instead of 18618, the same lines) (before: 18678 anchors, coverage 90.67%, the same lines); on steep rock the DSM stands metres above the DTM (2.5 m pixels: the DSM their highest points): nearly every line was over_trees until obstacles.py's envelope (2026-11-02), 884 of 11347 since; at --resolution 1 (bilinear from 2.5 m) the same search finds 295 lines in 6 spots",
     "seconds": 10.4
@@ -829,7 +858,8 @@
       "over_trees": 4346,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "HVBG (DGM1 / DOM1)"
+      "source": "HVBG (DGM1 / DOM1)",
+      "coastline": "no sea in the area"
     },
     "seconds": 4.6,
     "notes": "--source auto picks hesse (the centre is in DE-HE); first run on an empty cache: 4 tiles of 2 km per layer, 16 MB each, about 1 s per tile; Hesse has few natural cliffs (the Rheingau above Assmannshausen, the Edersee, the Werra valley near Bad Sooden-Allendorf and the Vogelsberg gave 0 lines at radius 400 m): the Odenwald's quarries are its steepest walls (also measured: the basalt quarry of Rossdorf 27225 lines in 315 spots, the quarry of Gross-Bieberau 28688 in 748, Moerlenbach 701 in 30, Neckarsteinach 129 in 6)"
@@ -856,7 +886,8 @@
       "coverage": 46.61,
       "empty_tiles": 0,
       "source": "LAiV M-V (DGM1 / DOM1)",
-      "sea_km2": 1.07
+      "sea_km2": 1.07,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 3.5,
     "notes": "--source auto picks mecklenburg_vorpommern (the centre, at the edge of the cliff, is in DE-MV); first run on an empty cache: 4 tiles of 2 km per layer, 16 MB each; the sea (0 in the DGM) is no data and filled as sea (coverage: the land's share of the circle); the DOM holds values near 0 over the sea, not 0; points 1-2 km north and south along the cliffs found 0 lines"
@@ -881,7 +912,8 @@
       "clearance_max": 13.87,
       "over_trees": 4620,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks luxembourg (the centre is in LU); first run on an empty cache: 4 blocks of 1 km per layer, about 11 MB of float64 read and 6-7 MB cached (float32) each; every line crosses the forest of the gorges (over_trees); also measured (radius 400 m): east of Berdorf (49.8180, 6.3720) 10800 lines in 222 spots, Mullerthal south-west of Berdorf (49.8172, 6.3328) 494 lines in 11 spots, the Sûre at Bourscheid and the Our at Vianden none",
     "seconds": 4.5
@@ -915,7 +947,8 @@
       "coverage": 97.1,
       "empty_tiles": 0,
       "filled_km2": 0.34,
-      "filled_from": "ÚGKK SR (DMR 5.0 / DMP 1.0)"
+      "filled_from": "ÚGKK SR (DMR 5.0 / DMP 1.0)",
+      "coastline": "no sea in the area"
     },
     "notes": "skipped without FINDALINE_MIRROR (without it the Slovak side comes from FABDEM); --source auto picks geoportal (the centre is in PL); the border ridge: 0.34 km² filled from 2 Slovak DMR/DMP tiles of 2 km, nothing left for FABDEM; geoportal has no NMPT sheet here; since 2026-11-05 the neighbour's 1 m data are reprojected onto the grid by nearest, not bilinearly (`filling.NEIGHBOUR_SAME_RESOLUTION`): 162 more anchors, 3 more spots",
     "seconds": 5.1
@@ -944,7 +977,8 @@
       "coverage": 71.61,
       "empty_tiles": 2,
       "filled_km2": 1.19,
-      "filled_from": "swisstopo (swissALTI3D / swissSURFACE3D)"
+      "filled_from": "swisstopo (swissALTI3D / swissSURFACE3D)",
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks austria (the centre is in AT); the Swiss bank of the Inn: 1.19 km² from 4 swissALTI3D / swissSURFACE3D tiles, 0.05 km² left for FABDEM; the 2 BEV blocks without data lie in Switzerland (empty_tiles); before the neighbours FABDEM filled the Swiss side",
     "seconds": 6.2
@@ -973,7 +1007,8 @@
       "coverage": 100.0,
       "empty_tiles": 0,
       "filled_km2": 0.14,
-      "filled_from": "BEV (ALS DTM / DSM)"
+      "filled_from": "BEV (ALS DTM / DSM)",
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks south_tyrol (the centre is in IT-BZ); the Tyrolean side: 0.14 km² from 2 BEV blocks of 1 km, 0.03 km² left for FABDEM; few lines (a pass, not a crag): the test is the fill",
     "seconds": 2.8
@@ -1001,7 +1036,8 @@
       "coverage": 100.0,
       "empty_tiles": 0,
       "filled_km2": 0.05,
-      "filled_from": "LVermGeo (DGM1 / DOM1)"
+      "filled_from": "LVermGeo (DGM1 / DOM1)",
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks lower_saxony (the centre is in DE-NI); the Ecker is the border: 0.05 km² from 1 LVermGeo WCS tile of 2 km (LGLN's tiles reach across the river), 0.04 km² left for FABDEM; the Harz has no crags at the border: few lines",
     "seconds": 3.5
@@ -1030,7 +1066,8 @@
       "empty_tiles": 0,
       "filled_km2": 0.01,
       "filled_from": "FABDEM + Copernicus DEM",
-      "sea_km2": 0.9
+      "sea_km2": 0.9,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "--source auto picks denmark (the centre is in DK); the chalk cliff on the east coast of Møn, 400 m around the source's sample; at 12.5420 (560 m west of the cliff) 0 lines",
     "seconds": 5.2
@@ -1055,7 +1092,8 @@
       "clearance_max": 1.49,
       "over_trees": 0,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks finland (the centre is in FI); first run on an empty cache: 4 blocks of 2 km, about 2 MB each; no surface model, so over_trees is never counted; also measured: Korouoma at radius 1500 m 54 lines in 8 spots, Olhavanvuori (Kouvola, 61.1888, 26.8412, radius 600 m), Isokuru (Pyhatunturi, 67.0176, 27.2389, 600 m) and the Kevo canyon (69.7354, 26.9819, 800 m) none; radius 1500 m (the user, 2026-11-01: 600 m gave only 40 lines in 4 spots)",
     "seconds": 2.6
@@ -1083,7 +1121,8 @@
       "empty_tiles": 0,
       "sea_km2": 0.96,
       "water_lines": 952,
-      "water_spots": 20
+      "water_spots": 20,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "--source auto picks norway (the centre is in NO); first run on an empty cache (with the default --max-length 1000): 4 tiles of 2 km per layer, 7-17 MB each, about 2.5 s a tile; the fjord comes back as 0.0 in the DTM (no data: filled as sea, sea_km2) and as about -0.1 m in the DOM; DOM - DTM is up to about 16 m (p99, forest) with outliers of 100+ m at vertical walls: 105150 lines over trees until obstacles.py's envelope (2026-11-02), 23910 since; with the defaults (--max-length 1000) 200601 lines in 693 spots, too many for a quick test: --min-length 50 --max-length 300 (the coordinates are the pulpit rock itself, checked on the map)",
     "seconds": 13.6
@@ -1110,7 +1149,8 @@
       "coverage": 95.06,
       "empty_tiles": 0,
       "filled_km2": 0.01,
-      "filled_from": "NRCan HRDEM mosaic (DTM / DSM 2 m)"
+      "filled_from": "NRCan HRDEM mosaic (DTM / DSM 2 m)",
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "pinned to --source canada (since 2026-11-03 --source auto picks british_columbia here, the centre being in CA-BC: R41 stays a test of the HRDEM mosaic); first run on an empty cache: blocks of 1 km of the 500 km COG 2_4, about 2 MB each; the three peaks of the Chief with the North and South Gully between them (179 spots of lines of 50-400 m); the lines over the gullies' forest are over_trees (all of them until obstacles.py's envelope, 2026-11-02: the granite rims); gaps (0.3 km2, the creeks and the shore) filled from the 2 m mosaic and MRDEM-30; lengths on EPSG:3979 are 0.26 % short here; also measured: radius 800 m with the default lengths, 36533 lines in 283 spots (30-919 m), 84 s on an empty cache",
     "seconds": 10.7
@@ -1135,7 +1175,8 @@
       "clearance_max": 7.31,
       "over_trees": 189,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks new_zealand (the centre is in NZ); first run on an empty cache: 4-6 blocks of 1 km per layer, about 2 MB each; limestone boulders and outcrops of the conservation area; the DSM stands 2-35 m above the DEM on 1-3 % of the blocks' pixels (trees, boulders) and the lines run low over the basin: almost every line was marked over trees/buildings until obstacles.py's envelope (2026-11-02), 189 since (the boulders' rims in the DSM up to 3 pixels beyond the DEM's); also measured: radius 800 m, 30-300 m: 3120 lines in 124 spots",
     "seconds": 11.4
@@ -1160,7 +1201,8 @@
       "clearance_max": 39.14,
       "over_trees": 21551,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks france (the centre is in FR); first run on an empty cache: 6 tiles of 1 km per layer at 1 m, 2.7-2.9 MB each (DEFLATE), about 1 s a tile; the limestone walls of the gorge's right bank (the steepest pixels of the Escalès area, 300 m below the rim); most lines are marked over trees: the MNS holds the box trees and pines on the ledges and the rim; the first try at the belvedere's coordinates (43.7655, 6.3580) is on the plateau (41 anchors, no line)",
     "seconds": 12.5
@@ -1187,7 +1229,8 @@
       "coverage": 100.0,
       "empty_tiles": 0,
       "water_lines": 218,
-      "water_spots": 19
+      "water_spots": 19,
+      "coastline": "no sea in the area"
     },
     "seconds": 29.6
   },
@@ -1212,7 +1255,8 @@
       "clearance_max": 19.77,
       "over_trees": 26632,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 5.7
   },
@@ -1237,7 +1281,8 @@
       "clearance_max": 13.43,
       "over_trees": 7168,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 4.7
   },
@@ -1262,7 +1307,8 @@
       "clearance_max": 12.55,
       "over_trees": 29987,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 37.7
   },
@@ -1287,7 +1333,8 @@
       "clearance_max": 8.44,
       "over_trees": 1521,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 22.3
   },
@@ -1314,7 +1361,8 @@
       "empty_tiles": 0,
       "sea_km2": 2.35,
       "water_lines": 979,
-      "water_spots": 28
+      "water_spots": 28,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 35.0,
     "notes": "--source auto picks scotland (the centre is in GB-SCT); first run on an empty cache: 9 blocks of 1 km per layer from Orkney 2023's uncompressed files (the national programme does not reach Hoy), 95 MB read with the water mask in 8 s; 72.6 % of the circle is land with data, the rest sea (OSM coastline); the spots are on the Old Man of Hoy (58.884-58.886 N, 3.426-3.431 W) and the cliffs north of it (58.891-58.893 N); --max-length 250 (400 gives 64 780 lines); Cir Mhor on Arran (the national programme) gave 10 lines only"
@@ -1339,7 +1387,8 @@
       "clearance_max": 13.88,
       "over_trees": 1912,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 11.4,
     "notes": "--source auto picks north_rhine_westphalia (the centre is in DE-NW); first run on an empty cache: 4 WCS tiles of 2 km per layer, 92 MB with the water mask in 4 s; the spots are on the Bruchhauser Steine (Feldstein and Bornstein, 51.323-51.324 N, 8.545-8.546 E) in the forest (over_trees)"
@@ -1364,7 +1413,8 @@
       "clearance_max": 18.07,
       "over_trees": 2964,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 18.8,
     "notes": "--source auto picks trento (the centre is in IT-TN); first run on an empty cache: 25 ASCII grids of 500 m per layer (about 7 MB each), 330 MB in 10 s; the spots are on the Colodri wall and the rocks above Arco (45.926-45.928 N, 10.886-10.889 E)"
@@ -1395,7 +1445,8 @@
       "filled_from": "FABDEM + Copernicus DEM",
       "sea_km2": 3.45,
       "water_lines": 22912,
-      "water_spots": 235
+      "water_spots": 235,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 6.6
   },
@@ -1423,7 +1474,8 @@
       "filled_km2": 0.02,
       "filled_from": "swisstopo (swissALTI3D / swissSURFACE3D)",
       "water_lines": 21,
-      "water_spots": 1
+      "water_spots": 1,
+      "coastline": "no sea in the area"
     },
     "notes": "--source auto picks france (the centre, on the French bank above the Lac des Brenets, is in FR); first run on an empty cache: 9 tiles of 1 km per layer, one without data (Swiss); LiDAR HD reaches a few hundred metres into Switzerland, so swisstopo (the neighbour) fills only the border gap at the edge of the circle (0.02 km2) and RGE ALTI the holes inside it (the lake's surface and the river, 0.12 km2); the cliffs of the Doubs gorge are wooded: every line over trees, 21 over the water",
     "seconds": 35.9
@@ -1449,7 +1501,8 @@
       "clearance_max": 18.14,
       "over_trees": 0,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 3.9
   },
@@ -1475,7 +1528,8 @@
       "coverage": 100.0,
       "empty_tiles": 0,
       "filled_km2": 0.08,
-      "filled_from": "FABDEM + Copernicus DEM"
+      "filled_from": "FABDEM + Copernicus DEM",
+      "coastline": "no sea in the area"
     },
     "seconds": 10.1,
     "notes": "--source auto picks brandenburg (the centre is in DE-BB); 3 WCS tiles of 2 km per layer (about 8 MB each with DEFLATE); the circle is on the quarry's north side, where its steepest walls are (at 52.4745, 13.7965, the research's point, the circle held 5073 anchors without an open direction and no line); Brandenburg has no highline terrain: the quarry's walls are terraced, so only 3 lines of 22-27 m in one spot (52.4811, 13.7943-13.7946), with --min-length 20; all 3 were over trees in the DOM before main's obstacle rule (212c7a0), none after it: the DOM stood on the wall's own rock; the DGM's pixels of exactly 0.00 m where the pit's walls cross sea level (94 px) are taken as no data (zero_is_nodata) and filled from FABDEM"
@@ -1502,7 +1556,8 @@
       "coverage": 100.0,
       "empty_tiles": 0,
       "water_lines": 3427,
-      "water_spots": 24
+      "water_spots": 24,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 33.5,
     "notes": "--source auto picks schleswig_holstein (the centre is in DE-SH); first run on an empty cache: the Land's GeoJSON index (9 MB) and 12 XYZ files of 1 km (27 MB each, all of the survey of 2025-01-13); the coastline from the OSM world water polygons (cache/osm/water-polygons); the files give the North Sea a constant 1.30 m (the provider's fill), so nothing is filled (sea 0.00 km2) and that constant counts as water (Source.sea_fill: water_lines 3427, 2912 by the 1 m tolerance alone); the spots are on the cliffs of the Oberland's west and north-west edge and around the Lange Anna (54.1886, 7.8730), the best (clearance 12.4 m, 133 m) from 54.1853, 7.8762 to 54.1844, 7.8776"
@@ -1527,7 +1582,8 @@
       "clearance_max": 8.99,
       "over_trees": 0,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 22.7,
     "notes": "--source auto picks queensland (the centre is in AU-QLD, Nominatim's ISO3166-2-lvl4); first run on an empty cache: 9 tiles of 1 km asked by exportImage in MGA 56 (about 3.8 MB each), 34 MB with the water mask in 16 s; all lidar, so DEM-H fills nothing; inland, no sea; no surface model, so no line is over trees (over_trees 0 says nothing of the forest); the spots are on Frog Buttress's curved cliff on Mt French (-27.9823 to -27.9834, 152.6205-152.6220), across its bay; Mt Tibrogargan (-26.927, 152.947) was tried first: 9 lines at r 800 m, 13 at r 1500 m (a dome, few gaps to span)"
@@ -1553,7 +1609,8 @@
       "over_trees": 0,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "ArcticDEM v4.1 mosaic 2 m (Greenland)"
+      "source": "ArcticDEM v4.1 mosaic 2 m (Greenland)",
+      "coastline": "no sea in the area"
     },
     "seconds": 33.6,
     "notes": "--source auto picks greenland (the centre is in GL); 4 blocks of 2 km of subtile 08_41_1_1 read in windows from PGC's bucket in us-west-2 (about 2.5 MB each, under a second a block from Poland) and the EGM2008 grid (cache/geoid/egm2008, 81 MB, once); N is about 42.8 m here; no sea in the circle; 100 % valid on walls of 54 % > 60°; the spots cross the gullies of the Ulamertorsuaq side's wall east of the centre (60.375-60.378 N, 44.546-44.547 W), the best 346 m with 58 m of clearance; 35 505 lines at r 600 m"
@@ -1579,7 +1636,8 @@
       "over_trees": 0,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "ArcticDEM v4.1 mosaic 2 m (Svalbard, Jan Mayen)"
+      "source": "ArcticDEM v4.1 mosaic 2 m (Svalbard, Jan Mayen)",
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 14.4,
     "notes": "--source auto picks svalbard (the centre is in NO-21, Nominatim's ISO3166-2-lvl4 at zoom 8); 4 blocks of subtile 35_52_1_1; the coastline from the OSM world water polygons; Svalbard's sedimentary slopes give few lines: 35 lines in 2 spots on the cliffs north of Templet (78.4567 N, 17.2863-17.3009 E), the best 62 m with 1.9 m of clearance; the research's point near Longyearbyen (78.1913, 15.1801, the probe's sample) gave 11 lines in 1 spot at r 500 m, a point of the research's wall finder (78.4316, 16.5698) lay on the sea"
@@ -1605,7 +1663,8 @@
       "over_trees": 0,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "ArcticDEM v4.1 mosaic 2 m (Nunavut)"
+      "source": "ArcticDEM v4.1 mosaic 2 m (Nunavut)",
+      "coastline": "no sea in the area"
     },
     "seconds": 5.4,
     "notes": "--source auto picks nunavut (the centre is in CA-NU); 4 blocks of subtile 22_31_1_2; no sea in the circle; the granite walls of Sam Ford fjord, the spots across their gullies (70.716-70.718 N, 71.423-71.430 W), the best 71 m with 64 m of clearance; r 500 m gave 72 748 lines: narrowed to 350 m"
@@ -1631,7 +1690,8 @@
       "clearance_max": 16.47,
       "over_trees": 0,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 9.7
   },
@@ -1655,7 +1715,8 @@
       "clearance_max": 2.19,
       "over_trees": 0,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 2.5,
     "notes": "--source auto picks iceland (the centre is in IS); 4 blocks of 2 km of ArcticDEM, nothing filled (IslandsDEM fills only ArcticDEM's voids); no sea; R61's place at 2 m: 965 lines in 53 spots, clearance at most 2.2 m, against 7 493 lines and 16.5 m at 10 m. A cross-section of the canyon (65.8232 N, 16.3836 W to 65.8216 N, 16.3888 W) agrees with IslandsDEM to 1 m on its floor and 9 m on its walls: the walls are about 60 degrees, so at 2 m the terrain next to an anchor stands close under the webbing, which 10 m smooths into a sharp edge (the 10 m clearances are too high)"
@@ -1680,7 +1741,8 @@
       "clearance_max": 5.85,
       "over_trees": 830,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 16.2,
     "notes": "--source auto picks saarland (the centre is in DE-SL); 4 members of 1 km of the DGM1 and of the DOM1 (all in the Saarlouis district's archives) read by one Range each after the six archives' central directories of each model; nothing below 100 m (the 0 m rule takes nothing out here), nothing filled, no water; the spots are on the quarry's benches (the best, 70 m with a clearance of 5.8 m, from 49.4631, 6.8644 to 49.4627, 6.8651); 830 lines over trees (the DOM1 is lidar). The first choice, the Felsenwege at Saarbrücken (49.2055, 7.0168, radius 400 m, 20-300 m), gave no line: 15 617 anchors, 470 with an open direction, 6 pairs checked, none valid (its walls of 18-25 m face the Saar, not each other)"
@@ -1705,7 +1767,8 @@
       "clearance_max": 39.06,
       "over_trees": 36947,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 4.6,
     "notes": "--source auto picks british_columbia (the centre is in CA-BC); first run on an empty cache: 4 blocks of 1 km per model from the 2024 programme's 1:2 500 strip tiles (082e023_3_2_2, _3_2_4, _4_1_1, ...; about 4 MB read a block, the rows whole), 6 + 6 blocks and 23 MB in 19 s at radius 600 m; nothing filled (LidarBC covers the circle; an older NDMP 2017 tile fills only holes of 2024). Every spot's anchors lie within 2 px of a pixel steeper than 60 degrees: the bluff's face and the gullies below it, the best 155 m with 39 m of clearance. Narrowed from radius 600 m and 50-400 m (210 425 lines in 1 150 spots, 93 s on an empty cache) and radius 300 m with 50-400 m (127 750 lines): the face is steep over its whole height; over_trees (obstacles.RULE A2 on BC's DSM, which equals its DTM on bare ground): tools/obstacle_study.py (CHMv2 and WorldCover, 2026-11-03) finds 598 of the 36 942 over rock only (11 objects) and 26 383 over a tree or building, while the rule leaves 36 992 lines over a tree unmarked (the pines next to the walls, within the envelope's 2 px)"
@@ -1731,7 +1794,8 @@
       "clearance_max": 19.93,
       "over_trees": 2246,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "added 2026-11-14 with the square rule (--same-line-square, samelines.py): R3's search with the no-fall zone and A-frames finds 60 002 lines (run.json's summary.found), of which one per pair of 5 m anchor squares is kept: 3 491 lines in 121 spots, each with the lines it stands for (stands_for, the last column of lines.csv, in the checksum); every anchor has an open direction with the A-frames; a circle of this size keeps every kept line's profile",
     "seconds": 11.3
@@ -1758,7 +1822,8 @@
       "coverage": 100.0,
       "empty_tiles": 0,
       "filled_km2": 0.1,
-      "filled_from": "FABDEM + Copernicus DEM"
+      "filled_from": "FABDEM + Copernicus DEM",
+      "coastline": "no sea in the area"
     },
     "notes": "added 2026-11-15: 10 tiles of 1 km (about 2.4 MB each, 3 s); the centre moved from the research's point at the Soufriere (16.044, -61.664: 78 lines in one spot on the rim of the Gouffre Dupuy) onto the steepest 400 m cells of a 4 m slope map of the massif; the spots lie along both walls of the gorge, clearances up to 2.1 m over a model whose surface shows triangulation facets (no lidar here: smoother than LiDAR HD); the 0.10 km² filled from FABDEM lie in the grid's corners beyond the tiles of the circle",
     "seconds": 3.0
@@ -1788,7 +1853,8 @@
       "filled_from": "FABDEM + Copernicus DEM",
       "sea_km2": 3.11,
       "water_lines": 85,
-      "water_spots": 25
+      "water_spots": 25,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 3.6,
     "notes": "--source auto picks tinitaly (the centre is in IT; outside the regions of South Tyrol, Trento and Sardinia); first run on an empty cache: one WCS tile of 10 km (1000 px at 10 m, 3.3 MB deflated); no surface model (NMPT off); the sea off Monte Orlando is -9999 in TINITALY, 0.03 km² of the shore filled from FABDEM; the spots are on the sea cliffs of Montagna Spaccata and Monte Orlando (41.204-41.208 N, 13.570-13.582 E), 85 of the 98 lines over the water, the best 54 m with 28 m of clearance. A circle of 1500 m at Gaeta gave 99 lines in 31 spots, Corno Piccolo (Gran Sasso) 3685 lines in 708 spots on the smoothed 10 m flanks of the whole massif: Gaeta's cliffs kept"
@@ -1815,7 +1881,8 @@
       "coverage": 100.0,
       "empty_tiles": 0,
       "water_lines": 19,
-      "water_spots": 3
+      "water_spots": 3,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 10.2,
     "notes": "--source auto picks sardinia (the centre is in IT-88); 4 lidar tiles per model (ZIPs of 3-4.4 MB, about 1.45 x 1.15 km each) listed by the WFS's answer of one 0.25° tile; nothing filled (the lidar strip covers the circle; inland of it TINITALY fills, 1.87 km² of a circle of 2500 m around 40.275, 9.625); the spots cross the gullies and walls of the coast between Cala Gonone and the Bue Marino grotto (40.252-40.264 N, 9.608-9.624 E), where a circle of 2500 m around the bay found most of its 957 spots; Cala Gonone's own centre (40.285, 9.630, radius 1000 m) gave 417 lines in 7 spots, all in one gully: moved onto the steep pixels"
@@ -1842,7 +1909,8 @@
       "coverage": 92.17,
       "empty_tiles": 0,
       "filled_km2": 0.34,
-      "filled_from": "FABDEM + Copernicus DEM"
+      "filled_from": "FABDEM + Copernicus DEM",
+      "coastline": "no sea in the area"
     },
     "seconds": 6.7
   },
@@ -1895,7 +1963,8 @@
       "empty_tiles": 0,
       "filled_km2": 0.01,
       "filled_from": "Copernicus DEM GLO-30",
-      "sea_km2": 0.35
+      "sea_km2": 0.35,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 13.0
   },
@@ -1924,7 +1993,8 @@
       "filled_from": "FABDEM + Copernicus DEM",
       "sea_km2": 1.53,
       "water_lines": 41,
-      "water_spots": 8
+      "water_spots": 8,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 2.5,
     "notes": "added 2026-11-15: --source auto picks australia (AU, outside AU-QLD and AU-TAS); one tile of 1000 x 1000 px of the WCS (about 2.4 MB, 13 s on an empty cache); the sea is 0 in the data (no data), filled as sea from the OSM coastline; 0.08 km² of land gaps from FABDEM; the spots on the eastern sea cliffs (151.295-151.302 E); a first run whose Overpass request failed (502) took the Copernicus water mask's shore instead and gave other numbers (sea 1.33 km², 48 lines over water): the coastline must come from OSM"
@@ -1949,7 +2019,8 @@
       "clearance_max": 7.44,
       "over_trees": 0,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 1.9,
     "notes": "added 2026-11-15: --source auto picks uruguay (UY); four sheets (G26A6, G26B4, G26C3, G26D1, the centre at their common corner, about 20 MB each, 26 s on an empty cache); the spots on Arequita's escarpment (34.2914-34.2929 S, 55.2638-55.2671 W); the brief's place, Quebrada de los Cuervos (-32.9210, -54.4670, radius 800 m, 20-200 m), finds 10 390 anchors, 78 with an open direction and no line: its walls of 46 m within 20 m are too smoothed at 2.5 m for the default rule"
@@ -1977,7 +2048,8 @@
       "empty_tiles": 57,
       "filled_km2": 1.1,
       "filled_from": "OSNI 10 m DTM (Northern Ireland)",
-      "sea_km2": 1.34
+      "sea_km2": 1.34,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 213.3,
     "notes": "added 2026-11-15: --source auto picks northern_ireland (GB-NIR; the coastal DTM's cells hold data at the centre); LERC1 tiles of level 17 (0.68 m on the ground), only those within a cell of the cells mask asked, the rest of the grid's box never asked; 57 tiles without data (the sea and inland beyond the survey's strip of about 200 m: coverage 32.1 %), 1.10 km² of land filled from OSNI's 10 m DTM (the plateau inland and the boulder field's gaps; FABDEM before 2026-11-15; no line over them); the spots along the crag's rim, 55.2207-55.2264 N, 6.1617-6.1498 W, anchors at 120-158 m; about 200 s on an empty cache at the rate of 54 tiles a minute; re-baselined 2026-11-15: an EPSG:3857 tile now resampled by its ground size (0.68 m at 55° N: averaged onto the 1 m grid, was bilinear); re-baselined again 2026-11-15: the gaps from OSNI's 10 m DTM (northern_ireland_10m) instead of FABDEM (43 425 anchors, the same 2 522 lines and 31 spots, other heights in lines.csv)"
@@ -2003,7 +2075,8 @@
       "over_trees": 0,
       "coverage": 60.93,
       "empty_tiles": 0,
-      "sea_km2": 3.22
+      "sea_km2": 3.22,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 32.0,
     "notes": "added 2026-11-15: --source auto picks rio_de_janeiro (BR, inside the city's box, the cells mask holds data); LERC1 tiles of level 15 (4.40 m on the ground), 0 without data; the sea is outside the survey (no data) and filled as sea (3.22 km²); the spots on Pão de Açúcar's western face (190-330 m) and across the bowl of Morro da Urca's northern flank (95-140 m)"
@@ -2028,7 +2101,8 @@
       "clearance_max": 41.06,
       "over_trees": 13374,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 17.5,
     "notes": "added 2026-11-15: --source auto picks mexico (MX); the circle lies within one sheet, G14C15B2 (terrain edition 2011, surface 2012, about 4 MB each, about 4 s a model on an empty cache), on its own pixels in EPSG:4487 (no resampling); the spots along the canyon's walls (25.946-25.951 N, 100.471-100.475 W); 13 374 lines are over obstacles: the surface model stands 10-40 m above the terrain along the walls' crests (1259 pixels over 30 m within 1 km, the most 138 m), where the terrain's mesh cuts the walls, and blocks lines across the canyon's entrance (their clearance over the surface model a median -32 m)"
@@ -2053,7 +2127,8 @@
       "clearance_max": 18.58,
       "over_trees": 9493,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 6.3,
     "notes": "added 2026-11-15: --source auto picks tuscany (the centre is in IT-52); 9 sheets per model, all of Regione Toscana's survey of 2012 (lot 005: the run credits Regione Toscana, CC BY 4.0, no MATTM sheet), about 5.5 MB each, 104 MB with the water mask on an empty cache; nothing filled; the spots lie in the quarry pits and on their walls (Fossa di Colonnata, Fantiscritti, La Piastra)"
@@ -2081,7 +2156,8 @@
       "empty_tiles": 0,
       "filled_km2": 0.0,
       "filled_from": "FABDEM + Copernicus DEM",
-      "sea_km2": 0.47
+      "sea_km2": 0.47,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 5.8,
     "notes": "added 2026-11-15: --source auto picks cyprus (CY); nine DTM and nine DSM blocks of 1.25 km from tiles 1375_3650 and around (DLS's server about 0.2-0.8 MB/s: 62 s and 25 MB on an empty cache); the spots in the gorge's narrows (34.9209-34.9216 N, 32.3276-32.3277 E), walls of about 9 m at 1 m; 12 307 m2 of shore faces from the DSM and 1 214 m of uncertain shore at the gorge's mouth (DLS clipped its models to the coast). The brief's first place, Cape Greco (34.963, 34.080, radius 800 m, 15-80 m), gives 11 638 anchors, 186 open, 216 candidate pairs and no line: its straight sea cliffs have no partner across"
@@ -2108,7 +2184,8 @@
       "coverage": 100.0,
       "empty_tiles": 3,
       "water_lines": 22,
-      "water_spots": 8
+      "water_spots": 8,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 29.2,
     "notes": "added 2026-11-15: --source auto picks estonia (EE); four DTM blocks of sheet 63801 read by range requests and nine DSM sheets of 1 km (three in the sea answered \"Map sheet not found.\": the empty tiles); the spots in the cliff's coves at the lighthouse (59.3884-59.3897 N, 24.0366-24.0393 E), walls of 70-86 degrees and about 20 m, 22 of the 23 lines over the sea. The brief's place, Rummu quarry (59.2270, 24.1900, radius 400 m, 15-80 m), gives 11 475 anchors and none with an open direction: the DTM holds the quarry lake's surface at about 20 m and walls of about 5 m above it (its high walls are under water); Türisalu, Valaste, Ontika's cliff top, Jägala and Väo gave no line or lines over trees only"
@@ -2140,7 +2217,8 @@
       "empty_tiles": 2,
       "sea_km2": 1.84,
       "water_lines": 2,
-      "water_spots": 1
+      "water_spots": 1,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 52.0,
     "notes": "skipped without FINDALINE_MIRROR/madeira/dtm/2m; the sea from OpenStreetMap's coastline (Overpass on an empty cache): with the Copernicus water mask instead (--coastline copernicus, or Overpass unavailable) the sea zone differs (1.81 km², 0.03 km² of the cliff foot filled from FABDEM, 94 845 anchors, sha256 67f2d8ae...); first run on an empty cache 52 s"
@@ -2169,7 +2247,8 @@
       "clearance_max": 3.35,
       "over_trees": 0,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 6.6
   },
@@ -2193,7 +2272,8 @@
       "clearance_max": 1.59,
       "over_trees": 0,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 11.0,
     "notes": "added 2026-11-15: --source auto picks northern_ireland_10m (GB-NIR; the coastal DTM's cells hold nothing near: northern_ireland's instead_without_data); two sheets of OSNI's 10 m DTM (members of about 4.5 MB of two archives, one Range each, 11 s on an empty cache); 8 lines, 6 spots on the escarpment's rim (55.1134-55.1164 N, 6.9245-6.9266 W, anchors at 285-323 m); 10 m data interpolated from the Enhanced DTM: the walls smoothed, only long lines"
@@ -2230,7 +2310,8 @@
         10242,
         788,
         7644
-      ]
+      ],
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "re-baselined 2026-11-15: the measure's own answer at the anchors on shore faces (the mapping to cannot tell dropped, the user's choice): line ends hard / cannot tell / easy 7 565 / 3 616 / 7 493 -> 10 242 / 788 / 7 644; lines.csv less access1, access2 still R16's",
     "seconds": 10.6
@@ -2255,7 +2336,8 @@
       "clearance_max": 0.82,
       "over_trees": 0,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "seconds": 30.2,
     "notes": "added 2026-11-15: --source auto picks tokyo (JP-13); 25 sheets of 400 x 300 m (about 1.45 MB each) on an empty cache; the centre on the steep pixels of the 1 m mosaic (2 868 over 70 degrees within 400 m, their centroid 35 m E, 23 m N of it); terrain only (no surface model), so trees on the walls are not seen"
@@ -2283,7 +2365,8 @@
       "empty_tiles": 0,
       "sea_km2": 1.24,
       "water_lines": 917,
-      "water_spots": 20
+      "water_spots": 20,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 4.4,
     "notes": "added 2026-11-15: --source auto picks shizuoka (JP-22); sheets of FY2019 only (x y z text, about 1.9 MB a ZIP); the centre moved from the findings' 34.8937, 139.1368 to the centroid of the steep pixels of the 1 m mosaic (2 053 over 70 degrees within 400 m of the old centre); the sea the LP grids leave out is filled at 0 m (sea_km2), lines over the water counted; terrain only. Re-baselined 2026-11-16 (158 lines, 14 spots -> 1002, 22): the first baseline was taken while Overpass did not answer, so its sea came from the Copernicus mask (the fallback): with --coastline copernicus the code of now gives that lines.csv exactly (sha256 29b3aa05...), and the code of before gives these 1002 lines with the OSM coastline; most of them span the coves over the sea filled at 0 m"
@@ -2317,7 +2400,8 @@
       "filled_from": "FABDEM + Copernicus DEM",
       "sea_km2": 2.61,
       "water_lines": 167,
-      "water_spots": 34
+      "water_spots": 34,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 26.7,
     "notes": "added 2026-11-15; re-baselined 2026-11-16 on the OSM coastline: its first baseline (7052 lines, sea 2.56 km2) had taken the Copernicus fallback while Overpass did not answer (the same tiles with --coastline copernicus still give those 7052 lines); skipped without FINDALINE_MIRROR/porto-santo/dtm/5m"
@@ -2351,7 +2435,8 @@
       "filled_from": "FABDEM + Copernicus DEM",
       "sea_km2": 2.69,
       "water_lines": 19,
-      "water_spots": 4
+      "water_spots": 4,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "seconds": 170.8,
     "notes": "skipped without FINDALINE_MIRROR/desertas/dtm/5m"
@@ -2385,7 +2470,8 @@
       "filled_from": "FABDEM + Copernicus DEM",
       "sea_km2": 2.98,
       "water_lines": 414,
-      "water_spots": 43
+      "water_spots": 43,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "skipped without FINDALINE_MIRROR/selvagens/dtm/5m",
     "seconds": 37.3
@@ -2412,7 +2498,8 @@
       "coverage": 73.18,
       "empty_tiles": 0,
       "source": "IGN (RGE ALTI 1 m, Martinique)",
-      "sea_km2": 0.7
+      "sea_km2": 0.7,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "added 2026-11-15 for the sea floor of IGN's overseas RGE ALTI (OVERSEAS_FLOOR -1 m): the centre on the steepest 200 m cells of the north coast's 1 m slope map; the floor takes the sea floor (down to -28 m in the box) out of 26.8 % of the search area (data 100 % before, 73.18 % after: the sea there is filled at 0 m); the 57 427 anchors and the 6 lines in 2 spots on the cliffs (anchors at 53-71 m) stay, only their anchors' drops are measured to the sea at 0 m instead of the floor below it (72.2 -> 71.8 m); at Saint-Pierre (14.744, -61.177, radius 400 m) the floor took all 9 445 lines in 73 spots, every one anchored at 0.0 m on the sea's fill beside the sea floor, so no entry can pin that place (0 lines); the summary re-baselined 2026-11-16 on the OSM world water polygons (cache/osm/water-polygons, which a search takes instead of Overpass once a data folder holds it): sea 0.70 km2 and nothing filled from the fallback, where Overpass's coastline of 2026-11-15 gave 0.69 km2 and 0.00 km2 filled from FABDEM; lines.csv is the same with both",
     "seconds": 3.2
@@ -2439,7 +2526,8 @@
       "coverage": 66.75,
       "empty_tiles": 0,
       "filled_km2": 0.0,
-      "filled_from": "NRCan HRDEM mosaic (DTM / DSM 1 m)"
+      "filled_from": "NRCan HRDEM mosaic (DTM / DSM 1 m)",
+      "coastline": "no sea in the area"
     },
     "notes": "added 2026-11-16: the brief's place, Rattlesnake Point (43.4690, -79.9198), gives no line (radius 400 m, 15-60 m: 0; radius 1 km, 15-400 m: 1 line of 36 m with 0.05 m of clearance over trees, 800 m away; --source canada there: 0), so R90 is wave 0's other escarpment place: the centre on the steepest 200 m cell of a 1 m slope map (2 311 px over 70 degrees); the Georgian Bay side of the circle has no lidar (filled from MRDEM-30 and as water). The same circle with --source canada: 419 lines in 31 spots, its longest 141.3 m for 138.9 m on the ellipsoid (EPSG:3979's scale, +1.73 %); ontario's longest is the same pair of anchors, 140.4 m for 140.4 m",
     "seconds": 6.5
@@ -2464,7 +2552,8 @@
       "clearance_max": 0.99,
       "over_trees": 3,
       "coverage": 100.0,
-      "empty_tiles": 0
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
     },
     "notes": "added 2026-11-16: --source auto picks hong_kong (CN-HK); the centre moved from the findings' 22.352, 114.187 to the centroid of the steep pixels of the 1 m mosaic (5 394 over 70 degrees within 600 m, 26 m south of the old centre); 12 sheets of each model (5.7 MB a ZIP here: 238 MB for the 42 terrain sheets of tools/check_source.py's 1.5 km circle); the surface model on: 3 of the 8 lines lie over trees or buildings; only 1 228 of the 158 727 anchors have an open direction on the rock's steep scrub-covered slopes; a trial with lines up to 300 m gave the same 8 lines (4 400 candidate pairs, 132 checked); on an empty cache the same lines.csv after 24 sheets and the water mask, 137 MB in 6 min 20 s (0.36 MB/s; 0.96 MB/s for tools/check_source.py an hour before); the seconds are those of the cached run. Re-baselined 2026-11-16 for Hong Kong's datum (hong_kong.HK_DATUM_OFFSET, the user's decision of 2026-11-16: every height lowered by 1.30 m where the tiles are read onto the grid): the same 8 lines in 3 spots, every count and total the same, lines.csv differing only in the anchors' heights, each 1.30 m lower (02a93e77... -> 9d002a1f...)",
     "seconds": 35.1
@@ -2492,7 +2581,8 @@
       "empty_tiles": 0,
       "sea_km2": 1.63,
       "water_lines": 10,
-      "water_spots": 3
+      "water_spots": 3,
+      "coastline": "OpenStreetMap water polygons (world file)"
     },
     "notes": "added 2026-11-16 with the floor of the Izu islands' sheets (japan.TK_ISLAND_FLOOR, the user's decision of 2026-11-16): the place of wave 1's seabed check (33.886, 139.585, radius 800 m, default settings), 48 sheets of 400 x 300 m (about 82 MB by the estimate) on an empty cache, the coastline from Overpass; the code of before (dbb883c) gave 310 lines in 24 spots there, 47 of them (4 spots) with both anchors on the sea filled at 0 m across the seabed (the island sheets hold seabed down to -12 m); with the floor 263 lines in 20 spots: those 47 gone, none with an anchor at 0 m, the other 263 the same lines with the same clearances (their drops 1.7-4.7 m smaller: the lowest terrain near them is the 0 m fill now, not the seabed). Wave 1 measured 341 lines (49 false) and 292 with a floor, on the code of 2026-11-15",
     "seconds": 5.9
@@ -2518,7 +2608,8 @@
       "over_trees": 3480,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "source": "IGN (LiDAR HD MNT / MNS, La Réunion)"
+      "source": "IGN (LiDAR HD MNT / MNS, La Réunion)",
+      "coastline": "no sea in the area"
     },
     "notes": "added 2026-11-15: the centre on the steepest 200 m cells of a 1 m slope map (pixels over 70 degrees) of the rampart west of wave 0's point (-21.1303, 55.4539); its first trial there (radius 500 m, lines 20-300 m) gave 105 559 lines in 598 spots, too many for a pinned entry; most lines cross forest on the rampart's ledges (the MNS marks them over trees)",
     "seconds": 3.4

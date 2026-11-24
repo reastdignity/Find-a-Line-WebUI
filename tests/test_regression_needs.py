@@ -7,11 +7,20 @@ import importlib.util
 import json
 import os
 
+import pytest
+
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _spec = importlib.util.spec_from_file_location("regression_tool", os.path.join(REPO, "tests", "regression.py"))
 regression = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(regression)
+
+
+@pytest.fixture(autouse=True)
+def _own_run_log(tmp_path, monkeypatch):
+    """No test appends to the real run log (tests/regression.py writes one line per run into the test lock's
+    folder)."""
+    monkeypatch.setenv("FINDALINE_TEST_LOCK_DIR", str(tmp_path / "locks"))
 
 
 def test_unmet_needs(tmp_path, monkeypatch):
