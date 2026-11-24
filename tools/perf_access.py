@@ -80,7 +80,7 @@ INTERVAL = 0.02  # seconds between samples
 MB = 2 ** 20
 STRIP_PX = 4_000_000  # access.STRIP_PX's value: the strips of `masks` when access.py is not imported (its children)
 HALO = 16  # access.HALO's value, the same use
-BLOCK_KM = (2, 4, 8)  # pieces: the blocks' sides of E besides the rule's
+BLOCK_KM = (0.5, 1, 2, 4, 8)  # pieces: the blocks' sides of E (and E2) besides the rule's
 CGROUP = "/sys/fs/cgroup"
 PROC = "/proc"
 # access.py's private functions of today's grid-wide pass that `stages` wraps for its split and `pieces` for the
@@ -1326,7 +1326,10 @@ def run_pieces(args) -> Dict:
     sides.update({f"{km} km": int(round(km * 1000 / res)) for km in BLOCK_KM})
     out["blocks_with_area"] = {name: blocks_holding(mask, px) for name, px in sides.items()}
     if args.anchors:
+        t_anchors = time.time()
         rows, cols = anchors_of(s)
+        out["anchors_s"] = round(time.time() - t_anchors, 1)  # step 2 over the tiles (their windows copied, as the
+        out["anchors_tiles"] = len(s.plan.tiles or [])         # estimate does), or of the one grid
         out["anchors_found_by_tiles"] = int(len(rows))  # each tile's, the overlaps' counted once a tile
         unique = np.unique(rows * w + cols)
         rows, cols = unique // w, unique % w

@@ -416,7 +416,8 @@ def test_pieces_and_compare_on_a_made_up_search(tmp_path, made_up_search):
     sh = out["shares"]
     assert 0.9 < sh["with_heights"] < 1 and 0.6 < sh["search_area"] < 0.85  # a circle of 900 m in its box
     assert sh["strips"] >= 1 and 0 < sh["strip_width_with_heights_mean"] <= 1
-    assert set(out["blocks_with_area"]) >= {"2 km", "4 km", "8 km"}
+    assert set(out["blocks_with_area"]) >= {"0.5 km", "1 km", "2 km", "4 km", "8 km"}
+    assert out["blocks_with_area"]["0.5 km"]["block_px"] == 100 and out["anchors_s"] >= 0
     assert all(b["holding"] >= 1 for b in out["blocks_with_area"].values())
     assert out["anchors"] > 10 and set(out["blocks_with_anchor"]) == set(out["blocks_with_area"])
     if out["hooks"]:  # the real pass: each mask as its regions are found, its pieces and regions exactly
