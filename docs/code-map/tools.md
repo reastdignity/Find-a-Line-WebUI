@@ -381,6 +381,13 @@ peaks and where they fell, and the unique sets' peak (`peak_tree_uss_mb`, the me
 `--cores`, `--memory`, `--worker` for a compute slot's shape (the search's own plan only); a refusal as its code, a
 missing record or run as a warning; `tests/test_perf_slot_memory.py`, which also pins `perf_country.py`'s copy of
 `LINE_BYTES`);
+`perf_access.py` (the access grid's memory and seconds, docs/performance.md "The access grid's memory": `plan` the
+rule's answer without data, `stages` step 1 then the grid at once and in blocks in a chosen order, sampled every 20 ms
+by a sidecar process (numba's kernels hold the GIL) with the grid-wide pass split by wrapping access.py's private
+functions (those found listed under "hooks"), the cgroup's memory in a container; `pieces` the masks' pieces strip by
+strip, the shares of heights, area and blocks; `masks` one mask memory-mapped, bit-packed and in a plain file, each in
+a child process; `compare` the pixels that differ; `tests/test_perf_access.py`, which relies only on
+`access_grid`, `block_grid` and `_answers`);
 `perf_profile.py --tracemalloc` the heap per stage; `perf_window_reads.py` (the bytes, requests, seconds and memory of
 a window layer's blocks over a circle on an empty scratch cache, each mode in a child process: `blocks`, `group=<m>`,
 `serial=0|1`, `order=squares|tasks`, `cache=<MB>`, `multirange=`, `gdalthreads=`; GDAL's network statistics through
