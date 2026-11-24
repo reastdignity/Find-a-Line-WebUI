@@ -493,7 +493,16 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   Edge", `.github/webgl-report.html`: on the dev PC the Microsoft Basic Render Driver through Direct3D 11, 10 frames
   in 130 ms): compare that line between a fast and a slow job before anything else. The step's failure does not
   fail the job, but its time counts against the job's limit: an Edge that has not ended after 15 s is stopped, so it
-  costs a few seconds, about 40 s at most.
+  costs a few seconds, about 40 s at most. **The lines of the first six jobs** (2026-11-23 and 24, CI runs
+  45277159653, 45330246504, 45335814910; one runner image, the Microsoft Basic Render Driver, 2 cores, 4 threads and
+  16 GB in all six): four jobs on AMD EPYC 7763 drew the 10 frames in 974 to 986 ms and passed (the ring in 18 and
+  22 min, view3d in 10 and 16 min); one on AMD EPYC 9V45 in 664 and 666 ms (view3d in 7.5 min); and the one red job,
+  the ring's of 45335814910 (`[phone-None]` 1 463 s, `[full-None]` over its 1 500 s, the job stopped at 60 min), on
+  Intel Xeon Platinum 8573C in 1 076 and 1 122 ms. So the first slow job with the line ran on another CPU, where
+  the ten frames were only a tenth slower while the ring's tests took many times longer: the line's frame time does
+  not show the slowness, the CPU's name may. One red job: an observation, not a cause. The next red and green
+  lines say whether every slow job is on that CPU (then: what the ring's page asks of Edge's software WebGL that
+  the ten frames, a loop per pixel without a texture, do not).
 - **Four tests failed once under round 5's loaded full runs on this PC and pass alone** (none in item 5's path; the
   first two passed 3 of 3 alone on the stack and on `main` a86b86e8): `test_web::test_basic_form_sea_cliffs_fills_the_limit`
   (twice; the limit's box and the map view's read before it differ by about 400 m north to south);
