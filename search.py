@@ -2592,6 +2592,7 @@ def _merged_data() -> List[Dict]:
     the run), a checksum one entry knows and another does not (None) is kept."""
     merged: Dict[tuple, Dict] = {}
     seen: Dict[tuple, Dict[str, set]] = {}  # the checksums met per path, per merged entry
+    united = set()  # the keys merged from entries with `identity`: their checksums set at the end
     for entry in src.used_data:
         key = (entry.get("layer"), entry.get("folder"), entry.get("file"))
         if key not in merged:
@@ -2604,10 +2605,9 @@ def _merged_data() -> List[Dict]:
             m["paths"] = sorted(set(m["paths"]) | set(entry["paths"]))
             m["files"] = len(m["paths"])
             _seen_checksums(seen.setdefault(key, {}), entry)
-            if "identity" in m or "identity" in entry:
-                sums = seen[key]
-                m["identity"] = {**m.get("identity", {}), "sha256": [
-                    next(iter(sums[p])) if len(sums.get(p, ())) == 1 else None for p in m["paths"]]}
+            if "identity" in m or "identity" in entry:  # its checksums once all are merged (a country's 1000s)
+                m.setdefault("identity", {})
+                united.add(key)
         for k, pick in (("oldest", min), ("newest", max)):
             values = [v for v in (m.get("fetched", {}).get(k), entry.get("fetched", {}).get(k)) if v]
             if values:
@@ -2615,6 +2615,10 @@ def _merged_data() -> List[Dict]:
         if entry.get("survey_years") and m.get("survey_years"):
             m["survey_years"] = [min(m["survey_years"][0], entry["survey_years"][0]),
                                  max(m["survey_years"][1], entry["survey_years"][1])]
+    for key in united:
+        sums, m = seen[key], merged[key]
+        m["identity"] = {**m["identity"], "sha256": [next(iter(sums[p])) if len(sums.get(p, ())) == 1 else None
+                                                     for p in m["paths"]]}
     return list(merged.values())
 
 

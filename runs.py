@@ -147,8 +147,8 @@ IDENTITY = "identity"  # run.json's record of the data a run read (its data entr
 def without_identity(value):
     """A copy of a run's record (any JSON value) without every key named IDENTITY at any depth: the one exit of the
     record of the data read (checksums, editions, files' times and sizes, library versions), which never leaves the
-    machine: public_meta (lines.geojson, the export), _listed (runs.js, the public site's too), a country tile's
-    record of its data. Everything else as it was, in its order."""
+    machine: public_meta (lines.geojson, the export), _listed (runs.js, the public site's too), the country
+    layer's credits (country._credits: a tile's record keeps it). Everything else as it was, in its order."""
     if isinstance(value, dict):
         return {k: without_identity(v) for k, v in value.items() if k != IDENTITY}
     if isinstance(value, list):

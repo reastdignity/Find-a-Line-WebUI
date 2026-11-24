@@ -143,7 +143,7 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
 - A run's record of the data it read is the key `identity` (a data entry's `sha256` parallel to its `paths`, a local
   file's `size`/`modified`, the coastline's `edition` or tiles; the `area` block's OSM tiles and Nominatim answers;
   the top level's library versions, `slope_file`, `mixed`): with every `identity` removed run.json is what it was
-  before; `runs.without_identity` is its one exit (`public_meta`, `_listed`, a country tile's data), so nothing that
+  before; `runs.without_identity` is its one exit (`public_meta`, `_listed`, the country layer's `_credits`), so nothing that
   leaves a run carries it (`tests/test_data_record.py`). `data_used.json` is `{"data", "mixed"}` (a list of before:
   not mixed); a resumed session that read other data marks the run `mixed` (`search._record_differs`). The checksums
   come from `cache.touch`'s SELECT of `fetched_at` (entries keep `fetched`, `cache status` reads both); the touch runs

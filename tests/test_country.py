@@ -3,6 +3,7 @@ of the Żabi Koń clip reprojected to EPSG:8353 (negative coordinates), offline.
 counts of one grid, whether counted at once, resumed or by two worker processes; a tile failing
 once is retried, twice it is failed; a partial cube needs --partial."""
 
+import glob
 import json
 import os
 import sqlite3
@@ -218,8 +219,10 @@ def test_cube_equals_one_grid(env, full):
     assert meta["neighbours_sha256"] == info["neighbours_sha256"]
     assert meta["lines"] == counts.lines and meta["spots"] == len(counts.spot_ids) and "dropped" in meta
     assert meta["seconds"]["count"] >= 0 and meta["threads"] >= 1 and meta["data"] and "peak_memory" in meta
-    # its data entries as a run's but without the record of the data read (`identity`: decided after measuring, C2)
-    assert "identity" not in json.dumps(meta["data"]) and all(list(e) == ["layer", "file"] for e in meta["data"])
+    # its data entries as a run's, with the record of the data read (C2, "Keep them": a local file's size and time)
+    import cache
+    assert meta["data"] and all(list(e) == ["layer", "file", "identity"] for e in meta["data"])
+    assert all(e["identity"] == cache.file_identity(e["file"]) for e in meta["data"])
     # its profile (`country profile`): seconds and CPU per stage, the counter, the memory, the file reads
     assert "finding anchors" in meta["stages"] and all(len(v) == 2 for v in meta["stages"].values())
     assert meta["memory"]["rss"] > 0 and meta["memory"]["private"] > 0 and meta["cpu_seconds"] > 0
@@ -242,6 +245,64 @@ def test_status_and_compare(env, full, capsys):
     assert _country("profile", ID, "--data-dir", data) == 0
     out = capsys.readouterr().out
     assert "Band S:" in out and "finding anchors" in out and "memory of a tile" in out
+
+
+def _keys_named(value, name: str) -> list:
+    """The paths of every key `name` in a JSON value."""
+    found, stack = [], [((), value)]
+    while stack:
+        path, item = stack.pop()
+        if isinstance(item, dict):
+            found += [path + (name,)] if name in item else []
+            stack += [(path + (k,), v) for k, v in item.items()]
+        elif isinstance(item, list):
+            stack += [(path + (k,), v) for k, v in enumerate(item)]
+    return found
+
+
+def test_no_record_leaves_the_tiles(env, full, capsys, monkeypatch):
+    """The tiles' records keep `identity` (C2), and nothing built from them carries it: _credits (the same credits
+    as from the entries without it; the merge keeps a path's one checksum met in two tiles), cube.json,
+    country.json, compare.json and every other JSON file of the country's folder but the tiles, the text of
+    `country status`, `compare` and `profile`, and what the web app serves of a country (Countries.listing)."""
+    import country
+    import countcube
+    import runs
+    import search
+    import sources as src
+    import web
+    data = full["data"]
+    folder = os.path.join(data, "countries", ID)
+    tiles = sorted(glob.glob(os.path.join(folder, "tiles", "*", "*.npz")))
+    metas = [countcube.load_tile(p)[1] for p in tiles]
+    assert all(_keys_named(m["data"], "identity") for m in metas)
+    plain = [{**m, "data": runs.without_identity(m["data"])} for m in metas]
+    assert country._credits(metas, "osm:Testland", 2026) == country._credits(plain, "osm:Testland", 2026)
+    assert not _keys_named(country._credits(metas, "osm:Testland", 2026), "identity")
+    a, b = "a" * 64, "b" * 64  # canned tiles of a cached layer: one path in two tiles, one checksum
+    entries = [{"layer": "L", "folder": "f", "files": 2, "paths": ["f/1", "f/2"], "identity": {"sha256": [a, b]},
+                "credit": {"data": "L"}},
+               {"layer": "L", "folder": "f", "files": 1, "paths": ["f/2"], "identity": {"sha256": [b]},
+                "credit": {"data": "L"}}]
+    monkeypatch.setattr(src, "used_data", list(entries))
+    monkeypatch.setattr(src.mosaic, "used_data", src.used_data)
+    assert search._merged_data()[0]["identity"] == {"sha256": [a, b]}
+    assert country._credits([{"data": entries[:1]}, {"data": entries[1:]}], "files", 2026) == [{"data": "L"}]
+    capsys.readouterr()
+    assert _country("status", ID, "--data-dir", data) == 0
+    assert _country("compare", ID, "--data-dir", data, "--control", "C", "--against", "S") == 0
+    assert _country("profile", ID, "--data-dir", data) == 0
+    assert "identity" not in capsys.readouterr().out
+    written = [p for p in glob.glob(os.path.join(folder, "**", "*.json"), recursive=True)]
+    assert {os.path.basename(p) for p in written} >= {"cube.json", "country.json", "compare.json"}
+    for path in written:
+        with open(path, encoding="utf-8") as f:
+            assert "identity" not in f.read(), path
+    for path in glob.glob(os.path.join(folder, "**", "*.geojson"), recursive=True):
+        with open(path, encoding="utf-8") as f:
+            assert "identity" not in f.read(), path
+    listing = web.Countries(data).listing()
+    assert listing and not _keys_named(listing, "identity")
 
 
 def test_resume(env, full):
