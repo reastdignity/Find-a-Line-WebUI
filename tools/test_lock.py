@@ -141,6 +141,7 @@ NICE = 10             # the niceness of shared and tamed commands on POSIX (Wind
 SLACK = 120.0         # seconds a command passing a waiting one may end after that one's reservation
 POLL = float(os.environ.get("FINDALINE_TEST_LOCK_POLL", "2"))  # seconds between looks at the queue
 REPORT = 300                                                    # seconds between "still waiting" lines
+TOKEN_ENV = "FINDALINE_TEST_LOCK_TOKEN"  # the command's queue entry, in its environment (tests/regression.py)
 TIMEOUT = {"shared": 3600, "heavy": 3 * 3600, "exclusive": 3 * 3600}   # default --timeout per mode,
 TIMEOUT_FACTOR = 1.5                                            # or this times the estimate when longer
 WAIT = 4 * 3600                                                 # default --wait
@@ -636,6 +637,25 @@ def _release(lock: FileLock) -> None:
         pass
 
 
+def _wal(db: sqlite3.Connection) -> None:
+    """`PRAGMA journal_mode=WAL` on the queue's new connection, tried again after SQLite's SQLITE_IOERR_TRUNCATE
+    ("disk I/O error"): on Windows a connection that finds itself the only one resets the database's shared-memory
+    file, which is refused for a moment after a process that used the queue was killed (a stopped wrapper), while
+    that process still has the file mapped. cache.wal of the repository, with its measurements, written out here:
+    this tool imports nothing of the checkout it is run from. Any other error, and that one after the last try, is
+    raised with the connection closed."""
+    for pause in (0.02, 0.05, 0.1, 0.2, 0.4, 0.8, None):
+        try:
+            db.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError as error:
+            truncate = getattr(sqlite3, "SQLITE_IOERR_TRUNCATE", 1546)
+            if pause is None or getattr(error, "sqlite_errorcode", None) != truncate:
+                db.close()
+                raise
+            time.sleep(pause)
+
+
 class Queue:
     def __init__(self, folder: str):
         self.folder = folder
@@ -649,7 +669,7 @@ class Queue:
         # One at a time: wrappers setting up a new queue together get "database is locked" at once,
         # without the busy timeout (switching to WAL, creating the schema)
         with FileLock(os.path.join(folder, "setup.lock"), fallback_to_soft=False):
-            self.db.execute("PRAGMA journal_mode=WAL")
+            _wal(self.db)
             self.db.executescript(SCHEMA)
             for table, added in (("entries", ENTRY_COLUMNS), ("history", HISTORY_COLUMNS)):
                 columns = [row[1] for row in self.db.execute(f"PRAGMA table_info({table})")]
@@ -1010,11 +1030,14 @@ def _tamed_threads() -> int:
     return max(1, min(HEAVY_TAMED_THREADS, os.cpu_count() or 1))
 
 
-def _environment(mode: str, tamed: bool = False, workers: Optional[int] = None) -> dict:
+def _environment(mode: str, tamed: bool = False, workers: Optional[int] = None, token: Optional[str] = None) -> dict:
     """The command's environment: FINDALINE_TEST_LOCK names its mode (heavy-tamed for a tamed heavy
-    one); the threads of numba, OpenMP, BLAS and GDAL capped for a shared or tamed one, all the
+    one); TOKEN_ENV the token of its queue entry (tests/regression.py writes it into its run log); the
+    threads of numba, OpenMP, BLAS and GDAL capped for a shared or tamed one, all the
     cores otherwise; for a parallel pytest (workers) those of each worker (worker_threads)."""
     env = dict(os.environ, FINDALINE_TEST_LOCK="heavy-tamed" if tamed else mode)
+    if token:
+        env[TOKEN_ENV] = token
     if workers:
         env.update({name: str(worker_threads(workers, tamed)) for name in THREAD_VARS})
     elif mode == "shared" or tamed:
@@ -1133,7 +1156,8 @@ def run(args) -> int:
                   f"threads (-n {workers} --dist loadfile; -n 0 for a serial run)", file=sys.stderr)
         began = time.time()
         deadline = began + timeout
-        process = subprocess.Popen(command, env=_environment(mode, tamed, workers), start_new_session=os.name != "nt",
+        process = subprocess.Popen(command, env=_environment(mode, tamed, workers, token),
+                                   start_new_session=os.name != "nt",
                                    **_priority(mode, tamed))
         code, peak = None, None
         tree, listed = [], None   # the command's processes, listed at that time (TREE_EVERY)

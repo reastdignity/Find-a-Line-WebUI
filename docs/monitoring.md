@@ -303,7 +303,8 @@ PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.
 - **F11.** One small module (`servicecounts.py`, its writer `Jobs.add_service_requests`) counts requests in the memory of a process (host, outcome, bytes,
   seconds) and adds them to `service_requests` in one write transaction: at the end of every
   phase and quick task, and every 60 s during a phase. Only where the web worker sets the data
-  folder (as `osm.BEFORE_REQUEST`): the CLI and the regression set count nothing. Counted at each
+  folder (as `osm.BEFORE_REQUEST`): the CLI counts only into a file it is given (`FINDALINE_SERVICE_COUNTS`: the
+  regression set's run log), never into jobs.sqlite. Counted at each
   request: `sources.net._get` (every attempt, so retries show), the listings of
   `sources/indexes/listings.py`, `WcsReader`'s DescribeCoverage, `osm._ask`, the queries under
   `osm._overpass_turn`, `osmextract`, `coast`'s world file, `orthophoto`; `Windows` per block read
@@ -366,7 +367,8 @@ PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.
 - **F18.** `Layer._download_and_record` measures the wait for the tile's lock and a host slot apart
   from the download in the slot; `download_layers` counts the tiles found in the cache, by the role
   of its label (terrain, surface, water mask, gap fill). `servicecounts.flush` writes them with the
-  requests of F11, so the CLI and the regression set count nothing. The speed is that of one
+  requests of F11, so the CLI and the regression set add nothing to them (they count into a file of their own when
+  asked). The speed is that of one
   connection (the seconds of every tile summed), so it compares sources; the format still counts
   (zipped ASCII sheets, float32 COGs, whole metres), and the network alone is F11's MB/s per host.
 - **F19.** The worker stores a job's source and resolution when it plans the download phase, and the

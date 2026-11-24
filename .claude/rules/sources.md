@@ -102,9 +102,9 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   `net._get`, STAC pages, `WcsReader.coverage_extent`, orthophoto tiles, the probe, `check_source`; a 429 or 503 backs
   off longer; a kind of request that must go slower takes `rate_turn(url, share=)` (the pieces of a split WCS tile:
   `wcsreader.SPLIT_RATE_SHARE`, England's 429s at the full rate). `net.HOST_SLOTS_OF` caps connections per host
-  (BEV 2: its AGB §10 calls automated mass downloading misuse; Funet 4: it limits addresses to 10 connections;
-  INSPIRE, provincial and LAiV servers 4; geoportal.gov.pl's WFS sheet indexes 4: no published limits).
-  A GDAL window read holds one slot and counts as one request. A new
+  and data folder (BEV 2: its AGB §10 calls automated mass downloading misuse; Funet 4: it limits addresses to 10
+  connections; INSPIRE, provincial and LAiV servers 4; geoportal.gov.pl's WFS sheet indexes 4: no published
+  limits). A GDAL window: a slot, a turn; 1-slot hosts `ranged`. A new
   numeric limit found in a provider's terms goes into one of these dicts, with the quote, URL and date;
   `tests/test_rates.py` (conftest empties `HOST_RATES_OF` for the other tests).
 - **Keys of data services** stay in the worker: a key goes into a request only when it is made (`key_params`), never
@@ -160,7 +160,7 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 
 - Cache update code: a scratch `--data-dir`, `checked_at` aged by hand in its `index.sqlite`, then `cache status` /
   `cache update` (see the regression doc).
-- New download code: test on an empty cache (`tests/regression.py --cache <temp>/cache`, or a scratch `--data-dir`),
+- New download code: a scratch cache (`tests/regression.py --cold --cache <temp>/cache`, or a scratch `--data-dir`),
   so the real cache is not touched.
 - New data source or download path: `uv run tools/check_source.py <id> --lat .. --lon .. --data-dir <scratch>` (the
   shift search, the share of valid pixels at 1 and 5 m, a few tiles against the source files, alignment; see the

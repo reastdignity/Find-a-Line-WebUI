@@ -26,6 +26,7 @@ ORTLER = (46.509, 10.545)          # IT-32 and IT-BZ
 TRENTO = (46.07, 11.12)            # IT-32 and IT-TN
 WALES_BOX = ("gb-wls", (51.3, 53.5, -5.4, -2.6))
 GB_BOX = ("gb", (49.8, 60.9, -8.7, 1.8))
+CATALOGUE = list(src.SOURCES)      # the catalogue's order before any test of this file
 
 
 @pytest.fixture
@@ -48,11 +49,20 @@ def _like_europe(sid, **fields):
 
 @pytest.fixture
 def without_regional(monkeypatch):
-    """The catalogue without its sources of regions (the tests below make their own)."""
+    """The catalogue without its sources of regions (the tests below make their own). At the test's end the
+    catalogue is in its order again: monkeypatch's undo of a delitem puts the source back at the end of the dict,
+    and so it stayed for the rest of the process (tests/test_tuscany.py::test_catalogue_source, which reads the
+    order, failed in a process that had run this file). So the undo is done here, and then every source is moved
+    to its place."""
+    order = list(src.choose.SOURCES)
     for sid, source in list(src.choose.SOURCES.items()):
         if source.regions:
             monkeypatch.delitem(src.choose.SOURCES, sid)
     monkeypatch.setattr(src.choose, "OFFLINE_BOXES", [b for b in src.choose.OFFLINE_BOXES if "-" not in b[0]])
+    yield
+    monkeypatch.undo()  # the test's and its fixtures' patches, a moment before pytest undoes them itself
+    for sid in order:
+        src.choose.SOURCES[sid] = src.choose.SOURCES.pop(sid)
 
 
 @pytest.fixture
@@ -164,3 +174,9 @@ def test_offline_boxes_of_hesse_and_mecklenburg_vorpommern(tmp_path, monkeypatch
                             (EDERSEE, "hesse"), (KOENIGSSTUHL, "mecklenburg_vorpommern"),
                             ((52.4, 9.7), "lower_saxony")):
         assert src.choose_source("auto", lat, lon, cache_dir)[0].id == sid, (lat, lon)
+
+
+def test_the_catalogue_is_left_in_its_order():
+    """The last test of the file: the tests above that take sources out of the catalogue (without_regional) leave
+    it as they found it, the order too (other files' tests read it: tests/test_tuscany.py::test_catalogue_source)."""
+    assert list(src.SOURCES) == CATALOGUE

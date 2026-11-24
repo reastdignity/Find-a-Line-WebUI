@@ -220,9 +220,10 @@ def _read_file(url: str, crs: str, transform: Affine, shape: Tuple[int, int], na
     """The values of one file on a block's pixels (_values_on). Raises WrongCrs when the file is in
     another CRS (with force_crs, a file naming only a local CRS is taken in crs; with warp, a file in another
     real CRS is warped: _wrong_crs), Incomplete when GDAL signalled an error while opening or reading it: values
-    it could not fetch come back as nodata or zeros without an exception (net.gdal_errors)."""
+    it could not fetch come back as nodata or zeros without an exception (net.gdal_errors). The open is retried
+    net.OPEN_RETRIES times, the reads after it as _gdal_http says (net.open_gdal)."""
     with net.gdal_errors() as errors:
-        src = rio.open(_remote(url))
+        src = net.open_gdal(_remote(url))
     with src:
         if _wrong_crs(src, crs, force_crs, warp):
             raise WrongCrs(what, name, src.crs.to_string(), crs)
@@ -246,14 +247,39 @@ def _read_ranged(url: str, crs: str, transform: Affine, shape: Tuple[int, int], 
             if not errors and file.error is None:
                 if _wrong_crs(src, crs, force_crs, warp):
                     raise WrongCrs(what, name, src.crs.to_string(), crs)
-                values = _values_on(src, crs, transform, shape, warp)
+                values = _ranged_values(src, file, crs, transform, shape, warp)
         problem = file.error or ("; ".join(dict.fromkeys(errors)) if errors else None)
-    except ranges.Missing:
+    except ranges.Missing:  # the file is not there (its first range: the open)
         return None
+    except (WrongCrs, net.Unreachable):  # an Unreachable keeps its own message (net.unreachable)
+        raise
     except (rio.errors.RasterioIOError, ranges.NotTiff) as e:
         raise RuntimeError(f"Could not read {what} {name}: {cache.clean_error(e)}")
+    except RuntimeError as e:  # a prefetched range that could not be read whole (ranges.get_range)
+        raise RuntimeError(f"Could not read {what} {name} completely: {cache.clean_error(e)}")
     if problem:
+        if isinstance(file.error, net.Unreachable):
+            raise file.error
         raise RuntimeError(f"Could not read {what} {name} completely: {cache.clean_error(problem)}")
+    return values
+
+
+def _ranged_values(src, file, crs: str, transform: Affine, shape: Tuple[int, int],
+                   warp: Optional[Resampling] = None) -> np.ndarray:
+    """The values of a file opened through our own ranges (ranges.open_remote) on a block's pixels: a block on the
+    file's own pixels (_coincide) read as a group reads it (_group_values: in strips, each strip's tiles prefetched,
+    a request per run of tiles), any other block (warped, off the file's pixels) as _values_on reads it. GDAL alone
+    reads a big window through 64 KB plain reads: 37-127 requests for a block of 2000 x 2000 px of a file like
+    Sint Eustatius', 11 in strips (measured 2026-11-24), each a turn of basisdata.nl's 54 a minute. A prefetched
+    range that could not be read whole raises (RuntimeError, net.Unreachable), never a block of what came; a
+    missing range (404) of a file that was there is such a failure, not a missing file."""
+    from . import ranges
+    if _warped(src, crs, warp) or _coincide(src, transform) is None:
+        return _values_on(src, crs, transform, shape, warp)
+    try:
+        (_, values), = list(_group_values(src, [BlockRequest((), crs, transform, shape)], file, warp))
+    except ranges.Missing as e:
+        raise RuntimeError(f"HTTP 404 for a range of a file that was there: {cache.clean_error(e)}") from e
     return values
 
 
@@ -282,7 +308,8 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
     used, years = [], []
     wrong: List[WrongCrs] = []
     read = 0  # files read for the block, in its CRS (with or without data there)
-    with _gdal_http(serial):
+    # A host of one connection (net.single_connection: basisdata.nl) has its ranges asked one after another
+    with _gdal_http(serial or any(net.single_connection(url) for _, url, _ in files)):
         for name, url, year in files:
             if ranged and re.match(r"https?://", url):
                 try:
@@ -296,9 +323,11 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
                     break
                 continue
             for attempt in range(net.RETRIES):
-                # One request counted per file read for the block, every attempt (servicecounts;
-                # GDAL's own HTTP requests, their bytes and its retries are not seen)
-                with servicecounts.request(url) as counted:
+                # One request per file read for the block, every attempt: its turn of the host's rate
+                # (net.rate_turn; the caller holds the host's slot) and counted (servicecounts; GDAL's own
+                # HTTP requests, their bytes and its retries are not seen)
+                net.rate_turn(url)
+                with servicecounts.request(url, read=True) as counted:
                     try:
                         values = _read_file(url, crs, transform, shape, name, what, force_crs, warp)
                         read += 1
@@ -315,6 +344,10 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
                             values = None
                             break  # listed, but not (or no longer) there
                         counted.outcome = "http_5xx" if re.search(r"\b5\d\d\b", str(e)) else "other"
+                        # No connection could be made (GDAL's own retries done): the download's other blocks
+                        # of the host fail at once (net.UnreachableHosts)
+                        if net.connect_failed(e):
+                            raise net.unreachable(url, e)
                         raise RuntimeError(f"Could not read {what} {name}: {cache.clean_error(e)}")
                     except Incomplete as e:
                         _forget(url)

@@ -237,6 +237,22 @@ def _offline(monkeypatch):
         monkeypatch.setenv(key, value)
 
 
+def test_a_job_whose_id_is_taken_gets_another(tmp_path, monkeypatch):
+    """Two jobs added in one second that draw the same six digits: the second draws again (before 2026-11-23 its
+    insert failed with "UNIQUE constraint failed: jobs.id"; the 150 jobs of the test below met it about once in
+    1 500 runs)."""
+    import jobs as jb
+    jobs = Jobs(str(tmp_path))
+    drawn = iter(["20261123-120000-aaaaaa", "20261123-120000-aaaaaa", "20261123-120000-aaaaaa",
+                  "20261123-120000-bbbbbb"])
+    monkeypatch.setattr(jb, "_new_id", lambda: next(drawn))
+    first = jobs.add({"params": {}}, "first")
+    second = jobs.add({"params": {}}, "second")
+    assert (first, second) == ("20261123-120000-aaaaaa", "20261123-120000-bbbbbb")
+    assert {job["id"]: job["title"] for job in jobs.all()} == {first: "first", second: "second"}
+    assert next(drawn, None) is None  # an id is drawn only until one is free
+
+
 def test_status_events_in_the_order_of_the_changes(tmp_path):
     """A status change and its event are one transaction: a job set "ready" by its download process
     while the scheduler claims it for computing never gets the events "computing" before "ready"
@@ -777,6 +793,116 @@ def test_stale_temporary_files(tmp_path):
         os.utime(path, (time.time() - 2 * 86400,) * 2)
     Scheduler(Jobs(str(tmp_path))).housekeeping()
     assert not old.exists() and new.exists() and kept.exists()
+
+
+def test_opening_a_database_tried_again_after_a_truncate_error(tmp_path, monkeypatch):
+    """cache.wal, each connection's first statement on jobs.sqlite, accounts.sqlite, audit.sqlite and a country's
+    manifest, is tried again after SQLite's SQLITE_IOERR_TRUNCATE, which Windows gives for a moment after a process
+    that used the database was killed (test_quick_lane below met it at its lane's kill, in 5 of 46 runs); any other
+    error, and that one after the last try, is raised with the connection closed."""
+    import sqlite3
+
+    import cache
+
+    class Connection:
+        def __init__(self, *codes):
+            self.codes, self.asked, self.closed = list(codes), 0, False
+
+        def execute(self, sql):
+            assert sql == "PRAGMA journal_mode=WAL"
+            self.asked += 1
+            if self.codes:
+                error = sqlite3.OperationalError("disk I/O error")
+                error.sqlite_errorcode = self.codes.pop(0)
+                raise error
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(cache, "WAL_PAUSES", (0.0, 0.001, 0.002))
+    truncate = sqlite3.SQLITE_IOERR_TRUNCATE
+    twice = Connection(truncate, truncate)
+    cache.wal(twice)
+    assert (twice.asked, twice.closed) == (3, False)  # twice refused, then opened
+    always = Connection(*[truncate] * 9)
+    with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
+        cache.wal(always)
+    assert (always.asked, always.closed) == (4, True)  # once and after each of the three pauses
+    for code in (sqlite3.SQLITE_IOERR_READ, sqlite3.SQLITE_BUSY, None):
+        other = Connection(code)
+        with pytest.raises(sqlite3.OperationalError):
+            cache.wal(other)
+        assert (other.asked, other.closed) == (1, True), code  # not that error: raised at once
+    # Every connection of the queue is opened through it
+    opened = []
+    monkeypatch.setattr(cache, "wal", lambda db: opened.append(db))
+    jobs = Jobs(str(tmp_path))
+    jobs.add({"params": {}}, "one")
+    assert len(opened) >= 2 and all(isinstance(db, sqlite3.Connection) for db in opened)
+
+
+def test_the_cache_index_waits_out_a_truncate_error(tmp_path, monkeypatch):
+    """The cache's index (cache._connect) waits for a database another connection is switching to WAL; the same
+    wait takes the truncate error of the test above (a search's or a quick task's process killed while it used the
+    index), and any other error is raised at once."""
+    import sqlite3
+
+    import cache
+
+    class Connection(sqlite3.Connection):
+        refused = []
+
+        def execute(self, sql, *args):
+            if sql.startswith("PRAGMA journal_mode") and Connection.refused:
+                error = sqlite3.OperationalError("disk I/O error")
+                error.sqlite_errorcode = Connection.refused.pop(0)
+                raise error
+            return super().execute(sql, *args)
+
+    class Sqlite:
+        """sqlite3 as cache.py sees it, its connections of the class above: only cache's own openings meet the
+        errors (a `connect` replaced in sqlite3 itself is every thread's of the process)."""
+
+        def __getattr__(self, name):
+            return getattr(sqlite3, name)
+
+        @staticmethod
+        def connect(*args, **more):
+            return sqlite3.connect(*args, factory=Connection, **more)
+
+    monkeypatch.setattr(cache, "sqlite3", Sqlite())
+    Connection.refused = [sqlite3.SQLITE_IOERR_TRUNCATE] * 3
+    db = cache._connect(str(tmp_path), "top")  # refused three times, then opened
+    assert Connection.refused == [] and db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    db.close()
+    Connection.refused = [sqlite3.SQLITE_IOERR_READ, sqlite3.SQLITE_IOERR_TRUNCATE]
+    with pytest.raises(sqlite3.OperationalError):
+        cache._connect(str(tmp_path), "top")
+    assert Connection.refused == [sqlite3.SQLITE_IOERR_TRUNCATE]  # another error: not waited for
+
+
+def test_no_module_switches_a_database_to_wal_on_its_own():
+    """A database goes into WAL mode through cache.wal (the test above); the pragma is written out only there, in
+    the cache index's own wait (cache._connect) and in tools/test_lock.py, which imports nothing of the checkout
+    and has the same retry inline. A new module that writes it out would open its database without the retry.
+    The repository's modules are the .py files git tracks (a data folder's files and a session's scripts are none
+    of them); the tests are left out: they hold the pragma's text themselves."""
+    import subprocess
+
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        tracked = subprocess.run(["git", "ls-files", "-z", "--", "*.py"], cwd=repo, capture_output=True,
+                                 encoding="utf-8", check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        pytest.skip("not a git checkout")
+    found = set()
+    for name in filter(None, tracked.split("\0")):
+        path = os.path.join(repo, name)
+        if not name.startswith("tests/") and os.path.isfile(path):  # a file removed and not yet committed: none
+            with open(path, encoding="utf-8") as f:
+                if "journal_mode=WAL" in f.read():
+                    found.add(name)
+    assert found == {"cache.py", "tools/test_lock.py"}
 
 
 def test_quick_lane(tmp_path, monkeypatch):

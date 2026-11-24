@@ -138,6 +138,31 @@ def test_a_layer_in_another_crs_fails(files, tmp_path, group_m, capsys):
         assert "tiles one by one (Test other: other is in EPSG:25833, not EPSG:3035; no file of" in out
 
 
+def test_a_later_server_on_the_same_port_serves_its_own_file(tmp_path, monkeypatch):
+    """GDAL keeps the ranges it read of a remote file for the process, under the file's address; a test server
+    drops its files from them when it closes (HttpServer.close). So a later server that is given the same port
+    and serves another file at the same path is read afresh: with the ranges kept, the test above read
+    tests/test_netherlands.py's other.tif (EPSG:32620 instead of EPSG:25833), once in a full run. The second
+    server binds the port the first one freed a moment before; another process given that port in between would
+    fail this test (two binds would have to draw the same port within that moment: not seen)."""
+    from http_server import HttpServer
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    said, port = [], 0
+    for folder, crs in (("first", "EPSG:32620"), ("second", "EPSG:25833")):
+        _file(str(tmp_path / folder / "other.tif"), E0, N0 + SIZE, _band(4), crs=crs)
+        server = HttpServer(port)  # the second one on the port of the first, closed just before
+        try:
+            port = server.httpd.server_address[1]
+            server.add_folder("/files", str(tmp_path / folder))
+            with pytest.raises(RuntimeError) as refused:
+                _download(server, tmp_path / folder / "cache", "other")
+            said.append(str(refused.value))
+        finally:
+            server.close()
+    assert "other is in EPSG:32620, not EPSG:3035" in said[0], said
+    assert "other is in EPSG:25833, not EPSG:3035" in said[1], said
+
+
 def test_blocks_off_the_files_pixels(files, tmp_path):
     """Blocks whose pixels are not the file's (resampled by _read_window) are cached as block by block."""
     (blocks, rows), (grouped, grouped_rows) = _both(files, tmp_path, "west", 60, origin=(0.25, 0.25))

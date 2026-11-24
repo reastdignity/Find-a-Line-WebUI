@@ -207,7 +207,7 @@ Counts of the requests to outside services (docs/monitoring.md F11) in the memor
 header by `_extent`); `request` (a context manager: `got(response)`, `add` for streamed bytes, `outcome` to override),
 `get`, `call`, `record`; `flush` adds them to `jobs.sqlite` `service_requests` (a failed write keeps them); only after
 `enable(writer)` (the worker's `run_phase` and `run_quick`, flushed at the end of each phase and task and every
-`FLUSH_SECONDS` by a thread): the CLI and `tests/regression.py` count nothing. Hooked into `sources.net._get` (every
+`FLUSH_SECONDS` by a thread): the command line counts only into the file `FINDALINE_SERVICE_COUNTS` names (`counted_into`; `tests/regression.py` sets it for each entry, for its run log). Hooked into `sources.net._get` (every
 attempt), the listings of `sources/indexes/listings.py`, `WcsReader`'s DescribeCoverage, `Windows` (one per file read
 for a block; GDAL's own requests unseen), `osm._ask`, the Overpass queries, `osmextract` (index, extract, pyosmium's
 replication through `_replication_server`), `coast`'s world file and `orthophoto._get`; `tests/test_servicecounts.py`

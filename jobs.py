@@ -499,6 +499,11 @@ def _facts_of(db: sqlite3.Connection) -> Dict[str, Dict]:
     return facts
 
 
+def _new_id() -> str:
+    """A job's id: the second it is added and six hex digits (Jobs.add draws again when it is taken)."""
+    return f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
+
+
 class Jobs:
     """The queue and the events of the jobs (jobs.sqlite in the data folder)."""
 
@@ -516,7 +521,7 @@ class Jobs:
 
     def _db(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=60)
-        db.execute("PRAGMA journal_mode=WAL")
+        cache.wal(db)
         db.row_factory = sqlite3.Row
         return db
 
@@ -528,11 +533,16 @@ class Jobs:
         """Queue a job of a user (None: the local app's); `check(db)` runs in the same write
         transaction before the job is added (a quota: it raises to refuse it); `unlimited`: a job
         of a user without limits (the worker's Limits do not apply to it, its time limits do)."""
-        job_id = f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
         created = cache.now_iso()
         with self._write() as db:
             if check:
                 check(db)
+            job_id = _new_id()
+            # Taken: another job of the same second drew the same six digits (150 jobs added in one second met it
+            # about once in 1 500 times, as "UNIQUE constraint failed: jobs.id"). Looked up in the write
+            # transaction, so no other job can take the id before the insert
+            while db.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone():
+                job_id = _new_id()
             db.execute("INSERT INTO jobs (id, created, status, request, title, user_id, unlimited) "
                        "VALUES (?, ?, 'queued', ?, ?, ?, ?)",
                        (job_id, created, json.dumps(request), title, user_id, int(unlimited)))

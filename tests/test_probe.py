@@ -141,10 +141,13 @@ def test_wcs(tmp_path, capsys, asked):
 
 
 def test_timeout(tmp_path, capsys, asked):
+    # The slow source sleeps 3 s, so it never answers within the 2 s; the fast one has the 2 s for its thread and
+    # its lock file on a loaded machine (0.5 s until 2026-11-23: it missed them in full parallel runs and twice
+    # on CI's runners; the user's choice)
     sources = {"slow": _source("slow", Tiles(slow=3)), "fast": _source("fast", Tiles("fast.example"))}
-    assert _run(tmp_path, sources, timeout=0.5) == 1
+    assert _run(tmp_path, sources, timeout=2) == 1
     out = capsys.readouterr().out
-    assert "no answer within 0.5 s" in out and "2 checked, 1 failed" in out
+    assert "no answer within 2 s" in out and "2 checked, 1 failed" in out
 
 
 def test_every_layer_has_a_probe():

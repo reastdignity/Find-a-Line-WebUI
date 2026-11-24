@@ -29,7 +29,7 @@ from .. import net
 from . import TIFF_MAGIC
 
 CHUNK = 64 * 1024  # bytes asked at least by GDAL's plain reads (the header, the arrays of tile offsets)
-TIMEOUT = 120      # seconds, as GDAL_HTTP_TIMEOUT of net._gdal_http
+TIMEOUT = 120      # seconds an answer may take, as GDAL_HTTP_TIMEOUT (a connection: net.CONNECT_TIMEOUT_S)
 # Ranges this close are asked as one (the gap's bytes thrown away): a COG's tiles in a row lie a few bytes
 # apart (each tile's size before it and its last bytes again after it), so a row of a window is one request
 MERGE_GAP = 16 * 1024
@@ -52,23 +52,26 @@ def page_text(data: bytes, limit: int = 200) -> str:
     return re.sub(r"\s+", " ", text).strip()[:limit]
 
 
-def get_range(url: str, first: int, last: int) -> Tuple[bytes, int]:
+def get_range(url: str, first: int, last: int, attempts: int = net.RETRIES) -> Tuple[bytes, int]:
     """Bytes first..last of url and the file's size, whole or not at all: HTTP 206 whose Content-Range starts at
     first and ends at last (or at the end of the file, when last lies beyond it) with as many bytes; anything else
-    (an answer cut short, another range, a 5xx) asked again up to net.RETRIES times, a 429 or 503 after a longer
-    pause, then RuntimeError. Raises Missing for a 404. The answer is streamed and never read beyond the bytes asked:
-    a server answering 200 to the Range (the whole file) or 206 with a Content-Range other than the one asked (a
-    wider one would claim megabytes) is closed unread, an answer longer than its range is cut off there, and
-    another status's text is read for its first ERROR_BYTES only."""
+    (an answer cut short, another range, a 5xx) asked again, `attempts` in all (a file's first request:
+    net.OPEN_RETRIES + 1), a 429 or 503 after a longer pause, then RuntimeError; net.Unreachable when the last
+    attempt could not connect (net.connect_failed). Raises Missing for a 404. Every attempt takes its turn
+    (net.rate_turn) and goes through net.session(url) (one connection for a host of one slot), given up when its
+    connection takes over net.CONNECT_TIMEOUT_S, its answer TIMEOUT. The answer is streamed and never read beyond
+    the bytes asked: a server answering 200 to the Range (the whole file) or 206 with a Content-Range other than the
+    one asked (a wider one would claim megabytes) is closed unread, an answer longer than its range is cut off there,
+    and another status's text is read for its first ERROR_BYTES only."""
     last_error = None
-    for attempt in range(net.RETRIES):
+    for attempt in range(attempts):
         slow_down = False
         try:
             net.rate_turn(url)
             with servicecounts.request(url) as counted:
                 headers = dict(cache.http_headers(), Range=f"bytes={first}-{last}")
-                with net.session().get(url, headers=headers, timeout=TIMEOUT, verify=net.verify(url),
-                                       stream=True) as response:
+                with net.session(url).get(url, headers=headers, timeout=(net.CONNECT_TIMEOUT_S, TIMEOUT),
+                                          verify=net.verify(url), stream=True) as response:
                     counted.got(response, read=False)
                     if response.status_code == 404:
                         raise Missing(url)
@@ -100,7 +103,10 @@ def get_range(url: str, first: int, last: int) -> Tuple[bytes, int]:
             raise
         except (requests.RequestException, RuntimeError) as e:
             last_error = e
-            net._sleep(attempt + 3 if slow_down else attempt)
+            if attempt < attempts - 1:  # no pause after the last attempt
+                net._sleep(attempt + 3 if slow_down else attempt)
+    if net.connect_failed(last_error):
+        raise net.unreachable(url, last_error)
     raise RuntimeError(cache.clean_error(last_error))
 
 
@@ -147,7 +153,8 @@ class RangeFile:
         self.url, self.pos = url, 0
         self.chunks = {}
         self.error: Optional[BaseException] = None
-        first, self.size = get_range(url, 0, CHUNK - 1)  # its size, and the header's first bytes
+        # its size, and the header's first bytes: opening the file, retried net.OPEN_RETRIES times (as net.open_gdal)
+        first, self.size = get_range(url, 0, CHUNK - 1, net.OPEN_RETRIES + 1)
         if tiff_only and first[:4] not in TIFF_MAGIC:
             raise NotTiff(f"not a TIFF ({self.size} bytes): {page_text(first)}")
         self.chunks[0] = first
