@@ -749,7 +749,7 @@ class Manifest:
 
     def __init__(self, folder: str):
         self.db = sqlite3.connect(os.path.join(folder, "manifest.sqlite"), timeout=120, isolation_level=None)
-        self.db.execute("PRAGMA journal_mode=WAL")
+        cache.wal(self.db)
         self.db.execute("PRAGMA busy_timeout=120000")
         cache.migrate(self.db, MIGRATIONS)
 

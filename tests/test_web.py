@@ -795,14 +795,14 @@ def test_stale_temporary_files(tmp_path):
     assert not old.exists() and new.exists() and kept.exists()
 
 
-def test_opening_the_queue_tried_again_after_a_truncate_error(tmp_path, monkeypatch):
-    """jobs.sqlite's opening (jobs._wal, each connection's first statement) is tried again after SQLite's
-    SQLITE_IOERR_TRUNCATE, which Windows gives for a moment after a process that used the database was killed
-    (test_quick_lane below met it at its lane's kill, in 5 of 46 runs); any other error, and that one after the last
-    try, is raised with the connection closed."""
+def test_opening_a_database_tried_again_after_a_truncate_error(tmp_path, monkeypatch):
+    """cache.wal, each connection's first statement on jobs.sqlite, accounts.sqlite, audit.sqlite and a country's
+    manifest, is tried again after SQLite's SQLITE_IOERR_TRUNCATE, which Windows gives for a moment after a process
+    that used the database was killed (test_quick_lane below met it at its lane's kill, in 5 of 46 runs); any other
+    error, and that one after the last try, is raised with the connection closed."""
     import sqlite3
 
-    import jobs as jb
+    import cache
 
     class Connection:
         def __init__(self, *codes):
@@ -819,26 +819,73 @@ def test_opening_the_queue_tried_again_after_a_truncate_error(tmp_path, monkeypa
         def close(self):
             self.closed = True
 
-    monkeypatch.setattr(jb, "OPEN_PAUSES", (0.0, 0.001, 0.002))
+    monkeypatch.setattr(cache, "WAL_PAUSES", (0.0, 0.001, 0.002))
     truncate = sqlite3.SQLITE_IOERR_TRUNCATE
     twice = Connection(truncate, truncate)
-    jb._wal(twice)
+    cache.wal(twice)
     assert (twice.asked, twice.closed) == (3, False)  # twice refused, then opened
     always = Connection(*[truncate] * 9)
     with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
-        jb._wal(always)
+        cache.wal(always)
     assert (always.asked, always.closed) == (4, True)  # once and after each of the three pauses
     for code in (sqlite3.SQLITE_IOERR_READ, sqlite3.SQLITE_BUSY, None):
         other = Connection(code)
         with pytest.raises(sqlite3.OperationalError):
-            jb._wal(other)
+            cache.wal(other)
         assert (other.asked, other.closed) == (1, True), code  # not that error: raised at once
     # Every connection of the queue is opened through it
     opened = []
-    monkeypatch.setattr(jb, "_wal", lambda db: opened.append(db))
+    monkeypatch.setattr(cache, "wal", lambda db: opened.append(db))
     jobs = Jobs(str(tmp_path))
     jobs.add({"params": {}}, "one")
     assert len(opened) >= 2 and all(isinstance(db, sqlite3.Connection) for db in opened)
+
+
+def test_the_cache_index_waits_out_a_truncate_error(tmp_path, monkeypatch):
+    """The cache's index (cache._connect) waits for a database another connection is switching to WAL; the same
+    wait takes the truncate error of the test above (a search's or a quick task's process killed while it used the
+    index), and any other error is raised at once."""
+    import sqlite3
+
+    import cache
+
+    class Connection(sqlite3.Connection):
+        refused = []
+
+        def execute(self, sql, *args):
+            if sql.startswith("PRAGMA journal_mode") and Connection.refused:
+                error = sqlite3.OperationalError("disk I/O error")
+                error.sqlite_errorcode = Connection.refused.pop(0)
+                raise error
+            return super().execute(sql, *args)
+
+    connect = sqlite3.connect
+    monkeypatch.setattr(cache.sqlite3, "connect", lambda *args, **more: connect(*args, factory=Connection, **more))
+    Connection.refused = [sqlite3.SQLITE_IOERR_TRUNCATE] * 3
+    db = cache._connect(str(tmp_path), "top")  # refused three times, then opened
+    assert Connection.refused == [] and db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    db.close()
+    Connection.refused = [sqlite3.SQLITE_IOERR_READ, sqlite3.SQLITE_IOERR_TRUNCATE]
+    with pytest.raises(sqlite3.OperationalError):
+        cache._connect(str(tmp_path), "top")
+    assert Connection.refused == [sqlite3.SQLITE_IOERR_TRUNCATE]  # another error: not waited for
+
+
+def test_no_module_switches_a_database_to_wal_on_its_own():
+    """A database goes into WAL mode through cache.wal (the test above); the pragma is written out only there, in
+    the cache index's own wait (cache._connect) and in tools/test_lock.py, which imports nothing of the checkout
+    and has the same retry inline. A new module that writes it out would open its database without the retry."""
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    found = set()
+    for folder, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in ("node_modules", "local", "__pycache__", "tests")
+                   and not d.startswith(".")]
+        for name in files:
+            if name.endswith(".py"):
+                with open(os.path.join(folder, name), encoding="utf-8") as f:
+                    if "journal_mode=WAL" in f.read():
+                        found.add(os.path.relpath(os.path.join(folder, name), repo).replace(os.sep, "/"))
+    assert found == {"cache.py", "tools/test_lock.py"}
 
 
 def test_quick_lane(tmp_path, monkeypatch):

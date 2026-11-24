@@ -636,6 +636,23 @@ def _release(lock: FileLock) -> None:
         pass
 
 
+def _wal(db: sqlite3.Connection) -> None:
+    """`PRAGMA journal_mode=WAL` on the queue's new connection, tried again after SQLite's SQLITE_IOERR_TRUNCATE
+    ("disk I/O error"): on Windows a connection that finds itself the only one resets the database's shared-memory
+    file, which is refused for a moment after a process that used the queue was killed (a stopped wrapper), while
+    that process still has the file mapped. cache.wal of the repository, with its measurements, written out here:
+    this tool imports nothing of the checkout it is run from."""
+    for pause in (0.02, 0.05, 0.1, 0.2, 0.4, 0.8, None):
+        try:
+            db.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError as error:
+            truncate = getattr(sqlite3, "SQLITE_IOERR_TRUNCATE", 1546)
+            if pause is None or getattr(error, "sqlite_errorcode", None) != truncate:
+                raise
+            time.sleep(pause)
+
+
 class Queue:
     def __init__(self, folder: str):
         self.folder = folder
@@ -649,7 +666,7 @@ class Queue:
         # One at a time: wrappers setting up a new queue together get "database is locked" at once,
         # without the busy timeout (switching to WAL, creating the schema)
         with FileLock(os.path.join(folder, "setup.lock"), fallback_to_soft=False):
-            self.db.execute("PRAGMA journal_mode=WAL")
+            _wal(self.db)
             self.db.executescript(SCHEMA)
             for table, added in (("entries", ENTRY_COLUMNS), ("history", HISTORY_COLUMNS)):
                 columns = [row[1] for row in self.db.execute(f"PRAGMA table_info({table})")]

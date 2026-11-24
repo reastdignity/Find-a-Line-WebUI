@@ -116,12 +116,17 @@ going away still has the file mapped. Shown with sqlite3 alone, no code of the r
 process holding 600 MB the error came in 16 of 60, 9 of 40 and 15 of 60 rounds, up to 149 ms after the kill; after
 the kill of one holding nothing in 0 of 60 rounds once and 3 of 60 another time; processes of 3 000 and 8 000 MB gave
 none in 16 and 8 rounds (so the size does not decide it simply); none in 240 rounds once the pragma was tried again.
-`jobs._wal` now tries a connection's opening again after that one error (six pauses, 1.6 s in all; any other error is
-raised at once; the pauses run in the web's thread pool for most calls, on the event loop where the web calls the
-queue directly: `web.quick`'s `quick_forget` on its error path, the app's end with `scheduler.stop()`, `osm_job`). With `Jobs._db` under the same kill: `main`'s jobs.py 2 of 80 rounds with the error,
-the branch's 0 of 80; the test alone 0 of 40 runs. **Left as it was:** the same opening in `accounts.py`,
-`audit.py`, `cache.py` (the cache's index: search processes use it and are killed on a cancel, so a search running
-beside a cancelled one can meet the error on Windows), `country.py` and `tools/test_lock.py`.
+`cache.wal` now tries a connection's opening again after that one error (six pauses, 1.6 s in all; any other error
+is raised at once; the pauses run in the web's thread pool for most calls, on the event loop where the web calls the
+queue directly: `web.quick`'s `quick_forget` on its error path, the app's end with `scheduler.stop()`, `osm_job`).
+With `Jobs._db` under the same kill: `main`'s jobs.py 2 of 80 rounds with the error, the branch's 0 of 80; the test
+alone 0 of 40 runs. **Every database opened in WAL mode has it** (the user's "try it", 2026-11-24): jobs.sqlite,
+accounts.sqlite, audit.sqlite and a country's manifest through `cache.wal`; the cache's index (`cache._connect`) and
+the test lock's queue (`tools/test_lock.py`, the retry written out: it imports nothing of the checkout) in their own
+loops; `tests/test_web.py::test_no_module_switches_a_database_to_wal_on_its_own` keeps it so. At those two openings
+the kill gave the error in 2 of 400 rounds each with `main`'s code and in 0 of 400 with the change: the error is
+there, but too rare in this experiment for these counts to show that the wait removes it; that rests on each
+opening's test and on the 240 rounds above.
 
 ## Two jobs added in one second could draw the same id (mended 2026-11-23)
 

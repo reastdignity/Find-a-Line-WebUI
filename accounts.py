@@ -158,7 +158,7 @@ class Accounts:
 
     def _db(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=60)
-        db.execute("PRAGMA journal_mode=WAL")
+        cache.wal(db)
         db.execute("PRAGMA foreign_keys=ON")
         db.row_factory = sqlite3.Row
         return db
