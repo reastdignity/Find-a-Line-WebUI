@@ -190,6 +190,31 @@ def test_sizes_by_the_cut(rename_site):
     two_lines(large, meta_of(data, RUN_A), "1.8 GB")
 
 
+# The windows of the narrowest cards: the two phones the screenshots are reviewed on (tools/ui_shots.py), and desktops
+# from the frame's 768 px on, where the cards' grid gives a card as little as 250 px
+NARROW = {"phone 390 x 664": PHONE_UTC, "phone 412 x 839": {**PHONE_UTC, "viewport": {"width": 412, "height": 839}},
+          **{f"desktop {w}": {"viewport": {"width": w, "height": 900}, **UTC} for w in (768, 820, 900, 1024, 1100, 1280)}}
+
+
+def test_the_longest_sizes_keep_their_line(rename_site):
+    """The longest words a size has, "under 0.1 MB", and a size in GB, on the narrowest cards (both phones, desktops
+    from 768 px): the card keeps its two lines, each one line box, the time and the size not broken."""
+    site, data = rename_site
+    rewrite(data, RUN_A, with_bytes(38_000))
+    rewrite(data, RUN_B, with_bytes(1_840_000_000))
+    seen = {}
+    with Browser(site) as browser:
+        for name, device in NARROW.items():
+            page = opened(browser, device)
+            open_home(page, site)
+            page.wait_for_selector(card(RUN_B))
+            seen[name] = [page.evaluate(CARD, card(RUN_A)), page.evaluate(CARD, card(RUN_B)),
+                          page.evaluate("(sel) => Math.round(document.querySelector(sel).getBoundingClientRect().width)", card(RUN_A))]
+    for name, (a, b, width) in seen.items():  # (width: the card's, 271 to 464 px on these windows)
+        two_lines(a, meta_of(data, RUN_A), "under 0.1 MB")
+        two_lines(b, meta_of(data, RUN_B), "1.8 GB")
+
+
 def running_stub(created: str) -> str:
     """An init script (as test_rename_home_page's jobs_stub): the app's job list answered with one search of "a"
     still computing, without its run."""

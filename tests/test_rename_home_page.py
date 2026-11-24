@@ -291,6 +291,46 @@ def test_rename_on_a_card(rename_site):
         assert json.load(f)["name"] == "The north side"
 
 
+def test_rename_with_the_keyboard_alone(rename_site):
+    """The keyboard's way, no pointer: the focus on the card's menu button, Enter opens the menu with the focus on its
+    first item; the arrow keys reach "Rename…" (End, then up past "Delete…" and "Report a problem…"); Enter opens the
+    panel with the name selected, typing replaces it, Enter saves; the focus is back on the menu's button and the card
+    shows the new name. Tab from the field reaches Save, then Cancel."""
+    site, _ = rename_site
+    at = "() => (document.activeElement.textContent || document.activeElement.getAttribute('aria-label') || '').trim()"
+    with Browser(site) as browser:
+        page = browser.page()
+        open_home(page, site)
+        page.focus(f"{card(RUN_A)} .c-card-menu")
+        page.keyboard.press("Enter")
+        page.wait_for_function("(sel) => document.activeElement === document.querySelector(sel + ' [role=menuitem]')", arg=card(RUN_A))
+        first = page.evaluate(at)
+        page.keyboard.press("End")
+        last = page.evaluate(at)
+        page.keyboard.press("ArrowUp")
+        page.keyboard.press("ArrowUp")
+        item = page.evaluate(at)
+        page.keyboard.press("Enter")
+        page.wait_for_function("(sel) => { const i = document.querySelector(sel + ' .c-rename input'); "
+                               "return !!i && document.activeElement === i && i.selectionStart === 0 && i.selectionEnd === i.value.length; }",
+                               arg=card(RUN_A))
+        page.keyboard.type("Typed with keys")
+        typed = page.evaluate(FORM, card(RUN_A))
+        page.keyboard.press("Tab")
+        save = page.evaluate(at)
+        page.keyboard.press("Tab")
+        cancel = page.evaluate(at)
+        page.keyboard.press("Shift+Tab")
+        page.keyboard.press("Shift+Tab")
+        page.keyboard.press("Enter")
+        on_button = closed(page, RUN_A)
+        name = page.evaluate(NAME, card(RUN_A))
+    assert (first, last, item) == ("Open the result", "Delete…", "Rename…"), (first, last, item)
+    assert typed["value"] == "Typed with keys" and typed["off"] == [False, False], typed
+    assert (save, cancel) == ("Save", "Cancel"), (save, cancel)
+    assert on_button and name == "Typed with keys", (on_button, name)
+
+
 def test_a_long_name_is_not_cut(rename_site):
     """A name of 100 characters outside the basic plane (200 UTF-16 units) is the server's to take: the field cuts
     nothing, the card shows all of it."""

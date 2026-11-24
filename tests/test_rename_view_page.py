@@ -436,3 +436,20 @@ def test_a_runs_map_takes_the_name_of_its_title(rename_site):
     assert head_name(data, RUN_A) == old != NEW, old
     for name, (title, page_title) in shown.items():
         assert title == NEW and page_title.startswith(NEW), (name, title, page_title)
+
+
+def test_edit_and_run_again_has_the_circular_arrow_in_the_header(rename_site):
+    """The desktop header's "Edit & run again" (the owner's run with its search) is drawn with the kit's circular
+    arrow ("refresh"), as in the phone's pill and the card's menu: the pencil is the Rename button's beside the name."""
+    from test_rename_home_page import jobs_stub
+    site, _ = rename_site
+    with Browser(site) as browser:
+        page = page_of(browser, script=jobs_stub(RUN_A))
+        page.goto(f"{site}/?ui=c#run={RUN_A}")
+        page.wait_for_selector(".c-result-top a[href*='edit']")
+        page.wait_for_selector(BUTTON)
+        edit = page.evaluate("() => { const a = document.querySelector(\".c-result-top a[href*='edit']\"); "
+                             "return [a.textContent.trim(), a.querySelector('svg').innerHTML]; }")
+        pencil = page.evaluate("(sel) => document.querySelector(sel + ' svg').innerHTML", BUTTON)
+    assert edit[0] == "Edit & run again" and f'd="{kit_icon("refresh")}"' in edit[1], edit
+    assert f'd="{kit_icon("edit")}"' not in edit[1] and f'd="{kit_icon("edit")}"' in pencil, (edit, pencil)
