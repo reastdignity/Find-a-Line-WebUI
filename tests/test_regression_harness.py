@@ -2,7 +2,9 @@
 the coastline source stored with a baseline (H1), the outcomes ok, unverified and DIFFERENT (H2) and their exit codes
 (H3), the --update guard (H4), the refusal of a cache other than the real one without --cold (H5), seeding a scratch
 cache from the real one by hard links (H6), the run log (H7), R17's list of differences (H8), entries run by name
-only (H9) and the requests per host and the test lock's token in the run log (H10)."""
+only (H9), the requests per host and the test lock's token in the run log (H10), and the data record per entry
+(H11: read from canned run.json files in the shape of run.json's "identity" keys, the side file
+tests/regression-data.json, the line explaining a difference, the run log's "data", --update and --update-data)."""
 
 import contextlib
 import http.server
@@ -79,6 +81,7 @@ def harness(tmp_path, monkeypatch):
         tests_file.write_text(json.dumps(tests), encoding="utf-8")
 
     monkeypatch.setattr(regression, "TESTS", str(tests_file))
+    monkeypatch.setattr(regression, "DATA_FILE", str(tmp_path / "regression-data.json"))  # never the repository's
     monkeypatch.setattr(regression, "run", lambda tests, test_id, work, cache, browser: dict(results[test_id]))
     monkeypatch.setattr(regression, "write_doc", lambda tests: None)
 
@@ -94,6 +97,7 @@ def harness(tmp_path, monkeypatch):
     kept = []
 
     main.write, main.results, main.cache = write, results, cache_dir
+    main.data_file = tmp_path / "regression-data.json"
     yield main
     for work in kept:  # the log folders main kept (a difference): their links removed as links first
         for root, dirs, _ in os.walk(work):
@@ -1191,7 +1195,8 @@ def test_run_log_line(harness, tmp_path, capsys, monkeypatch):
     assert record["entries"]["R1"]["outcome"] == "ok" and record["entries"]["R1"]["coastline"] == WORLD_FILE
     assert record["entries"]["R2"] == {"outcome": "unverified", "seconds": record["entries"]["R2"]["seconds"],
                                        "reason": f"coastline: {FALLBACK}; the baseline's: {WORLD_FILE}",
-                                       "coastline": FALLBACK}
+                                       "coastline": FALLBACK, "data": None}
+    assert record["entries"]["R3"]["data"] is None and record["entries"]["R1"]["data"] is None  # no record stored
     assert record["entries"]["R3"]["outcome"] == "skipped" and "R4" not in record["entries"]
     assert record["counts"] == {"ok": 1, "different": 0, "unverified": 2, "skipped": 1, "by_name": 1}
     assert record["entries"]["R5"]["reason"] == "a data provider did not answer: Download failed: HTTP 503 for ?key=***"
@@ -1498,3 +1503,375 @@ def test_the_lock_token_variable_is_the_locks():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert regression.LOCK_TOKEN_ENV == module.TOKEN_ENV
+
+
+# H11: the data record per entry (wave 4: run.json's "identity" keys, the side file, the explanation)
+
+
+A, B, C, D = ("a" * 64, "b" * 64, "c" * 64, "d" * 64)
+NMT = "poland/nmt"
+TILE = "osm/themes/coastline/N50E019.geojson"
+
+
+def _meta(terrain=None, identity=True, coastline=None, area=None, source="geoportal", gdal="3.10.0",
+          access_skipped=None, mixed=False) -> dict:
+    """A canned run.json in the shape of contract-wave4.md's table "The record": the terrain's files {name:
+    checksum} in NMT, the coastline's identity (a coastline entry when given), the area block, the source; identity
+    False: a run.json of before (no "identity" key anywhere)."""
+    terrain = {f"{NMT}/a.tif": A, f"{NMT}/b.tif": B} if terrain is None else terrain
+    paths = sorted(terrain)
+    entry = {"layer": "NMT (digital terrain model)", "folder": NMT, "files": len(paths),
+             "fetched": {"oldest": "2026-11-06T17:47:25+00:00", "newest": "2026-11-17T16:34:58+00:00"},
+             "paths": paths, "credit": {"data": "NMT / NMPT (GUGiK, Poland)", "url": "https://example.org/licence"}}
+    if identity:
+        entry["identity"] = {"sha256": [terrain[p] for p in paths]}
+    data = [entry]
+    if coastline is not None:
+        shore = {"layer": WORLD_FILE if "edition" in coastline else OVERPASS, "credit": {"data": "OpenStreetMap"}}
+        if identity:
+            shore["identity"] = coastline
+        data.append(shore)
+    meta = {"id": "x", "name": "n", "created": "2026-11-24T10:00:00+00:00", "center": {"lat": 50.1, "lon": 19.7},
+            "area": area or {"type": "circle", "lat": 50.1, "lon": 19.7, "radius": 1000.0},
+            "source": {"id": source, "name": "geoportal.gov.pl", "description": "GUGiK"}, "data": data,
+            "params": {}, "summary": {}}
+    if identity:
+        meta["identity"] = {"v": 1, "gdal": gdal, "proj": "9.5.0", "rasterio": "1.4.3", **({"mixed": True} if mixed
+                                                                                          else {})}
+    if access_skipped:
+        meta["access_skipped"] = access_skipped
+    return meta
+
+
+def _polygon(spec=None, inputs=None, ring=((14.2, 36.06), (14.27, 36.06), (14.27, 36.085), (14.2, 36.06))) -> dict:
+    area = {"type": "polygon", "spec": spec, "geometry": {"type": "Polygon", "coordinates": [[list(p) for p in ring]]}}
+    if inputs is not None:
+        area["identity"] = inputs
+    return area
+
+
+def _inputs(tile=A, answer=B, query="Fungus Rock") -> dict:
+    return {"paths": [TILE], "sha256": [tile], "nominatim": [{"table": "search", "query": query, "sha256": answer}]}
+
+
+def test_record_of_reads_the_identity():
+    record = regression.record_of(_meta(coastline={"edition": "2026-10-23"}, access_skipped="memory"))
+    circle = {"lat": 50.1, "lon": 19.7, "radius": 1000.0}
+    assert record == {
+        "access_skipped": "memory",
+        "area": {"type": "circle", "inputs": None, "shape": regression.hashlib.sha256(
+            json.dumps(circle, sort_keys=True, separators=(",", ":")).encode()).hexdigest()},
+        "coastline": {"edition": "2026-10-23"},
+        "folders": {NMT: {"files": {f"{NMT}/a.tif": A, f"{NMT}/b.tif": B}, "layers": ["NMT (digital terrain model)"]}},
+        "left_out": [], "mixed": False, "source": "geoportal",
+        "versions": {"gdal": "3.10.0", "proj": "9.5.0", "rasterio": "1.4.3"}}
+    text = json.dumps(record)
+    for never in ("2026-11-06T", "2026-11-24T", "https://", "GUGiK", "credit", "fetched"):  # no time, URL, credit
+        assert never not in text, never
+    assert regression.record_of(_meta(mixed=True))["mixed"] is True
+    tiles = regression.record_of(_meta(coastline={"paths": [TILE], "sha256": [C]}))["coastline"]
+    assert tiles == {"tiles": {TILE: C}}
+
+
+def test_record_of_a_run_json_without_identity():
+    """A search of before, or a build without the record: the names, every checksum not known."""
+    record = regression.record_of(_meta(identity=False, coastline={"edition": "2026-10-23"}, area=_polygon()))
+    assert record["folders"][NMT]["files"] == {f"{NMT}/a.tif": None, f"{NMT}/b.tif": None}
+    assert record["versions"] is None and record["mixed"] is False and record["coastline"] == {}
+    assert record["area"]["inputs"] is None and record["area"]["shape"] is not None and record["left_out"] == []
+    assert regression.record_of(_meta(coastline=None))["coastline"] is None  # no coastline entry at all
+
+
+def test_record_of_a_checksum_list_of_another_length():
+    meta = _meta()
+    meta["data"][0]["identity"]["sha256"] = [A]  # two names, one checksum: none of them trusted
+    assert regression.record_of(meta)["folders"][NMT]["files"] == {f"{NMT}/a.tif": None, f"{NMT}/b.tif": None}
+    meta["data"][0]["identity"]["sha256"] = [A, "B" * 64]  # not as the index stores it (lower case)
+    assert regression.record_of(meta)["folders"][NMT]["files"] == {f"{NMT}/a.tif": A, f"{NMT}/b.tif": None}
+
+
+def test_two_entries_of_one_folder_are_merged():
+    """A fallback's terrain and the surface made from it: two entries of one folder, both layers kept."""
+    meta = _meta()
+    meta["data"].append({**meta["data"][0], "layer": "surface from the terrain", "paths": [f"{NMT}/c.tif"],
+                         "identity": {"sha256": [C]}})
+    place = regression.record_of(meta)["folders"][NMT]
+    assert place == {"files": {f"{NMT}/a.tif": A, f"{NMT}/b.tif": B, f"{NMT}/c.tif": C},
+                     "layers": ["NMT (digital terrain model)", "surface from the terrain"]}
+
+
+@pytest.mark.parametrize("name", ["C:/Users/someone/cache/poland/nmt/a.tif", "/home/someone/cache/a.tif",
+                                  "poland\\nmt\\a.tif", "poland/nmt/../../a.tif", "c:a.tif", ""])
+def test_record_of_leaves_out_a_name_not_relative_to_the_cache(name):
+    """A part with a name that is not relative to the cache is left out whole and named; the name is nowhere."""
+    meta = _meta({f"{NMT}/a.tif": A, name: B} if name else {name: B})
+    record = regression.record_of(meta)
+    assert record["folders"] == {} and record["left_out"] == ["NMT (digital terrain model)"]
+    meta = _meta(coastline={"paths": [TILE, name], "sha256": [A, B]}, area=_polygon(inputs={
+        "paths": [name], "sha256": [A], "nominatim": []}))
+    meta["data"][0]["folder"] = "C:/cache/poland/nmt" if name else NMT
+    record = regression.record_of(meta)
+    assert record["coastline"] == {} and record["area"]["inputs"] is None
+    assert record["left_out"] == sorted(["the coastline", "the search area's inputs"]
+                                        + (["NMT (digital terrain model)"] if name else []))
+    if name:
+        assert name not in json.dumps(record) and "C:/cache" not in json.dumps(record)
+
+
+def test_the_area_shape_never_holds_its_spec():
+    """The outline's digest is the geometry's alone: the same entry with two --area file paths gives one digest."""
+    one = regression.record_of(_meta(area=_polygon(spec="C:/Users/someone/area.geojson")))
+    two = regression.record_of(_meta(area=_polygon(spec="tests/data/r1_circle.geojson")))
+    assert one["area"]["shape"] == two["area"]["shape"] and len(one["area"]["shape"]) == 64
+    assert "area.geojson" not in json.dumps(one) and "r1_circle" not in json.dumps(two)
+    moved = regression.record_of(_meta(area=_polygon(ring=((14.2, 36.06), (14.28, 36.06), (14.27, 36.085),
+                                                           (14.2, 36.06)))))
+    assert moved["area"]["shape"] != one["area"]["shape"]
+    assert regression.record_of(_meta(area=_polygon(inputs=_inputs())))["area"]["inputs"] == \
+        {"tiles": {TILE: A}, "nominatim": {"search": {"Fungus Rock": B}}}
+    unnamed = _inputs()
+    del unnamed["nominatim"][0]["table"]  # the table may be left unnamed
+    assert regression.record_of(_meta(area=_polygon(inputs=unnamed)))["area"]["inputs"]["nominatim"] == \
+        {"": {"Fungus Rock": B}}
+
+
+def test_run_reads_the_record_of_its_run_json(tmp_path, monkeypatch):
+    """run(): the record of the run.json the search wrote (record_of), None without one (a failed search)."""
+    meta = _meta(coastline={"edition": "2026-10-23"})
+
+    def search(cmd, **kwargs):
+        runs = os.path.join(cmd[cmd.index("--data-dir") + 1], "runs", "2026-11-24_x")
+        os.makedirs(runs)
+        with open(os.path.join(runs, "run.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(regression.subprocess, "run", search)
+    monkeypatch.setattr(regression, "link", lambda target, path: os.makedirs(path))
+    monkeypatch.setattr(regression, "measure", lambda output, runs: {"store_problems": []})
+    monkeypatch.setattr(regression, "check_map", lambda runs, found: [])
+    found = regression.run({"R1": _entry(_expected())}, "R1", str(tmp_path / "work"), str(tmp_path / "cache"), False)
+    assert found["data_record"] == regression.record_of(meta)
+    assert regression.read_record(str(tmp_path / "nothing")) is None
+
+
+def test_the_record_is_never_a_result(harness, capsys):
+    """The record never enters the compared or stored values (R17 stores every key of found)."""
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result(data_record=regression.record_of(_meta())))
+    code, out, tests = harness("R1", "--update", capsys=capsys)
+    assert code == 0 and "R1: ok" in out and tests["R1"]["expected"] == _expected()
+
+
+# H2: the side file
+
+
+def _record(terrain=None, **more) -> dict:
+    return regression.record_of(_meta(terrain, **more))
+
+
+def test_the_side_file_is_written_whole_and_stably(tmp_path):
+    path = str(tmp_path / "regression-data.json")
+    tests = {"R1": {}, "R2": {}, "R3": {}}
+    data = {"R2": _record(coastline={"paths": [TILE], "sha256": [C]}), "R1": _record(), "R9": _record()}
+    regression.write_data(data, tests, path)
+    raw = open(path, "rb").read()
+    assert raw.endswith(b"}\n") and b"\r" not in raw and raw.decode("utf-8")
+    loaded = regression.load_data(path)
+    assert list(loaded) == ["R1", "R2"]  # the order of regression.json; R9 is no entry: dropped
+    assert loaded["R1"] == data["R1"] and loaded["R2"] == data["R2"]
+    for line in raw.decode().splitlines():  # one file name per line
+        assert line.count(".tif") + line.count(".geojson") <= 1, line
+    for record in loaded.values():  # every mapping sorted (json keeps the file's order)
+        assert list(record) == sorted(record) and list(record["area"]) == sorted(record["area"])
+        assert list(record["folders"][NMT]["files"]) == sorted(record["folders"][NMT]["files"])
+    regression.write_data(loaded, tests, path)
+    assert open(path, "rb").read() == raw  # written again with nothing changed: the same bytes
+    assert os.listdir(tmp_path) == ["regression-data.json"]  # no temporary file left
+    regression.write_data({}, tests, path)
+    assert open(path, "rb").read() == b"{}\n"
+
+
+@pytest.mark.parametrize("text", ["{", "[]", '{"R1": []}', '{"R1": {"folders": {}}}'])
+def test_a_broken_side_file_is_a_usage_error(harness, capsys, text):
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result())
+    harness.data_file.write_text(text, encoding="utf-8")
+    code, out, _ = harness("R1", capsys=capsys)
+    assert code == 2 and f"{harness.data_file} is broken" in out
+
+
+def test_a_missing_side_file_is_an_empty_one(harness, capsys):
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result(lines=9, data_record=_record()))
+    code, out, _ = harness("R1", capsys=capsys)
+    assert code == 1 and "\n    no data record stored" in out
+    assert not harness.data_file.exists()  # without --update and --update-data never written
+
+
+# H3: explaining a difference
+
+
+def _explained(old: dict, new: dict) -> str:
+    return regression.data_line(regression.compare_records(old, new))
+
+
+def test_data_as_the_baselines():
+    assert _explained(_record(), _record()) == "data as the baseline's"
+    assert _explained(_record(), _record(identity=False)) == "data as the baseline's (2 files not known)"
+    assert _explained(_record(identity=False), _record()) == "data as the baseline's (2 files not known)"
+
+
+def test_data_differ_per_folder():
+    old = _record({f"{NMT}/a.tif": A, f"{NMT}/b.tif": B})
+    new = _record({f"{NMT}/a.tif": D, f"{NMT}/c.tif": C})
+    assert _explained(old, new) == "data differ: poland/nmt 2 of 2 files, 1 new, 1 replaced under their names"
+    # a checksum not known never counts: only the file not read
+    assert _explained(old, _record({f"{NMT}/a.tif": A}, identity=False)) == "data differ: poland/nmt 1 of 2 files"
+    meta = _meta()
+    meta["data"].append({"layer": "Copernicus water body mask", "folder": "copernicus30/2021/wbm",
+                         "paths": ["copernicus30/2021/wbm/N49E019.tif"], "identity": {"sha256": [C]}})
+    assert _explained(old, regression.record_of(meta)) == "data differ: copernicus30/2021/wbm 0 of 0 files, 1 new"
+
+
+def test_data_differ_in_every_other_part():
+    old = _record(coastline={"edition": "2026-10-23"}, area=_polygon(inputs=_inputs()))
+    new = _record(coastline={"edition": "2026-11-30"}, area=_polygon(inputs=_inputs(tile=C, answer=D)),
+                  source="europe", gdal="3.11.0", access_skipped="memory", mixed=True)
+    assert _explained(old, new) == (
+        "data differ: coastline (the world file of 2026-10-23 -> the world file of 2026-11-30); the search area's "
+        "inputs (OSM tiles, Nominatim); the source (geoportal -> europe); GDAL 3.10.0 -> 3.11.0; the access mark left "
+        "out; sessions read different data")
+    tiles = _record(coastline={"paths": [TILE], "sha256": [A]})
+    assert _explained(tiles, _record(coastline={"paths": [TILE], "sha256": [B]})) == \
+        "data differ: coastline 1 of 1 tiles, 1 replaced under their names"
+    assert _explained(old, _record(coastline={"paths": [TILE], "sha256": [B]}, area=_polygon(inputs=_inputs()))) == \
+        "data differ: coastline (the world file of 2026-10-23 -> 1 OSM tiles)"
+    assert _explained(old, _record(area=_polygon(inputs=_inputs()))) == \
+        "data differ: coastline (the world file of 2026-10-23 -> none)"
+    assert _explained(_record(access_skipped="memory"), _record()) == \
+        "data differ: the access mark left out in the baseline"
+
+
+def test_the_search_area_itself():
+    """The outline's digest is named only when the inputs are equal or not known (then "code or OSM")."""
+    moved = ((14.2, 36.06), (14.28, 36.06), (14.27, 36.085), (14.2, 36.06))
+    old = _record(area=_polygon(inputs=_inputs()))
+    assert _explained(old, _record(area=_polygon(inputs=_inputs(), ring=moved))) == "data differ: the search area"
+    assert _explained(old, _record(area=_polygon(ring=moved))) == "data differ: the search area (code or OSM)"
+    assert _explained(old, _record(area=_polygon(inputs=_inputs(query="Gozo"), ring=moved))) == \
+        "data differ: the search area's inputs (Nominatim)"
+    gone = _inputs(answer=None)  # the stored answer's row gone: not known
+    assert _explained(old, _record(area=_polygon(inputs=gone))) == "data as the baseline's (1 files not known)"
+
+
+def test_a_part_left_out_is_not_known():
+    meta = _meta({"C:/cache/poland/nmt/a.tif": A, f"{NMT}/b.tif": B})
+    assert _explained(_record(), regression.record_of(meta)) == (
+        "data as the baseline's; left out of the record (a name not relative to the cache): NMT (digital terrain "
+        "model)")
+
+
+def test_the_line_under_an_entry_through_main(harness, capsys):
+    """Under a DIFFERENT or unverified entry with a run.json, one line after its differences; an ok entry, or one
+    without a run.json (a failed search), prints nothing more; the outcome, reason and exit code stay."""
+    harness.write({"R1": _entry(_expected()), "R2": _entry(_expected()), "R3": _entry(_expected()),
+                   "R4": _entry(_expected()), "R5": _entry(_expected())})
+    harness.data_file.write_text(json.dumps({t: _record() for t in ("R1", "R2", "R3", "R4")}), encoding="utf-8")
+    harness.results.update(
+        R1=_result(lines=9, data_record=_record()),
+        R2=_result(FALLBACK, lines=9, warned=True, data_record=_record({f"{NMT}/a.tif": A})),
+        R3=_result(data_record=_record({f"{NMT}/a.tif": C})),
+        R4=_result(None, exit_code=1),
+        R5=_result(lines=9, data_record=_record()))
+    code, out, _ = harness("R1", "R2", "R3", "R4", "R5", capsys=capsys)
+    assert code == 1
+    assert "R1: DIFFERENT (" in out and "\n    lines: 10 -> 9\n    data as the baseline's\n" in out
+    assert (f"R2: unverified (coastline: {FALLBACK}; the baseline's: {WORLD_FILE}) (" in out
+            and "\n    lines: 10 -> 9\n    data differ: poland/nmt 1 of 2 files\n" in out)
+    assert "R3: ok (" in out and "R3: ok" + out.split("R3: ok", 1)[1].split("\n", 1)[0] + "\nR4" in out
+    assert "\n    exit code 1\nR5" in out  # R4: no run.json, no line
+    assert "\n    no data record stored\n" in out  # R5
+    record = _log_line(harness.data_file.parent)
+    assert {t: e["data"] for t, e in record["entries"].items()} == \
+        {"R1": "same", "R2": "differs", "R3": "differs", "R4": None, "R5": None}
+
+
+def test_run_log_data_unknown(harness, capsys):
+    """Nothing comparable (every checksum not known on one side): "unknown", for an ok entry too."""
+    harness.write({"R1": _entry(_expected())})
+    harness.data_file.write_text(json.dumps({"R1": _record()}), encoding="utf-8")
+    harness.results.update(R1=_result(data_record=_record(identity=False)))
+    code, out, _ = harness("R1", capsys=capsys)
+    assert code == 0 and "data" not in out.split("R1: ok", 1)[1].split("\n\n", 1)[0]
+    assert _log_line(harness.data_file.parent)["entries"]["R1"]["data"] == "unknown"
+
+
+# H5: --update stores the record with the results
+
+
+def test_update_stores_the_record_with_the_results(harness, capsys):
+    harness.write({"R1": _entry(_expected()), "R2": _entry(_expected()), "R3": _entry(_expected()),
+                   "R4": _entry(_expected())})
+    old = {t: _record(gdal="3.9.0") for t in ("R1", "R2", "R3", "R4")}
+    harness.data_file.write_text(json.dumps(old), encoding="utf-8")
+    harness.results.update(
+        R1=_result(lines=11, data_record=_record()),  # stored: its record too
+        R2=_result(lines=11),  # stored without a record (no run.json): the old one removed
+        R3=_result(FALLBACK, lines=9, warned=True, data_record=_record()),  # unverified: refused, its record kept
+        R4=_result(lines=11, problems=["lines.arrow has 9 lines, the export 11"], data_record=_record()))  # not stored
+    code, out, tests = harness("R1", "R2", "R3", "R4", "--update", capsys=capsys)
+    assert code == 3 and tests["R1"]["expected"]["lines"] == 11 and "R3: not stored (" in out
+    stored = regression.load_data(str(harness.data_file))
+    assert stored == {"R1": _record(), "R3": old["R3"], "R4": old["R4"]}
+    assert f"Data records updated in {harness.data_file}" in out
+
+
+# H6: --update-data
+
+
+def test_update_data_stores_only_the_records(harness, capsys):
+    harness.write({"R1": _entry(_expected()), "R2": _entry(_expected()), "R3": _entry(_expected()),
+                   "R4": _entry(_expected()), "R5": _entry(_expected(), needs_env="FINDALINE_NOT_SET_ANYWHERE")})
+    harness.data_file.write_text(json.dumps({"R2": _record(), "R3": _record(gdal="3.9.0")}), encoding="utf-8")
+    harness.results.update(R1=_result(data_record=_record()), R2=_result(data_record=_record()),
+                           R3=_result(lines=9, data_record=_record()), R4=_result())  # R4: ok, no run.json
+    tests_before = open(regression.TESTS, "rb").read()
+    code, out, tests = harness("R1", "R2", "R3", "R4", "R5", "--update-data", capsys=capsys)
+    assert code == 1  # the run's own: R3 differs
+    assert open(regression.TESTS, "rb").read() == tests_before  # regression.json never written
+    assert "R3: not stored (DIFFERENT: a data record is stored for an ok test only)" in out
+    assert (f"Data records: 2 stored (1 of them changed), 3 tests left as they were; in {harness.data_file}"
+            in out)
+    assert regression.load_data(str(harness.data_file)) == \
+        {"R1": _record(), "R2": _record(), "R3": _record(gdal="3.9.0")}
+    first = harness.data_file.read_bytes()
+    code, out, _ = harness("R1", "R2", "R4", "--update-data", capsys=capsys)
+    assert code == 0 and "2 stored (0 of them changed), 1 tests left as they were" in out
+    assert harness.data_file.read_bytes() == first
+
+
+def test_update_data_is_refused_with_update_and_off_the_real_cache(harness, tmp_path, capsys, monkeypatch):
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result(data_record=_record()))
+    monkeypatch.setattr(regression, "seed", lambda *args: pytest.fail("seeded"))
+    code, out, _ = harness("R1", "--update-data", "--update", capsys=capsys)
+    assert code == 2 and "--update-data stores only the data records" in out
+    scratch = str(tmp_path / "scratch" / "cache")
+    code, out, _ = harness("R1", "--update-data", "--cache", scratch, "--cold", capsys=capsys)
+    assert code == 2 and "--update-data stores the data records of runs on the real cache only" in " ".join(out.split())
+    assert not harness.data_file.exists() and not os.path.exists(scratch)
+
+
+# The real side file
+
+
+def test_the_side_files_entries_are_regression_entries():
+    tests = regression.load()
+    data = regression.load_data()
+    assert set(data) <= set(tests) and list(data) == [t for t in tests if t in data]
+    for test_id, record in data.items():
+        names = [n for place in record["folders"].values() for n in place["files"]] + list(record["folders"])
+        names += list((record["coastline"] or {}).get("tiles", {}))
+        names += list((record["area"]["inputs"] or {}).get("tiles", {}))
+        assert all(regression.cache_name(n) for n in names), test_id
