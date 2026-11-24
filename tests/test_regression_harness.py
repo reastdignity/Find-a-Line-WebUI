@@ -1,8 +1,8 @@
 """tests/regression.py's harness, offline (no real search: `run` and `run_osm` stubbed, `measure` fed canned output):
 the coastline source stored with a baseline (H1), the outcomes ok, unverified and DIFFERENT (H2) and their exit codes
-(H3), the --update guard (H4), the refusal of an empty cache without --cold (H5), seeding a scratch cache from the
-real one by hard links (H6), the run log (H7), R17's list of differences (H8), entries run by name only (H9) and the
-requests per host and the test lock's token in the run log (H10)."""
+(H3), the --update guard (H4), the refusal of a cache other than the real one without --cold (H5), seeding a scratch
+cache from the real one by hard links (H6), the run log (H7), R17's list of differences (H8), entries run by name
+only (H9) and the requests per host and the test lock's token in the run log (H10)."""
 
 import contextlib
 import http.server
@@ -69,7 +69,8 @@ def _expected(coastline=WORLD_FILE, lines=10) -> dict:
 def harness(tmp_path, monkeypatch):
     """main() on tests of our own (written to a copy of regression.json) with a stubbed search: `results[id]` is
     what the search of an id gives; returns a function running main with argv, giving (exit code, output, tests
-    as stored afterwards)."""
+    as stored afterwards). Its cache is the real cache (FINDALINE_DATA on tmp_path): run without --cold."""
+    monkeypatch.setenv("FINDALINE_DATA", str(tmp_path))
     cache_dir = _layout(tmp_path / "cache")
     tests_file = tmp_path / "regression.json"
     results = {}
@@ -710,22 +711,119 @@ def test_update_of_a_different_entry_exits_as_before(harness, capsys):
 # H5: the cold-cache refusal
 
 
+def _not_real_refusal(folder, real) -> str:
+    """The refusal of a cache folder other than the real one, without --cold."""
+    return (f"the cache folder {folder} is not the real cache: pass --cache {real} to verify a change, or --cold to "
+            f"run on this folder (it downloads what the folder lacks, after seeding it from the real cache; add "
+            f"--no-seed on a branch that changes the cache's tile encoding, which must not get the real cache's tiles "
+            f"by link)")
+
+
+def _refused(out: str, folder, real) -> bool:
+    """Whether the output holds that refusal (whitespace joined: the console may wrap it)."""
+    return _not_real_refusal(folder, real) in " ".join(out.split())
+
+
 def test_an_empty_cache_is_refused_without_cold(harness, tmp_path, capsys, monkeypatch):
-    monkeypatch.delenv("FINDALINE_DATA", raising=False)
+    """A missing or empty folder other than the real cache: the new refusal (it replaced "is missing/empty"), its
+    three parts; nothing runs, no LAYOUT is written, no run log line. With --cold the run goes on."""
     harness.write({"R1": _entry(_expected())})
     harness.results.update(R1=_result())
+    real = regression.real_cache_dir()
+    assert regression.same_folder(real, harness.cache)  # the fixture's cache is the real one
+    monkeypatch.setattr(regression, "run", lambda *args: pytest.fail("a search ran"))
     for folder in (tmp_path / "missing", tmp_path / "empty"):
         if folder.name == "empty":
             folder.mkdir()
         code, out, _ = harness("R1", "--cache", str(folder), capsys=capsys)
-        assert code == 2
-        assert f"the cache folder {folder} is {folder.name}" in out
-        assert f"pass --cache {regression.real_cache_dir()}, or --cold to download" in out
-    # with --cold the run goes on (on a cache with data too: harmless)
+        assert code == 2 and _refused(out, folder, real), out
+        text = " ".join(out.split())
+        assert f"the cache folder {folder} is not the real cache" in text  # the folder
+        assert f"pass --cache {real} to verify a change" in text  # the real cache
+        assert "or --cold to run on this folder" in text and "--no-seed" in text  # --cold, seeding, --no-seed
+        assert not (folder / "LAYOUT").exists() and not (tmp_path / "locks" / regression.RUN_LOG).exists()
+    monkeypatch.setattr(regression, "run", lambda tests, test_id, work, cache, browser: dict(harness.results[test_id]))
     code, out, _ = harness("R1", "--cache", str(tmp_path / "missing"), "--cold", "--no-seed", capsys=capsys)
     assert code == 0 and os.path.isfile(tmp_path / "missing" / "LAYOUT")
-    code, out, _ = harness("R1", "--cold", "--no-seed", capsys=capsys)
-    assert code == 0
+
+
+def test_a_filled_scratch_cache_needs_cold(harness, tmp_path, capsys, monkeypatch):
+    """W3 "b": a cache other than the real one is refused without --cold whatever it holds (a LAYOUT file and
+    data); with --cold it runs (seeding what it lacks), and the run log says it was not the real cache."""
+    real = _real_cache(tmp_path / "real")
+    monkeypatch.setattr(regression, "real_cache_dir", lambda: real)
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result())
+    scratch = _layout(tmp_path / "scratch" / "cache")
+    (tmp_path / "scratch" / "cache" / "fabdem").mkdir()
+    (tmp_path / "scratch" / "cache" / "fabdem" / "x.tif").write_bytes(b"x")
+    code, out, _ = harness("R1", "--cache", scratch, capsys=capsys)
+    assert code == 2 and _refused(out, scratch, real), out
+    assert not (tmp_path / "locks" / regression.RUN_LOG).exists()
+    code, out, _ = harness("R1", "--cache", scratch, "--cold", capsys=capsys)
+    assert code == 0 and "R1: ok" in out and f"Seeded {scratch}" in out
+    with open(tmp_path / "locks" / regression.RUN_LOG, encoding="utf-8") as f:
+        record = json.loads(f.read().splitlines()[-1])
+    assert record["real_cache"] is False and record["cold"] is True and record["seeded"]
+
+
+def test_the_real_cache_and_a_link_to_it_need_no_cold(harness, tmp_path, capsys):
+    """The real cache, and a junction (or link) to it, run without --cold; no seeding."""
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result())
+    code, out, _ = harness("R1", "--cache", harness.cache, capsys=capsys)
+    assert code == 0 and "R1: ok" in out and "Seeded" not in out
+    linked = str(tmp_path / "link")
+    regression.link(harness.cache, linked)
+    try:
+        code, out, _ = harness("R1", "--cache", linked, capsys=capsys)
+        assert code == 0 and "R1: ok" in out and "Seeded" not in out
+    finally:
+        if os.name == "nt":
+            os.rmdir(linked)  # the junction only
+        else:
+            os.unlink(linked)
+
+
+def test_the_default_cache_other_than_the_real_one_is_refused(harness, tmp_path, capsys, monkeypatch):
+    """No --cache: cache/ of FINDALINE_DATA (or of the checkout); when the real cache is elsewhere (a worktree's own
+    cache/ against the main checkout's) it is refused without --cold too."""
+    data = tmp_path / "worktree"
+    _layout(data / "cache")
+    monkeypatch.setenv("FINDALINE_DATA", str(data))
+    real = str(tmp_path / "cache")  # the fixture's
+    monkeypatch.setattr(regression, "real_cache_dir", lambda: real)
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result())
+    monkeypatch.setattr(sys, "argv", ["regression.py", "R1"])  # the fixture would add --cache: main() directly
+    with pytest.raises(SystemExit) as ended:
+        regression.main()
+    out = capsys.readouterr()
+    assert ended.value.code == 2 and _refused(out.err, os.path.join(str(data), "cache"), real), out.err
+
+
+def test_cold_never_seeds_the_main_checkouts_cache(harness, tmp_path, capsys, monkeypatch):
+    """A3: FINDALINE_DATA naming another data folder makes that folder's cache the real one; --cold on the main
+    checkout's cache would seed it from there: a usage error unless --no-seed (main_cache_dir pointed at a tmp
+    folder: no test touches the real one)."""
+    real = _real_cache(tmp_path / "data" / "cache")
+    monkeypatch.setenv("FINDALINE_DATA", str(tmp_path / "data"))
+    main_cache = _layout(tmp_path / "main" / "cache")
+    monkeypatch.setattr(regression, "main_cache_dir", lambda: main_cache)
+    assert regression.same_folder(regression.real_cache_dir(), real)
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result())
+    code, out, _ = harness("R1", "--cache", main_cache, capsys=capsys)
+    assert code == 2 and _refused(out, main_cache, os.path.join(str(tmp_path / "data"), "cache")), out
+    code, out, _ = harness("R1", "--cache", main_cache, "--cold", capsys=capsys)
+    assert code == 2 and "is the main checkout's cache and the real cache is" in " ".join(out.split())
+    assert os.listdir(main_cache) == ["LAYOUT"]  # nothing seeded
+    code, out, _ = harness("R1", "--cache", main_cache, "--cold", "--no-seed", capsys=capsys)
+    assert code == 0 and "R1: ok" in out and os.listdir(main_cache) == ["LAYOUT"]
+    # without FINDALINE_DATA the main checkout's cache is the real one: nothing needed, nothing seeded
+    monkeypatch.delenv("FINDALINE_DATA")
+    code, out, _ = harness("R1", "--cache", main_cache, "--cold", capsys=capsys)
+    assert code == 0 and f"Not seeded: {main_cache} is the real cache" in out
 
 
 def test_a_folder_with_files_but_no_layout_is_a_usage_error(harness, tmp_path, capsys, monkeypatch):
@@ -738,6 +836,7 @@ def test_a_folder_with_files_but_no_layout_is_a_usage_error(harness, tmp_path, c
     for argv in (("--cold",), ("--cold", "--no-seed"), ()):
         code, out, _ = harness("R1", "--cache", str(folder), *argv, capsys=capsys)
         assert code == 2 and f"the folder {folder} holds files but no LAYOUT file" in out, argv
+        assert f"pass --cache {regression.real_cache_dir()}, or an empty folder with --cold" in out, argv
         assert not (folder / "LAYOUT").exists() and not (tmp_path / "locks" / regression.RUN_LOG).exists()
 
 
@@ -768,6 +867,28 @@ def test_the_real_cache_named(tmp_path, monkeypatch):
     assert os.path.normcase(regression.real_cache_dir()) == os.path.normcase(os.path.join(main, "cache"))
     monkeypatch.setenv("FINDALINE_DATA", str(tmp_path / "data"))
     assert regression.real_cache_dir() == os.path.join(str(tmp_path / "data"), "cache")
+
+
+def test_the_main_checkout_found_without_git(tmp_path, monkeypatch):
+    """When git gives no answer (not on PATH, a timeout) a linked worktree still names the main checkout's cache,
+    from its own .git file and that folder's `commondir`: its own cache/ never counts as the real cache. A main
+    checkout (its .git a folder) names its own."""
+    monkeypatch.delenv("FINDALINE_DATA", raising=False)
+    monkeypatch.setattr(regression, "_git", lambda *args: None)
+    main, worktree = tmp_path / "main", tmp_path / "main" / ".claude" / "worktrees" / "w"
+    git_dir = main / ".git" / "worktrees" / "w"
+    git_dir.mkdir(parents=True)
+    (git_dir / "commondir").write_text("../..\n", encoding="utf-8")
+    worktree.mkdir(parents=True)
+    (worktree / ".git").write_text(f"gitdir: {git_dir.as_posix()}\n", encoding="utf-8")
+    monkeypatch.setattr(regression, "REPO", str(worktree))
+    assert os.path.normcase(regression.main_cache_dir()) == os.path.normcase(str(main / "cache"))
+    assert not regression.same_folder(str(worktree / "cache"), regression.real_cache_dir())
+    monkeypatch.setattr(regression, "REPO", str(main))  # the main checkout: .git is a folder
+    assert os.path.normcase(regression.main_cache_dir()) == os.path.normcase(str(main / "cache"))
+    (worktree / ".git").write_text("not a pointer\n", encoding="utf-8")  # files that say nothing: this checkout's
+    monkeypatch.setattr(regression, "REPO", str(worktree))
+    assert os.path.normcase(regression.main_cache_dir()) == os.path.normcase(str(worktree / "cache"))
 
 
 def test_no_refusal_without_a_search(harness, tmp_path, capsys, monkeypatch):
@@ -1045,7 +1166,7 @@ def test_run_log_line(harness, tmp_path, capsys, monkeypatch):
     assert record["lock_token"] is None and record["hosts"] == {}  # the stubbed searches counted nothing
     assert record["v"] == 1 and record["exit"] == 3 and record["cache"] == harness.cache
     assert record["time"].endswith("+00:00") and record["worktree"] == os.path.basename(REPO)
-    assert record["real_cache"] is False and record["cold"] is False and record["seeded"] == []
+    assert record["real_cache"] is True and record["cold"] is False and record["seeded"] == []  # the fixture's
     assert record["args"] == {"ids": [], "all": True, "sets": [], "update": False, "browser": False}
     assert record["entries"]["R1"]["outcome"] == "ok" and record["entries"]["R1"]["coastline"] == WORLD_FILE
     assert record["entries"]["R2"] == {"outcome": "unverified", "seconds": record["entries"]["R2"]["seconds"],
