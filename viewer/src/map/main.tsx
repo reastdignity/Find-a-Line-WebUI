@@ -98,7 +98,7 @@ function LoadedMap() {
   if (data) return <RunMap data={data} />;
   const link = shared();
   return <Screen theme={storedTheme()}>
-    <RunLoading progress={progress} error={error?.text} onRetry={error?.again ? () => setTries((n) => n + 1) : undefined}
+    <RunLoading main progress={progress} error={error?.text} onRetry={error?.again ? () => setTries((n) => n + 1) : undefined}
                 more={link && error?.again ? t("ui.result.store_failed_shared") : undefined}>
       {!link && <Button kind="ghost" icon="back" class="c-back" onClick={() => { location.href = "/"; }}>{t("ui.map.back")}</Button>}
     </RunLoading>

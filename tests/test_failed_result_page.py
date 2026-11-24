@@ -348,3 +348,20 @@ def test_failed_page_on_a_small_phone(named_site):
                     return Math.round(r.left) < 0 || Math.round(r.right) > innerWidth; }).map((e) => e.getAttribute('class') || e.tagName)}; }""")
     assert sizes["back"] >= 44 and sizes["retry"] >= 44, sizes
     assert sizes["outside"] == [] and sizes["scroll"] <= sizes["width"], sizes
+
+
+def test_the_failed_box_stands_in_a_main_region(named_site):
+    """Every text of a failed page stands in the page's one main region (a screen reader's landmark; axe-core's
+    "region"): on a run's map.html, its own and a share link's, the box itself is the main region (the page has no
+    other); on the app's page it stands in the app's `main` and is none itself."""
+    site, _ = named_site
+    regions = ("() => { const box = document.querySelector('.c-result-wait'), mains = [...document.querySelectorAll('main, [role=main]')]; "
+               "return {mains: mains.length, box: box.getAttribute('role'), inside: mains.some((m) => m.contains(box))}; }")
+    seen = {}
+    with Browser(site) as browser:
+        for name, url, who in (("own", own_map, "a"), ("shared", shared_map, None), ("app", app_page, "a")):
+            page = opened(browser, url(site), Store("fail"), who=who)
+            page.wait_for_selector(FAILED)
+            seen[name] = page.evaluate(regions)
+    assert seen["own"] == seen["shared"] == {"mains": 1, "box": "main", "inside": True}, seen
+    assert seen["app"] == {"mains": 1, "box": None, "inside": True}, seen

@@ -24,9 +24,11 @@ export function loadingText(p: LoadProgress | null): string {
     : t("ui.result.loading_download_unknown", {done: sizes.done, unit: sizes.unit});
 }
 
-export function RunLoading({progress, error, onRetry, more, children}:
+/** `main`: the box is the page's main part (a run's map.html, which has no other landmark: its text would stand
+ *  outside every region; the app's page has its own `main` around it). */
+export function RunLoading({progress, error, onRetry, more, main, children}:
                            {progress: LoadProgress | null; error?: string; onRetry?: () => void; more?: string;
-                            children?: ComponentChildren}) {
+                            main?: boolean; children?: ComponentChildren}) {
   // A new try that failed too puts the focus back on its button (it went with the button while the run loaded)
   const retried = useRef(false);
   const box = useRef<HTMLDivElement>(null);
@@ -35,7 +37,7 @@ export function RunLoading({progress, error, onRetry, more, children}:
     retried.current = false;
     box.current?.querySelector<HTMLElement>(".c-retry")?.focus();
   }, [error]);
-  return <div class="c-result-wait" ref={box}>
+  return <div class="c-result-wait" ref={box} role={main ? "main" : undefined}>
     {children}
     {error ? <>
       <p class="c-error" role="alert">{error}</p>
