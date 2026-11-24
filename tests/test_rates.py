@@ -766,3 +766,112 @@ def test_gdal_reads_take_a_turn_per_attempt(http_server, tmp_path, monkeypatch):
     assert turns == [url, url]
     with rio.open(tmp_path / "block.tif") as block:
         assert (block.read(1) == band[1000:1040, 1000:1040]).all()
+
+
+@pytest.fixture
+def one_slot_tools(http_server, ahn_like, monkeypatch):
+    """The AHN-like file on the test server, its host at one slot; net.host_slot, net.rate_turn and net.gdal_open
+    recorded: the slots held (data folder, url), the turns, GDAL's options at each open."""
+    import rasterio as rio
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    monkeypatch.setattr(net, "HOST_SLOTS_OF", dict(net.HOST_SLOTS_OF, **{"127.0.0.1": 1}))
+    http_server.add("/tools/M_TEST2023.TIF", ahn_like.read_bytes(), "image/tiff")
+    seen = {"slots": [], "turns": [], "opens": []}
+    slot, gdal_open = net.host_slot, net.gdal_open
+
+    @contextlib.contextmanager
+    def held(cache_dir, url):
+        with slot(cache_dir, url):
+            seen["slots"].append((cache_dir, url))
+            yield
+
+    @contextlib.contextmanager
+    def opening():
+        with gdal_open():
+            seen["opens"].append(dict(rio.env.getenv()))
+            yield
+    monkeypatch.setattr(net, "host_slot", held)
+    monkeypatch.setattr(net, "gdal_open", opening)
+    monkeypatch.setattr(net, "rate_turn", lambda url, share=1.0: seen["turns"].append(url))
+    return http_server.url("/tools/M_TEST2023.TIF"), seen
+
+
+def _one_slot_open(options):
+    """GDAL's options of an open of a one-slot host's file: the connect timeout, one retry, serial ranges."""
+    return (options["GDAL_HTTP_CONNECTTIMEOUT"], options["GDAL_HTTP_MAX_RETRY"], options["GDAL_HTTP_MULTIRANGE"]) == \
+        (str(net.CONNECT_TIMEOUT_S), str(net.OPEN_RETRIES), "SERIAL")
+
+
+def test_check_source_reads_under_the_limits(one_slot_tools, ahn_like, tmp_path):
+    """tools/check_source.py's two readers of a source file: GDAL's (_read_source) holds the host's slot, takes a
+    turn and opens with the connect timeout, one retry and serial ranges; ours (_read_ranged) holds the slot and
+    takes a turn per range request. Both give the file's values."""
+    import numpy as np
+    import check_source as cs
+    from affine import Affine
+    url, seen = one_slot_tools
+    profile = {"crs": "EPSG:2180", "transform": Affine(0.5, 0, 2050.0, 0, -0.5, 3950.0), "width": 100,
+               "height": 100}
+    cache_dir = str(tmp_path / "cache")
+    local = cs._read_source(str(ahn_like), profile)
+    seen["turns"].clear()
+    remote = cs._read_source(url, profile, cache_dir=cache_dir)
+    assert seen["slots"] == [(cache_dir, url)] and seen["turns"] == [url] and _one_slot_open(seen["opens"][-1])
+    assert np.array_equal(remote, local, equal_nan=True)
+    seen["slots"].clear()
+    seen["turns"].clear()
+    ranged = cs._read_ranged(url, profile, cache_dir=cache_dir)
+    assert seen["slots"] == [(cache_dir, url)] and len(seen["turns"]) >= 2 and set(seen["turns"]) == {url}
+    assert np.array_equal(ranged, local, equal_nan=True)
+
+
+def test_obstacle_study_reads_under_the_limits(one_slot_tools, tmp_path):
+    """tools/obstacle_study.py's on_grid: the host's slot in the given data folder, a turn per attempt, the open
+    with the connect timeout, one retry and serial ranges."""
+    import numpy as np
+    import obstacle_study
+    from rasterio.warp import Resampling
+    url, seen = one_slot_tools
+    grid = {"crs": "EPSG:2180", "res": 1.0, "left": 2010.0, "top": 3990.0, "width": 50, "height": 50}
+    cache_dir = str(tmp_path / "cache")
+    values = obstacle_study.on_grid([url], grid, Resampling.max, cache_dir)
+    assert values is not None and np.isfinite(values).all()
+    assert seen["slots"] == [(cache_dir, url)] and seen["turns"] == [url] and _one_slot_open(seen["opens"][0])
+
+
+def test_perf_window_reads_predicted_under_the_limits(one_slot_tools, tmp_path):
+    """tools/perf_window_reads.py's predicted: each file in its host's slot (held once per host) and its turn,
+    opened with one retry; its table says when a rate made the seconds wait."""
+    import perf_window_reads as pw
+    import grid as gd
+    from sources.layers.fileblocks import FileBlocks
+    url, seen = one_slot_tools
+    layer = FileBlocks("AHN test", "test/ahn/1", "EPSG:2180", 0.5, 100, url, extent=(2000.0, 3700.0, 2300.0, 4000.0))
+    tiles = layer.tiles(gd.Grid(left=2001.0, top=3999.0, res=0.5, height=398, width=398, crs="EPSG:2180"))
+    cache_dir = str(tmp_path / "cache")
+    assert pw.predicted(layer, tiles, cache_dir)["file_tiles"] > 0
+    assert seen["slots"] == [(cache_dir, url)] and seen["turns"] == [url]
+    assert seen["opens"][0]["GDAL_HTTP_MAX_RETRY"] == str(net.OPEN_RETRIES)
+    result = {"source": "bq", "mode": "default", "blocks": 4, "seconds": 9.0, "rate": 54, "peak_memory": 2 ** 20,
+              "network": {"bytes": 1e6, "gets": 9, "heads": 1}, "cache": {"bytes": 1e6, "km2": 1.0}}
+    assert "bq: its host has a rate of 54 requests a minute" in pw.table([result])
+    assert "rate of" not in pw.table([dict(result, rate=None)])
+
+
+def test_probe_window_serial_for_one_slot(one_slot_tools, tmp_path, monkeypatch):
+    """The probe's window read of a one-slot host's file through GDAL asks its ranges one after another
+    (_gdal_http(serial=True)) and opens with one retry; another host's in parallel as before."""
+    from sources import probe
+    from sources.layers.fileblocks import FileBlocks
+    import grid as gd
+    url, seen = one_slot_tools
+    asked = []
+    original = probe._gdal_http
+    monkeypatch.setattr(probe, "host_slot", lambda cache_dir, url: contextlib.nullcontext())
+    monkeypatch.setattr(probe, "_gdal_http", lambda serial=False: (asked.append(serial), original(serial))[1])
+    for where, serial in ((url, True), (url.replace("127.0.0.1", "localhost"), False)):
+        layer = FileBlocks("AHN test", "test/ahn/1", "EPSG:2180", 0.5, 100, where,
+                           extent=(2000.0, 3700.0, 2300.0, 4000.0))
+        tile = layer.tiles(gd.Grid(left=2001.0, top=3999.0, res=0.5, height=10, width=10, crs="EPSG:2180"))[0]
+        assert probe._window(str(tmp_path), layer, tile).endswith("% with data")
+        assert asked[-1] is serial and seen["opens"][-1]["GDAL_HTTP_MAX_RETRY"] == str(net.OPEN_RETRIES)

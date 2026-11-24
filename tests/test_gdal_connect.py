@@ -117,10 +117,31 @@ def small_file(tmp_path_factory):
     return path
 
 
-def test_the_open_once_again_the_reads_three_times(short, http_server, small_file, tmp_path):
+@pytest.mark.parametrize("in_thread", [False, True])
+def test_the_open_once_again_the_reads_three_times(short, http_server, small_file, tmp_path, in_thread):
     """Opening a file is retried once (net.gdal_open): a header answered 503 every time fails the open after two
     requests. The reads after it are retried three times again: the block's first two data ranges answered 503 are
-    asked again and the block is the file's."""
+    asked again and the block is the file's. In the main thread and in another (a download's pool thread: rasterio
+    keeps GDAL's options per thread there)."""
+    if in_thread:
+        outcome = []
+
+        def run():
+            try:
+                _open_and_read(http_server, small_file, tmp_path)
+                outcome.append(None)
+            except BaseException as e:  # noqa: BLE001 - raised below
+                outcome.append(e)
+        worker = threading.Thread(target=run)
+        worker.start()
+        worker.join()
+        if outcome[0] is not None:
+            raise outcome[0]
+        return
+    _open_and_read(http_server, small_file, tmp_path)
+
+
+def _open_and_read(http_server, small_file, tmp_path):
     body = small_file.read_bytes()
     busy = {"/open/": lambda r: True, "/read/": lambda r: int(r.split("=")[1].split("-")[0]) >= 16384}
     failed = {path: 0 for path in busy}
@@ -149,7 +170,8 @@ def test_the_open_once_again_the_reads_three_times(short, http_server, small_fil
     assert failed["/read/"] == 2
 
 
-GDAL_TEXTS = [  # curl's texts as GDAL passes them on (measured on this module's addresses, Windows and Linux)
+GDAL_TEXTS = [  # curl's texts as GDAL passes them on: the first two seen on Windows (192.0.2.1, a closed port gives
+    # the second's form); the others are curl's wording, not seen here
     ("CURL error: Connection timed out after 5012 milliseconds", True),
     ("CURL error: Failed to connect to 192.0.2.1 port 80 after 21032 ms: Could not connect to server", True),
     ("CURL error: Failed to connect to 127.0.0.1 port 9 after 2040 ms: Couldn't connect to server", True),
