@@ -761,7 +761,11 @@ def _area_inputs(identity, left_out: list) -> Optional[dict]:
     return {"tiles": tiles, "nominatim": answers}
 
 
-EDITION = re.compile(r"\d{4}-\d{2}-\d{2}")  # the world file's folder under osm/water-polygons/ (coast.world_file)
+def edition_name(edition) -> bool:
+    """Whether a world file's edition may be taken: the name of its folder under osm/water-polygons/ (a date where
+    coast.py downloaded it; coast.world_file takes any folder), one part passing cache_name."""
+    return cache_name(edition) and "/" not in edition
+
 
 
 def _coastline(identity, left_out: list) -> dict:
@@ -771,7 +775,7 @@ def _coastline(identity, left_out: list) -> dict:
         return {}
     if "edition" in identity:
         edition = identity["edition"]
-        if isinstance(edition, str) and EDITION.fullmatch(edition):
+        if edition_name(edition):
             return {"edition": edition}
     elif "paths" in identity:
         tiles = _named_files(identity["paths"], identity)
@@ -1025,7 +1029,7 @@ def _good_record(record) -> bool:
             and isinstance(record["left_out"], list) and all(isinstance(part, str) for part in record["left_out"])
             and (coastline is None or coastline == {}
                  or (isinstance(coastline, dict) and set(coastline) == {"edition"}
-                     and isinstance(coastline["edition"], str) and EDITION.fullmatch(coastline["edition"]) is not None)
+                     and edition_name(coastline["edition"]))
                  or (isinstance(coastline, dict) and set(coastline) == {"tiles"} and _files_map(coastline["tiles"])))
             and isinstance(area, dict) and set(area) == {"type", "shape", "inputs"} and _string_or_none(area["type"])
             and (area["shape"] is None or _checksum(area["shape"]) == area["shape"])
@@ -1101,6 +1105,7 @@ def write_files(texts: List[tuple]) -> Optional[tuple]:
             temporaries.append(temporary)
             with os.fdopen(handle, "wb") as f:
                 f.write(text.encode("utf-8"))
+            os.chmod(temporary, 0o644)  # mkstemp makes it readable by its owner only (POSIX), as cache.replacing
         for (path, _), temporary in zip(texts, temporaries):
             try:
                 _replace(temporary, path)

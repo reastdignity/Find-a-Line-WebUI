@@ -1917,7 +1917,8 @@ def test_record_of_edge_cases():
     inputs["nominatim"].append("Gozo")
     record = regression.record_of(_meta(area=_polygon(inputs=inputs)))
     assert record["area"]["inputs"] is None and record["left_out"] == ["the search area's inputs"]
-    for edition in ("C:/x", "../2026-10-23", "latest", 20261023):
+    assert regression.record_of(_meta(coastline={"edition": "manual"}))["coastline"] == {"edition": "manual"}
+    for edition in ("C:/x", "../2026-10-23", "2026/10", "", 20261023):
         record = regression.record_of(_meta(coastline={"edition": edition}))
         assert record["coastline"] == {} and record["left_out"] == ["the coastline"], edition
     meta = _meta(mixed=True)
@@ -2139,5 +2140,5 @@ def test_the_side_files_names_are_relative_to_the_cache():
         texts += [query for answers in inputs["nominatim"].values() for query in answers] + list(inputs["nominatim"])
         assert not [t for t in texts if MACHINE_PATH.search(t)], test_id
         edition = (record["coastline"] or {}).get("edition")
-        assert edition is None or regression.re.fullmatch(r"\d{4}-\d{2}-\d{2}", edition), test_id
+        assert edition is None or regression.edition_name(edition), test_id
         assert record["source"] is None or regression.re.fullmatch(r"[A-Za-z0-9_-]+", record["source"]), test_id
