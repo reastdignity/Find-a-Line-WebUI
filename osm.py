@@ -14,6 +14,8 @@ OpenStreetMap data kept in the cache (cache/osm, see cache.py).
   country's land cover is about 100 times the other themes).
 - Nominatim answers (cache/osm/nominatim.sqlite): place names and countries, so the
   same point is not asked twice.
+A run records the tiles and answers its coastline and its area were built from (theme_files, stored_answer: their
+checksums, in run.json's `identity`).
 
 The public servers ask for moderation, and every process of the app (the CLI, the web
 worker, its phase processes) shares them: Nominatim gets at most one request per second
@@ -24,6 +26,7 @@ server refuses one (429, 406).
 """
 
 import contextlib
+import hashlib
 import json
 import math
 import os
@@ -177,6 +180,13 @@ def polygons(features: List[Dict]) -> List[Tuple[object, Dict]]:
 
 def theme_path(cache_dir: str, theme: str, lat: float, lon: float) -> str:
     return os.path.join(cache_dir, "osm", "themes", theme, f"{tile_name(lat, lon)}.geojson")
+
+
+def theme_files(cache_dir: str, theme: str, west: float, south: float, east: float, north: float) -> List[str]:
+    """The theme tiles theme() reads over a WGS84 box, relative to the cache with / and sorted (a run's record of
+    the OSM data its coastline or its area was built from; their checksums: cache.stored_checksums)."""
+    return sorted(cache.relative(cache_dir, theme_path(cache_dir, theme, lat, lon))
+                  for lat, lon in tiles(west, south, east, north))
 
 
 def write_tile(path: str, features: List[Dict]):
@@ -541,11 +551,28 @@ def _ask(url: str, params: Dict, timeout: int, cache_dir: str):
     return response.json()
 
 
+def search_key(name: str, whole: bool = False) -> str:
+    """The stored key (the query of nominatim.sqlite's table "search") of search(name, whole)."""
+    return f"{WHOLE_KEY}{name}" if whole else name
+
+
+def stored_answer(cache_dir: str, table: str, key: str) -> Dict:
+    """A run's record of a stored Nominatim answer it used: {"table", "query", "sha256"}, the checksum of the stored
+    answer's text as the row holds it (UTF-8), None when the row is gone (an answer too large to store)."""
+    db = _nominatim_db(cache_dir)
+    try:
+        row = db.execute(f"SELECT answer FROM {table} WHERE query = ?", (key,)).fetchone()
+    finally:
+        db.close()
+    sha256 = hashlib.sha256(row[0].encode("utf-8")).hexdigest() if row and row[0] is not None else None
+    return {"table": table, "query": key, "sha256": sha256}
+
+
 def search(name: str, cache_dir: str, whole: bool = False) -> Dict:
     """The best Nominatim match for a name, with its outline ("geojson"); {} if none. Cached.
     whole: an outline above MAX_ANSWER_BYTES as it is, on a row of its own (a country of the highline
     layer: two neighbours simplified apart would no longer share their border)."""
-    key = f"{WHOLE_KEY}{name}" if whole else name
+    key = search_key(name, whole)
     answer = _cached(cache_dir, "search", key)
     if answer is not None:
         return answer

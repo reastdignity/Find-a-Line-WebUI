@@ -175,7 +175,8 @@ SHORE_FILE = "shore.json"  # a tiled search's shore in its run folder (search_li
 FALLBACK_WARN_SHARE = 0.10
 ORIGINS_FILE = "terrain_sources.json"  # a tiled search's terrain_origins in its run folder (as SHORE_FILE)
 # A tiled search's record of the data used (src.used_data after step 1: run.json's "data" and credits) in its run
-# folder, written whole (_keep_used): read back by a resumed search that has no tile left (search_lines)
+# folder, written whole (_keep_used): read back by a resumed search that has no tile left (search_lines), and
+# compared with the record of a session with tiles left ({"data", "mixed"}: run.json's identity "mixed", C6)
 USED_FILE = "data_used.json"
 PATCH_ROWS = 512  # rows encoded at a time (float64 temporaries of a block only)
 # The reach of a fixed anchor (reach_of_anchor, docs/3d-view-contract.md, "/api/reach"): every sample of the
@@ -1149,7 +1150,11 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                     extent=plan.search_grid)
             emit("info", f"Coastline: {coast_source}")
             if coast_source.startswith("OpenStreetMap"):
-                src.used_data.append({"layer": coast_source, "credit": src.OSM_CREDIT.as_dict()})
+                coast_entry = {"layer": coast_source, "credit": src.OSM_CREDIT.as_dict()}
+                coast_identity = coast.identity(grid, cache_dir, coast_source)  # the world file's or the tiles'
+                if coast_identity is not None:
+                    coast_entry["identity"] = coast_identity
+                src.used_data.append(coast_entry)
             if warning:
                 emit("warning", warning)
             progress.compute.start("shore zone", 1, unit="step")
@@ -2351,23 +2356,64 @@ def _silent_progress():
         del progress.set_step
 
 
-def _keep_used(path: str):
-    """The record of the data used after step 1 of a tiled search (src.used_data) into its run folder's USED_FILE,
-    written whole (a .part beside it, then replaced): a search stopped while writing it leaves the file of before."""
+def _keep_used(path: str, mixed: bool):
+    """The record of the data used after step 1 of a tiled search (src.used_data, with its `identity`) into its run
+    folder's USED_FILE as {"data": [...], "mixed": <whether its sessions read different data>}, written whole (a
+    .part beside it, then replaced): a search stopped while writing it leaves the file of before."""
     with open(path + ".part", "w", encoding="utf-8") as f:
-        json.dump(src.used_data, f, separators=(",", ":"))
+        json.dump({"data": src.used_data, "mixed": mixed}, f, separators=(",", ":"))
     os.replace(path + ".part", path)
 
 
-def _read_used(path: str) -> Optional[List[Dict]]:
-    """The record of the data used kept by _keep_used, or None: no file (a run begun before it) or one that cannot be
-    read as a list."""
+def _read_used(path: str) -> Optional[Tuple[List[Dict], bool]]:
+    """The record of the data used kept by _keep_used and its mark (entries, mixed), or None: no file (a run begun
+    before it) or one that cannot be read. A list (a run begun before the record had its mark) is its entries, not
+    mixed."""
     try:
         with open(path, encoding="utf-8") as f:
             used = json.load(f)
     except (OSError, ValueError):
         return None
-    return used if isinstance(used, list) else None
+    if isinstance(used, list):
+        return used, False
+    if isinstance(used, dict) and isinstance(used.get("data"), list):
+        return used["data"], bool(used.get("mixed"))
+    return None
+
+
+def _record_differs(before: List[Dict], now: List[Dict]) -> bool:
+    """Whether two sessions of a tiled search read different data (C6: run.json's identity "mixed"), by their records
+    of the data used (src.used_data): an entry is in one record only (a layer, the coastline's source, a file), an
+    entry's list of files differs, a file both name has two known checksums that differ, or the coastline's edition,
+    its tiles or a local file's size or time differ where both know them. A checksum or a value not known (None, absent: a record of
+    before, a file adopted by hand) never marks; nor does a record of before that names no file and holds no
+    `identity` (nothing to compare)."""
+    def by_key(record):
+        return {(e.get("layer"), e.get("folder"), e.get("file")): e for e in record if isinstance(e, dict)}
+
+    def named(files, sha256):  # path -> checksum (None: not known)
+        return dict(zip(files, sha256 or [None] * len(files)))
+
+    old, new = by_key(before), by_key(now)
+    if not any("paths" in e or "identity" in e for e in old.values()):
+        return False  # nothing known of the session before
+    if old.keys() != new.keys():
+        return True  # a layer, a coastline or a file in one record only (the world file, then Copernicus)
+    for key in old:
+        a, b = old[key], new[key]
+        ida, idb = a.get("identity") or {}, b.get("identity") or {}
+        pairs = [(named(a.get("paths") or [], ida.get("sha256")), named(b.get("paths") or [], idb.get("sha256")))]
+        if "paths" not in a and ida.get("paths") is not None and idb.get("paths") is not None:  # coastline tiles
+            pairs.append((named(ida["paths"], ida.get("sha256")), named(idb["paths"], idb.get("sha256"))))
+        for files_a, files_b in pairs:
+            if files_a.keys() != files_b.keys():
+                return True
+            if any(files_a[p] and files_b[p] and files_a[p] != files_b[p] for p in files_a):
+                return True
+        if any(ida.get(k) is not None and idb.get(k) is not None and ida[k] != idb[k]
+               for k in ("edition", "size", "modified")):
+            return True
+    return False
 
 
 def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
@@ -2397,12 +2443,14 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     # which read the run's data from it; a run begun before that file (or with it cut short) runs step 1 once more
     # for its record, so its run never goes without one
     used_path = os.path.join(run["path"], USED_FILE)
-    used = None if todo else _read_used(used_path)
-    area = prepare_data(plan, strips=True) if used is None else None
+    kept = _read_used(used_path)  # the record of the sessions before and their mark (C6), None in the first
+    area = prepare_data(plan, strips=True) if todo or kept is None else None
     if area is None:
-        src.used_data[:] = used  # in place of what plan_search recorded
-    else:
-        _keep_used(used_path)
+        src.used_data[:] = kept[0]  # in place of what plan_search recorded
+        run["mixed"] = kept[1]  # no new mark: no step 1 read anything
+    else:  # a mark once made stays; a session that read other data than the one before makes it
+        run["mixed"] = kept is not None and (kept[1] or _record_differs(kept[0], src.used_data))
+        _keep_used(used_path, run["mixed"])
     shore_path = os.path.join(run["path"], SHORE_FILE)  # the area's uncertain shore, kept for a resumed search
     if area is not None and area.shore is not None:
         with open(shore_path, "w", encoding="utf-8") as f:
@@ -2678,6 +2726,7 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         store = linestore.write(run["path"], results, {**head, **view_head}, view)
         del view
         meta["store"] = store
+        meta[rn.IDENTITY] = _run_identity(plan, run)  # the record's top level: never in the head, the map, the list
         progress.compute.update(len(results))
         progress.compute.finish()
         map_path = None
@@ -2696,6 +2745,27 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         rn.write_index(plan.paths.runs)
     progress.set_step("")
     return Result(results, spot_groups, meta, run, map_path)
+
+
+RECORD_VERSION = 1  # of a run's record of the data it read (run.json's `identity`)
+
+
+def _run_identity(plan: Plan, run: Dict) -> Dict:
+    """run.json's top-level `identity` (the record of what a run read beside its data entries and its area, which
+    runs.without_identity drops from everything that leaves the run): the record's version, the versions of GDAL,
+    of the PROJ GDAL reads with and of rasterio as they run now (taken when the run is saved, never kept between
+    sessions), the --slope-file's size and modification time (cache.file_identity; left out when it cannot be read:
+    never a failed save), and "mixed" when the sessions of a resumed tiled search read different data
+    (search_lines)."""
+    import rasterio
+    identity = {"v": RECORD_VERSION, "gdal": rasterio.__gdal_version__, "proj": rasterio.__proj_version__,
+                "rasterio": rasterio.__version__}
+    slope = plan.params.slope_file and cache.file_identity(plan.params.slope_file)
+    if slope:
+        identity["slope_file"] = slope
+    if run.get("mixed"):
+        identity["mixed"] = True
+    return identity
 
 
 def _not_saved(run: Dict, own: bool):

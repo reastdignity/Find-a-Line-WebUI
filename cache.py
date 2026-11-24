@@ -649,6 +649,18 @@ def stored_checksums(cache_dir: str, paths: Sequence[str]) -> List[Optional[str]
     return answers
 
 
+def file_identity(path: str) -> Optional[Dict]:
+    """A run's record of a local file it read (--elevation-file, --surface-file, --slope-file): its size and its
+    modification time (UTC, ISO, seconds, as run.json's `created`), never a hash of the file; None when it cannot be
+    read now."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return {"size": stat.st_size,
+            "modified": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(timespec="seconds")}
+
+
 def identity_of(paths: Sequence[str], checksums: Dict[str, Optional[str]]) -> Dict[str, List[Optional[str]]]:
     """A data entry's `identity` (a run's record of the data it read, never in the public export: runs.public_meta):
     the stored sha256 of each of its paths, parallel to them (touch's checksums), null where not known."""
