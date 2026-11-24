@@ -147,6 +147,15 @@ NO_ANSWER = (
 # decides, so the words of an answered error's page ("upstream timed out" in a 500) never count as no answer
 HTTP_STATUS = r"\bHTTP (?:response code: )?(\d{3})\b|\b(\d{3}) (?:Client|Server) Error\b"
 NO_ANSWER_STATUSES = (429, 502, 503, 504)
+# ... and words that rule a sign out, so DIFFERENT: a name that does not resolve (urllib3 2's NameResolutionError,
+# urllib3 1's "Failed to establish a new connection: ... getaddrinfo failed", curl's "Could not resolve host"), and a
+# service that answered with its own error text (sources/readers/imageserver.py, sources/layers/inegi.py), which may
+# say "timed out" itself
+NOT_NO_ANSWER = (
+    r"getaddrinfo failed|Failed to resolve|Name or service not known|Could(?:n't| not) resolve host|"
+    r"NameResolutionError|nodename nor servname",
+    r"answered an error instead of|the index answered",
+)
 # The shared data a scratch cache gets from the real one with --cold (seed): folders below the cache, by hard link
 # per file (never a junction: a recursive delete of the scratch cache then cannot reach the real files). They follow
 # the code that writes them (tests/test_regression_harness.py checks each): coast.world_file (the OSM water polygons;
@@ -422,6 +431,8 @@ def unanswered(stderr: str) -> Optional[str]:
             status = re.search(HTTP_STATUS, text)  # the first status named is the error's; a server's text follows it
             if status and int(status.group(1) or status.group(2)) not in NO_ANSWER_STATUSES:
                 return None  # answered (a 500 whose page says "timed out" too)
+            if any(re.search(words, text) for words in NOT_NO_ANSWER):
+                return None
             if any(re.search(sign, text) for sign in NO_ANSWER):
                 return f"{who} did not answer: {text[:200] + ('...' if len(text) > 200 else '')}"
             return None
@@ -447,8 +458,8 @@ def coastline_excuse(stored_source: Optional[str], source: Optional[str], world_
     return f"coastline: {source}; the baseline's: {stored_source}"
 
 
-def outcome(test: dict, found: dict, values: list, problems: list = (), cross: list = (), world_file: bool = False,
-            unverified: tuple = ()) -> tuple:
+def outcome(test: dict, found: dict, values: list, problems: list, cross: list, world_file: bool,
+            unverified: tuple) -> tuple:
     """("ok" | "unverified" | "DIFFERENT", reason or None) of a test that ran (not skipped). values: the differences
     of the compared values (value_differences); problems: the other own differences (the exit code, the store's,
     check_profiles', --browser's: never excused by the coastline); cross: (difference, the other test) of same_as
@@ -555,13 +566,7 @@ def own_problems(found: dict) -> list:
     return ([f"exit code {found['exit']}"] if found.get("exit") else []) + list(found.get("problems", []))
 
 
-def compare(expected: dict, found: dict, ignore: tuple = ()) -> list:
-    """Differences as 'key: expected -> found': the exit code, the values, the problems."""
-    exit_line = own_problems({"exit": found.get("exit")})
-    return exit_line + value_differences(expected, found, ignore) + list(found.get("problems", []))
-
-
-def stored(found: dict, old: dict, ok: bool = False) -> dict:
+def stored(found: dict, old: dict, ok: bool) -> dict:
     """What --update keeps: the always-present values plus the optional values that matter. The coastline: an ok
     run keeps the stored one (its values equal the baseline's whatever source it ran on); a run that differs, or a
     first baseline, stores the source the search printed (not_storable refuses a fallback first)."""
@@ -882,7 +887,8 @@ def _lock_dir() -> Optional[str]:
     """tools/test_lock.py lock_dir() (FINDALINE_TEST_LOCK_DIR moves it), or None (no git, no such folder)."""
     import importlib.util
     try:
-        spec = importlib.util.spec_from_file_location("findaline_test_lock", os.path.join(REPO, "tools", "test_lock.py"))
+        spec = importlib.util.spec_from_file_location("findaline_test_lock",
+                                                      os.path.join(REPO, "tools", "test_lock.py"))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module.lock_dir()

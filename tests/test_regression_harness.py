@@ -121,10 +121,10 @@ def test_measure_reads_the_fallback_warning():
 
 
 def test_stored_keeps_the_searchs_own_text():
-    assert regression.stored(_result("anything at all"), {})["coastline"] == "anything at all"
-    assert "coastline" not in regression.stored(_result(coastline=None), {"coastline": WORLD_FILE})
+    assert regression.stored(_result("anything at all"), {}, ok=False)["coastline"] == "anything at all"
+    assert "coastline" not in regression.stored(_result(coastline=None), {"coastline": WORLD_FILE}, ok=False)
     assert regression.stored(_result(OVERPASS), {"coastline": WORLD_FILE}, ok=True)["coastline"] == WORLD_FILE
-    assert regression.stored(_result(OVERPASS), {"coastline": WORLD_FILE})["coastline"] == OVERPASS
+    assert regression.stored(_result(OVERPASS), {"coastline": WORLD_FILE}, ok=False)["coastline"] == OVERPASS
     assert regression.stored(_result(OVERPASS), {}, ok=True)["coastline"] == OVERPASS  # a first baseline
 
 
@@ -195,32 +195,37 @@ def test_coastline_excuse(stored, source, world, warned, excused):
     assert reason == (f"coastline: {source}; the baseline's: {stored}" if excused else None)
 
 
+def _judge(test, found, values, problems=(), cross=(), world_file=False, unverified=()):
+    """outcome() with every argument given (the code has no defaults: a caller must say each)."""
+    return regression.outcome(test, found, list(values), list(problems), list(cross), world_file, tuple(unverified))
+
+
 def test_outcomes():
     test = _entry(_expected())
-    assert regression.outcome(test, _result(OVERPASS), []) == ("ok", None)  # no difference: ok, whatever the source
-    assert regression.outcome(test, _result(OVERPASS), [], world_file=True) == ("ok", None)
-    assert regression.outcome(test, _result(FALLBACK, warned=True), ["lines: 10 -> 9"]) == \
+    assert _judge(test, _result(OVERPASS), []) == ("ok", None)  # no difference: ok, whatever the source
+    assert _judge(test, _result(OVERPASS), [], world_file=True) == ("ok", None)
+    assert _judge(test, _result(FALLBACK, warned=True), ["lines: 10 -> 9"]) == \
         ("unverified", f"coastline: {FALLBACK}; the baseline's: {WORLD_FILE}")
-    assert regression.outcome(test, _result(), ["lines: 10 -> 9"], world_file=True) == ("DIFFERENT", None)
-    assert regression.outcome(_entry(_expected(coastline=None)), _result(FALLBACK, warned=True), ["x"]) == \
+    assert _judge(test, _result(), ["lines: 10 -> 9"], world_file=True) == ("DIFFERENT", None)
+    assert _judge(_entry(_expected(coastline=None)), _result(FALLBACK, warned=True), ["x"]) == \
         ("DIFFERENT", None)
-    assert regression.outcome(test, _result(coastline=None), ["x"]) == ("DIFFERENT", None)
-    assert regression.outcome(test, _result(None, exit_code=1, unanswered="a data provider did not answer: x"),
+    assert _judge(test, _result(coastline=None), ["x"]) == ("DIFFERENT", None)
+    assert _judge(test, _result(None, exit_code=1, unanswered="a data provider did not answer: x"),
                               [], ["exit code 1"]) == ("unverified", "a data provider did not answer: x")
-    assert regression.outcome(test, _result(None, exit_code=1), [], ["exit code 1"]) == ("DIFFERENT", None)
+    assert _judge(test, _result(None, exit_code=1), [], ["exit code 1"]) == ("DIFFERENT", None)
     # the store's, check_profiles' and --browser's problems are never excused by the coastline
     for problem in ("lines.arrow has 9 lines, the export 10", "the map shows 3 spots, the export has 4",
                     "profile of the line at 1.000000, 2.000000 computed again differs in ['clearance']"):
-        assert regression.outcome(test, _result(OVERPASS), [], [problem]) == ("DIFFERENT", None)
-        assert regression.outcome(test, _result(OVERPASS), ["lines: 10 -> 9"], [problem]) == ("DIFFERENT", None)
+        assert _judge(test, _result(OVERPASS), [], [problem]) == ("DIFFERENT", None)
+        assert _judge(test, _result(OVERPASS), ["lines: 10 -> 9"], [problem]) == ("DIFFERENT", None)
     # same_as / without_access_as: excused only by this test or the other one being unverified in this run
     cross = [("the CSV export differs from that of R1", "R1")]
-    assert regression.outcome(test, _result(OVERPASS), [], [], cross) == ("DIFFERENT", None)
-    assert regression.outcome(test, _result(OVERPASS), [], [], cross, unverified=("R1",)) == \
+    assert _judge(test, _result(OVERPASS), [], [], cross) == ("DIFFERENT", None)
+    assert _judge(test, _result(OVERPASS), [], [], cross, unverified=("R1",)) == \
         ("unverified", "R1 unverified in this run")
-    assert regression.outcome(test, _result(OVERPASS), ["lines: 10 -> 9"], [], cross) == \
+    assert _judge(test, _result(OVERPASS), ["lines: 10 -> 9"], [], cross) == \
         ("unverified", f"coastline: {OVERPASS}; the baseline's: {WORLD_FILE}")
-    assert regression.outcome(test, _result(OVERPASS), ["lines: 10 -> 9"], [], cross, world_file=True) == \
+    assert _judge(test, _result(OVERPASS), ["lines: 10 -> 9"], [], cross, world_file=True) == \
         ("DIFFERENT", None)
 
 
@@ -286,9 +291,10 @@ def test_r17s_coastline_count_is_still_compared():
     expected = tests["R17"]["expected"]
     assert isinstance(expected["coastline"], int)
     found = {**expected, "coastline": expected["coastline"] + 1}
-    assert regression.compare(expected, found) == [f"coastline: {expected['coastline']} -> {expected['coastline'] + 1}"]
-    assert regression.outcome(tests["R17"], found, ["x"]) == ("DIFFERENT", None)
-    assert regression.compare(_expected(), _result("other"), ("coastline",)) == []
+    assert regression.value_differences(expected, found) == \
+        [f"coastline: {expected['coastline']} -> {expected['coastline'] + 1}"]
+    assert _judge(tests["R17"], found, ["x"]) == ("DIFFERENT", None)
+    assert regression.value_differences(_expected(), _result("other"), ("coastline",)) == []
 
 
 def _serve(status: int):
@@ -459,6 +465,15 @@ def test_unanswered_data_server(kind):
     "Download failed: Could not download T tile 0_0: HTTP 500: upstream timed out\n",  # an answer's own words
     "Download failed: Could not download T tile 0_0: HTTP 400: <p>503 Service Unavailable: connection refused</p>\n",
     "Area: 404 Client Error: Not Found for url: https://nominatim.example/search?... (timed out before)\n",
+    # a name that does not resolve, in urllib3 1's words too (which name the failed connection)
+    "Download failed: Could not download T tile 0_0: HTTPSConnectionPool(host='x', port=443): Max retries exceeded "
+    "with url: /a (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x1>: Failed to "
+    "establish a new connection: [Errno 11001] getaddrinfo failed'))\n",
+    "Download failed: Could not read T block 1_2: CURL error: Could not resolve host: x.example\n",
+    # a service that answered with its own error text, saying "timed out" itself
+    "Download failed: Could not download T tile 0_0: the service answered an error instead of an image: "
+    "Request timed out\n",
+    "Download failed: sheet E14A: the index answered no JSON (b'upstream timed out')\n",
     "",
 ])
 def test_not_a_sign_of_no_answer(text):
