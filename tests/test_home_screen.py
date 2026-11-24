@@ -172,6 +172,17 @@ def _chromium(p):
         pytest.skip(f"Playwright's Chromium is not available: {type(e).__name__}")
 
 
+def _phone(p, profile, folder, phone: str):
+    """A context of Playwright's full Chromium (channel "chromium": the default headless shell answers no
+    installability error even for a page without a manifest) with its own profile (an off-the-record context answers
+    "in-incognito"), as the phone `phone` of Playwright's device profiles."""
+    options = {k: v for k, v in p.devices[phone].items() if k != "default_browser_type"}
+    try:
+        return p.chromium.launch_persistent_context(str(folder / profile), channel="chromium", **options)
+    except Exception as e:
+        pytest.skip(f"Playwright's full Chromium is not available: {type(e).__name__}")
+
+
 def test_icons_match_a_fresh_drawing():
     """The committed files are the mark's drawing of today (mark.svg, ui.css, tokens.css): drawn again, no pixel
     differs by more than a shade of anti-aliasing (another Chromium may smooth an edge otherwise)."""
@@ -211,6 +222,9 @@ def servers(tmp_path, account_settings):
         (folder / "map.html").write_text(rn.map_page({"id": RUN, "name": "A run"}), "utf-8")  # no run.json: unlisted
         if kind == "local":
             shutil.copytree(web.APP_DIST, data / "runs" / rn.VIEWER_FOLDER)  # mapping.install_viewer's copy
+            # the control's page: a map without the lines (the local runs folder is served as it is)
+            (folder / "plain.html").write_text(rn.map_page({"id": RUN, "name": "A run"}).replace(HEAD + "\n", ""),
+                                               "utf-8")
             app = web.create_app(str(data), token=TOKEN, port=port, start_scheduler=False)
             site = f"http://127.0.0.1:{port}"
         else:
@@ -249,7 +263,7 @@ PHONES = ("Pixel 7", "iPhone 13")  # tools/ui_shots.py's two phones, both in Chr
 
 def _installable(context, url: str) -> dict:
     """What Chromium says of the page at `url`: its manifest (address, errors, text), the installability errors,
-    the page's CSP violations and errors."""
+    the page's CSP violations and errors, and the iPhone's icons its head names (their addresses as resolved)."""
     page = context.new_page()
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
@@ -261,27 +275,43 @@ def _installable(context, url: str) -> dict:
     cdp.detach()
     page.evaluate("new Promise((done) => requestAnimationFrame(() => setTimeout(done)))")  # queued events fired
     found = {"manifest": manifest, "installability": installability,
-             "violations": page.evaluate("window.__violations"), "errors": errors}
+             "violations": page.evaluate("window.__violations"), "errors": errors,
+             "touch": page.eval_on_selector_all('link[rel="apple-touch-icon"]', "links => links.map((l) => l.href)")}
     page.close()
     return found
 
 
-def test_installable_in_chromium(servers, monkeypatch):
+def _icons(context, manifest: dict, touch: list) -> dict:
+    """The manifest's icons (their addresses resolved against the manifest's) and the iPhone's as the browser gets
+    them: {address: (status, media type, size in px)}."""
+    import io
+    from urllib.parse import urljoin
+    got = {}
+    for address in [urljoin(manifest["url"], icon["src"]) for icon in json.loads(manifest["data"])["icons"]] + touch:
+        answer = context.request.get(address)
+        got[address] = (answer.status, answer.headers.get("content-type"),
+                        Image.open(io.BytesIO(answer.body())).size if answer.ok else None)
+    return got
+
+
+def test_installable_in_chromium(servers, tmp_path, monkeypatch):
     """On both phones of the tests every page names the manifest, which Chromium reads without an error or a
-    warning, finds installable (its icons fetched, of their sizes; standalone; a start in scope) and fetches with
-    no CSP violation: the local app, its coverage map, 3D view and a run's map.html; the public site's sign-in,
-    privacy, about and coverage pages and a share link's map.html, all without a session. A CSP that refuses the
-    manifest is seen (the check's control)."""
+    warning and finds installable (an icon of at least 144 px fetched, standalone, a start in scope), fetched with no
+    CSP violation; every icon the manifest and the head name answers 200 with a PNG of its size, as the browser asks
+    for it: the local app, its coverage map, 3D view and a run's map.html; the public site's sign-in, privacy, about
+    and coverage pages and a share link's map.html, all without a session. The controls, on each phone: a page
+    without the lines is not installable ("no-manifest"); a CSP that refuses the manifest is a violation and makes
+    the page not installable."""
     pytest.importorskip("playwright")
+    from urllib.parse import urljoin
+
     from playwright.sync_api import sync_playwright
     pages = {"local": ("/", "/coverage", "/view3d", f"/runs/{RUN}/map.html"),
              "public": ("/", "/privacy", "/about", "/coverage", f"/s/{SHARE}/map.html")}
     with sync_playwright() as p:
-        browser = _chromium(p)
-        try:
-            for phone in PHONES:
-                options = {k: v for k, v in p.devices[phone].items() if k != "default_browser_type"}
-                context = browser.new_context(**options)
+        for phone in PHONES:
+            context = _phone(p, "profile-" + phone.split()[0], tmp_path, phone)
+            try:
                 context.add_init_script(VIOLATIONS)
                 for kind, paths in pages.items():
                     for path in paths:
@@ -293,19 +323,22 @@ def test_installable_in_chromium(servers, monkeypatch):
                             (phone, url, manifest["errors"])
                         assert found["installability"] == [], (phone, url, found["installability"])
                         assert found["violations"] == [] and found["errors"] == [], (phone, url, found)
+                        expected = {urljoin(manifest["url"], icon["src"]):
+                                    (200, "image/png", tuple(int(v) for v in icon["sizes"].split("x")))
+                                    for icon in _manifest_expected()["icons"]}
+                        expected[servers[kind] + "/app/apple-touch-icon.png"] = (200, "image/png", (180, 180))
+                        assert _icons(context, manifest, found["touch"]) == expected, (phone, url)
+                plain = _installable(context, servers["local"] + f"/runs/{RUN}/plain.html")
+                assert [e["errorId"] for e in plain["installability"]] == ["no-manifest"], (phone, plain)
+                with monkeypatch.context() as patched:
+                    patched.setitem(web.SECURITY_HEADERS, "Content-Security-Policy",
+                                    web.SECURITY_HEADERS["Content-Security-Policy"] + "; manifest-src 'none'")
+                    refused = _installable(context, servers["local"] + "/coverage")
+                assert any(v.startswith("manifest-src") for v in refused["violations"]), (phone, refused)
+                assert "manifest-parsing-or-network-error" in [e["errorId"] for e in refused["installability"]], \
+                    (phone, refused)
+            finally:
                 context.close()
-            # the control: the same check sees a manifest the CSP refuses
-            monkeypatch.setitem(web.SECURITY_HEADERS, "Content-Security-Policy",
-                                web.SECURITY_HEADERS["Content-Security-Policy"] + "; manifest-src 'none'")
-            context = browser.new_context()
-            context.add_init_script(VIOLATIONS)
-            refused = _installable(context, servers["local"] + "/coverage")
-            context.close()
-            # (Chromium's installability errors do not show it: the violations are the check of the CSP)
-            assert any(v.startswith("manifest-src") for v in refused["violations"]), refused
-            assert not refused["manifest"].get("data"), refused
-        finally:
-            browser.close()
 
 
 def test_map_page_from_disk(tmp_path):
@@ -333,14 +366,18 @@ def test_map_page_from_disk(tmp_path):
             page.wait_for_selector(f"#{rn.DISK_NOTICE}", state="visible")
             page.evaluate("new Promise((done) => requestAnimationFrame(() => setTimeout(done)))")
             loaded = list(asked)
+            links = page.eval_on_selector_all('link[rel="manifest"], link[rel="apple-touch-icon"]',
+                                              "links => links.map((l) => l.href)")
             cdp = context.new_cdp_session(page)
             manifest = cdp.send("Page.getAppManifest")
             cdp.detach()
+            page.evaluate("new Promise((done) => requestAnimationFrame(() => setTimeout(done)))")
             context.close()
         finally:
             browser.close()
     assert errors == []
+    assert len(links) == 2 and all(link.startswith("file:///") for link in links), links
+    assert [link.rsplit("/app/", 1)[1] for link in links] == ["manifest.webmanifest", "apple-touch-icon.png"], links
     assert not any("/app/" in url for url in loaded), loaded
-    tried = [url for url in asked if "/app/" in url]
-    assert all(url.startswith("file:///") and url.endswith("/app/manifest.webmanifest") for url in tried), tried
+    assert [url for url in asked if "/app/" in url] == links[:1], asked  # only the manifest, once asked for
     assert not manifest.get("data") and not manifest.get("url"), manifest
