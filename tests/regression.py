@@ -794,8 +794,9 @@ def _seed_files(source: str, target: str, how: str) -> tuple:
     none yet; skips SEED_SKIP's names and files gone meanwhile. Returns (the paths placed below target, the error
     that stopped it or None): the first link or copy that fails stops it (seed decides what then)."""
     placed = []
-    for folder, _, names in os.walk(source):
-        for name in names:
+    for folder, folders, names in os.walk(source):
+        folders.sort()  # one order on every system (a folder's listing is unsorted on Linux): what a failed link
+        for name in sorted(names):  # leaves placed, and the counts seed prints, never depend on the file system
             if SEED_SKIP.search(name):
                 continue
             path = os.path.join(folder, name)

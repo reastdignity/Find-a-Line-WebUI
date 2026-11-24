@@ -1081,7 +1081,7 @@ def test_seed_takes_back_the_links_of_a_folder_left_out(tmp_path, capsys, monkey
     out with the links already made taken back (never the real files)."""
     real = _real_cache(tmp_path / "real")
     scratch = _layout(tmp_path / "scratch")
-    _failing_link(monkeypatch, "water_polygons.shp")  # the .dbf links first, then the .shp fails (os.walk order)
+    _failing_link(monkeypatch, "water_polygons.shp")  # the .dbf links first, then the .shp fails (names sorted)
     monkeypatch.setattr(regression, "SEED_COPY_MAX_BYTES", 1)
     regression.seed(scratch, real)
     out = capsys.readouterr().out
@@ -1093,6 +1093,26 @@ def test_seed_takes_back_the_links_of_a_folder_left_out(tmp_path, capsys, monkey
     regression.seed(scratch, real)
     out = capsys.readouterr().out
     assert "osm/water-polygons/2026-10-23 linked and copied (2 files)" in out
+
+
+def test_seed_places_files_in_one_order(tmp_path, monkeypatch):
+    """Whatever order the file system lists a folder in (unsorted on Linux), files are placed by name: what a failed
+    link leaves placed, and the counts seed prints, never depend on it (the CI's Ubuntu job of 2026-11-24)."""
+    source, target = tmp_path / "source", tmp_path / "target"
+    for name in ("b/2.tif", "b/1.tif", "a/9.tif"):
+        (source / name).parent.mkdir(parents=True, exist_ok=True)
+        (source / name).write_bytes(b"x")
+    real_walk = os.walk
+
+    def backwards(top):
+        for folder, folders, names in real_walk(top):
+            folders.sort(reverse=True)
+            yield folder, folders, sorted(names, reverse=True)
+
+    monkeypatch.setattr(regression.os, "walk", backwards)
+    placed, error = regression._seed_files(str(source), str(target), "copy")
+    assert error is None
+    assert [os.path.relpath(p, target).replace(os.sep, "/") for p in placed] == ["a/9.tif", "b/1.tif", "b/2.tif"]
 
 
 def test_seed_names_follow_the_code(tmp_path):
