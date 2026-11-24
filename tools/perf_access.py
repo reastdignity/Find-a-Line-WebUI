@@ -406,10 +406,13 @@ def data_shares(z, mask, strip_rows: Sequence[Tuple[int, int]], halo: int = HALO
     """The share of pixels with heights (finite z: the search's filled terrain, the sea's fill included) and of the
     search area (mask, None: not counted); per strip the share of its width inside the span of columns with heights
     in its rows and `halo` rows each side, grown by `halo` columns each side and clipped to the grid: their mean over
-    the strips and the share of strips without heights. The same for the land: the measure's data (access_grid's
-    `data`: heights, not a filled pixel unless water) that is not water."""
+    the strips and the share of strips without heights. The same for the land: the measure's data (access._data_rows'
+    `data` with the search's inputs: heights, not a filled pixel unless water) that is not the search's water (the
+    flat lakes of float heights not taken off: on float heights a superset of the open-ground passes' mask). Also the
+    share of pixels with that data at all (with_own_data) and of the pixels filled from other data (filled: the
+    search's filled pixels, Data.filled_pixels)."""
     h, w = z.shape
-    counts = {"heights": 0, "land": 0}
+    counts = {"heights": 0, "land": 0, "own_data": 0, "filled": 0}
     widths = {"heights": [], "land": []}
     area = 0
 
@@ -417,8 +420,9 @@ def data_shares(z, mask, strip_rows: Sequence[Tuple[int, int]], halo: int = HALO
         zz = np.asarray(z[r0:r1], np.float32)
         finite = np.isfinite(zz)
         wet = np.asarray(water[r0:r1], bool) if water is not None else np.zeros(zz.shape, bool)
-        data = finite & ~(np.asarray(filled[r0:r1], bool) & ~wet) if filled is not None else finite
-        return {"heights": finite, "land": data & ~wet}
+        fill = np.asarray(filled[r0:r1], bool) if filled is not None else np.zeros(zz.shape, bool)
+        data = finite & ~(fill & ~wet)
+        return {"heights": finite, "land": data & ~wet, "own_data": data, "filled": fill}
 
     for r0, r1 in strip_rows:
         own = kinds(r0, r1)
@@ -442,6 +446,8 @@ def data_shares(z, mask, strip_rows: Sequence[Tuple[int, int]], halo: int = HALO
         out[f"with_{name}"] = round(counts[k] / (h * w), 4)
         out[f"strip_width_with_{name}_mean"] = round(float(np.mean(got)), 4) if n else 0.0
         out[f"strips_without_{name}"] = round(sum(x is None for x in widths[k]) / n, 4) if n else 0.0
+    out["with_own_data"] = round(counts["own_data"] / (h * w), 4)
+    out["filled"] = round(counts["filled"] / (h * w), 4)
     if mask is not None:
         out["search_area"] = round(area / (h * w), 4)
     return out
@@ -987,11 +993,6 @@ def stage_report(stage: Dict, parts: Dict[str, Dict], pixels: int) -> Dict:
                                                        level["private"])
                 b["level_rss_b_per_largest_window_px"] = per_px(b["peak_rss_above_level"], largest)
                 b["level_private_b_per_largest_window_px"] = per_px(b["peak_private_above_level"], largest)
-            rows = [r for r in out["blocks_list"] if r["window_px"] == largest and r.get("own_rss") is not None]
-            if rows:  # the largest windows' own: each above its own start, the largest of them
-                b["own_rss_b_per_largest_window_px"] = per_px(max(r["own_rss"] for r in rows), largest)
-                b["own_private_b_per_largest_window_px"] = per_px(max(r["own_private"] for r in rows
-                                                                      if r["own_private"] is not None), largest)
         out["blocks_part"] = b
     return out
 
@@ -1004,9 +1005,9 @@ def _shift(above_start: Optional[int], start: Optional[int], base: Optional[int]
 def block_rows(stage: Dict, parts: Dict[str, Dict]) -> List[Dict]:
     """Per block: its window, seconds, samples; its peak working set and private bytes above the blocks STAGE's start
     (`stage_*`, as 2026-11-15 counted), above the level when the blocks begin (`level_*`: what the grid-wide pass left
-    resident taken off) and above the block's own start (`own_*`: the moment the previous block's measure returned,
-    so it still holds that block's write and its arrays' release); per pixel of the window each. A block whose part
-    has no sample has no peaks."""
+    resident taken off: the window's figure); per pixel of the window each. No figure above a block's own start: the
+    previous window's arrays are still alive at that moment, so it read low and could go negative (code review N1).
+    A block whose part has no sample has no peaks."""
     rows = []
     readings = stage.get("readings") or {}
     start = stage["start"]
@@ -1015,13 +1016,11 @@ def block_rows(stage: Dict, parts: Dict[str, Dict]) -> List[Dict]:
         r = parts.get(f"blocks: block {n}")
         if not r:
             continue
-        own = readings.get(f"blocks: block {n}")
         row = {"block": n, "window_px": window, "s": r["s"], "samples": r["samples"], "max_gap_s": r["max_gap_s"],
                "stage_rss": r["peak_rss_above_start"], "stage_private": r["peak_private_above_start"]}
-        for key, base in (("level", level), ("own", own)):
-            row[f"{key}_rss"] = _shift(r["peak_rss_above_start"], start["rss"], base and base["rss"])
-            row[f"{key}_private"] = _shift(r["peak_private_above_start"], start["private"], base and base["private"])
-        for key in ("stage", "level", "own"):
+        row["level_rss"] = _shift(r["peak_rss_above_start"], start["rss"], level and level["rss"])
+        row["level_private"] = _shift(r["peak_private_above_start"], start["private"], level and level["private"])
+        for key in ("stage", "level"):
             row[f"{key}_rss_b_per_window_px"] = per_px(row[f"{key}_rss"], window)
             row[f"{key}_private_b_per_window_px"] = per_px(row[f"{key}_private"], window)
         rows.append(row)
@@ -1166,13 +1165,17 @@ def run_pieces(args) -> Dict:
         if name == "blocks":
             raise Stop
 
+    extra = [0.0]
     if callable(real):
         def region_areas(mask_path, *a, **k):
+            t = time.time()  # the tool's own counting and copy: taken off the pass's seconds (pass_s)
             m = np.load(mask_path, mmap_mode="r")
             row = strip_pieces(m, strip_rows)
             row["true_pixels"] = int(sum(np.count_nonzero(np.asarray(m[r0:r1])) for r0, r1 in strip_rows))
             del m
+            extra[0] += time.time() - t
             labels, n, count = real(mask_path, *a, **k)
+            t = time.time()
             row["regions"] = int(n)
             minimum = access.FLAT_WATER_MIN_M2 if "flat" in os.path.basename(mask_path) else access.OPEN_MIN_M2
             row["regions_kept_by_size"] = int((count[1:] * res * res >= minimum).sum())
@@ -1183,6 +1186,7 @@ def run_pieces(args) -> Dict:
                 os.makedirs(args.capture, exist_ok=True)
                 row["captured"] = os.path.join(args.capture, f"{args.name}-{os.path.basename(mask_path)}")
                 shutil.copyfile(mask_path, row["captured"])
+            extra[0] += time.time() - t
             return labels, n, count
         access._region_areas = region_areas
     t0 = time.time()
@@ -1194,7 +1198,8 @@ def run_pieces(args) -> Dict:
     finally:
         if callable(real):
             access._region_areas = real
-    out["pass_s"] = round(time.time() - t0, 1)
+    out["pass_s"] = round(time.time() - t0 - extra[0], 1)  # the pass alone
+    out["tool_s_in_pass"] = round(extra[0], 1)  # the pieces' counting and the --capture copies, taken off
     out["hooks"] = ["_region_areas"] if callable(real) else []
     out["masks"] = masks
     gc.collect()
@@ -1323,10 +1328,6 @@ def print_table(out: Dict):
                               f"{_mb(b['peak_rss_above_level']):>7} {_mb(b['peak_private_above_level']):>7} "
                               f"{b['level_rss_b_per_largest_window_px'] or '':>6} "
                               f"{b['level_private_b_per_largest_window_px'] or '':>6}")
-                    if b.get("own_rss_b_per_largest_window_px") is not None:
-                        print(f"  {'= largest windows, above their own start':50} {'':7} {'':5} {'':5} {'':7} {'':7} "
-                              f"{b['own_rss_b_per_largest_window_px']:>6} "
-                              f"{b['own_private_b_per_largest_window_px'] or '':>6}")
                 c = st.get("compare_with_once")
                 print(f"  {st['blocks']} blocks of {st['block_px']} px, largest window {st['window_px'] / 1e6:.1f} "
                       f"Mpx; left in work: {st['left_in_work'] or 'nothing'}"

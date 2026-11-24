@@ -65,6 +65,8 @@ def test_shares_of_heights_area_and_blocks():
     assert land["with_land"] == round(300 / 13000, 4) and land["with_heights"] == got["with_heights"]
     assert land["strip_width_with_land_mean"] == round((0.35 + 0.35 + 0) / 3, 4)
     assert land["strips_without_land"] == round(1 / 3, 4)
+    # own data: heights less the filled pixels that are not water (30-31 off, 38-39 kept as water); filled: 4 columns
+    assert land["with_own_data"] == round(800 / 13000, 4) and land["filled"] == round(400 / 13000, 4)
     z[:, 95:] = 2.0  # heights at the last column: the span clipped to the grid
     # 14..100 in the first two strips, 79..100 in the last
     assert pa.data_shares(z, None, rows, halo=16)["strip_width_with_heights_mean"] == round((0.86 * 2 + 0.21) / 3, 4)
@@ -157,9 +159,9 @@ def test_parts_from_samples():
     assert pa.merge(parts, "")["peak_part"] == "b"
 
 
-def test_a_blocks_peaks_above_the_stage_the_level_and_its_own_start():
-    """block_rows / stage_report: a block's peak above the blocks stage's start (as 2026-11-15 counted), above the
-    level when the blocks begin and above its own start, per pixel of its window."""
+def test_a_blocks_peaks_above_the_stage_and_the_level():
+    """block_rows / stage_report: a block's peak above the blocks stage's start (as 2026-11-15 counted) and above the
+    level when the blocks begin, per pixel of its window; none above its own start."""
     mb = 2 ** 20
     stage = {"stage": "blocks", "run": 1, "s": 9.0, "windows": [100 * mb, 100 * mb, 25 * mb], "window_px": 100 * mb,
              "start": {"rss": 1000 * mb, "private": 500 * mb},
@@ -174,15 +176,16 @@ def test_a_blocks_peaks_above_the_stage_the_level_and_its_own_start():
              "blocks: block 2": part(1200 * mb, 4410 * mb), "blocks: block 3": part(None, None, 0)}
     rep = pa.stage_report(stage, parts, 1000 * mb)
     b1, b2, b3 = rep["blocks_list"]
-    assert (b1["stage_rss"], b1["level_rss"], b1["own_rss"]) == (900 * mb, 600 * mb, 600 * mb)
-    assert (b2["stage_rss"], b2["level_rss"], b2["own_rss"]) == (1200 * mb, 900 * mb, 700 * mb)
-    assert (b2["stage_private"], b2["level_private"], b2["own_private"]) == (4410 * mb, 4400 * mb, 4390 * mb)
+    assert (b1["stage_rss"], b1["level_rss"]) == (900 * mb, 600 * mb)
+    assert (b2["stage_rss"], b2["level_rss"]) == (1200 * mb, 900 * mb)
+    assert (b2["stage_private"], b2["level_private"]) == (4410 * mb, 4400 * mb)
     assert b2["stage_rss_b_per_window_px"] == 12.0 and b2["level_rss_b_per_window_px"] == 9.0
-    assert b2["own_rss_b_per_window_px"] == 7.0 and b2["own_private_b_per_window_px"] == 43.9
-    assert b3["samples"] == 0 and b3["stage_rss"] is None and b3["own_rss"] is None  # no sample, no peak
+    assert b2["level_private_b_per_window_px"] == 44.0
+    assert b3["samples"] == 0 and b3["stage_rss"] is None and b3["level_rss"] is None  # no sample, no peak
+    assert not any(k.startswith("own") for k in b2)  # no figure above a block's own start (code review N1)
     b = rep["blocks_part"]
     assert b["stage_rss_b_per_largest_window_px"] == 12.0 and b["level_rss_b_per_largest_window_px"] == 9.0
-    assert b["own_rss_b_per_largest_window_px"] == 7.0 and b["own_private_b_per_largest_window_px"] == 44.0
+    assert b["level_private_b_per_largest_window_px"] == 44.0 and not any(k.startswith("own") for k in b)
     assert rep["grid_wide"]["rss_b_per_grid_px"] == 0.2
 
 
@@ -325,7 +328,10 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
                 assert st["windows"] == expected and len(st["blocks_list"]) == st["blocks"] == len(expected)
                 assert "blocks: block 1" in st["readings"] and len(st["readings"]) == st["blocks"] + 1
                 assert all(r["window_px"] == e for r, e in zip(st["blocks_list"], expected))
-                assert st["blocks_part"]["peak_rss_above_level"] is not None
+                # the level's figure exactly when the blocks got a sample (a part without one has no peak: the
+                # blocks of this small grid take a fraction of a second, and a busy machine may sample none)
+                b = st["blocks_part"]
+                assert (b["peak_rss_above_level"] is None) == (b["samples"] == 0), (b["samples"], b)
     assert not os.path.exists(saved["work"])
     assert not os.listdir(out_dir / "samples")  # the sidecar's files removed
     assert out["stages"][0]["compare_with_once"]["differ"] == 0
