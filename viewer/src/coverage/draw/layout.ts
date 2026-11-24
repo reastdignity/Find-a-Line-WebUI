@@ -60,9 +60,9 @@ export function captionTop(f: Frame, title: string, sub: string | null, alpha = 
   ctx.globalAlpha = 1;
 }
 
-/** The resolutions of a level as the legend tags it: "≤ 1 m", "2–5 m", "30 m". */
+/** The resolutions of a level as the legend tags it: "≤ 1 m", "2–10 m", "30 m". */
 export function levelTag(level: Level, lang: Lang): string {
-  return level === 1 ? `≤ ${metres(1, lang)}` : level === 2 ? `2–${metres(5, lang)}` : metres(30, lang);
+  return level === 1 ? `≤ ${metres(1, lang)}` : level === 2 ? `2–${metres(10, lang)}` : metres(30, lang);
 }
 
 /** A level's name in the scale: "Very detailed", "A doormat", "★★★ Best". */

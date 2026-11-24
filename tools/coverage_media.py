@@ -66,7 +66,7 @@ GIF_FPS = 15             # the README's GIF: 15 frames a second, scaled to GIF_W
 GIF_WIDTH = 900
 POSTER_DPI = 300         # the A3 poster: 3508 x 4961 px are 297 x 420 mm
 # README's assets: the GIF of each theme and the static maps of these views (FAL_MEDIA's `gh-<view>`)
-README_VIEWS = ("world", "europe", "na", "oceania")
+README_VIEWS = ("world", "europe", "na", "caribbean", "sa", "asia", "oceania", "africa")
 LOAD_SECONDS = 60
 
 

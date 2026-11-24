@@ -39,8 +39,9 @@ def _number(value: float):
 
 
 def level_of(res: float) -> int:
-    """The colour of a resolution: 1 (1 m or finer), 2 (up to 5 m), 3 (coarser)."""
-    return 1 if res <= 1 else 2 if res <= 5 else 3
+    """The colour of a resolution: 1 (1 m or finer), 2 (up to 10 m: Italy's 10 m is no 30 m, the user, 2026-11-24),
+    3 (coarser)."""
+    return 1 if res <= 1 else 2 if res <= 10 else 3
 
 
 def areas_of(source) -> List[str]:

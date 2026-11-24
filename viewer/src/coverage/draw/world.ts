@@ -2,13 +2,30 @@
 // their centroids, the areas grouped by the parts of the world the cameras visit, and the areas worth naming.
 import { geoCentroid } from "d3-geo";
 import { COVERAGE, type Shape, type Shapes } from "../data";
+import { camFor, projFor } from "./map";
 
-/** The parts of the world with a camera of their own (map.ts BOXES), in the order the tours visit them. */
-export const GROUPS = ["europe", "na", "oceania"] as const;
+/** The parts of the world with a camera of their own (map.ts BOXES), in the order the slides show them (the
+ *  tour's own order: scenes.ts `tourPlan`). */
+export const GROUPS = ["europe", "na", "caribbean", "sa", "asia", "oceania", "africa"] as const;
 export type Group = (typeof GROUPS)[number];
 export type View = "world" | Group;
 
-const CONTINENT_GROUP: Record<string, Group> = {"Europe": "europe", "North America": "na", "Oceania": "oceania"};
+/** The frame an area's view is judged in: the README's map (1600 x 800 less its caption band). */
+const FRAME = {x: 0, y: 0, w: 1600, h: 664};
+
+/** The view an area belongs to: of the views whose frame shows its centre, the one where it lies nearest the middle
+ *  (Puerto Rico the Caribbean's, not North America's; Iceland Europe's); none when no view shows it. */
+function homeOf(at: [number, number]): Group | null {
+  let best: Group | null = null, bestD = Infinity;
+  for (const g of GROUPS) {
+    const xy = projFor(camFor(g, FRAME), FRAME)(at);
+    if (!xy) continue;
+    const dx = (xy[0] - FRAME.w / 2) / (FRAME.w / 2), dy = (xy[1] - FRAME.h / 2) / (FRAME.h / 2);
+    const d = Math.hypot(dx, dy);
+    if (Math.abs(dx) <= .96 && Math.abs(dy) <= .96 && d < bestD) { best = g; bestD = d; }
+  }
+  return best;
+}
 
 export interface World {
   countries: Shape[];             // without Antarctica (never shown) and with the rests of covered countries
@@ -16,7 +33,7 @@ export interface World {
   byId: Map<string, Shape>;       // the covered part of a split country
   small: string[];                // areas with data drawn as dots too
   centroids: Map<string, [number, number]>;
-  groups: Record<Group, string[]>;  // the areas of coverage.json in its order; areas elsewhere in none
+  groups: Record<Group, string[]>;  // each area in its view (homeOf), in coverage.json's order; areas no view shows in none
   listed: string[];               // the areas a list or a caption names (see `listed`)
 }
 
@@ -44,11 +61,13 @@ export function prepareWorld(shapes: Shapes): World {
   }
   const small = Object.keys(COVERAGE.areas).filter(id => byId.get(id)?.properties.small);
   const centroids = new Map(small.map(id => [id, geoCentroid(byId.get(id)!) as [number, number]]));
-  const groups: Record<Group, string[]> = {europe: [], na: [], oceania: []};
+  const groups = Object.fromEntries(GROUPS.map(g => [g, [] as string[]])) as Record<Group, string[]>;
   for (const id of Object.keys(COVERAGE.areas)) {
-    // a region lies on its country's continent
-    const country = byId.get(id.split("-")[0]), group = CONTINENT_GROUP[country?.properties.continent || ""];
-    if (group) groups[group].push(id);
+    // by where the area lies, not by its country: Guadeloupe and Réunion are no part of Europe's view
+    const shape = byId.get(id);
+    if (!shape) continue;
+    const home = homeOf(centroids.get(id) || geoCentroid(shape) as [number, number]);
+    if (home) groups[home].push(id);
   }
   return {countries, regions, byId, small, centroids, groups, listed: listed(new Set(small))};
 }

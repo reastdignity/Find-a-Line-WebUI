@@ -8,7 +8,7 @@ import { levelColour } from "../palette";
 import { bgFill, chip, clamp, ease, font, numberText, rrect, seg, text, textBottom, wrapLines, type Frame, type TextStyle } from "../draw/canvas";
 import { drawLogo, logoHeight } from "../draw/logo";
 import { captionTop, isTall, layoutOf, legendAboveFooter, mapBox, mapBoxUnder, mapCredit, SITE } from "../draw/layout";
-import { GROUPS, type View } from "../draw/world";
+import { GROUPS, type Group, type View } from "../draw/world";
 import { got } from "./assets";
 
 export type Scene = (f: Frame, p: number) => void;
@@ -207,21 +207,32 @@ const named = (ids: string[]): string[] => {
   return ids.filter(id => listed.includes(id));
 };
 
+/** The longer tours' stops (the user's pick of 2026-11-24: eastwards from Europe, no leg doubling back; Africa's two
+ *  dots come in with the last look at the world): [view, arrival, departure, its areas' first and last reveal]. */
+const STOPS: [View, number, number, number, number][] = [
+  ["europe", .08, .26, .1, .24], ["asia", .33, .4, .34, .39], ["oceania", .47, .54, .48, .53],
+  ["na", .62, .7, .63, .69], ["caribbean", .75, .8, .76, .79], ["sa", .86, .9, .87, .89],
+];
+
 /** The tour's camera keyframes (p, view) over the parts of the world with data. */
 function tourPlan(depth: Depth): [number, View][] {
   if (depth === 0) return [[0, "world"], [.18, "europe"], [.62, "europe"], [.82, "world"], [1, "world"]];
-  return [[0, "world"], [.1, "europe"], [.4, "europe"], [.5, "na"], [.68, "na"], [.76, "oceania"], [.86, "oceania"], [.94, "world"], [1, "world"]];
+  return [[0, "world"], ...STOPS.flatMap(([v, a, b]): [number, View][] => [[a, v], [b, v]]), [.95, "world"], [1, "world"]];
 }
 
-/** When each area's colour comes in: Europe's while the camera is there, then North America's and
- *  Oceania's (together at the end of a short tour), areas elsewhere with the last look at the world. */
+/** When each area's colour comes in: each view's while the camera is there (a short tour: Europe's, then the rest
+ *  together), areas of no stop with the last look at the world. */
 function revealSchedule(depth: Depth): Map<string, number> {
   const {groups} = got().world, at = new Map<string, number>();
   const put = (ids: string[], a: number, b: number) => ids.forEach((id, i) => at.set(id, a + (b - a) * i / Math.max(1, ids.length)));
-  if (depth === 0) { put(groups.europe, .2, .6); put([...groups.na, ...groups.oceania], .82, .9); }
-  else { put(groups.europe, .12, .38); put(groups.na, .52, .66); put(groups.oceania, .78, .84); }
-  const grouped = new Set(GROUPS.flatMap(g => groups[g]));
-  put(Object.keys(COVERAGE.areas).filter(id => !grouped.has(id)), .9, .94);
+  if (depth === 0) {
+    put(groups.europe, .2, .6);
+    put(GROUPS.filter(g => g !== "europe").flatMap(g => groups[g]), .82, .9);
+  } else {
+    for (const [v, , , a, b] of STOPS) put(groups[v as Group], a, b);
+    put(Object.keys(COVERAGE.areas).filter(id => !at.has(id)), .95, .97);
+  }
+  put(Object.keys(COVERAGE.areas).filter(id => !at.has(id)), .9, .94);
   return at;
 }
 

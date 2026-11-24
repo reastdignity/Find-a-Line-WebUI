@@ -9,7 +9,7 @@ import { drawLogo, logoHeight } from "../draw/logo";
 import {
   captionTop, footer, layoutOf, legend, legendAboveFooter, legendWidth, levelLabel, levelTag, mapBox, mapBoxUnder, plate, SITE,
 } from "../draw/layout";
-import type { View } from "../draw/world";
+import { GROUPS, type View } from "../draw/world";
 import type { Level } from "../types";
 import { got } from "./assets";
 import { sceneEnd, summaryText } from "./scenes";
@@ -17,7 +17,7 @@ import { sceneEnd, summaryText } from "./scenes";
 export type StaticGroup = "readme" | "carousel" | "stories" | "poster";
 export interface StaticImage { name: string; width: number; height: number; group: StaticGroup; draw: (f: Frame) => void }
 
-const VIEWS: View[] = ["world", "europe", "na", "oceania"];
+const VIEWS: View[] = ["world", ...GROUPS];
 
 /** README: the map under its title, the legend in a box bottom left, the credit and address bottom right. */
 function readme(view: View) {
@@ -93,7 +93,8 @@ function slide(view: View) {
   };
 }
 
-/** The A3 poster: the logo, the title, the world and the three parts with data, the legend and the list. */
+/** The A3 poster: the logo, the title, the world, Europe beside North America, a row of the Caribbean, South America,
+ *  East Asia and Oceania (Africa's two dots stay on the world), the legend and the list. */
 function poster(f: Frame): void {
   const {ctx, th, W, H, lang} = f, L = layoutOf(W, H), {world} = got();
   bgFill(f);
@@ -103,15 +104,18 @@ function poster(f: Frame): void {
   const tSize = W * .05, tTop = H * .035 + logoHeight(logoW) / 2 + tSize * 1.15;
   const titleH = text(ctx, ct(lang, "media.readme.title"), L.pad, tTop, {size: tSize, color: th.ink, weight: 700, max: inner});
   const mapsTop = tTop + titleH - tSize * .6 + gap * 1.5, mapsBottom = H * .79, mh = mapsBottom - mapsTop;
-  const b1 = {x: L.pad, y: mapsTop, w: inner, h: mh * .44};
+  const b1 = {x: L.pad, y: mapsTop, w: inner, h: mh * .4};
   drawMap(ctx, th, world, b1, camFor("world", b1), {radius: 18});
-  const y2 = mapsTop + mh * .44 + gap, h2 = mapsBottom - y2;
+  const y2 = b1.y + b1.h + gap, h2 = mh * .34;
   const b2 = {x: L.pad, y: y2, w: inner * .62, h: h2};
   drawMap(ctx, th, world, b2, camFor("europe", b2), {radius: 18});
-  const b3 = {x: L.pad + inner * .62 + gap, y: y2, w: inner * .38 - gap, h: (h2 - gap) / 2};
-  drawMap(ctx, th, world, b3, camFor("na", b3), {radius: 14});
-  const b4 = {x: b3.x, y: y2 + (h2 + gap) / 2, w: b3.w, h: (h2 - gap) / 2};
-  drawMap(ctx, th, world, b4, camFor("oceania", b4), {radius: 14});
+  const b3 = {x: L.pad + inner * .62 + gap, y: y2, w: inner * .38 - gap, h: h2};
+  drawMap(ctx, th, world, b3, camFor("na", b3), {radius: 18});
+  const y3 = y2 + h2 + gap, small: View[] = ["caribbean", "sa", "asia", "oceania"], w3 = (inner - gap * (small.length - 1)) / small.length;
+  small.forEach((v, k) => {
+    const b = {x: L.pad + k * (w3 + gap), y: y3, w: w3, h: mapsBottom - y3};
+    drawMap(ctx, th, world, b, camFor(v, b), {radius: 14});
+  });
   const legSize = W * .02, listTop = mapsBottom + gap * 2.6;
   legend(f, L.pad, listTop, legSize, {title: true});
   const legRight = L.pad + legendWidth(f, legSize, {title: true}) + legSize * 1.5;
@@ -134,16 +138,19 @@ function poster(f: Frame): void {
   footer(f, W * .012);
 }
 
+/** A carousel slide's name: two digits, so the files sort in the slides' order ("carousel-01-cover"). */
+const slideName = (n: number, what: string): string => `carousel-${String(n).padStart(2, "0")}-${what}`;
+
 const README_SIZE = [1600, 800] as const, POST = [1080, 1350] as const, STORY = [1080, 1920] as const;
 /** A3 at 300 dpi. */
 export const POSTER_SIZE = [3508, 4961] as const;
 
 export const STATICS: StaticImage[] = [
   ...VIEWS.map(v => ({name: `gh-${v}`, width: README_SIZE[0], height: README_SIZE[1], group: "readme" as const, draw: readme(v)})),
-  {name: "carousel-1-cover", width: POST[0], height: POST[1], group: "carousel", draw: cover},
-  ...VIEWS.map((v, i) => ({name: `carousel-${i + 2}-${v}`, width: POST[0], height: POST[1], group: "carousel" as const, draw: slide(v)})),
-  {name: "carousel-6-legend", width: POST[0], height: POST[1], group: "carousel", draw: legendSlide},
-  {name: "carousel-7-end", width: POST[0], height: POST[1], group: "carousel", draw: f => sceneEnd([ct(f.lang, "map.credit")])(f, 1)},
+  {name: slideName(1, "cover"), width: POST[0], height: POST[1], group: "carousel", draw: cover},
+  ...VIEWS.map((v, i) => ({name: slideName(i + 2, v), width: POST[0], height: POST[1], group: "carousel" as const, draw: slide(v)})),
+  {name: slideName(VIEWS.length + 2, "legend"), width: POST[0], height: POST[1], group: "carousel", draw: legendSlide},
+  {name: slideName(VIEWS.length + 3, "end"), width: POST[0], height: POST[1], group: "carousel", draw: f => sceneEnd([ct(f.lang, "map.credit")])(f, 1)},
   ...VIEWS.map(v => ({name: `story-${v}`, width: STORY[0], height: STORY[1], group: "stories" as const, draw: slide(v)})),
   {name: "poster", width: POSTER_SIZE[0], height: POSTER_SIZE[1], group: "poster", draw: poster},
 ];
