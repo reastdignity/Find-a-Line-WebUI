@@ -145,7 +145,9 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   the top level's library versions, `slope_file`, `mixed`): with every `identity` removed run.json is what it was
   before; `runs.without_identity` is its one exit (`public_meta`, `_listed`, a country tile's data), so nothing that
   leaves a run carries it (`tests/test_data_record.py`). `data_used.json` is `{"data", "mixed"}` (a list of before:
-  not mixed); a resumed session that read other data marks the run `mixed` (`search._record_differs`).
+  not mixed); a resumed session that read other data marks the run `mixed` (`search._record_differs`). The checksums
+  come from `cache.touch`'s SELECT of `fetched_at` (entries keep `fetched`, `cache status` reads both); the touch runs
+  after the mosaic read the files, so a file replaced in between is recorded as read (a known limit).
 - Favourite lines are known by their anchors joined (`keys.lineCoords`, also the `#line=` of a map's link): the
   store's int32 of 1e-7 degree, the same doubles as the 7 decimals data.js and lines.js had: a change of
   how the store keeps the anchors loses everyone's favourites (decide their migration). Their values, `web.FavouriteLine`, are the fields of `Line` in `types.ts`

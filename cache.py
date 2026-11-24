@@ -609,7 +609,9 @@ def touch(cache_dir: str, paths: Iterable[str],
           checksums: Optional[Dict[str, Optional[str]]] = None) -> Dict[str, Optional[str]]:
     """Mark files as used now; return the range of their fetch times (oldest, newest). checksums: filled with each
     file's stored sha256 by its path relative to the cache (relative()), None where the index has none (a file
-    adopted by hand), read in the same query as its fetch time (a run's record, identity_of)."""
+    adopted by hand), read in the same query as its fetch time, in the transaction of the update of last_used_at (a
+    run's record, identity_of). A limit: prepare_layer notes a layer's files after the mosaic read them, so a file
+    replaced between that read and this call is recorded as what the run read."""
     by_top: Dict[str, List[str]] = {}
     for path in paths:
         top, inner = _split(cache_dir, path)
