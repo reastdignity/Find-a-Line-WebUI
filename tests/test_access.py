@@ -619,6 +619,108 @@ def test_a_strip_labelled_twice_gives_the_same_labels(tmp_path, monkeypatch):
     m.remove()
 
 
+def _written_in_the_sweep(tmp_path, mask, least, strips=None):
+    """The open ground's way (access._open_ground_rows): regions of at least `least` pixels kept, written over the
+    mask in the forward sweep (pieces of regions still growing below stay), those whose region is not kept taken out
+    by a visit of their records afterwards. Returns the mask so written and the tables file's size before removal."""
+    m = _mask_file(tmp_path, mask)
+
+    def write(regions, s, labels, final):
+        r0, r1 = regions.strips[s]
+        m.write(r0, r1, ((final == access.KEEP) | (final < 0))[labels])
+
+    regions = access._Regions(m, str(tmp_path / "regions.bin"),
+                              lambda p, lo, hi: np.where(p >= least, access.KEEP, access.DROP), strips=strips,
+                              settled=lambda p: np.where(p >= least, access.KEEP, -1), on_strip=write)
+    for s in range(len(regions.strips)):
+        records = regions.records(s)
+        assert ((records[:, 6] == access.KEEP) | (records[:, 6] == access.DROP)).all()
+        for a, b, c, d, labels, ids, _ in regions.visit(s, records[records[:, 6] != access.KEEP]):
+            drop = np.zeros(int(labels.max()) + 1, bool)
+            drop[ids] = True
+            rows = m.rows(a, b)
+            rows[:, c:d] &= ~drop[labels]
+            m.write(a, b, rows)
+    size = os.path.getsize(tmp_path / "regions.bin")
+    regions.remove()
+    got = m.rows(0, mask.shape[0])
+    m.remove()
+    assert not list(tmp_path.iterdir())
+    return got, size
+
+
+@pytest.mark.parametrize("case", list(REGION_MASKS))
+def test_regions_written_in_the_sweep_are_the_whole_masks(tmp_path, monkeypatch, case):
+    """Regions written over their mask in the forward sweep (wave 2a: no second labelling of every strip), the
+    pending pieces of regions not kept taken out by visits of their records = ndimage.label of the whole mask, kept by
+    a size, pixel for pixel; in strips of 64 rows and in uneven strips with one-row strips."""
+    monkeypatch.setattr(access, "STRIP_PX", 1)  # 64 rows a strip
+    mask = REGION_MASKS[case]()
+    h = mask.shape[0]
+    lab, n = ndimage.label(mask, structure=EIGHT)
+    count = np.bincount(lab.ravel(), minlength=n + 1)
+    cuts = sorted({0, h, *[c for c in (1, 2, 3, 50, 51, 64, 65, 66, 128, 129, 191, 192, 193, 250) if c < h]})
+    for strips in (None, list(zip(cuts, cuts[1:]))):
+        for least in (1, 3, 40, 500):
+            big = count >= least
+            big[0] = False
+            got, _ = _written_in_the_sweep(tmp_path, mask, least, strips)
+            assert np.array_equal(got, big[lab]), (least, strips is None)
+
+
+def test_a_strips_verdicts_given_and_visited_are_its_codes(tmp_path, monkeypatch):
+    """What the forward sweep hands a strip's caller (the verdict of every piece not pending) and what the visits of
+    its records give its pending pieces afterwards (their verdicts resolved by the backward sweep) = the strip's
+    codes, at every pixel, on every made-up mask: every region an open question, none settled."""
+    monkeypatch.setattr(access, "STRIP_PX", 1)
+    for case, make in REGION_MASKS.items():
+        mask = make()
+        m = _mask_file(tmp_path, mask)
+        given = {}
+
+        def keep(regions, s, labels, final):
+            given[s] = final[labels]
+
+        regions = access._Regions(m, str(tmp_path / "regions.bin"), lambda p, lo, hi: np.full(len(p), access.ASK),
+                                  on_strip=keep)
+        for s, (r0, r1) in enumerate(regions.strips):
+            got = given[s].copy()
+            for a, b, c, d, labels, ids, records in regions.visit(s, regions.records(s)):
+                code = np.zeros(int(labels.max()) + 1, np.int32)
+                code[ids] = records[:, 6]
+                part, mine = got[a - r0:b - r0, c:d], np.isin(labels, ids)
+                part[mine] = code[labels][mine]
+            assert (got >= 0).all() and np.array_equal(got, regions.codes(s)), (case, s)
+        regions.remove()
+        m.remove()
+
+
+def test_the_tables_file_at_its_worst(tmp_path, monkeypatch):
+    """The regions' scratch file in the worst made-up cases, strips of 64 rows (the least a strip has): isolated
+    pixels (a piece every 4 pixels, and every one in a strip's first and last row pending) and a comb of teeth one
+    pixel apart: under 2 B per pixel of the grid (pieces 1 B, records 1/2 B, classes carried in 1/32 B)."""
+    monkeypatch.setattr(access, "STRIP_PX", 1)
+    dots = np.zeros((64 * 6, 400), bool)
+    dots[1::2, ::2] = True  # odd rows: every strip's last row full of pending pieces
+    for mask in (dots, _comb(64 * 6, 401)):
+        _, size = _written_in_the_sweep(tmp_path, mask, 10 ** 9)
+        assert size / mask.size < 2, size / mask.size
+
+
+def test_a_closed_mask_lets_its_map_go(tmp_path):
+    """_Mask.close: the map is let go (Windows renames a mapped file only once no view of it is left) and the next read
+    maps the file again, read only, with what was written."""
+    rows = np.random.default_rng(0).random((70, 33)) < 0.5
+    m = access._Mask(str(tmp_path / "m.npy"), rows.shape)
+    m.write(0, 70, rows)
+    m.close()
+    os.rename(tmp_path / "m.npy", tmp_path / "n.npy")
+    os.rename(tmp_path / "n.npy", tmp_path / "m.npy")
+    assert np.array_equal(m.rows(0, 70), rows) and np.array_equal(m.window(3, 9, 5, 30), rows[3:9, 5:30])
+    m.remove()
+    assert not list(tmp_path.iterdir())
+
+
 def _bits(x) -> bytes:
     return np.float32(x).tobytes()
 

@@ -490,31 +490,40 @@ class _Regions:
     - The forward sweep: each strip labelled by ndimage.label (8 neighbours, as access_grid labels the whole grid),
       its pieces joined with the classes carried from the strip above across the seam (8 neighbours: columns c - 1, c
       and c + 1; scipy.sparse.csgraph.connected_components). Each class sums its pixels (with `heights`, rows ->
-      float32: also its lowest and highest height, in float64) and keeps its first strip; a class that does not reach
-      the strip's last row is closed and judged at once, the others are carried (numbered again at every seam). Per
-      strip one table is appended to the scratch file `path`: piece -> class, class carried in -> class, class ->
-      verdict or "carried on as j".
-    - The backward sweep over the tables alone: a carried class takes the verdict of the class it joined below; each
-      strip's piece -> class becomes piece -> verdict, in place.
-    - Reading (`codes`, `kept`): a strip labelled again (the same call on the same rows gives the same labels; their
-      count is checked) and its pieces mapped to their verdicts. Every later step reads regions this way, a region's
-      own strips only (`questions` first and last).
+      float32: also its lowest and highest height) and keeps its first and last strip; a class that does not reach
+      the strip's last row is closed and judged at once, the others are carried (numbered again at every seam).
+      settled(pixels), if given, names carried classes whose verdict can no longer change as they grow (its verdict,
+      or -1): their pieces take it at once. Per strip one table is appended to the scratch file `path`: piece ->
+      verdict (a piece of a carried class not settled: "carried on as j"), class carried in -> verdict or "carried on
+      as j", and with on_strip the records of the pieces still pending.
+    - on_strip(regions, s, labels, final), if given, is called with each strip's labels and every piece's verdict
+      (final[label]; below 0: pending, its class carried on and not settled), so the caller writes what is known at
+      once. A pending piece touches the strip's first or last row (only those join other strips); its record (_REC)
+      holds its box in the strip and its first pixel, so a later visit labels that box alone.
+    - The backward sweep over the tables alone: a carried class takes the verdict of the class it joined below, in
+      the pieces' tables and the records, in place.
+    - Reading: `visit` labels the boxes of a strip's records again; `codes` and `kept` a whole strip (the same call on
+      the same rows gives the same labels; their count is checked), for a mask nobody wrote over.
     Held: one strip's labels and tables, the seam's row and the carried classes (at most half the grid's width), the
-    open questions; on disk 4 B per piece and per class. The mask's rows must not change before they are read."""
+    open questions. On disk 4 B per piece, per class carried in and 32 B per record: at most 1 B, 1/32 B and 1/2 B per
+    pixel of the grid at strips of 64 rows (isolated pixels; a pending piece touches its strip's first or last row,
+    so at most w records a strip). The mask's rows must not change before they are read, except by a visit's
+    caller."""
 
-    def __init__(self, mask, path: str, judge, heights=None, strips=None):
+    def __init__(self, mask, path: str, judge, heights=None, strips=None, settled=None, on_strip=None):
         self.mask, self.path = mask, path
         self.strips = list(strips if strips is not None else _strips(*mask.shape))
         self._tables = []  # per strip: its table's byte offset, pieces, classes carried in, classes
+        self._records = []  # per strip: its records' byte offset and count
         self.questions = {"pixels": [], "lowest": [], "highest": [], "first": [], "last": []}
-        self._forward(judge, heights)
+        self._forward(judge, heights, settled, on_strip)
         self._backward()
 
     def _label(self, s: int):
         r0, r1 = self.strips[s]
         return ndimage.label(self.mask.rows(r0, r1), structure=_EIGHT)
 
-    def _forward(self, judge, heights):
+    def _forward(self, judge, heights, settled, on_strip):
         w, last = self.mask.shape[1], len(self.strips) - 1
         # the carried classes: pixels, lowest and highest height, first and last strip with pixels; seam: the strip
         # above's last row, its carried class + 1 (0: not in the mask)
@@ -587,10 +596,23 @@ class _Regions:
                     if cls_low is not None:
                         q["lowest"] += cls_low[closed[ask]].tolist()
                         q["highest"] += cls_high[closed[ask]].tolist()
+                given = status  # a piece's verdict: its class's, or that of a carried class already settled
+                if settled is not None and on.any():
+                    sure = np.full(k, -1, np.int64)
+                    sure[on] = settled(cls_pixels[on])
+                    given = np.where(sure >= 0, sure, status).astype(np.int32)
+                piece = given[comp[nc:]]
                 self._tables.append((f.tell(), n, nc, k))
-                comp[nc:].tofile(f)
-                comp[:nc].tofile(f)
-                status.tofile(f)
+                piece.tofile(f)
+                status[comp[:nc]].tofile(f)
+                records = np.zeros((0, _REC), np.int32)
+                if on_strip is not None:
+                    final = np.zeros(n + 1, np.int32)
+                    final[1:] = piece
+                    records = _records_of(lab, final)
+                    on_strip(self, s, lab, final)
+                self._records.append((f.tell(), len(records)))
+                records.tofile(f)
                 c_pixels, c_first, c_last = cls_pixels[on], cls_first[on], cls_last[on]
                 if cls_low is not None:
                     c_low, c_high = cls_low[on], cls_high[on]
@@ -600,19 +622,60 @@ class _Regions:
                 del lab, top, bottom, below, comp
 
     def _backward(self):
-        down = into = None  # the strip below's verdicts by class and its classes carried in
+        into = None  # the strip below's classes carried in: their verdicts
         with open(self.path, "r+b") as f:
             for s in reversed(range(len(self.strips))):
-                at, n, nc, k = self._tables[s]
+                at, n, nc, _ = self._tables[s]
                 f.seek(at)
                 piece, carried_in = np.fromfile(f, np.int32, n), np.fromfile(f, np.int32, nc)
-                status = np.fromfile(f, np.int32, k)
-                on = status < 0
-                if on.any():
-                    status[on] = down[into[-1 - status[on]]]
+                for table in (piece, carried_in):
+                    on = table < 0
+                    if on.any():
+                        table[on] = into[-1 - table[on]]
                 f.seek(at)
-                status[piece].tofile(f)
-                down, into = status, carried_in
+                piece.tofile(f)
+                carried_in.tofile(f)
+                at, m = self._records[s]
+                if m:
+                    f.seek(at)
+                    records = np.fromfile(f, np.int32, m * _REC).reshape(m, _REC)
+                    records[:, 6] = piece[records[:, 0] - 1]
+                    f.seek(at)
+                    records.tofile(f)
+                into = carried_in
+
+    def records(self, s: int) -> np.ndarray:
+        """The records of strip s's pending pieces (int32, one row of _REC each), their verdicts resolved."""
+        at, m = self._records[s]
+        if not m:
+            return np.zeros((0, _REC), np.int32)
+        with open(self.path, "rb") as f:
+            f.seek(at)
+            return np.fromfile(f, np.int32, m * _REC).reshape(m, _REC)
+
+    def visit(self, s: int, records: np.ndarray):
+        """The pieces of strip s that `records` name, labelled again within their boxes: per window of records whose
+        rows overlap, (first row, last row + 1, first column, last column + 1) of the grid, the window's labels and
+        each record's label in them, and those records. Only the boxes' rows and columns are read."""
+        if not len(records):
+            return
+        r00 = self.strips[s][0]
+        records = records[np.argsort(records[:, 1], kind="stable")]
+        start, reach = 0, int(records[0, 2])
+        for i in range(1, len(records) + 1):
+            if i < len(records) and records[i, 1] < reach:
+                reach = max(reach, int(records[i, 2]))
+                continue
+            group = records[start:i]
+            a, b = int(group[:, 1].min()), int(group[:, 2].max())
+            c, d = int(group[:, 3].min()), int(group[:, 4].max())
+            labels, _ = ndimage.label(self.mask.window(r00 + a, r00 + b, c, d), structure=_EIGHT)
+            ids = labels[group[:, 1] - a, group[:, 5] - c]
+            if not ids.all():
+                raise RuntimeError("a record's first pixel is not in the mask")
+            yield r00 + a, r00 + b, c, d, labels, ids, group
+            if i < len(records):
+                start, reach = i, int(records[i, 2])
 
     def codes(self, s: int) -> np.ndarray:
         """The verdict of every pixel of strip s (int32: DROP outside the mask, KEEP, DROP, or ASK + q)."""
@@ -636,6 +699,34 @@ class _Regions:
 
     def remove(self):
         _remove(self.path)
+
+
+_REC = 8  # a record's int32: the piece, its box in the strip (first row, last + 1, first column, last + 1), the column
+# of its first pixel (in its box's first row), its verdict, 1
+
+
+def _records_of(lab: np.ndarray, final: np.ndarray) -> np.ndarray:
+    """The records (_REC) of a strip's pending pieces (final[label] below 0), from their own pixels only: a pending
+    piece is not settled, so it is small (the caller's `settled` says how small)."""
+    pending = final < 0
+    pending[0] = False
+    if not pending.any():
+        return np.zeros((0, _REC), np.int32)
+    rr, cc = np.nonzero(pending[lab])  # in raster order: a label's first index is its first pixel
+    ll = lab[rr, cc]
+    p, first = np.unique(ll, return_index=True)
+    out = np.zeros((len(p), _REC), np.int32)
+    out[:, 0], out[:, 1], out[:, 5], out[:, 6], out[:, 7] = p, rr[first], cc[first], final[p], 1
+    end = np.zeros(int(p.max()) + 1, np.int64)
+    np.maximum.at(end, ll, rr)
+    out[:, 2] = end[p] + 1
+    left = np.full(int(p.max()) + 1, lab.shape[1], np.int64)
+    np.minimum.at(left, ll, cc)
+    out[:, 3] = left[p]
+    end[:] = 0
+    np.maximum.at(end, ll, cc)
+    out[:, 4] = end[p] + 1
+    return out
 
 
 def _whole_metres_rows(z, water, filled) -> bool:
@@ -797,8 +888,9 @@ def _flat_lakes_rows(z, res: float, work: str, out: _Mask) -> None:
 def _open_ground_rows(z, water, filled, wet: _Mask, res: float, work: str, name: str, smoothed: bool) -> _Mask:
     """_open_ground of the whole grid (on the smoothed heights with `smoothed`), strip by strip, into a memory-mapped
     bool grid of the work folder (returned); wet: the water with the flat lakes. The pass's mask is written first,
-    its regions found (_Regions), then each strip's kept pixels written over its own rows: the regions' reading labels
-    a strip before its rows are written, and no other strip's labels look at them."""
+    then its regions found (_Regions) and each strip's verdicts written over its own rows in the same sweep (a strip
+    is labelled before its rows are written, and no other strip's labels look at them): a piece of a region still
+    growing below stays until its region is known, then a visit of its box takes it out if the region is not kept."""
     h, w = z.shape
     g = _Mask(os.path.join(work, f"access_{name}.npy"), (h, w))
     for r0, r1 in _strips(h, w):
@@ -813,10 +905,25 @@ def _open_ground_rows(z, water, filled, wet: _Mask, res: float, work: str, name:
             s = _slope_rows(z, r0, r1, res)
         s = np.where(data, s, 90.0)
         g.write(r0, r1, (s < OPEN_DEG) & ~wet.rows(r0, r1) & data)
+    def big(pixels):
+        return pixels * res * res >= OPEN_MIN_M2
+
+    def write(regions, s, labels, final):  # a pending piece stays in the mask until its region is known
+        r0, r1 = regions.strips[s]
+        g.write(r0, r1, ((final == KEEP) | (final < 0))[labels])
+
+    # a region's verdict grows with it: one of OPEN_MIN_M2 is kept whatever joins it later (settled)
     regions = _Regions(g, os.path.join(work, REGIONS_FILE),
-                       lambda pixels, lowest, highest: np.where(pixels * res * res >= OPEN_MIN_M2, KEEP, DROP))
-    for s, (r0, r1) in enumerate(regions.strips):
-        g.write(r0, r1, regions.kept(s))
+                       lambda pixels, lowest, highest: np.where(big(pixels), KEEP, DROP),
+                       settled=lambda pixels: np.where(big(pixels), KEEP, -1), on_strip=write)
+    for s in range(len(regions.strips)):  # the pending pieces of regions not kept: out of the mask
+        records = regions.records(s)
+        for a, b, c, d, labels, ids, _ in regions.visit(s, records[records[:, 6] != KEEP]):
+            drop = np.zeros(int(labels.max()) + 1, bool)
+            drop[ids] = True
+            rows = g.rows(a, b)
+            rows[:, c:d] &= ~drop[labels]
+            g.write(a, b, rows)
     g.close()  # not mapped while the next pass runs (as the file of before: closed, opened again for the blocks)
     regions.remove()
     return g
