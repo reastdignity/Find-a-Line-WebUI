@@ -302,6 +302,20 @@ store goes out gzipped with its size before compression (`compressing`), as the 
 only with `--esri`. Ctrl+C or Ctrl+Break stops it. Open points: docs/known-bugs.md ("Line volume, round 6")
 (`tests/test_lan_app.py`, `tests/test_lan_gzip.py`).
 
+## `tools/record_check.py`
+
+Run by hand: the completeness check of the data record (docs/regression-tests.md, "The completeness check of the data
+record"). `record_check.py <entry> ... [--out <folder>] [--keep] [--also <cache path>] [--reverse]`: per regression
+entry a scratch cache built only from its stored record (`tests/regression-data.json`) by a hard link per file (a
+copy only where a link cannot be made), each file's sha256 checked against the record first (`build`: a file gone,
+other bytes or a name not relative to the cache is a `RecordError` naming it), the files' index rows, the "missing"
+marks of the folders the record touches, the recorded Nominatim answers only; the empty mirror stand-in
+(`mirror_stand_in`) and dummy keys; then `tests/regression.py <entry> --cache <scratch> --cold --no-seed --keep` with
+the network blocked (`block_env`, checked first for requests, urllib and GDAL by `check_block`). The verdict from
+the run log's line (ok, data "same", no tile downloaded), the requests tried per host, the first error lines and
+whether the run's own record equals the stored one. The real cache is only read (`update._query`); the scratch folder
+is removed with links as links (`remove_tree`) (`tests/test_record_check.py`).
+
 ## `tools/shots_diff.py`
 
 Run by hand: two folders of screenshots (`tools/ui_shots.py`'s, before and after a change) compared file by file:

@@ -89,6 +89,97 @@ The rules of 2026-11-24 (the user's decisions after the regression set's failure
 5. A coastal entry's coastline comes from one of three places: the OSM world water polygons when the cache holds them (the real cache does, and every baseline rests on them), live Overpass when it does not, and the Copernicus water body mask when Overpass fails (`Coastline: Copernicus water body mask (fallback)`). The last two can give another sea, other lines and another checksum. On the real cache, which holds the world file, a search that takes Overpass or the fallback can only do so through changed code, and its differences are DIFFERENT. On a scratch cache without the world file (`--cold --no-seed`, or seeding that left it out) a run on Overpass, or on the fallback whose warning says Overpass did not answer, is `unverified (coastline: ...; the baseline's: ...)`: run it again on the real cache, or on a seeded scratch cache (`--cold`), before calling anything a regression. Twice in batch 6 a first baseline was written on the fallback (R85: 158 lines against 1 002 on the OSM coastline; R86: 7 052 against 7 184) and re-baselined on 2026-11-16; `--update` now refuses such a run. `--update` still rewrites the `seconds` of every test it stores (restore those not meant to change). A data folder that holds the OSM world water polygons (`cache/osm/water-polygons`) gives them to a search instead of Overpass: on 2026-11-16, on a scratch cache with a copy of that file, R80, R85-R88 and R92 gave their Overpass baselines' checksums, and R89 the same `lines.csv` with 0.01 km² more sea (its summary is baselined on the world file).
 6. `unverified (a data provider did not answer: ...)` or `(Nominatim or Overpass did not answer: ...)`: the search ended on a service that gave no answer. It says nothing about the code: run the entry again later (an outside service at most once a day). The log folder keeps the search's output. A sign that persists over reruns on different days may come from our own network code (a timeout set too short, a wrong address): read the output before waiting longer.
 
+## The completeness check of the data record
+The claim behind the data record: a run's record names everything its search read, so the same files with the same
+checksums, the same coastline and area inputs and the same code give the same result. `tools/record_check.py` tests
+it per entry: it builds a scratch cache holding only what the entry's stored record (`tests/regression-data.json`)
+names, each file a hard link from the real cache whose sha256 is first checked against the record, with the files'
+index rows and the recorded Nominatim answers, and runs the entry through the harness on it (`--cold --no-seed`) with
+the network blocked (the proxy variables and GDAL's to a dead local port, Overpass's address too, the data server off;
+checked first for requests, urllib and GDAL's `/vsicurl/`). An entry passes when the harness says `ok`, the run log's
+line says its data were the record's and no tile was downloaded; the tool also prints the requests the search tried
+(all blocked) per host and whether the run's own record names the same data.
+
+```
+python tools/record_check.py R1 R6 R18 --out C:\fal\record-check        # under the test lock; removed at the end
+python tools/record_check.py R48 --reverse                               # Nominatim's reverse answers of the centre
+python tools/record_check.py R76 --also mexico/mde-lidar5m/sheet-index/t/G14C15B2.json   # one stored index answer
+```
+
+What it proves: for the kinds it ran, today's code on today's files needs nothing that changes a result beyond the
+record. What it does not: that a checksum is stable across machines or library versions (it runs on this PC's files
+and libraries), or anything about a kind without an entry. Nor does it show that a filler or neighbour that read
+its files and filled no pixel (left out of the record: `filling._forget_entries`) can be replayed: no entry run was
+seen to take that path, and such a run would try to download those files on a scratch cache. Run it again when a kind of layer or index is added, or
+when what a run records changes; the table below is its run of 2026-11-24 (commit of `data-proof`, the side file of
+`1675d2ec`).
+
+Beyond the record, named by the tool for each entry, never silently:
+- the cache's `LAYOUT` file;
+- the "missing" marks of the folders the record touches: a tile without a row is asked for again
+  (`cache.due`); given equal records they only say "nothing is there" (a tile that gained a file would be in the
+  record's paths);
+- a stand-in for the local mirror folder (`FINDALINE_MIRROR`) holding only the empty folders of the entry's
+  `needs_path` and of the resolutions its record read: the source is available, no tile can come from it;
+- a dummy value of `OPENTOPOGRAPHY_API_KEY` and `DATAFORDELER_API_KEY` (R12, R38): `unavailable()` asks only that
+  one is set;
+- only when an entry cannot run without them: `--reverse`, Nominatim's stored reverse answers of the centre (the
+  country and region that choose the source: the offline boxes chose another source for R21, R45, R48, R64, R90),
+  and `--also`, a stored index answer (R24: the 3DEP answer `has_data_near` reads to take Alaska's IfSAR instead of
+  the 1 m DEM; R76: INEGI's JSON per sheet, without which the sheet is left out). Each chooses the source or the
+  files, and the source's id and the files are in the record, so a different answer shows as different data: those
+  kinds' proof is the weaker one (the answer was given, not shown to be unneeded).
+
+The stored index answers of every other kind were not copied: each tried its index once or twice (blocked), fell
+back to the cached files by name and gave the same result, which shows the answers only choose files. Nominatim's
+reverse lookups of the run's name (two per circle) were tried and blocked everywhere; they name the run only.
+
+| Kind of layer (index or tiling) | Entry | Verdict | Beyond the record (besides LAYOUT and missing marks) |
+| --- | --- | --- | --- |
+| SheetTiles (NewestPerSheet: sheets by year), no sea | R1 | ok | none (the WFS index tried) |
+| SheetTiles in tiles of 600 m (tiled), area from a file | R14 | ok | none |
+| WfsFeatureTiles (NewestPerSheet), world file | R68 | ok | none |
+| StacTiles (NewestPerSheet) | R19 | ok | none |
+| MetalinkTiles (ShaPerTile) | R48 | ok | `--reverse` (DE-RP, not DE-BW) |
+| GeoJsonTiles (XyzPerTile), world file | R56 | ok | none |
+| ZipMemberTiles (ZipPerTile) | R63 | ok | none |
+| PackageTiles (PackageVersions), fallbacks HRDEM (FileBlocks) | R90 | ok | `--reverse` (Canada, not the USA) |
+| Usgs1mBlocks (ComposedBlocks with the unlisted files) | R94 | ok | none |
+| IfsarBlocks (ComposedBlocks) | R24 | ok | `--also` the 3DEP 1 m answer of its tile (`has_data_near`) |
+| S3Blocks (ComposedBlocks), world file | R49 | ok | none |
+| LidarBcBlocks (ComposedBlocks) | R64 | ok | `--reverse` (Canada, not the USA) |
+| S3SheetSets (SheetSets), world file | R85 | ok | none |
+| CartotecaTiles (CartotecaVersions) | R77 | ok | none |
+| ZipSheetTiles (ZipSheetIndex), `instead_without_data` | R82 | ok | none |
+| InegiSheets (InegiIndex) | R76 | ok | `--also` INEGI's two JSON answers of its sheet |
+| GridTiles (our own tiles) | R21 | ok | mirror stand-in; `--reverse` (Slovakia, not Poland) |
+| GridTiles as a neighbour's fill | R34 | ok | mirror stand-in |
+| WcsTiles (WcsTiling), world file | R6 | ok | none |
+| WcsTiles, Malta 2012 (a shift by year) | R7 | ok | none |
+| GeoWcsTiles (GeoPixelTiling), world file | R72 | ok | none |
+| ImageServerTiles (WcsTiling) | R44 | ok | none |
+| ImageServerTiles (ZonedTiling) | R57 | ok | none |
+| WmsrTiles (ResolutionTiling), world file | R89 | ok | none |
+| FileBlocks (FileBlockTiling) | R25 | ok | none |
+| FileBlocks with the geoid (EGM2008 in the blocks' bytes) | R58 | ok | none |
+| DegreeTiles (europe: FABDEM, Copernicus) | R11 | ok | none |
+| OpenTopographyTiles | R12 | ok | dummy key |
+| LercTiles (MercatorTiling), world file | R75 | ok | none |
+| MetricSheetTiles (SheetTiling), world file | R79 | ok | none |
+| GeoSheetTiles (GeoSheetTiling) | R73 | ok | none |
+| ZippedTiles (ZipTiling) | R45 | ok | `--reverse` (Saxony, not Poland) |
+| CellSheetTiles | R91 | ok | none |
+| TokyoSheets (a floor by the file's name), world file | R92 | ok | none |
+| WcsTiles with Datafordeler's key | R38 | ok | dummy key |
+| FABDEM filling gaps (a fallback) | R29 | ok | none |
+| Area by coast in tiles, gap filling, profiles computed again | R16 | ok | none |
+| R16 with the access mark | R83 | ok | none |
+| Area by coast within a named place (Nominatim's answer from the record) | R18 | ok | none |
+
+The coastline states the real cache gives: the world file (R6 and the others marked so) and no sea in the area (R1
+and most inland entries). Not run: the OSM coastline tiles (Overpass's state; the real cache holds the world file, so
+no baseline rests on them), `DegreeBlocks` (`usgs10m`, no entry), local files (`--elevation-file`, no entry).
+
 ## Search tests
 A new place belongs where highlines are rigged: `tools/truth_study.py places` ranks the clusters of SlackMap's known highlines per country and source with the nearest test of this table ("covered by" within 2 km; docs/truth-check.md), and `tools/truth_study.py run --place NAME=OPTIONS --known lines.json` tells how many of a candidate's known lines its search finds.
 
