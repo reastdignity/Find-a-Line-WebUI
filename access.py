@@ -469,8 +469,7 @@ class _Mask:
         self._map.flush()
 
     def close(self) -> None:
-        self._map.flush()
-        self._map = None
+        self._map = None  # no flush: the next map of the file sees its pages
 
     def remove(self) -> None:
         """The map closed and its file removed."""
@@ -520,7 +519,7 @@ class _Regions:
         # the carried classes: pixels, lowest and highest height, first and last strip with pixels; seam: the strip
         # above's last row, its carried class + 1 (0: not in the mask)
         c_pixels, c_first, c_last = np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros(0, np.int64)
-        c_low, c_high = np.zeros(0), np.zeros(0)
+        c_low, c_high = np.zeros(0, np.float32), np.zeros(0, np.float32)
         seam = np.zeros(w, np.int32)
         with open(self.path, "wb") as f:
             for s, (r0, r1) in enumerate(self.strips):
@@ -528,7 +527,9 @@ class _Regions:
                 nc = len(c_pixels)
                 pixels = np.bincount(lab.ravel(), minlength=n + 1)[1:]
                 if heights is not None:
-                    low, high = np.full(n + 1, np.inf), np.full(n + 1, -np.inf)
+                    # float32 accumulators, as the heights: numpy's ufunc.at takes its fast path (float64 ones cast
+                    # every value: 14 times slower on a strip of 4 Mpx); a lowest or highest float32 is the same number
+                    low, high = np.full(n + 1, np.inf, np.float32), np.full(n + 1, -np.inf, np.float32)
                     inside = lab > 0
                     k, zk = lab[inside], heights(r0, r1)[inside]
                     np.minimum.at(low, k, zk)
@@ -559,7 +560,7 @@ class _Regions:
                 np.maximum.at(cls_last, comp[:nc], c_last)
                 cls_low = cls_high = None
                 if heights is not None:
-                    cls_low, cls_high = np.full(k, np.inf), np.full(k, -np.inf)
+                    cls_low, cls_high = np.full(k, np.inf, np.float32), np.full(k, -np.inf, np.float32)
                     np.minimum.at(cls_low, comp, np.concatenate([c_low, low]))
                     np.maximum.at(cls_high, comp, np.concatenate([c_high, high]))
                 # a class that reaches the strip's last row is carried on (none from the grid's last strip)
@@ -572,8 +573,10 @@ class _Regions:
                 status = np.where(on, -1 - number, DROP).astype(np.int32)
                 closed = np.flatnonzero(~on)
                 if len(closed):
-                    verdict = np.array(judge(cls_pixels[closed], None if cls_low is None else cls_low[closed],
-                                             None if cls_high is None else cls_high[closed]), np.int64)
+                    verdict = np.array(judge(cls_pixels[closed],  # the bounds in float64, as wave 1 judged them
+                                             None if cls_low is None else cls_low[closed].astype(np.float64),
+                                             None if cls_high is None else cls_high[closed].astype(np.float64)),
+                                       np.int64)
                     ask = np.flatnonzero(verdict == ASK)
                     q = self.questions
                     verdict[ask] = ASK + len(q["pixels"]) + np.arange(len(ask))
@@ -776,7 +779,6 @@ def _flat_lakes_rows(z, res: float, work: str, out: _Mask) -> None:
     for r0, r1 in _strips(h, w):
         flat.write(r0, r1, np.isfinite(np.asarray(z[r0:r1], np.float32))
                    & (_slope_rows(z, r0, r1, res) < FLAT_WATER_DEG))
-    flat.flush()
 
     def judge(pixels, lowest, highest):
         big = pixels * res * res >= FLAT_WATER_MIN_M2
@@ -800,16 +802,17 @@ def _open_ground_rows(z, water, filled, wet: _Mask, res: float, work: str, name:
     h, w = z.shape
     g = _Mask(os.path.join(work, f"access_{name}.npy"), (h, w))
     for r0, r1 in _strips(h, w):
-        _, data = _data_rows(z, water, filled, r0, r1)
         if smoothed:
             a, b = max(0, r0 - HALO), min(h, r1 + HALO)
             za, da = _data_rows(z, water, filled, a, b)
             s = slope_deg(_smoothed(za, da), res)[r0 - a:r1 - a]
+            data = da[r0 - a:r1 - a]  # _data_rows of rows r0..r1: the same pixels, read once
+            del za, da
         else:
+            _, data = _data_rows(z, water, filled, r0, r1)
             s = _slope_rows(z, r0, r1, res)
         s = np.where(data, s, 90.0)
         g.write(r0, r1, (s < OPEN_DEG) & ~wet.rows(r0, r1) & data)
-    g.flush()
     regions = _Regions(g, os.path.join(work, REGIONS_FILE),
                        lambda pixels, lowest, highest: np.where(pixels * res * res >= OPEN_MIN_M2, KEEP, DROP))
     for s, (r0, r1) in enumerate(regions.strips):
@@ -842,7 +845,6 @@ def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int
         wet.write(r0, r1, np.asarray(water[r0:r1], bool) if water is not None else False)
     if not wm:
         _flat_lakes_rows(z, res, work, wet)
-    wet.flush()
     og = _open_ground_rows(z, water, filled, wet, res, work, "og", smoothed=False)
     og2 = _open_ground_rows(z, water, filled, wet, res, work, "og2", smoothed=True) if wm else None
     out = _new(path, (h, w), np.uint8)
