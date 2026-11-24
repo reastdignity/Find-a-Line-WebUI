@@ -60,6 +60,7 @@ from audit import KEEP_DAYS as AUDIT_DAYS, Audit
 import jobs as jb
 import params as pm
 from jobs import EVENTS_LIMIT, TICK, Jobs, QuotaExceeded, Scheduler, search_params, warm_up_wanted
+from runs import HOME_SCREEN_HEAD
 from settings import AccountSettings, Limits, PublicSettings, ViewSettings, web_key
 
 PORT = 8765
@@ -82,6 +83,9 @@ THIRD_PARTY_LICENCES = "THIRD-PARTY-LICENSES.txt"  # the bundled libraries' lice
 mimetypes.add_type("font/woff2", ".woff2")
 # A run's store (lines.arrow, profiles.arrow): linestore.MEDIA_TYPE (the web process never imports linestore)
 mimetypes.add_type("application/vnd.apache.arrow.file", ".arrow")
+# The site's manifest for a phone's home screen (APP_DIST/manifest.webmanifest, viewer/build.mjs): its registered type,
+# whatever the system's own table says (Windows takes types from its registry)
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]  # tests use them too (TestClient's base_url)
 GRACEFUL_SECONDS = 5    # open event streams are closed this long after a stop
 KEEP_ALIVE_SECONDS = 5  # an idle connection is closed after it
@@ -2334,6 +2338,7 @@ APP_HTML = """<!doctype html>
 <meta name="findaline-contact" content="{contact}">{keys}
 <title>Find-a-Line</title>
 <link rel="icon" href="/app/favicon.svg" type="image/svg+xml">
+""" + HOME_SCREEN_HEAD + """
 <link rel="stylesheet" href="/app/app.css">
 </head><body><div id="app"></div>
 <script src="/app/app.js"></script>
@@ -2348,6 +2353,7 @@ COVERAGE_HTML = """<!doctype html>
 <title>Data coverage · Find-a-Line</title>
 <meta name="description" content="Where Find-a-Line has detailed elevation data for finding highlines.">
 <link rel="icon" href="/app/favicon.svg" type="image/svg+xml">
+""" + HOME_SCREEN_HEAD + """
 <link rel="stylesheet" href="/app/coverage.css">
 </head><body class="cov-body"><div id="coverage" data-site="{site}"></div>
 <noscript><p>The coverage map needs JavaScript.</p></noscript>
@@ -2364,6 +2370,7 @@ VIEW3D_HTML = """<!doctype html>
 <meta name="findaline-3d-ring" content="{ring}">
 <title>Find-a-Line 3D</title>
 <link rel="icon" href="/app/favicon.svg" type="image/svg+xml">
+""" + HOME_SCREEN_HEAD + """
 <link rel="stylesheet" href="/app/view3d.css">
 </head><body><div id="view3d" class="ui"></div>
 <script src="/app/view3d.js"></script>
@@ -2448,6 +2455,7 @@ SIGNIN_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Find-a-Line</title>
 <link rel="icon" href="/app/favicon.svg" type="image/svg+xml">
+""" + HOME_SCREEN_HEAD + """
 <link rel="stylesheet" href="/app/app.css">
 </head><body class="ui p-body"><main class="p-page p-signin">
 <header class="p-brand"><h1 class="u-logo">{logo}<span class="u-sr">Find-a-Line</span></h1>
@@ -2462,6 +2470,7 @@ PAGE_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} · Find-a-Line</title>
 <link rel="icon" href="/app/favicon.svg" type="image/svg+xml">
+""" + HOME_SCREEN_HEAD + """
 <link rel="stylesheet" href="/app/app.css">
 </head><body class="ui p-body"><main class="p-page p-doc">
 <header class="p-brand"><a class="u-logo" href="/">{logo}<span class="u-sr">Find-a-Line</span></a></header>

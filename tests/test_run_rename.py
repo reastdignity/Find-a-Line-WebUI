@@ -22,10 +22,15 @@ from test_public import (DENIED, LINE, LOCAL, RUN_A, RUN_B, TOKEN, URL, account_
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# mapping.MAP_HTML at b1434458 (before the template moved to runs.py): a search's map.html stays byte for byte this
+# mapping.MAP_HTML at b1434458 (before the template moved to runs.py): a search's map.html stays byte for byte this,
+# with round 7's four home-screen lines after the title (B8: the manifest, the iPhone's icon, the page's ground)
 FROZEN_MAP_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} - Find-a-Line</title>
+<link rel="manifest" href="/app/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/app/apple-touch-icon.png">
+<meta name="theme-color" content="#f2f5f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121a1b" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="../{viewer}/viewer.css">
 </head><body><div id="map"></div>
 <script src="../runs.js"></script>
@@ -43,7 +48,8 @@ WORKERS_MODULES = ("mapping", "search", "numba", "linestore", "pyarrow", "linese
 
 
 def test_the_map_page_moved_unchanged():
-    """runs.map_page writes what mapping.map_page wrote at b1434458 (the frozen template, the same escaping), and
+    """runs.map_page writes what mapping.map_page wrote at b1434458 (the frozen template, the same escaping; since
+    round 7's B8 with the home-screen lines in the head), and
     mapping keeps every moved name as the same object."""
     import messages
     for name in ("DISK_NOTICE", "MAP_HTML", "VIEWER_FOLDER", "map_page"):
