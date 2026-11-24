@@ -26,7 +26,9 @@ What each module holds: docs/code-map/sources.md (`osm.py`, `coast.py`, `osmextr
 - The texts `tests/regression.py` reads: `coast.py`'s coastline sources (`SOURCE_*`, stored as each entry's
   `coastline` in `tests/regression.json`) and `FALLBACK_WARNING`, `osm.DAY_MAX_TEXT`, `net.UNREACHABLE_TEXT`. It
   tells a changed result from an unverified one by them: a reword of a source text stores the baselines' `coastline`
-  again in the same commit (`test_every_stored_coastline_is_a_named_text` fails until then).
+  again in the same commit (`test_every_stored_coastline_is_a_named_text` fails until then). It also finds a run's
+  coastline entry (for the data record) by these texts, `SOURCE_WORLD` and `SOURCE_OVERPASS` (`record_of`), where
+  `search.py` adds that entry for every text starting with "OpenStreetMap": a new such text goes into both.
 - R17 (the Malta extract's coastline and cliff tiles against Overpass's) is left out of `--all` (`"by_name": true`):
   after a change of `osm.py`'s theme tiles or `osmextract.py` run it by name, at most once a day while Overpass does
   not answer (12 queries a run), and report it as not checked until it has run.
