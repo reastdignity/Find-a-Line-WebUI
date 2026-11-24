@@ -72,6 +72,10 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   store without them and run.json's `view_columns_failed`. run.json is written whole (`cache.replacing`).
   `has_lines`: `lines.arrow`. The head is `mapping.map_head`'s. Its media type
   `linestore.MEDIA_TYPE` = `web.py`'s `mimetypes` entry.
+- A run.json just moved to its name is refused on Windows for a moment to another process (docs/known-bugs.md, "Two
+  searches saved at once on Windows"). A reader that goes through the runs folder reads it through `runs.read_meta`
+  (`list_runs`, `update.changed_runs`) or takes an OSError for "not now" (`run_state`). The readers handed a run
+  open it bare: a change that writes a saved run's run.json again mends them too.
 - The page's reader of the store (`result/load.ts` `readStore`, `storedProfiles`, `STORE_FORMAT`; `types.ts`
   `storedColumns`, `NULL_WHEN_MISSING`: null for clrN, prom, drop as data.js had them, NaN for the others) and
   `linestore.COLUMNS`/`profiles_table`/`FORMAT`: a new column, type, null rule or format goes into both

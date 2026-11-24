@@ -185,8 +185,8 @@ wrong for the two that go through the runs folder, as the listing does. `update.
 `update.status`, the command `findaline.py cache status`) opened each run.json it found, and a refusal ended the
 command with the PermissionError. Shown through `changed_runs` itself while another process saved 3 000 new runs
 with `cache.replacing`: the code as it was (`main` 47d46aa4) raised PermissionError in 1 091 of the 3 000 rounds;
-the mended code in none, having waited in 755 of them, once each (10 ms). It reads through the listing's waiting
-read now (`runs.read_meta`: the same pauses, on Windows only);
+the mended code in none in two runs, having waited in 755 and in 892 of them, once each (10 ms). It reads through
+the listing's waiting read now (`runs.read_meta`: the same pauses, on Windows only);
 `tests/test_units.py::test_cache_status_waits_for_a_run_json_windows_refuses` makes the refusal with a fake `open`.
 `runs.run_state` (the command `findaline.py runs remove-old`) needed no mending: it takes a run.json it cannot open
 for a run to skip ("cannot read now"), never for an old one.
@@ -194,13 +194,14 @@ for a run to skip ("cannot read now"), never for an old one.
 Not covered: the readers that are handed a run. They are the web's `has_store` and `take_export` (an export),
 `web.profile_problem` (the public site's bounds check of a profile or a 3D view, which takes a file it cannot open
 for a run without profiles), the quick lane's tasks (a profile, a 3D view's terrain, a reach, an export with
-`linestore.export`) and the commands `findaline.py export` and `view`. A page or a command names the run to them
-after it learned of it, from a listing that read its run.json or from the end of its search, so they come later
-than the milliseconds measured. That rests on a saved run's run.json being written once (`runs.save_results`):
-whatever replaces the run.json of a saved run puts each of them where the listing was. A reader in the writer's own
-process was never refused (the file opened straight after its move, 3 000 new files and 3 000 moves onto one file:
-none), so the refusals shown need a second process. A red `test_two_jobs_computing_at_once` on Windows with this
-error after 2026-11-24 is new: the hold then outlasted the pauses, or it came at another reader.
+`linestore.export`) and the commands `findaline.py export` and `view`. Why they should be safe is read from the
+code, not measured: a page or a command names the run to them after it learned of it, from a listing that read its
+run.json or from the end of its search, which should be later than the milliseconds measured. That rests on a saved
+run's run.json being written once (`runs.save_results`): whatever replaces the run.json of a saved run puts each of
+them where the listing was. Measured in one process: an open made after the move had returned was never refused
+(3 000 new files and 3 000 moves onto one file: none); an open by another thread of the writer's process while the
+move is under way was not measured. A red `test_two_jobs_computing_at_once` on Windows with this error after
+2026-11-24 is new: the hold then outlasted the pauses, or it came at another reader.
 
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
