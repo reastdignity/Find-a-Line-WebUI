@@ -43,8 +43,11 @@ def _layout(folder) -> str:
 
 
 def _result(coastline=WORLD_FILE, lines=10, exit_code=0, unanswered=None, warned=False, **more) -> dict:
-    """What run() gives for a search: its output's coastline line and warning read by measure itself."""
-    output = (f"Coastline: {coastline}\n" if coastline is not None else "") + (f"{WARNING_LINE}\n" if warned else "")
+    """What run() gives for a search: its output's coastline line and warning read by measure itself (warned: True
+    for a 502 of Overpass, or the text of another cause)."""
+    warning = WARNING_LINE if warned is True else (f"WARNING: {regression.coast.FALLBACK_WARNING} ({warned}). Using "
+                                                   f"the Copernicus water body mask instead")
+    output = (f"Coastline: {coastline}\n" if coastline is not None else "") + (f"{warning}\n" if warned else "")
     found = {**regression.measure(output, "none"), "anchors": 5, "lines": lines, "csv_sha256": "a" * 64,
              "exit": exit_code, "problems": []}
     found.pop("empty_tiles")
@@ -113,6 +116,55 @@ def test_measure_reads_the_coastline_line():
         == f"a; {FALLBACK}"
 
 
+def _warning(cause: str) -> str:
+    """coast's fallback note carrying `cause`, as findaline.print_event prints it."""
+    return (f"\n{'!' * 60}\nWARNING: {regression.coast.FALLBACK_WARNING} ({cause}). Using the Copernicus water body "
+            f"mask instead: its shoreline is only accurate to about 70 m\n{'!' * 60}\n")
+
+
+def _day_cap_text(tmp_path, monkeypatch, limit: int) -> str:
+    """osm.OverpassDayMax's own text, raised by osm._count_query when the folder's day is used up."""
+    import osm
+    monkeypatch.setenv("FINDALINE_OVERPASS_DAY_MAX", str(limit))
+    folder = str(tmp_path / f"cap{limit}")
+    for _ in range(limit):
+        osm._count_query(folder)
+    with pytest.raises(osm.OverpassDayMax) as raised:
+        osm._count_query(folder)
+    return str(raised.value)
+
+
+@pytest.mark.parametrize("cause", [
+    "502 Server Error: Bad Gateway for url: https://overpass-api.de/api/interpreter?...",
+    "HTTPSConnectionPool(host='overpass-api.de', port=443): Read timed out. (read timeout=120)",
+    "HTTPConnectionPool(host='127.0.0.1', port=9): Max retries exceeded with url: /?... (Caused by "
+    "NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=9): Failed to establish a new connection: "
+    "[WinError 10061] No connection could be made because the target machine actively refused it\"))",
+    "504 Server Error: Gateway Timeout for url: https://overpass-api.de/api/interpreter?...",
+])
+def test_the_warning_of_an_overpass_that_did_not_answer(cause):
+    assert regression.measure(_warning(cause), "none").get("coast_warning") is True
+
+
+def test_the_warning_of_the_day_cap(tmp_path, monkeypatch):
+    """Overpass's day cap of the folder (the search did not ask): its text from osm itself, any number."""
+    for limit in (0, 3):
+        cause = _day_cap_text(tmp_path, monkeypatch, limit)
+        assert regression.measure(_warning(cause), "none").get("coast_warning") is True, cause
+
+
+@pytest.mark.parametrize("cause", [
+    "Expecting value: line 1 column 1 (char 0)",  # a broken theme tile (osm.theme's json.load)
+    "could not convert string to float: 'x'",  # another ValueError of our own code
+    "",  # nothing in the parentheses
+    "500 Server Error: Internal Server Error for url: https://overpass-api.de/api/interpreter?... (timed out)",
+    "HTTPSConnectionPool(host='overpass-api.de', port=443): Max retries exceeded (Caused by NameResolutionError("
+    "\"Failed to resolve 'overpass-api.de'\"))",
+])
+def test_the_warning_of_our_own_error_excuses_nothing(cause):
+    assert "coast_warning" not in regression.measure(_warning(cause), "none")
+
+
 def test_measure_reads_the_fallback_warning():
     """The positive sign of the fallback: coast's own note, as findaline.print_event prints it."""
     assert regression.measure(f"\n{'!' * 60}\n{WARNING_LINE}\n{'!' * 60}\n", "none")["coast_warning"] is True
@@ -175,8 +227,9 @@ REWORDED = "OSM water polygons (world file)"
     (WORLD_FILE, FALLBACK, True, True, False),
     (WORLD_FILE, WORLD_FILE, True, False, False),  # the same source
     # a baseline on live Overpass
-    (OVERPASS, WORLD_FILE, True, False, True),
+    (OVERPASS, WORLD_FILE, True, False, False),  # a run on the world file is never excused (the reference)
     (OVERPASS, WORLD_FILE, False, False, False),
+    (OVERPASS, FALLBACK, True, True, False),  # nothing where the folder holds the world file
     (OVERPASS, FALLBACK, False, True, True),
     # "no sea in the area" is a result, a reworded or unknown text no source, a fallback or no baseline never excuses
     (WORLD_FILE, NO_SEA, False, False, False),
@@ -249,7 +302,11 @@ def _plant_world_file(cache_dir: str):
     (WORLD_FILE, _result(OVERPASS, lines=9), False, "unverified", 3),  # a scratch cache without the world file
     (WORLD_FILE, _result(FALLBACK, lines=9, warned=True), False, "unverified", 3),
     (WORLD_FILE, _result(FALLBACK, lines=9), False, "DIFFERENT", 1),  # the fallback without its warning
-    (OVERPASS, _result(WORLD_FILE, lines=9), True, "unverified", 3),  # a baseline on Overpass, a world file now
+    (OVERPASS, _result(WORLD_FILE, lines=9), True, "DIFFERENT", 1),  # a baseline on Overpass, the real cache
+    (OVERPASS, _result(FALLBACK, lines=9, warned=True), False, "unverified", 3),  # Overpass failed this time
+    (OVERPASS, _result(FALLBACK, lines=9, warned=True), True, "DIFFERENT", 1),
+    (WORLD_FILE, _result(FALLBACK, lines=9, warned="Expecting value: line 1 column 1 (char 0)"), False,
+     "DIFFERENT", 1),  # the fallback after our own error (a broken theme tile)
     (FALLBACK, _result(WORLD_FILE, lines=9), True, "DIFFERENT", 1),
     (None, _result(OVERPASS, lines=9), False, "DIFFERENT", 1),
     (WORLD_FILE, _result(OVERPASS), True, "ok", 0),  # no difference: ok on any source
@@ -349,6 +406,7 @@ def test_unanswered_http_status_of_net_get(status):
         text = _download_failed(_net_error(url))
     finally:
         server.shutdown()
+        server.server_close()
     assert text.startswith(f"Download failed: Could not download Test tile 0_0: HTTP {status}")
     assert regression.unanswered(text).startswith("a data provider did not answer: Download failed: ")
 
@@ -365,6 +423,7 @@ def test_answered_http_status_stays_different(status):
         net_error = _net_error(url) if status != 404 else RuntimeError("HTTP 404: answer")
     finally:
         server.shutdown()
+        server.server_close()
     assert regression.unanswered(_download_failed(net_error)) is None
     assert regression.unanswered(f"Area: {cache.clean_error(error.value)}\n") is None
 
@@ -382,6 +441,7 @@ def test_unanswered_status_of_raise_for_status():
             text = f"Area: {cache.clean_error(e)}\n"
     finally:
         server.shutdown()
+        server.server_close()
     assert text.startswith("Area: 503 Server Error")
     assert regression.unanswered(text).startswith("Nominatim or Overpass did not answer: Area: 503 Server Error")
 
@@ -429,6 +489,7 @@ def test_unanswered_gdal_remote_read(status):
     finally:
         if server:
             server.shutdown()
+            server.server_close()
     text = f"Download failed: Could not read Test block 1_2: {error.value}\n"
     assert regression.unanswered(text), text
 
@@ -567,16 +628,34 @@ def test_update_of_an_ok_run_keeps_the_stored_coastline(harness, capsys):
 
 
 def test_update_of_a_different_run_stores_its_coastline(harness, capsys):
-    """A DIFFERENT run stored by --update stores the source it printed with its values (here on a cache holding the
-    world file, where Overpass is a changed result); a fallback is refused."""
+    """A DIFFERENT run stored by --update stores the source it printed with its values (a re-baseline on the world
+    file); on a cache folder holding the world file, live Overpass's text is refused (only changed code takes it
+    there) and so is the fallback."""
     _plant_world_file(harness.cache)
-    harness.write({"R1": _entry(_expected()), "R2": _entry(_expected())})
-    harness.results.update(R1=_result(OVERPASS, lines=12), R2=_result(FALLBACK, lines=12, warned=True))
-    code, out, tests = harness("R1", "R2", "--update", capsys=capsys)
-    assert code == 3 and "R1: DIFFERENT" in out and "R2: DIFFERENT" in out
-    assert tests["R1"]["expected"] == _expected(coastline=OVERPASS, lines=12)
+    harness.write({"R1": _entry(_expected()), "R2": _entry(_expected()), "R3": _entry(_expected())})
+    harness.results.update(R1=_result(OVERPASS, lines=12), R2=_result(FALLBACK, lines=12, warned=True),
+                           R3=_result(WORLD_FILE, lines=12))
+    code, out, tests = harness("R1", "R2", "R3", "--update", capsys=capsys)
+    assert code == 3 and "R1: DIFFERENT" in out and "R2: DIFFERENT" in out and "R3: DIFFERENT" in out
+    assert (f"R1: not stored (coastline: {OVERPASS}; the cache folder holds the world file, which the search did not "
+            f"take)") in out
+    assert tests["R1"]["expected"] == _expected()
     assert f"R2: not stored (coastline: {FALLBACK}; a baseline is never stored on a fallback)" in out
     assert tests["R2"]["expected"] == _expected()
+    assert tests["R3"]["expected"] == _expected(lines=12)
+
+
+def test_update_of_a_first_baseline_on_overpass_without_the_world_file(harness, capsys):
+    """A first baseline taken on a folder without the world file may store live Overpass's text; with the world file
+    in the folder it may not."""
+    harness.write({"R1": _entry(_expected(coastline=None))})
+    harness.results.update(R1=_result(OVERPASS, lines=12))
+    code, out, tests = harness("R1", "--update", capsys=capsys)
+    assert code == 0 and tests["R1"]["expected"] == _expected(coastline=OVERPASS, lines=12)
+    harness.write({"R1": _entry(_expected(coastline=None))})
+    _plant_world_file(harness.cache)
+    code, out, tests = harness("R1", "--update", capsys=capsys)
+    assert code == 3 and "R1: not stored (coastline: " in out and tests["R1"]["expected"] == _expected(coastline=None)
 
 
 def test_update_of_a_different_entry_exits_as_before(harness, capsys):
@@ -1013,6 +1092,7 @@ def test_r17_lists_its_differences_and_keeps_both_trees(harness, tmp_path, capsy
         code, out, tests = harness("R17", "--update", capsys=capsys)
     finally:
         server.shutdown()
+        server.server_close()
     assert "R17: DIFFERENT" in out and "\n    same: True -> False" in out, out
     assert "\n    coastline: 1 only in the extract, 1 only in Overpass, 1 in both with another geometry" in out
     assert "\n        only in the extract: way/1" in out and "\n        in both with another geometry: way/3" in out

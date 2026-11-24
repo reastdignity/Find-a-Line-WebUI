@@ -48,19 +48,20 @@ Each test's outcome:
 - ok: every expected value equal (whatever the coastline source was);
 - unverified (reason): differences only for a reason outside the code: the search ended because a
   data provider or an OSM service did not answer (unanswered: NO_ANSWER's signs in its own error
-  line only), or the compared values differ and the coastline source (the search's "Coastline:"
-  line, stored as "coastline") is another one of coast's three sources than the baseline's world
-  file or live Overpass, and the cache folder explains it (coastline_excuse: the world file only
-  where the folder holds it, Overpass only where it does not, the fallback only where it does not
-  and the search warned that the coastline could not be downloaded); a same_as or
-  without_access_as mismatch only when one of the two tests is unverified in this run; never a
-  pass, its differences listed as for DIFFERENT;
+  line only), or the compared values differ on a cache folder without the world file and the
+  coastline source (the search's "Coastline:" line, stored as "coastline") explains it
+  (coastline_excuse): live Overpass against a baseline of the world file, or the fallback, whose
+  warning carries a cause outside the code (warning_cause: Overpass did not answer, or its day
+  cap), against a baseline of the world file or of live Overpass; a same_as or without_access_as
+  mismatch only when one of the two tests is unverified in this run; never a pass, its
+  differences listed as for DIFFERENT;
 - DIFFERENT: any other difference (a crash, the search's own errors, the store's, check_profiles'
-  and --browser's problems, "no sea in the area" against a source, a reworded source text, and on
-  the real cache, which holds the world file, a run on Overpass or the fallback);
+  and --browser's problems, "no sea in the area" against a source, a reworded source text, a run
+  on the world file, and anything where the folder holds the world file, as the real cache does);
 - skipped: its needs not met here (needs_env, needs_path), or R17's extract or Overpass missing.
 An entry with "by_name": true runs only when named or through --set (--all and the quick set leave it out).
---update stores nothing for an unverified entry, nor a coastline taken from a fallback; an ok run keeps the
+--update stores nothing for an unverified entry, nor a coastline taken from a fallback, nor live Overpass's
+where the cache folder holds the world file; an ok run keeps the
 stored coastline, a DIFFERENT one stores its own with its values, a first baseline what the search printed.
 
 Exit code: 0 nothing different and nothing unverified (skips allowed); 1 something different (with
@@ -120,10 +121,8 @@ ALWAYS = ("anchors", "open", "checked", "lines", "spots", "csv_sha256", "length_
 # search entry, never compared as a result (coastline_excuse decides when another source excuses a difference)
 COASTLINE = r"^Coastline: (.+)$"
 FALLBACK = coast.SOURCE_FALLBACK  # taken because Overpass failed: never stored by --update
-EXCUSED_BASELINES = (coast.SOURCE_WORLD, coast.SOURCE_OVERPASS)  # a baseline another source may excuse
-RUN_SOURCES = (coast.SOURCE_WORLD, coast.SOURCE_OVERPASS, coast.SOURCE_FALLBACK)  # a run's source that may excuse it
 # The search's own warning that Overpass failed and the fallback was taken (coast's note, printed by
-# findaline.print_event as "WARNING: ..."): the positive sign coastline_excuse needs for the fallback
+# findaline.print_event as "WARNING: ..."); the error in its parentheses must be a positive sign (warning_cause)
 COAST_WARNING = r"^(?:WARNING: )?" + re.escape(coast.FALLBACK_WARNING) + r" \("
 # A search that ended (exit code not 0) because a data provider or an OSM service did not answer. The command line
 # prints only the text of search.SearchError (findaline.py main: sys.exit(str(e))), so its codes are read from the
@@ -191,8 +190,9 @@ def measure(output: str, run_dir: str) -> dict:
     coastlines = list(dict.fromkeys(m.strip() for m in re.findall(COASTLINE, output, re.M)))
     if coastlines:  # one line per search (step 1 of the whole grid); two different ones joined, never chosen
         found["coastline"] = "; ".join(coastlines)
-    if re.search(COAST_WARNING, output, re.M):
-        found["coast_warning"] = True
+    warning = re.search(COAST_WARNING, output, re.M)
+    if warning and warning_cause(_parenthesised(output, warning.end() - 1)):
+        found["coast_warning"] = True  # the fallback because Overpass did not answer (or its day cap), not our error
     empty = {}  # per layer, the most tiles without data seen (tiled areas report every tile)
     for layer, n in re.findall(r"^(.+): (\d+) of \d+ tiles without data", output, re.M):
         empty[layer] = max(empty.get(layer, 0), int(n))
@@ -428,32 +428,77 @@ def unanswered(stderr: str) -> Optional[str]:
         who = next((who for prefix, who in FAILED_PREFIXES if lines[k].startswith(prefix)), None)
         if who is not None:
             text = lines[k].strip()
-            status = re.search(HTTP_STATUS, text)  # the first status named is the error's; a server's text follows it
-            if status and int(status.group(1) or status.group(2)) not in NO_ANSWER_STATUSES:
-                return None  # answered (a 500 whose page says "timed out" too)
-            if any(re.search(words, text) for words in NOT_NO_ANSWER):
-                return None
-            if any(re.search(sign, text) for sign in NO_ANSWER):
+            if no_answer_sign(text):
                 return f"{who} did not answer: {text[:200] + ('...' if len(text) > 200 else '')}"
             return None
     return None
 
 
+def no_answer_sign(text: str) -> bool:
+    """Whether an error's text is a positive sign that a service did not answer: the first HTTP status it names is
+    one of NO_ANSWER_STATUSES (a 500 whose page says "timed out" is an answer), none of NOT_NO_ANSWER's words, one of
+    NO_ANSWER's signs."""
+    status = re.search(HTTP_STATUS, text)
+    if status and int(status.group(1) or status.group(2)) not in NO_ANSWER_STATUSES:
+        return False
+    if any(re.search(words, text) for words in NOT_NO_ANSWER):
+        return False
+    return any(re.search(sign, text) for sign in NO_ANSWER)
+
+
+def _parenthesised(text: str, start: int) -> str:
+    """The text inside the parentheses that open at text[start] (balanced: an error names its own calls), or "" when
+    they never close on that line."""
+    depth = 0
+    for k in range(start, len(text)):
+        if text[k] == "\n":
+            return ""
+        depth += {"(": 1, ")": -1}.get(text[k], 0)
+        if depth == 0:
+            return text[start + 1:k]
+    return ""
+
+
+_DAY_CAP: List[str] = []  # the pattern of osm.OverpassDayMax's text, made once
+
+
+def _day_cap_pattern() -> str:
+    """osm.OverpassDayMax's text up to its first colon, its number generalised: taken from osm itself (its
+    _count_query raising it in a temporary folder with a cap of 0), never copied."""
+    if not _DAY_CAP:
+        import osm
+        folder, saved, text = tempfile.mkdtemp(prefix="findaline-daycap-"), osm.overpass_day_max, ""
+        try:
+            osm.overpass_day_max = lambda: 0
+            osm._count_query(folder)
+        except osm.OverpassDayMax as error:
+            text = str(error)
+        finally:
+            osm.overpass_day_max = saved
+            shutil.rmtree(folder, ignore_errors=True)
+        head = text.split(":")[0]
+        _DAY_CAP.append(re.escape(head).replace("0", r"\d+", 1) if head else r"(?!)")
+    return _DAY_CAP[0]
+
+
+def warning_cause(error: str) -> bool:
+    """Whether the error coast's fallback warning carries is a cause outside the code: a positive sign that Overpass
+    did not answer (no_answer_sign), or Overpass's day cap (osm.OverpassDayMax: the search did not ask). Anything
+    else (a JSON error of a broken theme tile, another ValueError of our own, nothing) is not."""
+    return bool(error) and (no_answer_sign(error) or re.match(_day_cap_pattern(), error) is not None)
+
+
 def coastline_excuse(stored_source: Optional[str], source: Optional[str], world_file: bool,
                      warned: bool) -> Optional[str]:
     """The reason another coastline source excuses differences in the compared values, or None: only for a cause
-    outside the code. The baseline names the world file or live Overpass; the run printed another one of the three
-    sources (world file, live Overpass, the fallback; "no sea in the area", an unknown or reworded text never); and
-    the cache folder explains it: the world file only where the folder holds it (world_file), live Overpass only
-    where it does not, the fallback only where it does not and the search warned that Overpass failed (warned). On
-    the real cache, which holds the world file, only changed code can give Overpass or the fallback."""
-    if stored_source not in EXCUSED_BASELINES or source not in RUN_SOURCES or source == stored_source:
-        return None
-    if source == coast.SOURCE_WORLD and not world_file:
-        return None
-    if source == coast.SOURCE_OVERPASS and world_file:
-        return None
-    if source == coast.SOURCE_FALLBACK and (world_file or not warned):
+    outside the code, and never where the folder holds the world file (world_file: the reference every baseline rests
+    on; on the real cache nothing is excused). A run on live Overpass against a baseline of the world file; a run on
+    the fallback, whose warning names a cause outside the code (warned), against a baseline of the world file or of
+    live Overpass. A run on the world file, "no sea in the area", an unknown or reworded text never."""
+    on_overpass = source == coast.SOURCE_OVERPASS and stored_source == coast.SOURCE_WORLD
+    on_fallback = (source == coast.SOURCE_FALLBACK and warned
+                   and stored_source in (coast.SOURCE_WORLD, coast.SOURCE_OVERPASS))
+    if world_file or not (on_overpass or on_fallback):
         return None
     return f"coastline: {source}; the baseline's: {stored_source}"
 
@@ -588,15 +633,18 @@ def stored(found: dict, old: dict, ok: bool) -> dict:
     return keep
 
 
-def not_storable(test: dict, found: dict, status: str, reason: Optional[str]) -> Optional[str]:
-    """Why --update must not store this run (None: it may): an unverified run, or a search entry whose coastline
-    came from a fallback (a first baseline too; an entry asking for another coastline, --coastline copernicus,
-    prints no "(fallback)")."""
+def not_storable(test: dict, found: dict, status: str, reason: Optional[str], world_file: bool) -> Optional[str]:
+    """Why --update must not store this run (None: it may): an unverified run; a search entry whose coastline came
+    from a fallback (a first baseline too; an entry asking for another coastline, --coastline copernicus, prints no
+    "(fallback)"); or one on live Overpass where the cache folder holds the world file (world_file: only changed
+    code takes Overpass there; a first baseline on a folder without it may store Overpass's text)."""
     if status == "unverified":
         return reason
     source = found.get("coastline") if test.get("kind") != "osm" else None
     if source and FALLBACK in source:
         return f"coastline: {source}; a baseline is never stored on a fallback"
+    if source and coast.SOURCE_OVERPASS in source and world_file:
+        return f"coastline: {source}; the cache folder holds the world file, which the search did not take"
     return None
 
 
@@ -1084,7 +1132,7 @@ def main():
         entries[test_id] = {"outcome": status.lower(), "reason": reason,
                             "coastline": None if osm_kind else found.get("coastline"), "seconds": round(seconds, 1)}
         if args.update:
-            why = not_storable(test, found, status, reason)
+            why = not_storable(test, found, status, reason, world_file)
             if why:
                 print(f"{test_id}: not stored ({why})", flush=True)
                 refused.append(test_id)
