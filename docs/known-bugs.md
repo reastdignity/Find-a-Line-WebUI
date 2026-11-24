@@ -162,13 +162,15 @@ it was raises NoMatches, the new one returns).
 `tests/test_web.py::test_two_jobs_computing_at_once` failed once on CI's Windows runner (run 45285547602,
 2026-11-23): one of its two jobs ended "failed" with `PermissionError: [Errno 13] Permission denied:
 ...\runs\<the other job's run>\run.json` at the `open` of `runs.list_runs`, called by `runs.write_index` at the end
-of `search.save_run`. The listing runs under `cache.runs_lock`; the other slot's `runs.save_results` writes its
-run.json outside it (`cache.replacing`: a temporary file moved to the name, the run's one write of it). So it is the
-app's, on Windows with two compute slots, not the test's: a search that lists the runs at the moment another one's
-run.json appears ends as failed, its own run saved. Shown on this PC (2026-11-24) with `cache.replacing` in one
-process and `list_runs`' two steps (`os.path.isfile`, then `open`) in another that waits for the file: over 3 000
-new files the open was refused 2 425 times, the writer never; with one file replaced in place, 1 184 opens and
-1 697 of the writer's 3 000 moves. The likely mechanism (not shown): the move still holds its handle on the file,
+of `search.save_run`. The trace shows no more than that refusal; the rest of the account is read from the code. The
+listing runs under `cache.runs_lock`; the other slot's `runs.save_results` writes its run.json outside it
+(`cache.replacing`: a temporary file moved to the name, the run's one write of it), so a listing can meet the file
+at the moment it appears; the failed job's own run was saved by then (`write_index` comes after it in `save_run`).
+If so, it is the app's, on Windows with two compute slots, not the test's. Shown on this PC (2026-11-24) with
+`cache.replacing` in one process and `list_runs`' two steps (`os.path.isfile`, then `open`) in another that waits
+for the file: over 3 000 new files the open was refused 2 425 times, the writer never, and every file was read on a
+later try (the refusal lasts a moment); with one file replaced in place, 1 184 opens and 1 697 of the writer's
+3 000 moves. The likely mechanism (not shown): the move still holds its handle on the file,
 opened for deleting, for a moment after the new name is seen, and Python's `open` does not share a file with such a
 handle. `list_runs` is also what the web's lists of runs call (`web.py`), without the lock. Not mended: a change of
 `runs.py` waits for the user's word. A red `test_two_jobs_computing_at_once` on Windows with this error is this.
