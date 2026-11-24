@@ -645,7 +645,7 @@ def _whole_metres_rows(z, water, filled) -> bool:
     return bool(np.mean(sample == np.round(sample)) >= WHOLE_METRE_SHARE)
 
 
-GATHER_PX = 4_000_000  # heights of flat regions gathered at a time for their exact percentiles (a larger region alone)
+GATHER_PX = 4_000_000  # heights of flat regions gathered at a time for their exact percentiles (a larger region: B)
 
 
 def _batches(regions: np.ndarray, count: np.ndarray):
