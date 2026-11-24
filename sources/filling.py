@@ -16,7 +16,7 @@ from progress import progress
 
 from .source import Source
 from .catalogue.world import WATER_MASK
-from .mosaic import NODATA, build_mosaic, flush_grid, prepare_layer, used_data
+from .mosaic import NODATA, build_mosaic, flush_grid, noted_before, prepare_layer, read_window, used_data
 
 # Copernicus water body mask, 1°×1° tiles next to the DEM tiles: 1 ocean, 2 lake, 3 river
 OCEAN, LAKE = 1, 2
@@ -87,12 +87,13 @@ def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[
     if download:
         WATER_MASK.download(grid, cache_dir, update, "water mask")
     files = WATER_MASK.files(grid, cache_dir)
+    before = noted_before(cache_dir, files)  # before constant_category, which reads them too (mosaic.read_window)
     value = constant_category(files, grid)
     if value is None:
         wbm = build_mosaic(files, grid, out_path, "water mask", categorical=True, rows=rows)
     else:
         wbm = _constant_mosaic(out_path, grid, value, len(files), "water mask", rows)
-    used_data.append(WATER_MASK.used(grid, cache_dir))
+    used_data.extend(read_window([WATER_MASK.used(grid, cache_dir)], before))
     tiles = WATER_MASK.tiles(grid)
     for tile, state in zip(tiles, cache.states(cache_dir, [WATER_MASK.tile_path(cache_dir, t) for t in tiles])):
         if state == "missing":

@@ -172,7 +172,9 @@ whole grid) count its files (docs/performance.md, "The access grid's memory"); `
 The data record (2026-11-24; the user's "do it once and correct"): what a search read, under the one key name
 `identity`, so that with every `identity` removed a run.json is what it was. Each `data` entry with `paths` holds
 `identity.sha256`, parallel to `paths`: the cache index's stored checksum of each file, read in `cache.touch`'s own
-lookup (`Layer.used`, cartoteca's and s3sheets' entries: `cache.identity_of`); the coastline's entry the world
+lookup (`Layer.used`, cartoteca's and s3sheets' entries: `cache.identity_of`) after the read and kept only where the
+note before the read agrees (`mosaic.noted_before`, `read_window`: in `prepare_layer` for every builder's entries,
+in `filling.water_body_mask`; else null, the file changed while it was read); the coastline's entry the world
 file's edition or the OSM coastline tiles of the grid's box (`coast.identity`); a local file's entry its size and
 modification time (`cache.file_identity`); the `area` block the OSM theme tiles and Nominatim answers an area by
 coast, cliffs or name was built from (`area.Inputs`, carried by the area object: `osm.theme_files`,

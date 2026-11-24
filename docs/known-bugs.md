@@ -299,11 +299,17 @@ again to get a run that names its data and credits.
 
 A run records what data it read (run.json's `identity` keys: docs/code-map/search.md), and the regression
 harness, `cache status` and `tools/record_check.py` compare by it. Known and left:
-- **Content replaced while a search reads it.** A layer's files are noted (`cache.touch`, so their checksums) just
-  after the mosaic has read them: a file replaced in between (a `cache update` or an `--update` search running
-  beside it) is recorded with its new checksum although the old content was read, and a later comparison says
-  "same". A way to close it: note the checksums before the read too and call a file whose two readings differ not
-  known.
+- **Content replaced while a search reads it.** Since 2026-11-24 a layer's files (and the water mask's) are noted
+  before the mosaic reads them and after (`mosaic.noted_before`, `cache.touch`), and a file whose two notes are not
+  the same known checksum is not known (`mosaic.read_window`). Left: a writer moves the new file in first and
+  writes its row after (it hashes the file, waits for the index's lock), so a read inside that gap with both notes
+  before the row keeps the old checksum (a later comparison says "differs", never "same" unless the old content
+  comes back; on Windows a file open for the read cannot be replaced meanwhile). The OSM tiles of the coastline and
+  of an area are noted once, after their read (`coast.identity` after the sea mask, `area.Inputs.identity` after the
+  area's shape): a tile replaced in between is recorded as read; closing it needs the first note inside
+  `osm.theme`, after a tile's fetch and before its read. A Nominatim answer is noted in the function that read it
+  (`area.region`), right after. A tiled search's merge keeps a checksum one tile knew where another tile's was not
+  known (`search._merged_data`).
 - **A real change read as "re-encoded" by `cache status`**, in narrow cases: other content stamped in the same
   second as the entry's newest fetch, a writer's fetch time taken before it waited for the index's lock, a clock set
   back. The run is still listed; only the word is wrong.

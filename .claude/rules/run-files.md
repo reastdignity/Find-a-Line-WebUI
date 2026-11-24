@@ -152,8 +152,8 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   "slope_file"}` (a list or an object of before: what it lacks never marks); a resumed session that read other data
   (`search._record_differs`) marks the run `mixed` only when a tile of an earlier session exists, and a resume with
   no tile left takes the kept record whole (data, area, slope file). The checksums
-  come from `cache.touch`'s SELECT of `fetched_at` (entries keep `fetched`, `cache status` reads both); the touch runs
-  after the mosaic read the files, so a file replaced in between is recorded as read (a known limit).
+  come from `cache.touch`'s SELECT of `fetched_at` (entries keep `fetched`, `cache status` reads both), kept only
+  where `mosaic.noted_before` (before the read) agrees: `read_window`, on every builder's entries and the water mask.
 - Favourite lines are known by their anchors joined (`keys.lineCoords`, also the `#line=` of a map's link): the
   store's int32 of 1e-7 degree, the same doubles as the 7 decimals data.js and lines.js had: a change of
   how the store keeps the anchors loses everyone's favourites (decide their migration). Their values, `web.FavouriteLine`, are the fields of `Line` in `types.ts`
