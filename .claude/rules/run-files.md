@@ -128,13 +128,18 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   3D patch's kinds (`search.encode_shore`: `sources.filling.shore_rows` on the patch's samples, one byte each,
   deflated after the heights; the meta's `shore_bytes`/`shore_sha256`, docs/3d-view-contract.md "Body") are split off
   by `view3d/decode.ts` `decodePatch` (`Patch.shore`) and checked by `web.patch_body`; the kinds' values (1 surface, 2
-  sea) are `SHORE_SURFACE`/`SHORE_SEA` in both filling.py and `view3d/shore.ts`. A tiled search's `shore.json`
-  (`search.SHORE_FILE`) is work state of the run folder: not in `web.RUN_FILES`.
+  sea) are `SHORE_SURFACE`/`SHORE_SEA` in both filling.py and `view3d/shore.ts`.
 - Where a run's terrain came from: `sources.filling.terrain_origins`' dict is run.json's `terrain_sources` (None when
   nothing was filled) and the head's only when known (`mapping.map_head`: a run without it keeps the head of
   before; `runs._listed` leaves it out), and `TerrainSources` of `viewer/src/types.ts`; its land takes
   the statistics' rule (`water_with_data`) after the gap filling, so `land_km2` less the neighbours' and fallbacks'
   km² is the run's `terrain.km2` (the source's own land, counted before the filling).
+- A tiled search keeps what `save_run` needs of step 1 in its run folder, written after step 1 and read back by a
+  search resumed with no tile left (it skips step 1): `shore.json`, `terrain_sources.json` and `data_used.json`
+  (`search.SHORE_FILE`, `ORIGINS_FILE`, `USED_FILE`: the shore, the terrain's origins, `src.used_data` for run.json's
+  `data` and credits and the profiles at tile edges); a run without `data_used.json` runs step 1 once more. Anything
+  else `save_run` or the edge profiles take from step 1 is kept there too
+  (`tests/test_offline.py::test_resumed_area_keeps_step_one`). They are work state: never in `web.RUN_FILES`.
 - Favourite lines are known by their anchors joined (`keys.lineCoords`, also the `#line=` of a map's link): the
   store's int32 of 1e-7 degree, the same doubles as the 7 decimals data.js and lines.js had: a change of
   how the store keeps the anchors loses everyone's favourites (decide their migration). Their values, `web.FavouriteLine`, are the fields of `Line` in `types.ts`
