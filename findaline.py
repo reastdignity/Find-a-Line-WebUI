@@ -37,6 +37,7 @@ import mapping as mp
 import params as pm
 import runs as rn
 import search
+import servicecounts
 from progress import progress, utf8_output
 
 DESCRIPTION = ("Find highline spots using elevation data (geoportal.gov.pl, Malta, FABDEM/"
@@ -491,28 +492,30 @@ if __name__ == "__main__":
     searches, options = pm.parse_cli(description=DESCRIPTION)
     data_dir = cache.data_dir(options.data_dir)
     stopped = []
-    for n, params in enumerate(searches, 1):
-        if len(searches) > 1:
-            print(f"\n{'#' * 60}\nPoint {n} of {len(searches)}: {params.lat}, {params.lon}"
-                  + (f" ({params.name})" if params.name else "") + f"\n{'#' * 60}")
-        paths = search.Paths(data_dir, cache.new_work(data_dir))
-        failed = True
-        try:
-            with progress.bars():
-                main(params, options, paths)
-            failed = False
-        except SystemExit as e:  # a stop with a message (no lines found, bad input...) is not a failure
-            failed = e.code not in (None, 0) and not isinstance(e.code, str)
-            if failed or len(searches) == 1:
-                raise
-            print(e.code)
-            stopped.append(n)
-        finally:
-            if failed:
-                print(f"The working grids are kept in {paths.work} (delete the folder when done)")
-            else:
-                gc.collect()  # close the memory-mapped grids before deleting them (Windows)
-                cache.remove_work(paths.work)
+    # The requests and tiles counted into the file the variable names, if any (tests/regression.py sets it)
+    with servicecounts.counted_into(os.environ.get(servicecounts.COUNTS_FILE_ENV)):
+        for n, params in enumerate(searches, 1):
+            if len(searches) > 1:
+                print(f"\n{'#' * 60}\nPoint {n} of {len(searches)}: {params.lat}, {params.lon}"
+                      + (f" ({params.name})" if params.name else "") + f"\n{'#' * 60}")
+            paths = search.Paths(data_dir, cache.new_work(data_dir))
+            failed = True
+            try:
+                with progress.bars():
+                    main(params, options, paths)
+                failed = False
+            except SystemExit as e:  # a stop with a message (no lines found, bad input...) is not a failure
+                failed = e.code not in (None, 0) and not isinstance(e.code, str)
+                if failed or len(searches) == 1:
+                    raise
+                print(e.code)
+                stopped.append(n)
+            finally:
+                if failed:
+                    print(f"The working grids are kept in {paths.work} (delete the folder when done)")
+                else:
+                    gc.collect()  # close the memory-mapped grids before deleting them (Windows)
+                    cache.remove_work(paths.work)
     if stopped:
         sys.exit(f"Stopped without a run: point{'s' if len(stopped) > 1 else ''} "
                  f"{', '.join(map(str, stopped))} of {len(searches)}")
