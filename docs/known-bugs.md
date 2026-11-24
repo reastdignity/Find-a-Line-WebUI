@@ -324,9 +324,11 @@ harness, `cache status` and `tools/record_check.py` compare by it. Known and lef
 - **A filler or neighbour that read its files and filled no pixel** is left out of the record, as of the credits.
 - **`cache status` reads only** since 2026-11-24 (it wrote before: it adopted a world file put there by hand, opened
   each index for writing and marked a missing cache with its LAYOUT file). Left: SQLite itself may leave a `-shm`,
-  or a `-shm` and a `-wal`, beside an index in the two cases `update._read_only` names; the OSM extracts of a data
-  folder whose path holds `[` are not listed (`osmextract.extracts`' `glob`, as other `glob`s of the code that start
-  at the data folder; `coast.world_file`'s is mended).
+  or a `-shm` and a `-wal`, beside an index in the two cases `update._read_only` names, and writes into a `-shm`
+  that is there already beside a `-wal` (another process has the index open, or one that was killed left them):
+  on the real cache (2026-11-24) three such `-shm` files got a new modification time and nothing else changed; the
+  OSM extracts of a data folder whose path holds `[` are not listed (`osmextract.extracts`' `glob`, as other `glob`s
+  of the code that start at the data folder; `coast.world_file`'s is mended).
 - A run made before the record is counted by the rule of before (fetch times) and marked approximate; a relative
   `--slope-file` is not checked; a resumed run marked because earlier tiles exist keeps its mark even if the
   marking session stopped before its own first tile.
