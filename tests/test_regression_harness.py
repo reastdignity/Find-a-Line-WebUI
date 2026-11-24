@@ -1,7 +1,8 @@
 """tests/regression.py's harness, offline (no real search: `run` and `run_osm` stubbed, `measure` fed canned output):
 the coastline source stored with a baseline (H1), the outcomes ok, unverified and DIFFERENT (H2) and their exit codes
 (H3), the --update guard (H4), the refusal of an empty cache without --cold (H5), seeding a scratch cache from the
-real one by hard links (H6), the run log (H7), R17's list of differences (H8) and entries run by name only (H9)."""
+real one by hard links (H6), the run log (H7), R17's list of differences (H8), entries run by name only (H9) and the
+requests per host and the test lock's token in the run log (H10)."""
 
 import http.server
 import importlib.util
@@ -1017,6 +1018,7 @@ def test_run_log_line(harness, tmp_path, capsys, monkeypatch):
     # quoting it reaches a reason; its value is nowhere in the line
     key = "k3y-of-the-test-0123"
     monkeypatch.setenv("OPENTOPOGRAPHY_API_KEY", key)
+    monkeypatch.delenv(regression.LOCK_TOKEN_ENV, raising=False)  # not run under the test lock: null
     harness.write({"R1": _entry(_expected(), needs_env="OPENTOPOGRAPHY_API_KEY"), "R2": _entry(_expected()),
                    "R3": _entry(_expected(), needs_env="NOPE"), "R4": _entry(_expected(), sets=["quick"], by_name=True),
                    "R5": _entry(_expected())})
@@ -1030,7 +1032,8 @@ def test_run_log_line(harness, tmp_path, capsys, monkeypatch):
     assert len(lines) == 1
     record = json.loads(lines[0])
     assert set(record) == {"v", "time", "seconds", "commit", "branch", "worktree", "cache", "cache_real",
-                           "real_cache", "cold", "seeded", "args", "entries", "counts", "exit"}
+                           "real_cache", "cold", "seeded", "args", "entries", "counts", "exit", "lock_token", "hosts"}
+    assert record["lock_token"] is None and record["hosts"] == {}  # the stubbed searches counted nothing
     assert record["v"] == 1 and record["exit"] == 3 and record["cache"] == harness.cache
     assert record["time"].endswith("+00:00") and record["worktree"] == os.path.basename(REPO)
     assert record["real_cache"] is False and record["cold"] is False and record["seeded"] == []
@@ -1129,6 +1132,10 @@ def test_r17_lists_its_differences_and_keeps_both_trees(harness, tmp_path, capsy
     assert "\n    coastline: 1 only in the extract, 1 only in Overpass, 1 in both with another geometry" in out
     assert "\n        only in the extract: way/1" in out and "\n        in both with another geometry: way/3" in out
     assert tests["R17"]["expected"] == {"coastline": 3, "same": False}  # the ids are no expected value
+    asked = len(list(osm.tiles(14.0, 36.0, 14.2, 36.2)))  # one Overpass query per theme tile (osm.fetch_tile)
+    hosts = _log_line(tmp_path)["entries"]["R17"]["hosts"]  # counted in this process; the stand-in's address hidden
+    assert hosts == {"ip-address": {"requests": asked, "bytes": hosts["ip-address"]["bytes"], "failed": 0}}
+    assert asked >= 1 and hosts["ip-address"]["bytes"] == asked * len(theirs)
     work = out.rsplit("logs in ", 1)[1].strip()
     folder = os.path.join(work, "R17")
     with open(os.path.join(folder, "differences.json"), encoding="utf-8") as f:
@@ -1190,3 +1197,141 @@ def test_entries_run_by_name_only(harness, capsys):
 
 def test_no_entry_is_run_by_name_only_yet():
     assert not [t for t, test in regression.load().items() if test.get("by_name")]
+
+
+# H10: requests and bytes per host, the test lock's token
+
+
+def _counts(hosts: dict, downloaded=0, cached=0) -> dict:
+    return {"hosts": hosts, "tiles": {"downloaded": downloaded, "cached": cached}}
+
+
+def _log_line(tmp_path) -> dict:
+    with open(tmp_path / "locks" / regression.RUN_LOG, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    return json.loads(lines[-1])
+
+
+def test_counts_in_the_run_log(harness, tmp_path, capsys, monkeypatch):
+    """Each entry's `hosts` and `tiles` as its search counted them, the run's `hosts` summed (`reads` where any entry
+    has it), R17 counted in the harness's process (also when it is skipped after asking), the lock's token; with
+    --update nothing of it goes into regression.json."""
+    import servicecounts
+    monkeypatch.setenv(regression.LOCK_TOKEN_ENV, "0123456789abcdef")
+    harness.write({"R1": _entry(_expected()), "R2": _entry(_expected()), "R3": _entry(_expected()),
+                   "R17": {"place": "x", "kind": "osm", "region": "malta", "bbox": [14.0, 36.0, 14.2, 36.2],
+                           "themes": ["coastline"], "sets": ["quick"], "expected": {"coastline": 3, "same": True}},
+                   "R18": {"place": "x", "kind": "osm", "region": "malta", "bbox": [14.0, 36.0, 14.2, 36.2],
+                           "themes": ["coastline"], "sets": ["quick"], "expected": {"coastline": 3, "same": True}}})
+    harness.results.update(
+        R1=_result(service_counts=_counts({"a.example": {"requests": 3, "bytes": 300, "failed": 1}}, 2, 5)),
+        R2=_result(lines=9, service_counts=_counts({"a.example": {"requests": 1, "bytes": 0, "failed": 0,
+                                                                  "reads": True},
+                                                    "b.example": {"requests": 2, "bytes": 20, "failed": 0}})),
+        R3=_result(service_counts=None))  # no counts file: no counts for it
+
+    def run_osm(test, work, cache_dir):
+        assert servicecounts.enabled()
+        servicecounts.record("https://overpass-api.de/api/interpreter?data=x", "ok", 100)
+        if test["themes"] == ["coastline"] and work.endswith("R18"):
+            servicecounts.record("https://overpass-api.de/api/interpreter?data=x", "timeout")
+            return {"skipped": "Overpass did not answer (timed out)"}
+        return {"coastline": 3, "same": True}
+
+    monkeypatch.setattr(regression, "run_osm", run_osm)
+    code, out, tests = harness("--update", capsys=capsys)
+    assert code == 0, out
+    record = _log_line(tmp_path)
+    entries = record["entries"]
+    assert record["v"] == 1 and record["lock_token"] == "0123456789abcdef"
+    assert entries["R1"]["hosts"] == {"a.example": {"requests": 3, "bytes": 300, "failed": 1}}
+    assert entries["R1"]["tiles"] == {"downloaded": 2, "cached": 5} and entries["R1"]["outcome"] == "ok"
+    assert entries["R2"]["hosts"]["a.example"]["reads"] is True and entries["R2"]["outcome"] == "different"
+    assert "hosts" not in entries["R3"] and "tiles" not in entries["R3"]
+    assert entries["R17"]["hosts"] == {"overpass-api.de": {"requests": 1, "bytes": 100, "failed": 0}}
+    assert entries["R17"]["tiles"] == {"downloaded": 0, "cached": 0}
+    assert entries["R18"]["outcome"] == "skipped"
+    assert entries["R18"]["hosts"] == {"overpass-api.de": {"requests": 2, "bytes": 100, "failed": 1}}
+    assert record["hosts"] == {"a.example": {"requests": 4, "bytes": 300, "failed": 1, "reads": True},
+                               "b.example": {"requests": 2, "bytes": 20, "failed": 0},
+                               "overpass-api.de": {"requests": 3, "bytes": 200, "failed": 1}}
+    assert not servicecounts.enabled()
+    for test_id, test in tests.items():
+        assert not {"service_counts", "hosts", "tiles"} & set(test["expected"]), test_id
+    assert tests["R17"]["expected"] == {"coastline": 3, "same": True}
+
+
+def test_run_names_the_counts_file(tmp_path, monkeypatch):
+    """run(): the search gets COUNTS_FILE in its log folder through the variable, and its counts are read from it."""
+    seen = {}
+
+    def search(cmd, env=None, **kwargs):
+        seen["path"] = env["FINDALINE_SERVICE_COUNTS"]
+        with open(seen["path"], "w", encoding="utf-8") as f:
+            json.dump(_counts({"services.example": {"requests": 2, "bytes": 2_400_000, "failed": 0}}, 1, 0), f)
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="Not enough steep terrain.\n")
+
+    monkeypatch.setattr(regression.subprocess, "run", search)
+    monkeypatch.setattr(regression, "link", lambda target, path: os.makedirs(path))  # no junction under basetemp
+    found = regression.run({"R1": _entry(_expected())}, "R1", str(tmp_path / "work"), str(tmp_path / "cache"), False)
+    assert seen["path"] == str(tmp_path / "work" / "R1" / regression.COUNTS_FILE)
+    assert found["service_counts"] == _counts({"services.example": {"requests": 2, "bytes": 2_400_000, "failed": 0}},
+                                              1, 0)
+
+
+def test_run_adds_the_checks_requests(tmp_path, monkeypatch):
+    """run(): what the harness's checks after a search ask in this process (here check_map, standing in for a named
+    region's lookup or the profiles' tiles) is added to the search's counts; with no counts file, to none."""
+    import servicecounts
+
+    def check_map(runs, found):
+        servicecounts.record("https://nominatim.example/search", "ok", 10)
+        servicecounts.record("https://services.example/wcs", "timeout")
+        return []
+
+    for written in (True, False):
+        def search(cmd, env=None, **kwargs):
+            if written:
+                with open(env["FINDALINE_SERVICE_COUNTS"], "w", encoding="utf-8") as f:
+                    json.dump(_counts({"services.example": {"requests": 2, "bytes": 200, "failed": 0}}, 1, 3), f)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(regression.subprocess, "run", search)
+        monkeypatch.setattr(regression, "link", lambda target, path: os.makedirs(path))
+        monkeypatch.setattr(regression, "measure", lambda output, runs: {"store_problems": []})
+        monkeypatch.setattr(regression, "check_map", check_map)
+        work = tmp_path / f"work-{written}"
+        found = regression.run({"R1": _entry(_expected())}, "R1", str(work), str(tmp_path / "cache"), False)
+        nominatim = {"requests": 1, "bytes": 10, "failed": 0}
+        if written:
+            assert found["service_counts"] == _counts({"services.example": {"requests": 3, "bytes": 200, "failed": 1},
+                                                       "nominatim.example": nominatim}, 1, 3)
+        else:
+            assert found["service_counts"] == _counts({"services.example": {"requests": 1, "bytes": 0, "failed": 1},
+                                                       "nominatim.example": nominatim})
+        assert found["problems"] == [] and not servicecounts.enabled()
+
+
+@pytest.mark.parametrize("text", ["", "{", "[]", '{"hosts": []}', '{"hosts": {"a": {"requests": 1}}}',
+                                  '{"hosts": {}, "tiles": {"downloaded": "x"}}'])
+def test_a_broken_counts_file_is_no_counts(tmp_path, text):
+    path = tmp_path / "counts.json"
+    path.write_text(text, encoding="utf-8")
+    assert regression.read_counts(str(path)) is None
+    assert regression.read_counts(str(tmp_path / "missing.json")) is None
+
+
+def test_read_counts_keeps_host_names_only(tmp_path):
+    path = tmp_path / "counts.json"
+    path.write_text(json.dumps(_counts({"10.0.0.5": {"requests": 1, "bytes": 2, "failed": 0, "reads": "yes"},
+                                        "a.example": {"requests": 1, "bytes": 2, "failed": 0, "extra": 1}})),
+                    encoding="utf-8")
+    assert regression.read_counts(str(path)) == _counts({"ip-address": {"requests": 1, "bytes": 2, "failed": 0},
+                                                         "a.example": {"requests": 1, "bytes": 2, "failed": 0}})
+
+
+def test_the_lock_token_variable_is_the_locks():
+    spec = importlib.util.spec_from_file_location("lock_tool_of_the_test", os.path.join(REPO, "tools", "test_lock.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert regression.LOCK_TOKEN_ENV == module.TOKEN_ENV

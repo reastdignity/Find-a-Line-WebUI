@@ -1008,3 +1008,21 @@ def test_ram_share_setting(tmp_path):
         assert tl.memory_limit(memory, 0.9) > tl.memory_limit(memory, 0.8)
     finally:
         queue.db.close()
+
+
+def test_the_command_gets_its_token(tmp_path):
+    """The wrapped command finds the token of its queue entry in TOKEN_ENV (tests/regression.py writes it into the
+    run log), its own even under an outer wrapper's; nothing else of the environment changes with it."""
+    assert tl.TOKEN_ENV == "FINDALINE_TEST_LOCK_TOKEN"
+    assert tl._environment("shared", token="ab12")[tl.TOKEN_ENV] == "ab12"
+    without = tl._environment("shared")
+    assert {k: v for k, v in tl._environment("shared", token="ab12").items() if k != tl.TOKEN_ENV} == {
+        k: v for k, v in without.items() if k != tl.TOKEN_ENV}
+    seen = tmp_path / "token.txt"
+    env = dict(os.environ, FINDALINE_TEST_LOCK_DIR=str(tmp_path / "locks"), FINDALINE_TEST_LOCK_POLL="0.05",
+               FINDALINE_TEST_LOCK_TOKEN="outer")
+    command = [sys.executable, "-c", f"import os; open({str(seen)!r}, 'w').write(os.environ['{tl.TOKEN_ENV}'])"]
+    result = subprocess.run([sys.executable, TOOL, "run", "--", *command], env=env, capture_output=True, text=True,
+                            encoding="utf-8", timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert re.fullmatch(r"[0-9a-f]{16}", seen.read_text())  # secrets.token_hex(8) of run(), not the outer "outer"
