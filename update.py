@@ -401,32 +401,44 @@ class RunChange:
                                                      if self.approximate else "")
 
 
-def _read_only(db_path: str) -> Optional[sqlite3.Connection]:
+def _read_only(db_path: str, mode: Optional[str] = None) -> Optional[sqlite3.Connection]:
     """A connection to an existing SQLite file that writes nothing beside it, or None when there is no file. A
-    plain read-only open of a WAL database leaves its -shm and -wal files behind, so: with a -wal file there
-    (another connection has it open, the rows may still be in the WAL) a read-only open, which reads them; without
-    one the file holds everything, read as immutable (no lock, no side file)."""
+    read-only open of a WAL database leaves its -shm and -wal files behind, so a WAL database (the indexes: the
+    file's header says it) without a -wal file, which then holds everything, is read as immutable (no lock, no side
+    file); one with a -wal file (another connection has it open, rows may still be in the WAL) and a database of a
+    rollback journal (nominatim.sqlite) read-only, which reads the WAL and waits for a writer's lock."""
     if not os.path.isfile(db_path):
         return None
-    mode = "mode=ro" if os.path.exists(db_path + "-wal") else "immutable=1"
-    return sqlite3.connect(f"{pathlib.Path(os.path.abspath(db_path)).as_uri()}?{mode}", uri=True)
+    if mode is None:
+        with open(db_path, "rb") as f:
+            header = f.read(20)
+        wal = len(header) == 20 and header[18] == 2
+        mode = "immutable=1" if wal and not os.path.exists(db_path + "-wal") else "mode=ro"
+    return sqlite3.connect(f"{pathlib.Path(os.path.abspath(db_path)).as_uri()}?{mode}", uri=True, timeout=60)
 
 
 def _query(db_path: str, ask: Callable[[sqlite3.Connection], Dict]) -> Dict:
-    """ask(connection) on _read_only(db_path); {} without the file. An immutable read that meets a file being
-    written (a checkpoint of another process) is read again with a read-only open."""
+    """ask(connection) on _read_only(db_path); {} without the file or without the table asked (an index made and
+    never written). An immutable read that fails while a -wal file appeared (another process began writing, its
+    checkpoint may have been under way) is read again read-only, which then leaves no side file of its own; any
+    other error is raised (as cache.rows, earlier in `status`, raises it)."""
+    db = _read_only(db_path)
     for attempt in range(2):
-        db = _read_only(db_path) if attempt == 0 else sqlite3.connect(
-            f"{pathlib.Path(os.path.abspath(db_path)).as_uri()}?mode=ro", uri=True)
         if db is None:
             return {}
         try:
             return ask(db)
+        except sqlite3.OperationalError as e:
+            if str(e).startswith("no such table"):
+                return {}
+            if attempt == 1 or not os.path.exists(db_path + "-wal"):
+                raise
         except sqlite3.DatabaseError:
-            if attempt == 1:
+            if attempt == 1 or not os.path.exists(db_path + "-wal"):
                 raise
         finally:
             db.close()
+        db = _read_only(db_path, "mode=ro")
     return {}
 
 

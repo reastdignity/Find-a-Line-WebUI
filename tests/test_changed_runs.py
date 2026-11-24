@@ -307,10 +307,37 @@ def test_listing_the_runs_writes_nothing(tmp_path, monkeypatch):
         before, connects[:] = _listing(cache_dir), []
         changes = _changes(data)
         assert _listing(cache_dir) == before
-        assert [c for c in connects if "mode=ro" in c] == [c for c in connects if "/poland/" in c]
+        assert [c for c in connects if "mode=ro" in c] == [c for c in connects if "/poland/" in c or "nominatim" in c]
+        assert len(connects) == 4
         assert changes["run00"].changed == 2 and changes["run01"].changed == 1  # and slovakia/t/gone.tif
     finally:
         writer.close()
+
+
+def test_an_index_without_rows_writes_nothing(tmp_path):
+    """T5: an index file that is empty, or holds no table `files`, has no rows (its files count as gone), and is
+    left as it was: no table made, no side file; Nominatim's file is read read-only (a rollback journal: no side
+    file either)."""
+    data, cache_dir = _cache(tmp_path, {"poland/nmt/a.tif": b"a"})
+    _write(cache_dir, "spain/index.sqlite", b"")
+    _write(cache_dir, "spain/t/a.tif", b"a")
+    os.makedirs(os.path.join(cache_dir, "usa"))
+    db = sqlite3.connect(os.path.join(cache_dir, "usa", "index.sqlite"))
+    with db:
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("CREATE TABLE other (x)")
+    db.close()
+    _write(cache_dir, "usa/t/a.tif", b"a")
+    _nominatim(cache_dir, {("search", "Gozo"): "{}"})
+    _run(data, "empty", {"data": [_entry(cache_dir, ["poland/nmt/a.tif"]),
+                                  {"paths": ["spain/t/a.tif", "usa/t/a.tif"], "identity": {"sha256": ["1" * 64] * 2}}],
+                         "area": {"identity": {"nominatim": [{"table": "search", "query": "Gozo",
+                                                              "sha256": _text_sha("{}")}]}},
+                         "identity": VERSIONS})
+    before = _listing(cache_dir)
+    change = _changes(data)["empty"]
+    assert _listing(cache_dir) == before
+    assert change.line() == "empty: 2 of 3 files changed"
 
 
 def test_status_prints_a_line_per_run(tmp_path, capsys):
