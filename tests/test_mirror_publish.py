@@ -865,6 +865,9 @@ def test_rclone_stderr_never_printed(world, monkeypatch, capsys):
     --log FILE gets it."""
     log = world.tmp / "rclone.log"
     words = ("secretuser", "secret-host", "2222", "/srv/secret-root", "sftp://")
+    # The trash folder's stamp held (the tool prints it at unpublish): at 22:22 UTC it holds the port's four digits
+    # itself, "madeira-20261123T222201Z" (CI 45277159653, where nothing of rclone's stderr was printed)
+    monkeypatch.setattr(mp, "_stamp", lambda: "20260101T000000Z")
 
     def noisy(self, argv, data, progress):
         done = REAL_CALL(self, argv, data, progress)

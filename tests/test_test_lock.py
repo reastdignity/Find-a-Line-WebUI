@@ -497,6 +497,61 @@ def test_wrappers_set_up_a_new_queue_together(tmp_path):
         assert not errors, errors[0]
 
 
+def test_the_queues_opening_tried_again_after_a_truncate_error(tmp_path, monkeypatch):
+    """A wrapper that opens the queue a moment after another one was killed: on Windows SQLite answers
+    SQLITE_IOERR_TRUNCATE ("disk I/O error") to the connection's first statement for a moment (the killed process
+    still has the database's shared-memory file mapped). The opening is tried again; any other error is raised at
+    once."""
+    import sqlite3
+
+    class Connection(sqlite3.Connection):
+        refused = []
+
+        def execute(self, sql, *args):
+            if sql == "PRAGMA journal_mode=WAL" and Connection.refused:
+                error = sqlite3.OperationalError("disk I/O error")
+                error.sqlite_errorcode = Connection.refused.pop(0)
+                raise error
+            return super().execute(sql, *args)
+
+    class Sqlite:
+        """sqlite3 as the tool sees it, its connections of the class above: only the tool's own openings meet the
+        errors (a `connect` replaced in sqlite3 itself is every thread's of the process)."""
+
+        made = []
+
+        def __getattr__(self, name):
+            return getattr(sqlite3, name)
+
+        @staticmethod
+        def connect(*args, **more):
+            Sqlite.made.append(sqlite3.connect(*args, factory=Connection, **more))
+            return Sqlite.made[-1]
+
+    def closed(db):
+        try:
+            db.execute("SELECT 1")
+        except sqlite3.ProgrammingError:  # "Cannot operate on a closed database."
+            return True
+        return False
+
+    monkeypatch.setattr(tl, "sqlite3", Sqlite())
+    Connection.refused = [sqlite3.SQLITE_IOERR_TRUNCATE] * 3
+    queue = tl.Queue(str(tmp_path))  # refused three times, then opened
+    assert Connection.refused == [] and queue.db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    queue.db.close()
+    Connection.refused = [sqlite3.SQLITE_IOERR_READ, sqlite3.SQLITE_IOERR_TRUNCATE]
+    with pytest.raises(sqlite3.OperationalError):
+        tl.Queue(str(tmp_path))
+    assert Connection.refused == [sqlite3.SQLITE_IOERR_TRUNCATE]  # another error: not tried again
+    assert closed(Sqlite.made[-1])
+    Connection.refused = [sqlite3.SQLITE_IOERR_TRUNCATE] * 20
+    with pytest.raises(sqlite3.OperationalError):
+        tl.Queue(str(tmp_path))
+    assert len(Connection.refused) == 13  # seven tries, then the error
+    assert closed(Sqlite.made[-1]) and len(Sqlite.made) == 3  # as cache.wal: raised with the connection closed
+
+
 class Drained:
     """A wrapper's stderr read by a thread as it comes (a wrapper whose pipe is full waits in its
     print: its "waits for" lines name commands of 700 characters here, and a pipe on Windows takes

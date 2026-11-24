@@ -62,7 +62,10 @@ not caused by its changes; the tests are unchanged):
 - `tests/test_web.py::test_quick_lane_idle_and_prompt` asserts each of five quick-lane answers within 0.5 s
   (`time.monotonic() - started < 0.5`): 0.85 s in the CE agent's full suite and again in the merged wave 2 suite.
 - `tests/test_probe.py::test_timeout` runs the probe with `timeout=0.5` over a slow source (3 s) and a fast one and
-  asserts "2 checked, 1 failed": under load the fast source misses the 0.5 s too. Failed in batch 5 runs (agent CE).
+  asserts "2 checked, 1 failed": under load the fast source misses the 0.5 s too. Failed in batch 5 runs (agent CE)
+  and twice on CI's Windows runners (2026-11-14, 2026-11-17). Since 2026-11-23 its timeout is 2 s (the user's
+  choice: the number is the test's setting; the slow source's 3 s still never fit). The quick lane's 0.5 s above
+  stays: it says how promptly the app answers.
 
 ## `test_search_panel_on_a_phone` fails under a full pytest
 
@@ -95,6 +98,78 @@ it passed at f2f8015 and 2a04f84 in single runs, so no commit is known to have b
 free. The cause is not found: an SQLite file of the test's `tmp_path` held or removed by another process while the
 app closes is the first thing to check. Before calling a failure of it a regression, run it alone a few times on a
 clean checkout of `main`.
+
+**Found on 2026-11-23: it is the app's, on Windows, not the test's.** Alone on `main` b1434458 it failed 5 of 46
+runs with "disk I/O error"; in the three of them whose errors were recorded by name (six errors) it was SQLite's
+extended code `SQLITE_IOERR_TRUNCATE` at a new connection's `PRAGMA journal_mode=WAL` (in `quick_take`,
+`quick_forget` and the scheduler's `interrupted`, the last right after `kill_tree` and `join`): at the moment the
+scheduler kills the quick lane's process for a task over its time, not at the app's end as such. The likely
+mechanism (read from the error's name and SQLite's code for Windows, not shown): a connection that finds itself the
+only one resets the database's shared-memory file (`jobs.sqlite-shm`), and Windows refuses that while the process
+going away still has the file mapped. Shown with sqlite3 alone, no code of the repository: after the kill of a
+process holding 600 MB the error came in 16 of 60, 9 of 40 and 15 of 60 rounds, up to 149 ms after the kill; after
+the kill of one holding nothing in 0 of 60 rounds once and 3 of 60 another time; processes of 3 000 and 8 000 MB gave
+none in 16 and 8 rounds (so the size does not decide it simply); none in 240 rounds once the pragma was tried again.
+`cache.wal` now tries a connection's opening again after that one error (six pauses, 1.6 s in all; any other error
+is raised at once; the pauses run in the web's thread pool for most calls, on the event loop where the web calls the
+queue directly: `web.quick`'s `quick_forget` on its error path, the app's end with `scheduler.stop()`, `osm_job`).
+With `Jobs._db` under the same kill: jobs.py as it was (`main` b1434458) 2 of 80 rounds with the error, with the
+retry 0 of 80; the test alone 0 of 40 runs. **Every database opened in WAL mode has it** (the user's "try it", 2026-11-24): jobs.sqlite,
+accounts.sqlite, audit.sqlite and a country's manifest through `cache.wal`; the cache's index (`cache._connect`) and
+the test lock's queue (`tools/test_lock.py`, the retry written out: it imports nothing of the checkout) in their own
+loops; `tests/test_web.py::test_no_module_switches_a_database_to_wal_on_its_own` keeps it so. At those two openings
+the kill gave the error in 2 of 400 rounds each with `main`'s code and in 0 of 400 with the change: the error is
+there, but too rare in this experiment for these counts to show that the wait removes it; that rests on each
+opening's test and on the 240 rounds above.
+
+## Two jobs added in one second could draw the same id (mended 2026-11-23)
+
+`tests/test_web.py::test_status_events_in_the_order_of_the_changes` failed once (a full run of the USA's 1 m task,
+2026-11-23) with `sqlite3.IntegrityError: UNIQUE constraint failed: jobs.id` in `jobs.add`: a job's id is its second
+and six hex digits, and the test adds 150 jobs at once (about 1 run in 1 500 by the count of pairs). `Jobs.add` now
+draws again while the id is taken (`test_a_job_whose_id_is_taken_gets_another`). The cause is read from the id's
+form; no run of the old code was made to fail on it.
+
+## `test_rclone_stderr_never_printed` failed when run at 22:22 UTC (mended 2026-11-23)
+
+`tests/test_mirror_publish.py::test_rclone_stderr_never_printed` looks for five words of rclone's stderr in the tool's
+output, the port "2222" among them, and the tool prints the trash folder's name at unpublish, with its time stamp:
+in CI 45277159653 (Windows, 2026-11-23 22:22:01 UTC) that was `madeira-20261123T222201Z`, and the test failed with
+nothing of the stderr printed. Any stamp with "2222" in it does that, about 100 seconds of a day. The test now holds
+the stamp (`mirror_publish._stamp`, as `test_a_move_never_lands_on_an_existing_target` does); with the tool's clock
+at that moment the test as it was fails and the new one passes.
+
+## The download window's interval and a row without its cells (mended 2026-11-23)
+
+Tests of `tests/test_area_download_tui.py` failed now and then with `NoMatches: No nodes match '.state' on
+AreaRow(...)`: two tests once each on CI's Windows runners (2026-11-18) and
+`test_a_continent_without_rows_has_no_group` in a full run here (2026-11-23), each passing alone; two more had
+failed on CI on 2026-11-14 with the same error for '#summary', mended since (`Downloads._static`). The stack is the
+window's own: its 2 s interval (`refresh_states`) called `AreaRow.show` on a row whose cells were gone, as widgets are
+while the window closes; `Downloads._static` and `refresh_summary` already allowed for that, `AreaRow.show` did not,
+so a window closed at such a moment ended with a traceback too. `AreaRow.show` now keeps the state and shows nothing
+when the row has no cells (`test_a_row_without_its_cells_takes_a_state_quietly`; on a row never mounted the tool as
+it was raises NoMatches, the new one returns).
+
+## Two searches saved at once on Windows: one can fail reading the other's run.json
+
+`tests/test_web.py::test_two_jobs_computing_at_once` failed once on CI's Windows runner (run 45285547602,
+2026-11-23): one of its two jobs ended "failed" with `PermissionError: [Errno 13] Permission denied:
+...\runs\<the other job's run>\run.json` at the `open` of `runs.list_runs`, called by `runs.write_index` at the end
+of `search.save_run`. The trace shows no more than that refusal; the rest of the account is read from the code. The
+listing runs under `cache.runs_lock`; the other slot's `runs.save_results` writes its run.json outside it
+(`cache.replacing`: a temporary file moved to the name, the run's one write of it), so a listing can meet the file
+at the moment it appears; the failed job's own run was saved by then (`write_index` comes after it in `save_run`).
+If so, it is the app's, on Windows with two compute slots, not the test's. Shown on this PC (2026-11-24) with
+`cache.replacing` in one process and `list_runs`' two steps (`os.path.isfile`, then `open`) in another that waits
+for the file, two runs of 3 000 new files each: the open was refused 2 425 times in the first; in the second, which
+also counted the files, 3 337 times at 1 816 of the files, each of them read on a later try, 7 ms after its first
+refusal at the median and 29 ms at the longest; the writer was never refused. With one file replaced in place:
+1 184 and 1 263 opens refused, and 1 697 and 1 621 of the writer's 3 000 moves. What holds the new file for those
+milliseconds is not established (the move's own handle, opened for deleting, which Python's `open` does not share;
+or a scanner opening a new file; the PC was loaded by other sessions' runs). `list_runs` is also what the web's
+lists of runs call (`web.py`), without the lock. Not mended: a change of `runs.py` waits for the user's word. A red
+`test_two_jobs_computing_at_once` on Windows with this error is this.
 
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
@@ -350,8 +425,9 @@ read by share links, the result view then behind `?view=b`), none fixed:
   `tests/test_cdd_fetch.py::test_when_the_failing_step_comes_through_its_waits_restart` (waits [30, 60, 120, 240]
   instead of [30, 60, 30, 30]: the fake server's reset came as a ConnectionResetError before the headers) and
   `tests/test_cdd_fetch.py::test_a_login_page_broken_after_its_headers_is_a_failed_attempt` (the same fake server's
-  reset racing under load); `tests/test_web.py::test_quick_lane` (`sqlite3.OperationalError: disk I/O error` at
-  `PRAGMA journal_mode=WAL` while the app shut down, right after the test killed the quick lane's process; also seen
+  reset racing under load); `tests/test_web.py::test_quick_lane` (found and mended on 2026-11-23: its entry above;
+  `sqlite3.OperationalError: disk I/O error` at `PRAGMA journal_mode=WAL`, right after the quick lane's process
+  was killed; also seen
   on `main` alone: "`test_quick_lane` fails at some times" above). Run them alone before calling a failure of one a
   regression. **The two cdd_fetch tests' cause was found on 2026-11-23** (Windows only): the fake reset the connection
   right after its headers and part of a body, and Windows drops what a socket received and nobody read yet when the
@@ -412,7 +488,19 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   Edge", `.github/webgl-report.html`: on the dev PC the Microsoft Basic Render Driver through Direct3D 11, 10 frames
   in 130 ms): compare that line between a fast and a slow job before anything else. The step's failure does not
   fail the job, but its time counts against the job's limit: an Edge that has not ended after 15 s is stopped, so it
-  costs a few seconds, about 40 s at most.
+  costs a few seconds, about 40 s at most. **The lines of the first six jobs** (2026-11-23 and 24, CI runs
+  45277159653, 45330246504, 45335814910; one runner image, the Microsoft Basic Render Driver, 2 cores, 4 threads and
+  16 GB in all six): four jobs on AMD EPYC 7763 drew the 10 frames in 974 to 986 ms and passed (the ring in 18 and
+  22 min, view3d in 10 and 16 min); one on AMD EPYC 9V45 in 664 and 666 ms (view3d in 7.5 min); and the one red job,
+  the ring's of 45335814910 (`[phone-None]` 1 463 s, `[full-None]` over its 1 500 s, the job stopped at 60 min), on
+  Intel Xeon Platinum 8573C in 1 076 and 1 122 ms. So the first slow job with the line ran on another CPU, where
+  the ten frames were only a tenth slower while `[full-None]` ran over its 1 500 s against 114 and 187 s in the two
+  green ring jobs, and `[phone-None]` 1 463 s against 220 and 904 s: the line's frame time does not show the
+  slowness, the CPU's name may. But the two green ring jobs, both on the EPYC 7763, differ four times in a test
+  themselves (`[phone-None]` 220 and 904 s, `[full-edges]` 702 and 186 s), so the CPU is a lead and no more. One
+  red job: an observation, not a cause. The next red and green lines say whether every slow job is on that CPU
+  (then: what the ring's page asks of Edge's software WebGL that the ten frames, a loop per pixel without a texture,
+  do not).
 - **Four tests failed once under round 5's loaded full runs on this PC and pass alone** (none in item 5's path; the
   first two passed 3 of 3 alone on the stack and on `main` a86b86e8): `test_web::test_basic_form_sea_cliffs_fills_the_limit`
   (twice; the limit's box and the map view's read before it differ by about 400 m north to south);
@@ -420,7 +508,15 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   WebKit); `test_tuscany::test_catalogue_source` (`src.SOURCES` with tuscany after tinitaly);
   `test_window_groups::test_a_layer_in_another_crs_fails[1000]` (it read a file in EPSG:32620, as
   `test_netherlands` serves at the same path `/files/other.tif`; read only: GDAL's `/vsicurl/` cache of a worker
-  process keyed on the URL, when a later test's local server gets the same port).
+  process keyed on the URL, when a later test's local server gets the same port). **The last two are found and
+  mended (2026-11-23):** `test_tuscany`'s fails in every process that ran `tests/test_regions.py` before it: that
+  file's fixture `without_regional` took the regional sources out with `monkeypatch.delitem`, whose undo puts each
+  back at the end of the dict for the rest of the process; the fixture now puts the catalogue in its order again, and
+  the file's last test checks it. `test_window_groups`'s was GDAL's cache as guessed: with every test server on one
+  port, `tests/test_netherlands.py` and then the three `test_a_layer_in_another_crs_fails` in one process failed
+  3 of 3 with "other is in EPSG:32620"; the test server now drops its files from GDAL's cache when it closes
+  (`HttpServer.close` of tests/http_server.py, `rasterio.cache.invalidate`), the same run passes, and
+  `test_a_later_server_on_the_same_port_serves_its_own_file` holds it.
 - **`tools/perf_country.py` decodes all 29 columns of a store** (`linestore.read`) though it uses 10: about 350 B a
   line at its peak plus the Arrow table, so a machine smaller than the one that made a very large run may not read it
   back; a column selection in `linestore.read` would cut it.

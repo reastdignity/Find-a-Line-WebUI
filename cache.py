@@ -138,6 +138,39 @@ def _statements(script: str) -> Iterable[str]:
             current = ""
 
 
+WAL_PAUSES = (0.02, 0.05, 0.1, 0.2, 0.4, 0.8)  # seconds between the tries of a connection's opening (wal)
+
+
+def mapped_elsewhere(error: sqlite3.Error) -> bool:
+    """SQLite's SQLITE_IOERR_TRUNCATE ("disk I/O error"), which on Windows a connection's first statement gets for
+    a moment after a process that used the database was killed: see wal."""
+    return getattr(error, "sqlite_errorcode", None) == sqlite3.SQLITE_IOERR_TRUNCATE
+
+
+def wal(db: sqlite3.Connection):
+    """`PRAGMA journal_mode=WAL`, a new connection's first statement, tried again (WAL_PAUSES) after SQLite's
+    SQLITE_IOERR_TRUNCATE ("disk I/O error"). That error is Windows': right after a process that used the database
+    was killed (a quick task over its time, a cancelled job, the worker's stop, a stopped command of the test
+    lock), a connection that finds itself the only one resets the database's shared-memory file, which Windows
+    refuses while the process going away still has that file mapped. Measured 2026-11-23 with killed processes of
+    up to 600 MB: errors up to 149 ms after the kill, none once the opening was tried again;
+    `tests/test_web.py::test_quick_lane` met it in 5 of 46 runs. Any other error, and this one after the last
+    pause, is raised, with the connection closed. The pauses run where the opening runs: in the web's thread pool
+    for most calls, on the event loop itself where the web calls the queue directly (`web.quick`'s `quick_forget`
+    on its error path, the app's end with `scheduler.stop()`, `osm_job`). Used by jobs.sqlite, accounts.sqlite,
+    audit.sqlite and a country's manifest; the cache's index (_connect) and tools/test_lock.py, which wait for a
+    locked database too, try again after the same error in their own loops."""
+    for pause in (*WAL_PAUSES, None):
+        try:
+            db.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError as error:
+            if pause is None or not mapped_elsewhere(error):
+                db.close()
+                raise
+            time.sleep(pause)
+
+
 def migrate(db: sqlite3.Connection, steps: List) -> int:
     """Bring a database of the data folder to its newest schema; returns its version.
 
@@ -327,14 +360,17 @@ def _connect(cache_dir: str, top: str) -> sqlite3.Connection:
     os.makedirs(os.path.join(cache_dir, top), exist_ok=True)
     db = sqlite3.connect(os.path.join(cache_dir, top, "index.sqlite"), timeout=60)
     # Switching a new database to WAL fails at once ("locked", no busy wait) while another
-    # connection switches it too (threads or searches downloading at the same time): wait for it
+    # connection switches it too (threads or searches downloading at the same time): wait for it. The same wait
+    # after Windows' error of a moment after a process that used the index was killed (mapped_elsewhere: a
+    # cancelled search's, a quick task's over its time), within this loop's own bound: about 10 s, where wal() gives
+    # up after 1.6 s, so such an error that stays (a failing disk) is raised that much later
     for attempt in range(100):
         try:
             if db.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
                 db.execute("PRAGMA journal_mode=WAL")
             break
         except sqlite3.OperationalError as e:
-            if "locked" not in str(e) or attempt == 99:
+            if ("locked" not in str(e) and not mapped_elsewhere(e)) or attempt == 99:
                 raise
             time.sleep(0.05 + 0.1 * attempt / 100)
     db.execute(SCHEMA)
