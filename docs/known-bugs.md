@@ -253,14 +253,25 @@ passes it. The 41 partial tiles hold 402 ha of exactly constant planes of 1 ha o
 Land; inside it 23.85 m over 13 ha (468_5937) and 88.14 m over 2.5 ha (469_5935) in the port and on the Weser: left as
 they are, a known finding (the user's decision of 2026-11-16; the source's note says so).
 
-## Coastal regression entries on the Copernicus fallback
+## Regression entries not checked: R70 and R17 (2026-11-24)
 
-A coastal entry whose search cannot reach Overpass for the coastline takes the Copernicus water body mask (its log
-says "Coastline: Copernicus water body mask (fallback)") and gives another checksum. In batch 6 the first baselines of
-R85 (158 lines against 1 002 on OSM) and R86 (7 052 against 7 184) were written on the fallback and re-baselined on
-2026-11-16; R87 failed once the same way and passed on the rerun. `tests/regression.py --update` stores such a run
-without a word. A guard (refuse or warn when the log names the fallback) was proposed to the user as a separate
-small change; not built.
+On the real cache every other entry is `ok` (91 of 93 on 2026-11-24, R48 after its re-baseline that day). The entries that differed "on `main`" in
+rounds 4 and 5 of the line-volume task differed on fresh caches only: R56 and R87 on the Copernicus coastline
+fallback (now `unverified`, and `--update` refuses such a run: docs/regression-tests.md), R48 because its provider
+had replaced the survey of 2022 (re-baselined on the survey of 2026).
+- **R70 (Sint Eustatius) has not run since 2026-11-15, and never with a store.** basisdata.nl blocks a development
+  network since then (after about 18 parallel window reads per island at 4 connections; confirmed a block, not an
+  outage, on 2026-11-23), and the real cache holds none of its blocks (its one pass was on a scratch cache). It runs
+  again when Het Waterschapshuis frees the address (a mail asks; the user's decision of 2026-11-23: wait for the
+  answer) or its 12 blocks are fetched through another network. The islands' files are read through our own ranges
+  since 2026-11-24 (one connection, 54 requests a minute): that path has not met the real host yet.
+- **R17 (the Malta extract against Overpass) has not completed since 2026-11-14.** Overpass answered 502 or 504 to
+  nearly every try (55 skips of 68 runs seen in November). Its differences of 2026-10-27 and 2026-11-01 were OSM
+  edits made after the extract; the three since the extract's update of 2026-11-07 were never traced to features.
+  It now prints the ids that differ and writes `differences.json`. The extract was updated on 2026-11-24 (data of
+  2026-11-23, 221 cliffs) and the run after it was skipped (502): to run once by name, at most once a day, until
+  Overpass answers; then either its counts are stored again (OSM edits) or the two readers differ (a fault). The
+  user's decision of 2026-11-23: after that run it leaves `--all` (`"by_name": true`).
 
 ## Searches in Shizuoka and Hong Kong download a lot
 
@@ -289,15 +300,6 @@ Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the 
 
 Found in the reviews and test runs of round 4 (the view's columns, the exports with the Download buttons, the store
 read by share links, the result view then behind `?view=b`), none fixed:
-- **R48 differs on `main`** since before round 4: 1 252 lines and 39 spots against the baseline's 1 541 and 44
-  (sha256 985a5cb3…), with every tile from the cache and no fallback. Its source keeps the newest survey per 1 km
-  tile (survey years 2022-2025), so a newer survey of some tiles since the baseline is the likely cause (a guess, not
-  checked). Needs a look at the tiles' survey years, then a re-baseline.
-- **R56, R87 and R70 not confirmed** after the view's columns and the exports (the user: "7. a", the merges did not
-  wait): Overpass answered 502, so R56 and R87 ran on the Copernicus fallback ("Coastal regression entries on the
-  Copernicus fallback", above: R56's `water_lines` 3 427 → 3 423, R87 784 → 772 lines); basisdata.nl did not answer,
-  so R70 did not run. R80 and R85 were right on `main` with the OSM coastline. Run the three again when the services
-  answer.
 - **A refused request counts against every rate of its list** (`web.within_rate`, every kind, older than round 4):
   the limiter takes a permit from each rate before it decides, so after many refusals inside one minute the hour's
   rate is used up too, while the refusal's text asks to wait a minute.
@@ -328,9 +330,6 @@ read by share links, the result view then behind `?view=b`), none fixed:
 ## Line volume, round 5 (store wave 4): known and left (2026-11-18)
 
 Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15, a0c511ac, a86b86e8), none fixed:
-- **R70 has never run with a store, and R17 not on wave 4's code:** basisdata.nl did not answer since round 3 (the
-  user: "3. a", the merges did not wait); Overpass answered 502/504 in both of round 5's passes, so R17 (the Malta
-  extract against Overpass: no run's files involved) was skipped. Run both when the services answer.
 - **Compare's list of other runs goes stale from Home on:** Home's mini maps load the list of runs (`runs.js`, once
   per page) for every run card, so a run finished in the same tab is not offered by Compare until a reload (it opens
   and draws through the store's probe); before, the same happened from the first opened result.

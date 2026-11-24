@@ -160,7 +160,7 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 
 - Cache update code: a scratch `--data-dir`, `checked_at` aged by hand in its `index.sqlite`, then `cache status` /
   `cache update` (see the regression doc).
-- New download code: test on an empty cache (`tests/regression.py --cache <temp>/cache`, or a scratch `--data-dir`),
+- New download code: a scratch cache (`tests/regression.py --cold --cache <temp>/cache`, or a scratch `--data-dir`),
   so the real cache is not touched.
 - New data source or download path: `uv run tools/check_source.py <id> --lat .. --lon .. --data-dir <scratch>` (the
   shift search, the share of valid pixels at 1 and 5 m, a few tiles against the source files, alignment; see the

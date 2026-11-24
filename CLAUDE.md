@@ -35,7 +35,8 @@ Read the section you need, not the whole file (several are over 200 KB).
 - `pytest`: offline, about 45 min in one process. Under the test lock a full run is parallel by itself
   (pytest-xdist, workers by mode; `-n 0` for a serial one): docs/workflow.md. The viewer's tests need
   Node and `npm install` in `viewer/`, the TUI's `uv sync --group tui`; without them they are skipped.
-- `python tests/regression.py`: real searches (docs/regression-tests.md).
+- `python tests/regression.py`: real searches, on the real cache (from a worktree `--cache <main checkout>/cache`;
+  `unverified` is not a pass: docs/regression-tests.md).
 - After changing `viewer/src` or `locales/`: `cd viewer; npm run check; npm run build` (under the test
   lock: `node build.mjs`), and commit `viewer/dist`.
 - A search: `python findaline.py --lat 50.1559508 --lon 19.7562722 --no-plot --yes`. `--no-plot` always

@@ -81,8 +81,8 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   Maarten "nl" (their ISO 3166-2 codes only at zoom 8-10): those sources are chosen by bbox, and a new "fr" or "nl"
   source must keep its boxes off the others' islands. IGN's overseas RGE ALTI layers differ in alignment (Guadeloupe,
   Martinique, SPM: centres on whole metres; Guiana and the mainland: edges); check with a GetMap at half the resolution
-  (2 x 2 blocks). The AHN's Caribbean files name only a LOCAL_CS (`force_crs`); basisdata.nl blocked this network's
-  address after parallel reads at 4 connections (a block, confirmed 2026-11-23): 1 connection per data folder and
+  (2 x 2 blocks). The AHN's Caribbean files name only a LOCAL_CS (`force_crs`); basisdata.nl blocked a development
+  network after parallel reads at 4 connections (a block, confirmed 2026-11-23): 1 connection per data folder and
   54 requests a minute (`net.py`), every request in its turn (the islands read through our own ranges, `ranged`)
   until Het Waterschapshuis answers the mail (drafted, not sent). TINITALY's WCS and GA's 5 m WCS
   answer 0 without a nodata tag where they hold nothing (`zero_is_nodata`); GA's covers about 3 % of Australia:

@@ -1558,8 +1558,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
 - **Open** (the first two are the user's decisions, specified in the spec's "Open decisions"; the last two are
   noted, not asked):
   - A Deflate64 reader for Ontario's two projects (a library: the user's decision after a comparison).
-  - A guard in `tests/regression.py --update` against a baseline on the coastline fallback (proposed as a separate
-    small change; docs/regression-tests.md, item 5).
+  - A guard in `tests/regression.py --update` against a baseline on the coastline fallback: built 2026-11-24 with
+    the `unverified` outcome (docs/regression-tests.md, "How to run").
   - The VPS's Geofabrik extracts: a suggestion to leave kanto, chubu and ontario out as British Columbia's
     (docs/deployment.md, section 9), waiting for the user's word.
   - LEAP 2009 (Ontario) is in CGVD28 beside CGVD2013 data: its offset is not measured.

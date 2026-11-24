@@ -156,6 +156,7 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
 
 ## Verifying changes
 
+- Regression runs: on the real cache (`--cache <main checkout>/cache` from a worktree); `unverified` is no pass.
 - Speed or memory changes: measure before and after with the tools of docs/performance.md (`tools/perf_profile.py`,
   also `--cores N` like the worker's container and `--tracemalloc`; `tools/perf_slot_memory.py` for
   `search.LINE_BYTES`), one search at a time, and show that the results are the same: `lines.csv` whole,

@@ -83,9 +83,15 @@ Rules of thumb:
 - A third-party verbatim copy (Tasmania's DEM on Source Cooperative) is fine when the licence allows redistribution:
   credit the licensor in its own wording, name the copy in the notice, and give the cache folder a date (nothing
   promises updates). An ArcGIS MapServer's Copyright Text (`?f=json`) can be the licence its service terms point to.
-- A coastal regression's numbers depend on the coastline source (Overpass, the world file or the Copernicus mask):
-  check "Coastline: OpenStreetMap coastline" in the log before accepting them, and with a scratch `--cache` link the
-  real cache's `osm/water-polygons` read-only.
+- A coastal regression's numbers depend on the coastline source (the world file, Overpass or the Copernicus mask):
+  every baseline rests on the world file, which a scratch cache gets by `tests/regression.py --cold` (seeded by hard
+  links); a run on another source prints `unverified` and `--update` refuses a fallback (docs/regression-tests.md).
+- A provider's own host starts slow: until its limits are known in numbers, one connection (`net.HOST_SLOTS_OF`) and
+  a request rate (`net.HOST_RATES_OF`), and a file read by windows goes through our own ranges (`ranged=True`), so
+  every request waits its turn (GDAL sends a block's ranges on several connections at once, about 17 requests a
+  block). Development counts too: `tools/check_source.py`, the probe and a test loop read the same host.
+  basisdata.nl blocked a development network on 2026-11-15 after about 18 parallel window reads per island at 4
+  connections; a host that blocked us once stays at that rate until the provider answers.
 - Look at the edges of the data: South Tyrol's WCS blends the pixels next to its nodata edge with 0 (false steps of more than 1000 m; `edge_px`), Saxony-Anhalt's answers 0 without nodata outside the Land (`zero_is_nodata`), and the Environment Agency answers HTTP 500 outside its coverage.
 - Clip requests to the coverage extent; a `missing` tile at the edge of the data is suspicious (Malta's north coast of Gozo was lost this way).
 - Compressed archives (ZIP Deflate/Deflate64) cannot be read in parts; a TIFF inside may still be tiled, so after one extraction it reads fast. Python's `zipfile` cannot read Deflate64: use 7-Zip.
@@ -164,7 +170,7 @@ Scripts from the 2026-10-25 research lived in the session scratchpad; the comman
 ## 4. After adding a source
 - The source's `listing` (its row of README's "Data sources", then `uv run tools/source_docs.py`), its `offline` boxes (the country without a lookup; with `neighbours`, also `border_boxes` where those stop short of a border: `uv run tools/border_study.py boxes` lists every declared direction, 97 % or more is the test) and its `sample` point (with data in every layer), and `tools/check_source.py` on its sample and a characteristic place, the numbers in docs/regression-tests.md.
 - `findaline.py sources check <id>` (and `--deep`): the probe asks its index and files at the sample point; run it for all sources now and then, services change their addresses.
-- A regression test in a characteristic place (cliffs, coast, border), with the coverage and `empty_tiles` values stored; a pytest against a fake server for new download code (see `tests/test_sources.py`).
+- A regression test in a characteristic place (cliffs, coast, border), with the coverage and `empty_tiles` values stored; a pytest against a fake server for new download code (see `tests/test_sources.py`). The entry's data goes into the real cache before the merge and its baseline is stored from a run there (docs/regression-tests.md, "Which cache, and what to report"): an entry whose data lives only in a scratch cache cannot run once its provider is away.
 - Attribution in the map (`OrthoService.attribution`, the source's `note`) and in README's "Data" section; the licence in the roadmap's licence list.
 - Update policy (cache.py `TTL_DAYS`): versioned releases never, "live" services after their interval, sheet indexes after 180 days.
 - `cache status` and `cache update <folder>` on a scratch data folder with the index rows aged by hand (`checked_at` in `cache/<top>/index.sqlite`, with a time zone, e.g. `2024-01-01T00:00:00+00:00`).
