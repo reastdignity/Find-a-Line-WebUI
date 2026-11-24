@@ -2036,9 +2036,12 @@ def test_update_stores_the_record_with_the_results(harness, capsys):
     assert f"Data records updated in {harness.data_file}" in out
 
 
+_REAL_REPLACE = os.replace  # before any test patches it (regression.os is os)
+
+
 def _refusing(monkeypatch, refused_path: str):
     """os.replace refusing one target for good (another handle on it), the others replaced."""
-    real = os.replace
+    real = _REAL_REPLACE
     monkeypatch.setattr(regression.time, "sleep", lambda seconds: None)
 
     def replace(source, target):
@@ -2058,7 +2061,9 @@ def test_a_side_file_that_cannot_be_written_never_costs_the_run(harness, capsys,
     code, out, tests = harness("R1", "--update", capsys=capsys)
     assert code == 3 and tests["R1"]["expected"]["lines"] == 11 and not harness.data_file.exists()
     assert (f"WARNING: {harness.data_file} could not be written (PermissionError: [Errno 13] The process cannot access "
-            f"the file); store the data records again with --update-data") in out
+            f"the file); the new baselines are stored, their data records not: store them again with --update-data"
+            ) in out
+    assert f"Expected values updated in {regression.TESTS}" in out
     assert "1 ok, 0 different" not in out and "0 ok, 1 different, 0 unverified, 0 skipped" in out
     assert _log_line(harness.data_file.parent)["exit"] == 3
     assert "Data records updated" not in out and os.listdir(harness.data_file.parent).count("regression.json") == 1
@@ -2067,7 +2072,90 @@ def test_a_side_file_that_cannot_be_written_never_costs_the_run(harness, capsys,
     code, out, tests = harness("R1", "--update", capsys=capsys)
     assert code == 3 and tests["R1"]["expected"] == _expected() and not harness.data_file.exists()
     assert f"WARNING: {regression.TESTS} could not be written" in out and "nothing of this run is stored" in out
+    assert "Expected values updated" not in out and "--update-data" not in out.split("WARNING", 1)[1].split("\n")[0]
     assert not [n for n in os.listdir(harness.data_file.parent) if n.endswith(".tmp")]
+
+
+def _unwritable_temporary(monkeypatch, path: str):
+    """The temporary file of `path` cannot be written (a full disk), the others can."""
+    real = regression.tempfile.mkstemp
+
+    def mkstemp(prefix="", suffix="", dir=None):
+        if prefix == f".{os.path.basename(str(path))}-":
+            raise OSError(28, "No space left on device")
+        return real(prefix=prefix, suffix=suffix, dir=dir)
+
+    monkeypatch.setattr(regression.tempfile, "mkstemp", mkstemp)
+
+
+def test_a_temporary_file_not_written_replaces_nothing(harness, capsys, monkeypatch):
+    """The second review's N1 and N5: both files are prepared before either is replaced, so a temporary file of the
+    side file that cannot be written leaves regression.json as it was too, and the run says exactly that (a writer
+    that prepared and replaced each file in turn would have replaced regression.json)."""
+    harness.write({"R1": _entry(_expected())})
+    before = open(regression.TESTS, "rb").read()
+    harness.results.update(R1=_result(lines=11, data_record=_record()))
+    _unwritable_temporary(monkeypatch, harness.data_file)
+    code, out, tests = harness("R1", "--update", "--write-doc", capsys=capsys)
+    assert code == 3 and open(regression.TESTS, "rb").read() == before and not harness.data_file.exists()
+    assert (f"WARNING: {harness.data_file} could not be written (OSError: [Errno 28] No space left on device); "
+            f"nothing of this run is stored ({regression.TESTS} and {harness.data_file} as they were)") in out
+    assert "Expected values updated" not in out and "Data records updated" not in out
+    assert f"Table not written to {regression.DOC}: its values were not stored in {regression.TESTS}" in out  # N3
+    assert not [n for n in os.listdir(harness.data_file.parent) if n.endswith(".tmp")]
+    replaced, failed = regression.write_files([(regression.TESTS, "x\n"), (str(harness.data_file), "{}\n")])
+    assert replaced == [] and failed[0] == str(harness.data_file) and open(regression.TESTS, "rb").read() == before
+
+
+def test_write_files_says_which_files_were_replaced(tmp_path, monkeypatch):
+    """Each rename failing in turn: the paths before it replaced, it and those after as they were."""
+    first, second = str(tmp_path / "a.json"), str(tmp_path / "b.json")
+    for path in (first, second):
+        open(path, "w").close()
+    for refused, replaced in ((first, []), (second, [first])):
+        _refusing(monkeypatch, refused)
+        done, (path, error) = regression.write_files([(first, f"{refused}\n"), (second, f"{refused}\n")])
+        assert done == replaced and path == refused and isinstance(error, PermissionError)
+        assert [open(p).read() == f"{refused}\n" for p in (first, second)] == [bool(replaced), False]
+        assert sorted(os.listdir(tmp_path)) == ["a.json", "b.json"]
+    monkeypatch.setattr(regression.os, "replace", _REAL_REPLACE)
+    assert regression.write_files([(first, "x\n"), (second, "y\n")]) == ([first, second], None)
+    done, (path, error) = regression.write_files([(first, "\ud800\n"), (second, "y\n")])  # N4: no UTF-8
+    assert done == [] and path == first and isinstance(error, UnicodeEncodeError) and open(first).read() == "x\n"
+
+
+def test_write_doc_never_from_values_not_stored(harness, capsys, monkeypatch):
+    """N3: --update --write-doc with regression.json not replaced writes no table; with it replaced, the table."""
+    written = []
+    monkeypatch.setattr(regression, "write_doc", lambda tests: written.append(tests))
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result(lines=11, data_record=_record()))
+    _refusing(monkeypatch, regression.TESTS)
+    code, out, _ = harness("R1", "--update", "--write-doc", capsys=capsys)
+    assert code == 3 and written == [] and "Table not written to " in out
+    monkeypatch.setattr(regression.os, "replace", _REAL_REPLACE)
+    code, out, tests = harness("R1", "--update", "--write-doc", capsys=capsys)
+    assert code == 0 and len(written) == 1 and written[0]["R1"]["expected"]["lines"] == 11
+
+
+def test_tests_text_is_the_old_writers_bytes(harness, capsys):
+    """N5: regression.json as --update always wrote it (json.dump, indent 2, ensure_ascii=False, a final newline,
+    LF), checked on the real file's entries and on non-ASCII text, and through main."""
+    import io
+    with open(os.path.join(REPO, "tests", "regression.json"), encoding="utf-8") as f:  # read only
+        real = json.load(f)
+    sample = {"R1": _entry(_expected(), place="Żabi Koń, Gozo: Ta' Għammar")}
+    for tests in (real, sample):
+        old = io.StringIO(newline="\n")
+        json.dump(tests, old, ensure_ascii=False, indent=2)
+        old.write("\n")
+        assert regression.tests_text(tests).encode("utf-8") == old.getvalue().encode("utf-8")
+    harness.write(sample)
+    harness.results.update(R1=_result(lines=11))
+    harness("R1", "--update", capsys=capsys)
+    raw = open(regression.TESTS, "rb").read()
+    assert b"\r" not in raw and raw.endswith(b"}\n") and "Żabi Koń".encode("utf-8") in raw
+    assert raw == regression.tests_text(json.loads(raw.decode("utf-8"))).encode("utf-8")
 
 
 # H6: --update-data
@@ -2142,3 +2230,79 @@ def test_the_side_files_names_are_relative_to_the_cache():
         edition = (record["coastline"] or {}).get("edition")
         assert edition is None or regression.edition_name(edition), test_id
         assert record["source"] is None or regression.re.fullmatch(r"[A-Za-z0-9_-]+", record["source"]), test_id
+
+
+# The second code review's N2 and N4
+
+
+def test_a_part_left_out_of_both_records_is_not_known():
+    """N2: a folder whose only layer is left out of both records, or the area's inputs left out of both: not known,
+    never "same data, other result"."""
+    coast = {"coastline": {"edition": "2026-10-23"}}
+    both = regression.record_of(_meta({"C:/cache/poland/nmt/a.tif": A}, **coast))
+    compared = regression.compare_records(both, both)
+    assert regression.data_line(compared) == "same data where known (the layers left out not known), other result"
+    assert regression.data_state(compared) == "same"
+    bare = regression.record_of(_meta({"C:/cache/poland/nmt/a.tif": A}))  # nothing else compared
+    assert regression.data_line(regression.compare_records(bare, bare)) == "data not known"
+    inputs = {"paths": ["C:/cache/osm/themes/a.geojson"], "sha256": [A], "nominatim": []}
+    area = regression.record_of(_meta(area=_polygon(inputs=inputs)))
+    assert area["area"]["inputs"] is None and area["left_out"] == ["the search area's inputs"]
+    compared = regression.compare_records(area, area)
+    assert regression.data_line(compared) == \
+        "same data where known (the search area's inputs not known), other result"
+    plain = _record(area=_polygon())  # an area without inputs on both sides (an --area file): nothing unknown
+    assert _explained(plain, plain) == "same data, other result"
+
+
+def test_text_that_cannot_be_written_as_utf8():
+    """N4: a run's record leaves out a part whose text cannot be written as UTF-8 (a lone surrogate); its source,
+    versions and access mark are then not known; the record can always be written."""
+    meta = _meta(area=_polygon(inputs=_inputs(query="Gozo\ud800")))
+    meta["data"][0]["layer"] = "NMT\udcff"
+    meta["data"].append({"layer": "surface", "folder": NMT, "paths": [f"{NMT}/x\ud800.tif"], "identity": {}})
+    meta["source"]["id"] = "geo\ud800"
+    meta["identity"]["gdal"] = "3\ud800"
+    meta["access_skipped"] = "memory\ud800"
+    record = regression.record_of(meta)
+    assert record["folders"] == {} and record["area"]["inputs"] is None
+    assert record["left_out"] == sorted([regression.UNWRITABLE_LAYER, "surface", "the search area's inputs"])
+    assert record["source"] is None and record["versions"]["gdal"] is None and record["access_skipped"] is None
+    regression.data_text({"R1": record}, {"R1": {}}).encode("utf-8")  # writable
+    assert not regression.cache_name("poland/nmt/a\ud800.tif")
+
+
+@pytest.mark.parametrize("where", ["layer", "left_out", "source", "query", "table", "version", "entry"])
+def test_a_side_file_with_a_lone_surrogate_is_refused_before_any_search(harness, capsys, monkeypatch, where):
+    """N4: such a stored record (a hand edit; JSON's escape) is a broken side file: a usage error before any
+    search, never a traceback after them."""
+    record = _record(area=_polygon(inputs=_inputs()))
+    bad = "x\ud800"
+    if where == "layer":
+        record["folders"][NMT]["layers"] = [bad]
+    elif where == "left_out":
+        record["left_out"] = [bad]
+    elif where == "source":
+        record["source"] = bad
+    elif where == "query":
+        record["area"]["inputs"]["nominatim"] = {"search": {bad: B}}
+    elif where == "table":
+        record["area"]["inputs"]["nominatim"] = {bad: {"Gozo": B}}
+    elif where == "version":
+        record["versions"]["gdal"] = bad
+    harness.write({"R1": _entry(_expected()), bad if where == "entry" else "R2": _entry(_expected())})
+    monkeypatch.setattr(regression, "run", lambda *args: pytest.fail("a search ran"))
+    harness.data_file.write_text(json.dumps({bad if where == "entry" else "R1": record}), encoding="utf-8")
+    code, out, _ = harness("R1", "--update", capsys=capsys)
+    assert code == 2 and f"{harness.data_file} is broken" in out
+
+
+def test_a_write_that_is_no_utf8_never_costs_the_run(harness, capsys, monkeypatch):
+    """N4: should a text that is no UTF-8 reach the writing all the same, it is one line, not a traceback: the run
+    ends with its summary and its run log line, exit 3."""
+    harness.write({"R1": _entry(_expected())})
+    harness.results.update(R1=_result(lines=11, data_record=_record()))
+    monkeypatch.setattr(regression, "data_text", lambda data, tests: "\ud800")
+    code, out, tests = harness("R1", "--update", capsys=capsys)
+    assert code == 3 and "could not be written (UnicodeEncodeError" in out and "nothing of this run is stored" in out
+    assert tests["R1"]["expected"] == _expected() and _log_line(harness.data_file.parent)["exit"] == 3

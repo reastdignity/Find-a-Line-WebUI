@@ -199,6 +199,7 @@ SHA256 = re.compile(r"[0-9a-f]{64}")  # a checksum as the cache index stores it 
 IDENTITY_VERSION = 1  # "v" of run.json's top-level "identity" read here
 LIBRARIES = (("gdal", "GDAL"), ("proj", "PROJ"), ("rasterio", "rasterio"))  # its versions, as the line names them
 RECORD_KEYS = ("access_skipped", "area", "coastline", "folders", "left_out", "mixed", "source", "versions")
+UNWRITABLE_LAYER = "a layer whose name cannot be written as UTF-8"  # left_out's words for it (record_of)
 # Windows refuses to rename over a file another handle has open (a reader, a scanner): tried again after these
 REPLACE_PAUSES = (0.01, 0.05, 0.1, 0.25, 0.5, 1.0)
 
@@ -694,9 +695,21 @@ def cache_name(name) -> bool:
     """Whether a file name of a run's record may be taken: relative to the cache with forward slashes (no drive
     letter, no leading slash, no backslash, no ".." part, no empty part), and no colon or control character at all
     (a URL, file:///C:/..., x/C:/...). No name in the cache has one; any other name could be a machine's path."""
-    return (isinstance(name, str) and name != "" and "\\" not in name and ":" not in name
+    return (text_of(name) is not None and name != "" and "\\" not in name and ":" not in name
             and not name.startswith("/") and not any(ord(c) < 32 or ord(c) == 127 for c in name)
             and all(part not in ("", "..") for part in name.split("/")))
+
+
+def text_of(value) -> Optional[str]:
+    """A text of a run's record as it may be stored: a string that can be written as UTF-8 (no lone surrogate), or
+    None."""
+    if not isinstance(value, str):
+        return None
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return None
+    return value
 
 
 def _checksum(value) -> Optional[str]:
@@ -750,10 +763,11 @@ def _area_inputs(identity, left_out: list) -> Optional[dict]:
     tiles = _named_files(identity.get("paths", []), identity)
     answers: Dict[str, Dict[str, Optional[str]]] = {}
     for item in identity.get("nominatim") or []:
-        if not isinstance(item, dict) or not isinstance(item.get("query"), str):
+        if (not isinstance(item, dict) or text_of(item.get("query")) is None
+                or ("table" in item and text_of(item["table"]) is None)):
             tiles = None
             break
-        table = item.get("table") if isinstance(item.get("table"), str) else ""  # never seen: kept under ""
+        table = item.get("table", "")  # never seen without: kept under ""
         _add_files(answers.setdefault(table, {}), {item["query"]: _checksum(item.get("sha256"))})
     if tiles is None:
         left_out.append("the search area's inputs")
@@ -801,6 +815,9 @@ def record_of(meta: dict) -> dict:
         if not isinstance(entry, dict):
             continue
         layer = entry.get("layer") if isinstance(entry.get("layer"), str) else ""
+        if text_of(layer) is None:  # a text that cannot be written as UTF-8: the entry left out, under these words
+            left_out.append(UNWRITABLE_LAYER)
+            continue
         identity = entry.get("identity")
         if "paths" in entry:
             folder = entry.get("folder")
@@ -824,13 +841,13 @@ def record_of(meta: dict) -> dict:
     top = meta.get("identity") if isinstance(meta.get("identity"), dict) else {}
     known = top.get("v") == IDENTITY_VERSION
     source = meta.get("source") if isinstance(meta.get("source"), dict) else {}
-    versions = {key: top.get(key) if isinstance(top.get(key), str) else None for key, _ in LIBRARIES}
-    return {"access_skipped": meta.get("access_skipped") if isinstance(meta.get("access_skipped"), str) else None,
+    versions = {key: text_of(top.get(key)) for key, _ in LIBRARIES}
+    return {"access_skipped": text_of(meta.get("access_skipped")),
             "area": {"type": area.get("type") if isinstance(area.get("type"), str) else None,
                      "shape": shape_digest(area), "inputs": _area_inputs(area.get("identity"), left_out)},
             "coastline": coastline, "folders": folders, "left_out": sorted(set(left_out)),
             "mixed": known and top.get("mixed") is True,
-            "source": source.get("id") if isinstance(source.get("id"), str) else None,
+            "source": text_of(source.get("id")),
             "versions": versions if known else None}
 
 
@@ -902,6 +919,9 @@ def compare_records(old: dict, new: dict) -> dict:
         part, n, k = _files_part(folder, *files)
         parts += [part] if part else []
         unknown, compared = unknown + n, compared + k
+    seen = {layer for side in (old, new) for place in side["folders"].values() for layer in place["layers"]}
+    if left - seen - {"the coastline", "the search area's inputs"}:  # a layer left out of both records: its folder
+        unknown_parts.append("the layers left out")  # is in neither, but its files are not known
     was, now = old["coastline"], new["coastline"]
     if (was is None) != (now is None):
         parts.append(f"coastline ({_coast_words(was)} -> {_coast_words(now)})")
@@ -926,7 +946,7 @@ def compare_records(old: dict, new: dict) -> dict:
         part, n, k = _files_part("answers", *flat)
         inputs += ["Nominatim"] if part else []
         unknown, compared = unknown + n, compared + k
-    elif (before is None) != (after is None):
+    elif (before is None) != (after is None) or "the search area's inputs" in left:  # one side, or left out of both
         unknown_parts.append("the search area's inputs")
     if inputs:
         parts.append(f"the search area's inputs ({', '.join(inputs)})")
@@ -1006,7 +1026,7 @@ def _sorted_deep(value):
 
 
 def _string_or_none(value) -> bool:
-    return value is None or isinstance(value, str)
+    return value is None or text_of(value) is not None
 
 
 def _files_map(files) -> bool:
@@ -1058,6 +1078,10 @@ def load_data(path: str = None) -> dict:
         for test_id, record in data.items():
             if not _good_record(record):
                 raise ValueError(f"the record of {test_id} is not of the shape regression.py writes")
+        try:  # every text as it will be written again (a lone surrogate of a hand edit), before any search
+            json.dumps(data, ensure_ascii=False).encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValueError("a text that cannot be written as UTF-8") from None
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as e:
@@ -1091,12 +1115,13 @@ def _replace(source: str, target: str):
             time.sleep(pause)
 
 
-def write_files(texts: List[tuple]) -> Optional[tuple]:
-    """Each (path, text) written whole: all of them first into temporary files beside their paths, then each renamed
-    over its path in the order given (UTF-8, LF; never torn). Returns None, or (the path not written, the error):
-    that path and those after it keep their old content, the ones before it are written; no temporary file is
-    left."""
-    temporaries, current = [], None
+def write_files(texts: List[tuple]) -> tuple:
+    """Each (path, text) written whole: all of them first into temporary files beside their paths (named
+    .<the file's name>-<random>.tmp), then each renamed over its path in the order given (UTF-8, LF; never torn).
+    Returns (the paths replaced, None) or (the paths replaced, (the path that failed, the error)): a temporary file
+    that could not be written (a full disk, a text that is no UTF-8) replaces nothing; a rename refused leaves that
+    path and those after it as they were. No temporary file is left."""
+    temporaries, replaced, current = [], [], None
     try:
         for path, text in texts:
             current = path
@@ -1107,13 +1132,12 @@ def write_files(texts: List[tuple]) -> Optional[tuple]:
                 f.write(text.encode("utf-8"))
             os.chmod(temporary, 0o644)  # mkstemp makes it readable by its owner only (POSIX), as cache.replacing
         for (path, _), temporary in zip(texts, temporaries):
-            try:
-                _replace(temporary, path)
-            except OSError as e:
-                return path, e
-        return None
-    except OSError as e:  # a temporary file not written (a full disk): nothing replaced
-        return current, e
+            current = path
+            _replace(temporary, path)
+            replaced.append(path)
+        return replaced, None
+    except (OSError, ValueError) as e:  # ValueError: a text that cannot be written as UTF-8 (a lone surrogate)
+        return replaced, (current, e)
     finally:
         for temporary in temporaries:
             with contextlib.suppress(OSError):
@@ -1121,8 +1145,9 @@ def write_files(texts: List[tuple]) -> Optional[tuple]:
 
 
 def write_data(data: dict, tests: dict, path: str = None):
-    """The data records into DATA_FILE, whole (data_text, write_files); raises OSError when it cannot be written."""
-    failed = write_files([(path or DATA_FILE, data_text(data, tests))])
+    """The data records into DATA_FILE, whole (data_text, write_files); raises the error when it cannot be
+    written."""
+    _, failed = write_files([(path or DATA_FILE, data_text(data, tests))])
     if failed:
         raise failed[1]
 
@@ -1743,13 +1768,16 @@ def main():
     # written the new baselines keep their old records (the line then says "data differs" until --update-data)
     texts = ([(TESTS, tests_text(tests))] if args.update else []) + \
         ([(DATA_FILE, data_text(data, tests))] if args.update or args.update_data else [])
-    not_written = write_files(texts) if texts else None
-    written = [path for path, _ in texts]
+    written, not_written = write_files(texts) if texts else ([], None)
     if not_written:
-        written = written[:written.index(not_written[0])]
+        if args.update and TESTS in written:  # the new baselines stored, their records not
+            advice = "; the new baselines are stored, their data records not: store them again with --update-data"
+        elif args.update:
+            advice = f"; nothing of this run is stored ({TESTS} and {DATA_FILE} as they were)"
+        else:
+            advice = "; the data records are as they were"
         print(f"WARNING: {not_written[0]} could not be written ({type(not_written[1]).__name__}: {not_written[1]})"
-              + ("; nothing of this run is stored in it" if not_written[0] == TESTS else
-                 "; store the data records again with --update-data"), flush=True)
+              + advice, flush=True)
     if TESTS in written:
         print(f"Expected values updated in {TESTS}")
     if args.update_data and DATA_FILE in written:
@@ -1757,8 +1785,10 @@ def main():
               f"{len(ids) - records['stored']} tests left as they were; in {DATA_FILE}")
     elif args.update and DATA_FILE in written:
         print(f"Data records updated in {DATA_FILE}")
-    if args.write_doc:
+    if args.write_doc and (not args.update or TESTS in written):  # never the table of values not stored
         write_doc(tests)
+    elif args.write_doc:
+        print(f"Table not written to {DOC}: its values were not stored in {TESTS}")
     if failed or unverified or args.keep:
         where = f"logs in {work}"
     else:  # rmtree removes the cache links as links, never what they point to
