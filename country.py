@@ -2220,6 +2220,8 @@ def _credits(metas: List[Dict], area_spec: str, year: int) -> List[Dict]:
     if area_spec.startswith("osm:"):
         credits.append(src.OSM_CREDIT.as_dict())
     unique: Dict[str, Dict] = {}
+    # A guard: no credit holds `identity` today (a credit is a source's licence text); it keeps the tiles' record of
+    # the data read out of the cube should a credit ever carry one
     for credit in runs.without_identity(credits):
         unique.setdefault(json.dumps(credit, sort_keys=True), credit)
     return list(unique.values())

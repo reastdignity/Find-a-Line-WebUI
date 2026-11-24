@@ -2422,21 +2422,26 @@ def _record_differs(before: Dict, now: Dict) -> bool:
                     v.setdefault(name, set()).add(identity[name])
         return out
 
-    old, new = before.get("data") or [], now.get("data") or []
-    if not any("paths" in e or "identity" in e for e in old if isinstance(e, dict)):
-        return False  # nothing known of the session before
-    a, b = view(old), view(new)
-    if a.keys() != b.keys():
-        return True  # a layer, a coastline or a file in one record only (the world file, then Copernicus)
-    for key in a:
-        for field in ("files", "tiles"):
-            if (a[key][field] is None) != (b[key][field] is None):
-                if field == "files":
+    def data_differs(old, new):
+        if not any("paths" in e or "identity" in e for e in old if isinstance(e, dict)):
+            return False  # nothing known of the session before
+        a, b = view(old), view(new)
+        if a.keys() != b.keys():
+            return True  # a layer, a coastline or a file in one record only (the world file, then Copernicus)
+        for key in a:
+            for field in ("files", "tiles"):
+                if (a[key][field] is None) != (b[key][field] is None):
+                    if field == "files":
+                        return True
+                elif a[key][field] is not None and _known_differ(a[key][field], b[key][field]):
                     return True
-            elif a[key][field] is not None and _known_differ(a[key][field], b[key][field]):
+            if any(a[key].get(n) and b[key].get(n) and a[key][n] != b[key][n]
+                   for n in ("edition", "size", "modified")):
                 return True
-        if any(a[key].get(n) and b[key].get(n) and a[key][n] != b[key][n] for n in ("edition", "size", "modified")):
-            return True
+        return False
+
+    if data_differs(before.get("data") or [], now.get("data") or []):
+        return True
     area_a, area_b = before.get("area"), now.get("area")
     if isinstance(area_a, dict) and isinstance(area_b, dict):
         def tiles(area):
@@ -2485,9 +2490,14 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     used_path = os.path.join(run["path"], USED_FILE)
     kept = _read_used(used_path)  # the record of the sessions before and their mark (C6), None in the first
     area = prepare_data(plan, strips=True) if todo or kept is None else None
-    if area is None:
+    if area is None:  # every line rests on the kept record: run.json names it whole (a state file of before: this
+        # session's area and slope file, as before)
         src.used_data[:] = kept["data"]  # in place of what plan_search recorded
         run["mixed"] = kept["mixed"]  # no new mark: no step 1 read anything
+        if "area" in kept:
+            plan.area.identity = kept["area"]  # the area's inputs as the session that cut the lines read them
+        if "slope_file" in kept:
+            run["slope_file"] = kept["slope_file"]  # _run_identity takes it in place of the file's state now
     else:  # a mark once made stays; a session that read other data than the one before makes it, when lines of an
         # earlier session exist (a tile done): a session stopped before its first tile leaves no line of its data
         now = _session_record(plan, False)
@@ -2802,12 +2812,13 @@ def _run_identity(plan: Plan, run: Dict) -> Dict:
     runs.without_identity drops from everything that leaves the run): the record's version, the versions of GDAL,
     of the PROJ GDAL reads with and of rasterio as they run now (taken when the run is saved, never kept between
     sessions), the --slope-file's size and modification time (cache.file_identity; left out when it cannot be read:
-    never a failed save), and "mixed" when the sessions of a resumed tiled search read different data
+    never a failed save; a resume with no tile left: the kept record's), and "mixed" when the sessions of a resumed tiled search read different data
     (search_lines)."""
     import rasterio
     identity = {"v": RECORD_VERSION, "gdal": rasterio.__gdal_version__, "proj": rasterio.__proj_version__,
                 "rasterio": rasterio.__version__}
-    slope = plan.params.slope_file and cache.file_identity(plan.params.slope_file)
+    slope = run["slope_file"] if "slope_file" in run else \
+        plan.params.slope_file and cache.file_identity(plan.params.slope_file)  # kept: a resume with no tile left
     if slope:
         identity["slope_file"] = slope
     if run.get("mixed"):
