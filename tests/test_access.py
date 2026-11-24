@@ -381,6 +381,62 @@ def test_a_window_cutting_a_thin_open_strip():
     assert access.access_grid(z[:, c0:], None, res)[147, 590 - c0] == UNSURE
 
 
+# --- The grid-wide pass of the grid in blocks (access.block_grid), its parts alone ---
+
+def _sample_grid(kind: str, rows: int = 64 * 12 + 5, cols: int = 300, seed: int = 0):
+    """Heights for the whole-metre sample: whole metres, float, whole metres on a share near WHOLE_METRE_SHARE, with
+    a strip without data; also a water and a filled mask."""
+    rng = np.random.default_rng(seed)
+    z = (100 + rng.random((rows, cols)) * 50).astype(np.float32)
+    if kind in ("whole", "no-data-strip"):
+        z = np.round(z)
+    if kind == "share":  # 90 % whole metres give or take a little: the sample's every pixel counts
+        z = np.where(rng.random((rows, cols)) < 0.9 + rng.uniform(-0.01, 0.01), np.round(z), z).astype(np.float32)
+    if kind == "no-data-strip":
+        z[64 * 3:64 * 4 + 7] = np.nan
+    z[rng.random((rows, cols)) < 0.05] = np.nan
+    water = rng.random((rows, cols)) < 0.1
+    filled = rng.random((rows, cols)) < 0.2
+    return z.astype(np.float32), water, filled
+
+
+@pytest.mark.parametrize("kind", ["whole", "float", "share", "no-data-strip"])
+def test_whole_metre_sample_in_strips(monkeypatch, kind):
+    """access._whole_metres_rows (the grid in blocks, strip by strip) = whole_metres(z[data]) of the grid at once: on
+    whole metres, float, a share near the threshold and with a strip without data; with a sample step of 1 and over 1,
+    without and with water and filled pixels."""
+    monkeypatch.setattr(access, "STRIP_PX", 1)  # 64 rows a strip
+    for seed in range(6):
+        z, water, filled = _sample_grid(kind, seed=seed)
+        for sample in (access.WHOLE_METRE_SAMPLE, 997):  # a step of 1, and of about 220
+            monkeypatch.setattr(access, "WHOLE_METRE_SAMPLE", sample)
+            for wat, fil in ((None, None), (water, filled)):
+                data = np.isfinite(z)
+                if fil is not None:
+                    data &= ~(fil & ~wat)
+                assert access._whole_metres_rows(z, wat, fil) == access.whole_metres(z[data]), (seed, sample)
+    if kind in ("whole", "no-data-strip"):
+        assert access._whole_metres_rows(z, None, None)
+    if kind == "float":
+        assert not access._whole_metres_rows(z, None, None)
+
+
+def test_whole_metre_sample_keeps_no_strip(monkeypatch):
+    """The sample keeps its picked heights only, not every strip's heights with data: Python's traced peak of the call
+    on a grid of 80 strips stays under half of its heights (the strips' views kept until the sample is joined held
+    them all)."""
+    import tracemalloc
+    monkeypatch.setattr(access, "STRIP_PX", 1)  # 64 rows a strip
+    z = np.round(100 + np.random.default_rng(0).random((64 * 80, 500)) * 50).astype(np.float32)
+    tracemalloc.start()
+    try:
+        assert access._whole_metres_rows(z, None, None)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < z.nbytes / 2, (peak, z.nbytes)
+
+
 def test_speed_logged(record_property):
     """About 0.3 s per megapixel (part P3d, indicative): logged, not asserted."""
     z = rough(n=1000)

@@ -454,7 +454,8 @@ def _region_areas(mask_path: str, labels_path: str, shape, res: float):
 
 def _whole_metres_rows(z, water, filled) -> bool:
     """whole_metres(z[data]) of the whole grid, strip by strip: the count of the pixels with data, then every k-th of
-    them in the same order (the very sample of whole_metres)."""
+    them in the same order (the very sample of whole_metres). Each strip's picked heights are copied: a view would
+    keep the strip's heights with data alive until the sample is joined (4 B per pixel with data)."""
     h, w = z.shape
     n = sum(int(_data_rows(z, water, filled, r0, r1)[1].sum()) for r0, r1 in _strips(h, w))
     if not n:
@@ -464,8 +465,9 @@ def _whole_metres_rows(z, water, filled) -> bool:
     for r0, r1 in _strips(h, w):
         zz, data = _data_rows(z, water, filled, r0, r1)
         v = zz[data]
-        picked.append(v[(-seen) % step::step])
+        picked.append(v[(-seen) % step::step].copy())
         seen += len(v)
+        del zz, data, v
     sample = np.concatenate(picked)
     return bool(np.mean(sample == np.round(sample)) >= WHOLE_METRE_SHARE)
 
