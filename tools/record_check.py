@@ -33,7 +33,8 @@ reached (no provider answers), and the marker is refused anyway. A new writer th
 be added to written_in_place, or this tool would write through a link into the real cache.
 
 It then runs the entry through the harness (tests/regression.py <entry> --cache <scratch> --cold --no-seed --keep;
-never --update) with the network blocked (block_env: every proxy variable to a dead local port, Overpass's address
+never --update; TEMP inside the entry's folder, so the harness's log folder is removed with it; its whole process
+tree ended when the run is stopped) with the network blocked (block_env: every proxy variable to a dead local port, Overpass's address
 too, the project's data server off as the harness sets it), after a check that requests, urllib and GDAL's /vsicurl/
 all stop at that port for http and https (check_block). The verdict per entry: `ok` only when the harness says ok,
 the run log's line says the data were the record's ("same") and no tile was downloaded; besides, the requests the
@@ -243,6 +244,21 @@ def shared_with_real(real: str, scratch: str) -> List[str]:
     return sorted(found)
 
 
+def refuse_shared(real: str, scratch: str, name: str):
+    """RecordError when the scratch cache's database `name` (or one of its side files) exists and shares its data
+    with another file (more than one link, the real cache's file of that name, or a path inside the real cache):
+    the tool's own writes (copy_rows, copy_answers) check it before they open the database; shared_with_real checks
+    the whole scratch cache after the build."""
+    for path in (os.path.join(scratch, *name.split("/")) + side for side in ("", "-wal", "-shm", "-journal")):
+        if not os.path.exists(path):
+            continue
+        twin = os.path.join(real, *cache.relative(scratch, path).split("/"))
+        if (os.stat(path).st_nlink > 1 or _inside(real, path) is not None
+                or (os.path.exists(twin) and os.path.samefile(path, twin))):
+            raise RecordError(f"the scratch cache's {cache.relative(scratch, path)} is shared with another file: "
+                              f"refused, nothing written into it")
+
+
 def _real_rows(real: str, top: str, ask: Callable[[sqlite3.Connection], list]) -> list:
     """Rows read from a real top-level folder's index.sqlite without writing anything (update._query)."""
     import update
@@ -276,6 +292,7 @@ def copy_rows(real: str, scratch: str, names: Sequence[str], folders: Sequence[s
                     keep.append(row)
                     missing[f"{top}/{hit[:-1]}" if hit else top] += 1
         if keep:
+            refuse_shared(real, scratch, f"{top}/index.sqlite")  # the tool's own first write: never into a link
             db = cache._connect(scratch, top)
             try:
                 with db:
@@ -328,9 +345,7 @@ def copy_answers(real: str, scratch: str, answers: Dict[str, Dict[str, Optional[
             raise RecordError(f"the Nominatim answer {table}: {query!r} is not in the real cache")
         if check and value is not None and hashlib.sha256(row[1].encode("utf-8")).hexdigest() != value:
             raise RecordError(f"the Nominatim answer {table}: {query!r} differs from the record's")
-    path = os.path.join(scratch, "osm", "nominatim.sqlite")
-    if os.path.exists(path) and (os.stat(path).st_nlink > 1 or _inside(real, path) is not None):
-        raise RecordError("the scratch cache's osm/nominatim.sqlite is shared with another file: refused")
+    refuse_shared(real, scratch, "osm/nominatim.sqlite")
     db = osm._nominatim_db(scratch)
     try:
         with db:
@@ -569,9 +584,10 @@ def block_env(base: Optional[Dict[str, str]] = None, mirror: Optional[str] = Non
 
 # Each client asks an unresolvable name over http and https: a direct connection would fail on the name, so a refusal
 # can only come from the proxy, and each must name or use the dead port: requests' ProxyError names
-# host='127.0.0.1', port=9; urllib's refusal while its proxies are the dead port; curl's "via 127.0.0.1"
+# host='127.0.0.1', port=9; urllib's refusal while its proxies are the dead port; curl's "via 127.0.0.1" while GDAL's
+# proxies are the dead port
 BLOCK_CHECK = r"""
-import json, re, urllib.request
+import json, os, re, urllib.request
 dead = "http://127.0.0.1:9"
 found = {}
 proxies = urllib.request.getproxies()
@@ -598,7 +614,8 @@ for url in ("http://record-check.invalid/x.tif", "https://record-check.invalid/x
             rasterio.open("/vsicurl/" + url)
         found["gdal " + scheme] = "answered"
     except Exception as e:
-        ok = " via 127.0.0.1 " in str(e)
+        gdal_proxies = [os.environ.get(name) for name in ("GDAL_HTTP_PROXY", "GDAL_HTTPS_PROXY")]
+        ok = " via 127.0.0.1 " in str(e) and gdal_proxies == ["127.0.0.1:9", "127.0.0.1:9"]
         found["gdal " + scheme] = "blocked" if ok else str(e)[:300]
 print(json.dumps(found))
 """
@@ -626,10 +643,34 @@ def harness_command(entry: str, scratch_cache: str) -> List[str]:
             "--no-seed", "--keep"]
 
 
+def end_tree(pid: int):
+    """End a process and every process below it (the harness and its search), children first; gone ones skipped."""
+    import psutil
+    try:
+        top = psutil.Process(pid)
+        procs = top.children(recursive=True) + [top]
+    except psutil.NoSuchProcess:
+        return
+    for proc in procs:
+        with contextlib.suppress(psutil.NoSuchProcess):
+            proc.kill()
+    psutil.wait_procs(procs, timeout=30)
+
+
 def run_harness(entry: str, scratch_cache: str, env: Dict[str, str]) -> subprocess.CompletedProcess:
-    """The entry through the harness on the scratch cache (harness_command)."""
-    return subprocess.run(harness_command(entry, scratch_cache), cwd=REPO, env=env, capture_output=True, text=True,
-                          encoding="utf-8")
+    """The entry through the harness on the scratch cache (harness_command), in a process group of its own (a
+    console's Ctrl+C reaches the tool only); whatever stops the wait (Ctrl+C, an error) ends the harness's whole
+    process tree first, so its search writes nothing more into the scratch folder before it is removed."""
+    command = harness_command(entry, scratch_cache)
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+    proc = subprocess.Popen(command, cwd=REPO, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            encoding="utf-8", creationflags=flags, start_new_session=os.name != "nt")
+    try:
+        stdout, stderr = proc.communicate()
+    except BaseException:
+        end_tree(proc.pid)
+        raise
+    return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
 
 
 def log_line(log: str, start: int, scratch_cache: str) -> Optional[dict]:
@@ -706,8 +747,11 @@ def check_entry(entry: str, tests: dict, data: dict, real: str, out: str, also: 
                 keep: bool, run: Callable = run_harness, say: Callable = print,
                 copy: bool = False) -> Tuple[bool, List[str]]:
     """One entry: its scratch cache built, checked for files shared with the real cache, run, judged and reported.
-    Returns (whether it is ok, what of its scratch folder was left behind); whatever stops it (RecordError, any
-    error, Ctrl+C) passes on after its scratch folder and the harness's log folder are removed (unless keep)."""
+    The harness runs with TEMP inside the entry's folder, so its log folder (with its `cache` junction) and the
+    search's temporary files lie there. Returns (whether it is ok, what of the entry's folder was left behind).
+    Whatever stops it (RecordError, any error, Ctrl+C) passes on after the harness's process tree has ended
+    (run_harness) and the entry's folder has been removed, links as links (unless keep; a scratch cache holding a
+    database shared with another file is removed whatever keep says); what cannot be removed is named in one line."""
     record, test = data[entry], tests[entry]
     folder = os.path.join(out, entry)
     left: List[str] = []
@@ -716,8 +760,8 @@ def check_entry(entry: str, tests: dict, data: dict, real: str, out: str, also: 
         remove_tree(folder, left)
         if left:
             raise RecordError(f"an earlier scratch folder of {entry} could not be removed: {', '.join(left[:3])}")
+    scratch = os.path.join(folder, "cache")
     try:
-        scratch = os.path.join(folder, "cache")
         centre = None
         if reverse:
             args = regression.full_args(tests, entry)
@@ -742,6 +786,9 @@ def check_entry(entry: str, tests: dict, data: dict, real: str, out: str, also: 
             f"rows, {built['answers']} Nominatim answers")
         say(f"    beyond the record: {'; '.join(built['beyond'])}")
         env = block_env(mirror=mirror)
+        temporary = os.path.join(folder, "tmp")  # the harness's log folder and the search's temporary files: inside
+        os.makedirs(temporary, exist_ok=True)  # the entry's folder, so removed with it whatever stops the run
+        env.update({name: temporary for name in ("TEMP", "TMP", "TMPDIR")})
         log = os.path.join(regression._lock_dir() or "", regression.RUN_LOG)
         start = os.path.getsize(log) if os.path.isfile(log) else 0
         done = run(entry, scratch, env)
@@ -765,14 +812,14 @@ def check_entry(entry: str, tests: dict, data: dict, real: str, out: str, also: 
             say(f"    the real cache's files changed meanwhile: {', '.join(moved[:5])}")
         return ok, left
     finally:
-        harness_logs = work and os.path.isdir(work) and os.path.basename(work).startswith("findaline-regression-")
-        if keep:
-            if work:
-                say(f"    the harness's logs kept in {work}")
+        # A scratch cache holding a database shared with another file goes whatever --keep says: nothing may run on it
+        danger = os.path.isdir(scratch) and bool(shared_with_real(real, scratch))
+        if keep and not danger:
+            say(f"    kept: {folder}" + (f" (the harness's logs in {work})" if work else ""))
         else:
-            if harness_logs:
-                remove_tree(work, left)
-            remove_tree(folder, left)
+            if danger:
+                say(f"    the scratch cache holds a file shared with another one: removed (--keep or not)")
+            remove_tree(folder, left)  # the harness's log folder lies inside it (TEMP), its junction a link
         if left:
             say(f"    left behind (a read-only file whose attribute is shared with the real file is never changed): "
                 f"{', '.join(left[:5])}" + (f" and {len(left) - 5} more" if len(left) > 5 else ""))

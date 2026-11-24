@@ -147,11 +147,12 @@ Beyond the record, named by the tool for each entry, never silently:
   files, and the source's id and the files are in the record, so a different answer shows as different data: those
   kinds' proof is the weaker one (the answer was given, not shown to be unneeded).
 
-The stored index answers of every other kind were not copied: each asked its index (1 to 9 requests a host in the
-run log, all failed at the dead port), fell back to the cached files by name and gave the same result, which shows
-the answers only choose files. In the 32 runs without `--reverse`, Nominatim's reverse lookups (the country, the
-run's name) were tried and blocked; with it the stored answers took their place, and R21 and R45 then tried no
-request at all.
+No other stored index answer was copied. The kinds that ask an index over the network at search time asked it,
+were refused at the dead port, fell back to the cached files by name and gave the same result, which shows the
+answers only choose files; the other kinds asked no host but Nominatim (their tiles come from the grid, or their
+index is code or a cached file). Every run without `--reverse` (R24 and R76 too) tried Nominatim's reverse lookups
+(the country, the run's name) and was refused; with `--reverse` the stored answers took their place, and R21 and
+R45 then tried no request at all. The run log holds each run's hosts and counts.
 
 | Kind of layer (index or tiling) | Entry | Verdict | Beyond the record (besides LAYOUT and missing marks) |
 | --- | --- | --- | --- |

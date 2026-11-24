@@ -13,6 +13,8 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import time
+from pathlib import Path
 
 import pytest
 
@@ -126,7 +128,7 @@ def _stub(tmp_path, lock, sums, seen, outcome="ok"):
         seen["linked"] = os.path.samefile(os.path.join(scratch, "land", "dtm", "a.tif"),
                                           os.path.join(root, "land", "dtm", "a.tif"))
         seen["env"] = env
-        work = tmp_path / "findaline-regression-stub"
+        work = Path(env["TEMP"]) / "findaline-regression-stub"  # the harness's mkdtemp, in the TEMP it was given
         (work / entry / "runs" / "run").mkdir(parents=True)
         (work / entry / "runs" / "run" / "run.json").write_text(json.dumps(_meta(sums)), encoding="utf-8")
         (work / entry / "output.log").write_text("Data: land\nWARNING: something tried\n", encoding="utf-8")
@@ -183,7 +185,8 @@ def test_the_scratch_cache_holds_only_the_record(real, tmp_path, monkeypatch, lo
             "of the world file taken by its edition's name, not by their bytes") in text
     assert "verdict: ok" in text and "LAYOUT" in text and '1 "missing" marks (land/dtm 1)' in text
     assert "the run's own record names the same data" in text and "first: WARNING: something tried" in text
-    assert not os.path.exists(os.path.join(out, "E")) and not os.path.exists(tmp_path / "findaline-regression-stub")
+    assert env["TEMP"] == os.path.join(out, "E", "tmp")
+    assert os.listdir(out) == [rc.MARKER]  # the scratch cache and the harness's log folder with its junction
     assert _snapshot(root) == before
     rc.remove_tree(out)
     assert not os.path.exists(out)
@@ -304,9 +307,10 @@ def test_main_refuses_also_naming_a_database(monkeypatch):
     assert e.value.code == 2
 
 
-def test_a_database_shared_after_the_build_stops_the_entry(real, tmp_path, monkeypatch, lock):
+@pytest.mark.parametrize("keep", [False, True])
+def test_a_database_shared_after_the_build_stops_the_entry(real, tmp_path, monkeypatch, lock, keep):
     """The check after the build: a scratch index that is the real one (however it came there) is found, the entry
-    is not run, its scratch folder removed, and the real cache unchanged."""
+    is not run, its scratch folder removed whatever --keep says, and the real cache unchanged."""
     root, sums = real
     build = rc.build
 
@@ -322,22 +326,109 @@ def test_a_database_shared_after_the_build_stops_the_entry(real, tmp_path, monke
     assert rc.shared_with_real(root, str(tmp_path / "nothing")) == []
     with pytest.raises(rc.RecordError, match="land/index.sqlite"):
         rc.check_entry("E", {"E": {"args": ""}}, {"E": rc.regression.record_of(_meta(sums))}, root, out, (), False,
-                       False, run=lambda *a: pytest.fail("ran the entry"), say=lambda *a: None)
+                       keep, run=lambda *a: pytest.fail("ran the entry"), say=lambda *a: None)
     assert not os.path.exists(os.path.join(out, "E"))
     assert _snapshot(root) == before
 
 
+def test_the_tools_own_writes_never_go_into_a_shared_database(real, tmp_path):
+    """copy_rows and copy_answers refuse a scratch database that is a link of the real one before opening it (the
+    check after the build is the second line); the real cache unchanged."""
+    root, sums = real
+    before = _snapshot(root)
+    scratch = str(tmp_path / "s" / "cache")
+    for name in ("land/index.sqlite", "osm/nominatim.sqlite"):
+        os.makedirs(os.path.dirname(os.path.join(scratch, *name.split("/"))), exist_ok=True)
+        os.link(os.path.join(root, *name.split("/")), os.path.join(scratch, *name.split("/")))
+    with pytest.raises(rc.RecordError, match="land/index.sqlite is shared"):
+        rc.copy_rows(root, scratch, ["land/dtm/a.tif"], ["land/dtm"])
+    with pytest.raises(rc.RecordError, match="osm/nominatim.sqlite is shared"):
+        rc.copy_answers(root, scratch, {"search": {"X": sums["X"]}})
+    assert rc.shared_with_real(root, scratch) == ["land/index.sqlite", "osm/nominatim.sqlite"]
+    assert _snapshot(root) == before
+
+
+def _short_name(path: str):
+    """The 8.3 short name of a path where the volume makes one, else None."""
+    if os.name != "nt":
+        return None
+    import ctypes
+    buffer = ctypes.create_unicode_buffer(1024)
+    n = ctypes.windll.kernel32.GetShortPathNameW(path, buffer, 1024)
+    short = os.path.basename(buffer.value) if n else None
+    return short if short and short.lower() != os.path.basename(path).lower() else None
+
+
+def test_place_file_refuses_a_database_by_its_resolved_path(real, tmp_path):
+    """Names that do not look like a database but resolve to one: refused by place_file's second check (the path
+    resolved), never linked."""
+    root, _ = real
+    names = ["land/index.sqlite/."]
+    short = _short_name(os.path.join(root, "land", "index.sqlite"))
+    if short:
+        names.append(f"land/{short}")
+    scratch = str(tmp_path / "s")
+    for name in names:
+        assert rc.regression.cache_name(name) and not rc.written_in_place(name)
+        with pytest.raises(rc.RecordError, match="written in place"):
+            rc.place_file(root, scratch, name)
+    assert not os.path.exists(scratch)
+
+
 @pytest.mark.parametrize("error", [RuntimeError("boom"), KeyboardInterrupt()])
-def test_whatever_stops_an_entry_its_scratch_folder_is_removed(real, tmp_path, lock, error):
+@pytest.mark.parametrize("keep", [False, True])
+def test_whatever_stops_an_entry_its_folder_and_the_harness_logs_go(real, tmp_path, lock, error, keep):
+    """The harness stopped mid-run, its log folder made in the TEMP it was given (with its junction to the scratch
+    cache): the entry's folder, the harness's log folder inside it, is removed, or with --keep kept and named; the
+    real cache untouched."""
     root, sums = real
     out = rc.prepare_out(str(tmp_path / "out"), root)
+    before = _snapshot(root)
 
     def run(entry, scratch, env):
+        work = Path(env["TEMP"]) / "findaline-regression-x" / entry
+        work.mkdir(parents=True)
+        rc.regression.link(scratch, str(work / "cache"))
+        (work / "output.log").write_text("half a search", encoding="utf-8")
         raise error
+    said = []
     with pytest.raises(type(error)):
         rc.check_entry("E", {"E": {"args": ""}}, {"E": rc.regression.record_of(_meta(sums))}, root, out, (), False,
-                       False, run=run, say=lambda *a: None)
-    assert os.listdir(out) == [rc.MARKER]
+                       keep, run=run, say=said.append)
+    if keep:
+        assert f"    kept: {os.path.join(out, 'E')}" in said
+        assert os.path.isdir(os.path.join(out, "E", "tmp", "findaline-regression-x"))
+        assert rc.remove_tree(out) == []
+    else:
+        assert os.listdir(out) == [rc.MARKER]
+    assert _snapshot(root) == before
+
+
+def test_a_stopped_harness_ends_its_whole_process_tree(tmp_path, monkeypatch):
+    """run_harness on Ctrl+C: the harness and the process below it (the search) are ended before it passes on."""
+    import psutil
+    pids = tmp_path / "pids.txt"
+    child = f"import os, time; open(r'{pids}', 'a').write(str(os.getpid()) + chr(10)); time.sleep(120)"
+    parent = (f"import os, subprocess, sys, time; open(r'{pids}', 'a').write(str(os.getpid()) + chr(10)); "
+              f"subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(120)")
+    monkeypatch.setattr(rc, "harness_command", lambda entry, scratch: [sys.executable, "-c", parent])
+    original = subprocess.Popen.communicate
+
+    def interrupted(self, *args, **kwargs):
+        deadline = time.time() + 60
+        while time.time() < deadline and (not pids.exists() or len(pids.read_text().split()) < 2):
+            time.sleep(0.1)
+        raise KeyboardInterrupt
+    monkeypatch.setattr(subprocess.Popen, "communicate", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        rc.run_harness("E", "scratch", dict(os.environ))
+    monkeypatch.setattr(subprocess.Popen, "communicate", original)
+    found = [int(p) for p in pids.read_text().split()]
+    assert len(found) == 2
+    assert not any(psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE for pid in found)
+    monkeypatch.setattr(rc, "harness_command", lambda entry, scratch: [sys.executable, "-c", "print('done')"])
+    done = rc.run_harness("E", "scratch", dict(os.environ))
+    assert done.returncode == 0 and done.stdout.strip() == "done"
 
 
 @pytest.fixture
@@ -389,7 +480,17 @@ def test_the_harness_command_never_seeds_or_updates(monkeypatch):
     assert {"--cold", "--no-seed", "--keep"} <= set(command)
     assert not {"--update", "--update-data", "--all", "--set"} & set(command)
     calls = []
-    monkeypatch.setattr(rc.subprocess, "run", lambda args, **kw: calls.append((args, kw)))
+
+    class NoProcess:  # never a real process: the harness on a made-up cache must not start
+        returncode = 0
+
+        def __init__(self, args, **kw):
+            calls.append((args, kw))
+
+        def communicate(self):
+            return "", ""
+    monkeypatch.setattr(rc.subprocess, "Popen", NoProcess)
+    monkeypatch.setattr(rc.subprocess, "run", lambda *a, **k: pytest.fail("a process started"))
     rc.run_harness("R1", "C:/scratch/cache", {"X": "1"})
     assert calls[0][0] == command and calls[0][1]["env"] == {"X": "1"}
 
@@ -548,6 +649,22 @@ def test_block_env_overrides_the_users_proxy_variables():
     assert "REQUEST_METHOD" not in {k.upper() for k in env}
     assert env["FINDALINE_OVERPASS_URL"].startswith(rc.DEAD)
     assert "secret" not in json.dumps(env) and "example" not in json.dumps(env)
+
+
+def test_the_block_check_counts_only_the_dead_ports_refusal(monkeypatch):
+    """A refusal by another local port (a proxy that is not the dead one) is no block, for each client and scheme;
+    an answer, another text or a client not asked is named."""
+    env = rc.block_env()
+    for name in list(env):
+        if "PROXY" in name.upper() and env[name]:
+            env[name] = env[name].replace("127.0.0.1:9", "127.0.0.1:8")
+    every = {f"{client} {scheme}" for client in ("requests", "urllib", "gdal") for scheme in ("http", "https")}
+    assert set(rc.check_block(env)) == every
+    canned = {key: "blocked" for key in every - {"gdal https"}}
+    canned["urllib http"] = "answered"
+    monkeypatch.setattr(rc.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess([], 0, json.dumps(canned) + "\n", ""))
+    assert rc.check_block({}) == {"urllib http": "answered", "gdal https": "not asked"}
 
 
 def test_the_block_holds_for_http_and_https_over_the_users_proxies():
