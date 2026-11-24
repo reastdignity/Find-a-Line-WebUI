@@ -694,7 +694,9 @@ X-Amz-* and Signature=, also URL-encoded; OpenDataNI's redirects to Cloudflare R
 
 `findaline.py cache status/update`, `cache migrate [folder] [--dry-run]` (every tile still in the older encoding
 written again: `migrate`, `old_tiles`, `rewriting_layer`; exit code 1 when a tile stayed open elsewhere) and
-`osm download/update`: which cached data can change, checks, runs on changed data; an `IndexedTiles`'
+`osm download/update`: which cached data can change, checks, runs on changed data (`changed_runs`, `RunChange`: a
+run's data record against the index read-only, `_read_only`, one connection per index; runs before the record by
+fetch times, approximate); an `IndexedTiles`'
 `update_ttl_days` in place of its index's TTL (the USA's 1 m DEM: `cache.TTL_DAYS["usgs-1m-index"]`, 28 days, the
 public site's monthly timer; a search's `--update stale` keeps the index's 180); the list of the USA's unlisted 1 m
 files a check of its own (`_list_check`, `Check.first`: before the answers; due after 28 days, or when none was made
