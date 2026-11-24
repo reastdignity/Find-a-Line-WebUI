@@ -275,6 +275,7 @@ def readable_texts() -> dict:
     waiting = ac.User(id=7, provider="github", subject="1", name="Ann", status="pending", admin=False)
     pages = {"sign-in": web.signin_page(["github", "google"], total=(5.0, 1)),
              "sign-in, waiting": web.signin_page(["github"], waiting, "token"),
+             "sign-in, open": web.signin_page(["github"], total=(5.0, 1), signup="open"),
              "about": web.about_page("admin@example.org", esri=True, ring=True),
              "privacy": web.privacy_page("admin@example.org", 30, ring=True)}
     for name, page in pages.items():

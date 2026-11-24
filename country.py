@@ -16,7 +16,10 @@ in count mode (search.count_tile) into a countcube.TileCounter, the counts saved
 (countcube.save_tile). A tile is the unit of work and of resuming: the manifest (manifest.sqlite,
 one row per band and tile) says which are pending, running, done or failed; `run` starts worker
 processes that claim tiles from it one at a time, so an interrupted run goes on where it stopped,
-and the results never depend on the number of processes or on resuming.
+and the results never depend on the number of processes or on resuming. Before a cube's first tile
+(and only then) the index of the layers that renew is asked again (_renew, sources/renewal.py): after the disk
+check and the "Start?" question (or --yes), before the prefetch and any worker, so the prefetch and every tile read
+the renewed answers; the estimate shown before the question rests on the answers cached then (a line says so).
 
 Data (all under <data>/countries/<id>/, nothing else of the data folder changes but the cache and
 the tiles' work folders <data>/work/country-<id>/<band>-<name>/):
@@ -849,6 +852,12 @@ class Manifest:
             return self.db.execute("SELECT * FROM tiles WHERE band = ? ORDER BY rowid", (band,)).fetchall()
         finally:
             self.db.row_factory = None
+
+    def started(self) -> bool:
+        """Whether a tile of the cube was ever claimed (any band: done, failed or running, or pending after an
+        attempt): the count of the cube has begun, and a run goes on with the data of its start (_renew)."""
+        return self.db.execute("SELECT 1 FROM tiles WHERE status != 'pending' OR attempts > 0 LIMIT 1").fetchone() \
+            is not None
 
     def counts(self) -> Dict[str, Dict[str, int]]:
         """Tiles per band and status."""
@@ -1753,6 +1762,57 @@ def _requeue_border_tiles(manifest: Manifest, country: Country, plans: Dict, ban
     return total
 
 
+def _fallback_layers(country: Country) -> List:
+    """The layers of the source's fall-backs (Alaska's IfSAR under `alaska`: its blocks are read by the tiles
+    themselves)."""
+    import sources as src
+    source = src.SOURCES.get(country.source)
+    fallbacks = []
+    if source is not None:
+        for fid in (source.fallback, *(getattr(source, "more_fallbacks", ()) or ()), source.instead_without_data):
+            other = src.SOURCES.get(fid or "")
+            if other is not None:
+                fallbacks += [other.nmt, other.nmpt]
+    return fallbacks
+
+
+def _renews(country: Country, plans: Dict) -> bool:
+    """Whether a layer of the bands' plans or of the source's fall-backs renews (sources/renewal.py)."""
+    from sources import renewal
+    return bool(renewal.renewing([layer for plan in plans.values() for layer in plan.layers]
+                                 + _fallback_layers(country)))
+
+
+def _renew(country: Country, plans: Dict, folder: str, state: Dict, say):
+    """The index of the country asked again before the cube's first tile (sources/renewal.py; the user's choice of
+    2026-11-22: `country run` renews, D3b: on every start): the layers of the bands' plans that renew and of the
+    source's fall-backs. A count that resumes never renews: one cube, one state of the data (a counted cube is
+    renewed by --redo, which starts it anew). _run calls it after the disk check and the "Start?" question (the
+    user's answer of 2026-11-23: "After "yes""), or where the question would be answered with --yes, and before the
+    prefetch and any worker: a declined start, a failed disk check, --max-tiles 0 or nothing to count asks nothing
+    and writes nothing. The estimate shown before the question rests on the answers cached then. The time and the
+    counts go into country.json as a note ("index_renewed"); the config hash and the tiles' meta do not change, so
+    cubes counted before keep theirs. Nothing of it stops the run."""
+    from sources import renewal
+    fallbacks = _fallback_layers(country)
+    first = next(iter(plans.values()))
+    if not _renews(country, plans):
+        return
+    asked: set = set()
+    done = []
+    try:
+        for plan in plans.values():
+            if renewal.renewing(plan.layers):
+                done.append(renewal.renew(plan.layers, plan.grid, plan.paths.cache, say, asked))
+        if renewal.renewing(fallbacks):
+            done.append(renewal.renew(fallbacks, first.grid, first.paths.cache, say, asked))
+    except Exception as e:  # noqa: BLE001 (a fault of the renewal never stops the count)
+        say(f"WARNING: the index could not be renewed ({type(e).__name__}: {cache.clean_error(e)}): the tiles read "
+            f"the answers there are")
+    state["index_renewed"] = {"at": _now(), "renewals": [r.as_dict() for r in done]}
+    _write_json(os.path.join(folder, "country.json"), state)
+
+
 def _check_reach(country: Country):
     """The run's one start check (docs/mirror-hosting/spec.md C.3), in the main process before the band plans:
     the country's own source must answer (the project's data server: choose.source_unreachable), or the run
@@ -1801,6 +1861,7 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
                 largest = max(largest, max(t.grid.width * t.grid.height for t in tiles))
                 disk = max(disk, max(t.grid.width * t.grid.height for t in tiles)
                            * _disk_bytes(plans[band.name], across=not country.study))
+        first_start = not manifest.started()  # before release_running: a crash with tiles running is no first start
         stale = manifest.release_running()
         if stale:
             say(f"{stale} tiles of an interrupted run are pending again")
@@ -1834,6 +1895,10 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
             download = prefetch_bytes(groups, plans[selected[0]].paths.cache)
             say(f"The prefetch downloads about {download / 2 ** 30:.1f} GiB into the cache (the tiles not cached yet, "
                 f"as their layers estimate them)")
+        renews = first_start and bool(todo) and max_tiles != 0 and _renews(country, plans)
+        if renews:
+            say("This estimate rests on the index answers cached now: after the start the index is asked again, "
+                "and the prefetch reads the answers it gives")
         if todo and free < need + download:
             say(f"Not enough free disk in {data_dir}: {free / 2 ** 30:.1f} GiB, the work folders need about "
                 f"{need / 2 ** 30:.1f} GiB and the prefetch about {download / 2 ** 30:.1f} GiB in the cache "
@@ -1842,6 +1907,8 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         if todo and not yes and not _ask("Start? [y/N] "):
             say("Not started (--yes skips this question)")
             return 1
+        if first_start and todo and max_tiles != 0:
+            _renew(country, plans, folder, state, say)  # after "yes", before the prefetch and any worker
         started = time.time()
         if todo:
             _set_weights(manifest, selected, plans, say)

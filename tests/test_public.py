@@ -451,15 +451,40 @@ def test_sessions_end(public, providers, tmp_path):
 
 
 def test_signup_modes_and_login_rate(tmp_path, settings, account_settings, providers):
-    """FINDALINE_SIGNUP=open approves new accounts, closed refuses them (administrators still sign in);
+    """FINDALINE_SIGNUP=open approves new accounts, and the accounts still waiting when the web process starts,
+    and its sign-in page does not say a new account waits; closed refuses them (administrators still sign in);
     sign-in requests are limited per IP address."""
     import sqlite3
     (tmp_path / "open").mkdir()
     (tmp_path / "closed").mkdir()
+    with TestClient(_public_app(tmp_path / "open", settings, account_settings, providers), base_url=URL) as client:
+        assert "waits for an administrator" in client.get("/").text
+        sign_in(client, providers, {"id": 4, "login": "dave"})
+        assert client.get("/api/jobs").status_code == 403
+        sign_in(client, providers, {"id": 5, "login": "eve"})
+    db = sqlite3.connect(tmp_path / "open" / "accounts.sqlite")
+    with db:
+        db.execute("UPDATE users SET status = 'blocked' WHERE subject = '5'")
+    db.close()
     open_ = account_settings.model_copy(update={"signup": "open"})
     with TestClient(_public_app(tmp_path / "open", settings, open_, providers), base_url=URL) as client:
+        page = client.get("/").text
+        assert "waits for an administrator" not in page and "no e-mail address" in page
+        failed = client.get("/auth/github?code=x&state=y")  # a sign-in that fails (no state in the cookie)
+        assert failed.status_code == 400 and "waits for an administrator" not in failed.text
         sign_in(client, providers, {"id": 3, "login": "carol"})
         assert client.get("/api/jobs").status_code == 200
+        sign_in(client, providers, {"id": 4, "login": "dave"})
+        assert client.get("/api/jobs").status_code == 200
+    db = sqlite3.connect(tmp_path / "open" / "accounts.sqlite")
+    assert dict(db.execute("SELECT subject, status FROM users").fetchall()) == {
+        "1": "approved", "3": "approved", "4": "approved", "5": "blocked"}
+    import audit
+    dave = db.execute("SELECT id FROM users WHERE subject = '4'").fetchone()[0]
+    db.close()
+    rows = [(e["user_id"], e["target"], e["detail"]) for e in audit.Audit(str(tmp_path / "open")).entries()
+            if e["action"] == "user_status"]
+    assert rows == [(None, str(dave), {"status": "approved", "was": "pending", "signup": "open"})]
     closed = account_settings.model_copy(update={"signup": "closed"})
     with TestClient(_public_app(tmp_path / "closed", settings, closed, providers), base_url=URL) as client:
         answer = sign_in(client, providers, {"id": 3, "login": "carol"})

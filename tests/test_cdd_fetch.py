@@ -28,6 +28,7 @@ REAL_SITE, REAL_AUTH, REAL_SCHEMES = cf.SITE, cf.AUTH_URL, cf.SCHEMES  # before 
 USER = "user-SECRET-u1"
 PASSWORD = "pw SECRET&p1"  # a space and an ampersand: masked in the form's encoding too
 TIFF = b"II*\x00"
+RESET_PAUSE = 0.3  # seconds between the fake's last bytes and its reset of the connection (Fake.reset)
 
 
 def tiff(n, seed):
@@ -119,6 +120,7 @@ class Fake:
         parts = urllib.parse.urlsplit(h.path)
         with self.lock:
             self.active += 1
+            h.open = True  # counted in `active` until answered()
             self.most = max(self.most, self.active)
             self.log.append((method, parts.path, h.headers.get("User-Agent")))
             self.times.append((time.monotonic(), h.headers.get("Host")))
@@ -133,15 +135,36 @@ class Fake:
                 return
             self.route(h, method, parts)
         finally:
-            with self.lock:
+            self.answered(h)
+
+    def answered(self, h):
+        """The request is no longer open (`active`, whose highest value `most` says how many the tool had open at
+        once); once per request."""
+        with self.lock:
+            if h.open:
+                h.open = False
                 self.active -= 1
 
     def send(self, h, status, body=b"", headers=None, length=None):
+        """A whole answer. The request stops counting as open just before the bytes that complete the answer go out
+        (the body of a 200 that has one; else the headers, from which a client may go on: a redirect, an error),
+        not when the handler returns: with those bytes the tool has its answer and may send its next request, which
+        reached the fake's other thread before this one had counted itself out (`most` 2 for a tool with one
+        request at a time: CI's Linux runs of 2026-11-17/18, e.g. 44311665737). So a second request that arrives
+        while those bytes are written (for a 200 the whole body, written at once) is not counted, nor one sent after
+        the headers of a 200 and before its body was read. Only answers made here are counted out so; every other
+        one (a reset, a body sent in pieces or without its length, a close without an answer) still is when its
+        handler returns (handle), and a test asserting `most` over such an answer would meet the same race."""
         h.send_response(status)
         for name, value in (headers or {}).items():
             h.send_header(name, value)
         h.send_header("Content-Length", str(len(body) if length is None else length))
+        whole = status == 200 and body
+        if not whole:
+            self.answered(h)
         h.end_headers()
+        if whole:
+            self.answered(h)
         h.wfile.write(body)
 
     def cookies(self, h):
@@ -184,9 +207,7 @@ class Fake:
             h.end_headers()
             h.wfile.write(page[:20])
             h.wfile.flush()
-            h.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
-            h.close_connection = True
-            h.connection.close()
+            self.reset(h)
         elif method == "POST" and path.endswith("/authenticate") and self.form_fails:
             self.form_fails -= 1
             h.rfile.read(int(h.headers.get("Content-Length") or 0))
@@ -302,7 +323,9 @@ class Fake:
                 time.sleep(0.01)
         elif action == "close":  # no answer at all (a plain file's server down)
             h.close_connection = True
-        elif action == "slowreset":  # headers, half the body slowly (the tests' clock runs), then a reset
+        # headers, half the body slowly (the tests' clock runs), then a reset: its own, without Fake.reset's pause
+        # (the headers went out many pieces of 10 ms before it, so the client has them: a broken body either way)
+        elif action == "slowreset":
             self.slow = True
             h.send_response(200)
             h.send_header("Content-Length", str(len(body)))
@@ -323,12 +346,7 @@ class Fake:
             h.end_headers()
             h.wfile.write(body[:len(body) // 2])
             h.wfile.flush()
-            h.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
-            h.close_connection = True
-            try:
-                h.connection.close()
-            except OSError:
-                pass
+            self.reset(h)
         elif action == "mark":
             self.marked = True
             self.send(h, 200, body, {"Content-Type": "image/tiff"})
@@ -356,6 +374,20 @@ class Fake:
             h.wfile.write(body[len(body) // 2:])
         else:
             self.send(h, 200, body, {"Content-Type": "image/tiff"})
+
+    def reset(self, h):
+        """The connection reset after what was sent (headers and part of a body). The pause comes first, so that the
+        client has taken those bytes: Windows drops what a socket received and nobody read yet when the reset
+        arrives, and a client that reads a moment late then meets the reset before the headers (to the tool a network
+        failure, not the broken body these answers stand for; seen on CI's Windows runners, where one of three
+        such answers came out as "network:", e.g. run 45228163608). Linux hands the bytes over first either way."""
+        time.sleep(RESET_PAUSE)
+        h.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        h.close_connection = True
+        try:
+            h.connection.close()
+        except OSError:
+            pass
 
     def next_action(self, item_id):
         queue = self.actions.get(item_id) or []

@@ -403,7 +403,7 @@ def test_telegraf_reads_the_contract_paths():
     assert sorted(units) == sorted([
         "nginx.service", "docker.service", "fail2ban.service", "ssh.service", "certbot.timer",
         "findaline-backup.timer", "findaline-facts.timer", "findaline-check.timer", "findaline-heartbeat.timer",
-        "unattended-upgrades.service"])
+        "findaline-usa-renewal.timer", "unattended-upgrades.service"])
 
 
 def test_telegraf_checks_the_data_server():

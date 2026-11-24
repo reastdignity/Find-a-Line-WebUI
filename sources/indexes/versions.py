@@ -1,6 +1,7 @@
 """Version policies of a cached index: the newest survey per sheet or tile (NewestPerSheet), or blocks
 composed from every file over them, newest first (ComposedBlocks)."""
 
+import collections
 import glob
 import hashlib
 import math
@@ -21,7 +22,7 @@ import osm
 from grid import Grid
 
 from ..readers.windows import BlockRequest, _same_crs
-from .cached import CachedIndex, Versions, index_tiles
+from .cached import EXTRA, CachedIndex, Versions, index_tiles
 
 
 # existing() lists a folder once when at least LISTING_FROM of the paths it is asked about lie in it, and asks
@@ -215,6 +216,47 @@ class NewestPerSheet(Versions):
         return sorted(sheets, key=_sheet_order, reverse=True)
 
 
+def url_name(url: str) -> str:
+    """A file's name, the last part of its URL: the identity of "the same file" between an index answer and the list
+    of the bucket's unlisted files (tnmbucket.unlisted_objects goes by name; 126,767 names at as many URLs in the
+    index's listing of 2026-11-22)."""
+    return url.rsplit("/", 1)[-1]
+
+
+def keep_item(found: Dict[str, Dict], item: Dict, names: Dict[str, str]):
+    """Add a listed version to found (by URL; names: the URL found holds for a file name, kept beside it) as the files
+    of several index tiles are joined: the later tile's wins, as ever, except that a version merged in from a tile's
+    extra versions (cached.EXTRA: the list of the bucket's unlisted files) never replaces one an index answer lists,
+    and an index answer's version replaces an extra one of the same file name, at any URL: a file the index lists
+    now but another tile's answer does not yet (the list carries it, renewal.py) has the index's year and date
+    whatever tiles a grid reads (fewer flips between the two names of its block, _blocks). Without extra versions
+    (every other layer) the later tile's wins by URL, byte for byte as before."""
+    name = url_name(item["url"])
+    other = names.get(name)
+    if other is not None and other in found:
+        mine, theirs = bool(item.get(EXTRA)), bool(found[other].get(EXTRA))
+        if mine and not theirs:
+            return
+        if theirs and not mine and other != item["url"]:
+            del found[other]
+    found[item["url"]] = item
+    names[name] = item["url"]
+
+
+def block_key(files: Sequence[Dict]) -> str:
+    """The key of a block's set of files (8 hex digits of a sha1): each file by its name, but a file of the list of
+    unlisted files (cached.EXTRA) that shares its year with another file of the block by its name and its date
+    ("published"): what decides the order of a block's files is then in its name, so when such a file's date
+    changes (the index lists it, with its own date in place of the upload time; or the list's date changes) the
+    block gets another name, is read again and the block of the old name pruned, like a block whose set of files
+    changed. A block without such a file keeps the name it always had (every block of every other layer; a list file
+    alone in its year, whose place in the order its date cannot change)."""
+    years = collections.Counter(f["year"] for f in files)
+    return hashlib.sha1(",".join(sorted(
+        f"{f['name']}@{f.get('published', '')}" if f.get(EXTRA) and years[f["year"]] > 1 else f["name"]
+        for f in files)).encode()).hexdigest()[:8]
+
+
 @dataclass(frozen=True)
 class Block:
     """A square of a TnmBlocks layer: (i, j) on a grid of `size` metres in crs, composed from
@@ -233,8 +275,9 @@ class ComposedBlocks(Versions):
     """Squares of block_m on a fixed grid in the CRS of the listed files, each composed from
     every file over it, newest first (Windows reads them), cached as a GeoTIFF of its own:
     <folder>/<epsg>/<i // 10>_<j // 10>/<year>_<i>_<j>_<key>.tif, the key standing for its set
-    of files. A new file over a block changes its key, so the block is read again (update.py,
-    or a search after the answer was renewed) and the file of the older set deleted. Blocks
+    of files (and, for a list file tied on its year, its date: block_key, what decides the order). A
+    new file over a block changes its key, so the block is read again (update.py, or a search after
+    the answer was renewed) and the file of the older set deleted (prune, once the new one is there). Blocks
     in the working CRS come first: copied onto the grid as they are, they win where a tile
     is delivered in two UTM zones. The listed items are {name, url, crs, extent (in crs),
     year, published}.
@@ -251,11 +294,12 @@ class ComposedBlocks(Versions):
     @staticmethod
     def _items_of(index: CachedIndex, cache_dir: str, tiles: List[Tuple[float, float]],
                   update: Optional[str] = None) -> List[Dict]:
-        """The listed files of the given index tiles (south-west corners), each file once."""
+        """The listed files of the given index tiles (south-west corners), each file once (keep_item)."""
         items: Dict[str, Dict] = {}
+        names: Dict[str, str] = {}
         for lat, lon in tiles:
             for item in index.answers(cache_dir, lat, lon, update):
-                items[item["url"]] = item
+                keep_item(items, item, names)
         return list(items.values())
 
     def _blocks(self, items: List[Dict], bounds: Dict[str, tuple], shape=None) -> List[Block]:
@@ -286,7 +330,7 @@ class ComposedBlocks(Versions):
         blocks = []
         for (crs, i, j), files in over.items():
             files = sorted(files, key=lambda f: (f["year"], f.get("published", ""), f["name"]), reverse=True)
-            key = hashlib.sha1(",".join(sorted(f["name"] for f in files)).encode()).hexdigest()[:8]
+            key = block_key(files)
             blocks.append(Block(crs, i, j, size, files[0]["year"], key,
                                 tuple((f["name"], f["url"], f["year"]) for f in files)))
         return blocks
@@ -338,9 +382,11 @@ class ComposedBlocks(Versions):
         return sorted(blocks, key=lambda b: (not _same_crs(b.crs, grid.crs), -b.year, b.crs, b.j, b.i))
 
     def _others(self, cache_dir: str, block: Block,
-                folders: Optional[Dict[str, Dict[tuple, List[Tuple[str, str]]]]] = None,
+                folders: Optional[Dict[str, Dict[tuple, List[Tuple[str, str, int]]]]] = None,
                 listings: Optional[Dict[str, Optional[Dict]]] = None) -> List[str]:
-        """The cached files of the same block made from other sets of files, in the folder's order. folders: the
+        """The cached files of the same block made from other sets of files, or from the same set with another
+        newest year (a file's year changed, its key did not: wave A of the USA, part A-2), in the folder's
+        order. folders: the
         blocks' files of the folders listed so far, (i, j): [(path, key)], kept between the blocks of one prune
         (filled here): a folder holds a hundred blocks, and was listed and matched again for each. listings:
         existing()'s listings of the folders it listed (their entries in the order the system gave them, as
@@ -358,10 +404,11 @@ class ComposedBlocks(Versions):
                 path = os.path.join(folder, name)
                 b = self._block_of(path)
                 if b is not None:
-                    found.setdefault((b.i, b.j), []).append((path, b.key))
+                    found.setdefault((b.i, b.j), []).append((path, b.key, b.year))
             if folders is not None:
                 folders[folder] = found
-        return [path for path, key in found.get((block.i, block.j), ()) if key != block.key]
+        return [path for path, key, year in found.get((block.i, block.j), ())
+                if key != block.key or year != block.year]
 
     def prune(self, cache_dir: str, tiles: List[Block]) -> int:
         """Delete the cached files of the blocks' other sets of files, for the blocks whose own file is cached;
@@ -370,7 +417,7 @@ class ComposedBlocks(Versions):
         (tools/area_download.py: Utah's 207 897 on a share) took 317 s at the end of every pass
         (docs/performance.md, "The check of cached tiles"). The same files as before, in the same order
         (tests/test_parts.py)."""
-        folders: Dict[str, Dict[tuple, List[Tuple[str, str]]]] = {}
+        folders: Dict[str, Dict[tuple, List[Tuple[str, str, int]]]] = {}
         listings: Dict[str, Optional[Dict]] = {}
         older = []
         for block, there in zip(tiles, existing([self.path(cache_dir, b) for b in tiles], listings=listings)):
@@ -384,24 +431,32 @@ class ComposedBlocks(Versions):
         return transform_bounds(block.crs, "EPSG:4326", block.i * s, block.j * s, (block.i + 1) * s, (block.j + 1) * s)
 
     def update_tile(self, index: CachedIndex, cache_dir: str, lat: float, lon: float) -> Tuple[list, list]:
-        """The cached blocks (centred in the tile) over which the set of files changed: read
-        again, and their older files deleted."""
-        index.answers(cache_dir, lat, lon, "all")
+        """The cached blocks (centred in the tile) over which the set of files changed, or its newest year, or the
+        order its key holds (block_key): read again, and their older files deleted (prune: only once the new one is
+        there). The answer is asked through fresh_answer and store, so a refused drop fails the tile
+        (DroppedFiles: `cache update` counts it) instead of being read from the cache as a search does."""
+        index.store(cache_dir, lat, lon, index.fresh_answer(cache_dir, lat, lon))
         todo = []
         for path in self._cached_paths(cache_dir):
             block = self._block_of(path)
             if block is None:
                 continue
-            west, south, east, north = self._block_wgs84(block)
-            if not (lat <= (south + north) / 2 < lat + osm.TILE_DEG and lon <= (west + east) / 2 < lon + osm.TILE_DEG):
+            if not self._centred(block, lat, lon):
                 continue
+            west, south, east, north = self._block_wgs84(block)
             s = block.size
             inner = (block.i * s + s / 4, block.j * s + s / 4, (block.i + 1) * s - s / 4, (block.j + 1) * s - s / 4)
             now = [b for b in self._blocks(self._items(index, cache_dir, west, south, east, north), {block.crs: inner})
                    if (b.i, b.j) == (block.i, block.j)]
-            if now and now[0].key != block.key and not os.path.exists(self.path(cache_dir, now[0])):
+            if now and (now[0].key != block.key or now[0].year != block.year) \
+                    and not os.path.exists(self.path(cache_dir, now[0])):
                 todo.append(now[0])
         return todo, todo
+
+    def _centred(self, block: Block, lat: float, lon: float) -> bool:
+        """Whether a block's centre lies in the 0.25° index tile with this south-west corner."""
+        west, south, east, north = self._block_wgs84(block)
+        return lat <= (south + north) / 2 < lat + osm.TILE_DEG and lon <= (west + east) / 2 < lon + osm.TILE_DEG
 
     def has_data_near(self, index: CachedIndex, lat: float, lon: float, cache_dir: str,
                       metres: float = 2000) -> Optional[bool]:

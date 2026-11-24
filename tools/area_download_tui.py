@@ -52,6 +52,8 @@ def state_text(state: Dict) -> str:
     if stage == "downloading" and state["share"] is not None:
         speed = "-" if state["mb_s"] is None else f"{state['mb_s']:.1f} MB/s"
         text = f"{bar(state['share'])} {100 * state['share']:3.0f} %  {speed}  {ad.duration(state['eta'])}"
+    elif stage == "listing" and state.get("renewal"):   # the index asked again first (sources/renewal.py)
+        text = f"listing, {state['renewal']}"
     elif stage == "listing" and state.get("index_total"):
         text = f"listing, index {state['index_done']:,} of {state['index_total']:,}"
     elif stage == "done":
@@ -466,6 +468,10 @@ class Downloads(App):
                  f"{start_word(row.state)}" for row in going]
         if any(start_word(row.state) == AGAIN for row in going):
             lines += ["", "A finished area is checked again: only what is missing or new is downloaded."]
+        asking = [row for row in going if ar.renews(row.row)]
+        if asking:
+            lines += ["", f"USGS's index is asked again before the tiles of {areas_word(len(asking))} are listed: "
+                          f"files USGS has published since its answers were cached are downloaded too."]
         notes = [note for note in (ar.slow_note(row.row) for row in going) if note]
         if notes:
             lines += ["", *notes]

@@ -3,7 +3,7 @@
 import json
 import math
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import requests
@@ -79,10 +79,48 @@ def index_tiles(grid: Grid) -> List[Tuple[float, float]]:
     return sorted(found)
 
 
+EXTRA = "_extra"  # the mark of a version merged in from extra (copies; never in a cached answer or the list)
+
+
+def _name(url: str) -> str:
+    return url.rsplit("/", 1)[-1]  # a file's identity between the index and the list (versions.url_name)
+
+
+def merge_items(items: List[Dict], extra: List[Dict]) -> List[Dict]:
+    """A tile's listed versions with the extra versions added (tnm.UnlistedIndex) whose file name they do not hold
+    (the same file at another URL is the same file: the list itself goes by name, tnmbucket.unlisted_objects), each
+    added one a marked copy (EXTRA): where the versions of several tiles are joined, a version an index answer lists
+    wins over an extra one of the same file from another tile (versions.keep_item), and an extra file tied on its
+    year enters its block's key with its date (versions.block_key)."""
+    if not extra:
+        return items
+    listed = {_name(item["url"]) for item in items}
+    return items + [dict(item, **{EXTRA: True}) for item in extra if _name(item["url"]) not in listed]
+
+
 class IndexUnavailable(requests.RequestException):
     """An index service cannot be asked (offline, down, an error answer). A RequestException,
     so the cached files are used (CachedIndex.tiles) and `cache update` lists it as an error;
     for listings whose client is not requests (see docs/sources-architecture.md)."""
+
+
+class DroppedFiles(IndexUnavailable):
+    """A fresh answer dropped files the cached answer held and the drop was not confirmed (CachedIndex._fetch): the
+    cached answer stays. As such: the two fresh answers disagree, or the check of a dropped file failed (no answer
+    of the bucket); DroppedStillThere: a decision of the index (a renewal counts it as asked)."""
+
+
+class DroppedStillThere(DroppedFiles):
+    """The two fresh answers agree in dropping a file that still exists at its URL (the index wrong, or delisting a
+    file the bucket keeps): the cached answer stays, and a renewal counts the answer as asked (the user's answer of
+    2026-11-23); the next listing takes the file into the list."""
+
+
+# The dropped files of one tile an index checks at their URL at most (CachedIndex.check_gone, a small request each,
+# in the order of their URLs): this many gone in a row take the drop of all of them, however many (a real removal of
+# any size passes); the first that still answers or whose check fails keeps the cached answer, so a bad answer of
+# the index (its files still there) costs one check. A project's 10 km files over a 0.25° tile are about 12
+CHECK_GONE_MAX = 25
 
 
 class Listing:
@@ -137,7 +175,29 @@ class CachedIndex(Index):
     (ttl_days: "sheet-index" unless the index publishes more often) or with an update.
 
     tiles() gets only the grid: use() gives it the cache folder and the update mode first.
+
+    confirms_drops (the indexes of layers that renew, tnm.TnmBlocks: set per instance): an answer that replaces a cached
+    one is checked for dropped files (_fetch): file names (the URL's last part: a file the index lists at another URL is
+    the same file; also for Alaska's IfSAR, which has no list: the uniqueness of its names rests on the 8 recorded
+    items, the 1 m DEM's on 126,767 names at as many URLs) the cached answer holds that neither the fresh answer nor the
+    tile's extra versions (the bucket's unlisted files) hold. Nothing dropped: it is written (an empty answer as such is
+    never refused: most tiles hold nothing). Something dropped: asked once more; a second answer that drops nothing is
+    written. Else, with check_gone (the 1 m DEM's: tnmbucket.file_gone, a small request per file), it is written only
+    when the two answers agree and the dropped files are gone at their URLs (a real removal, taken at once): checked in
+    the order of their URLs until the first that is not gone, at most CHECK_GONE_MAX of them, that many gone in a row
+    taking the drop of all. A dropped file that still answers (the index wrong, or delisting a file the bucket keeps) or
+    a check that fails keeps the cached answer (DroppedFiles), until the next listing of the bucket puts such a file
+    into the list (then nothing is dropped: at most 28 days, `cache update --all` at once). What slips through: more
+    than CHECK_GONE_MAX dropped, the first CHECK_GONE_MAX by URL gone, a later one delisted but kept in the bucket: that
+    file is out of the tile until the next listing takes it into the list (at most 28 days). Without check_gone
+    (Alaska's IfSAR: no list) two agreeing answers are taken, so nothing stays refused for good. Every path that
+    replaces a cached answer goes through it: answers() with an update (a search's --update: a refused tile is one
+    printed line and its cached answer is read, the rest of the grid is still asked), ask_again (sources/renewal.py: the
+    tile fails; one dropping a file that still exists, DroppedStillThere, counts as asked), fresh_answer
+    (ComposedBlocks.update_tile, `cache update`: the tile fails). Off, an answer is fetched and written as before.
     """
+    confirms_drops = False
+    check_gone: Optional[Callable[[str], Optional[bool]]] = None  # url -> gone (True), there (False), not known
 
     def __init__(self, description: str, listing: Listing, versions: Versions, prefix: str, top: str,
                  ttl_days: Optional[float] = None):
@@ -163,15 +223,101 @@ class CachedIndex(Index):
         if due():
             with tile_lock(cache_dir, path):  # another search may be asking for it now
                 if due():
-                    answer = self.listing.fetch(lat, lon)
-                    os.makedirs(os.path.dirname(path), exist_ok=True)
-                    tmp = _part(path)
-                    with open(tmp, "w", encoding="utf-8") as out:
-                        json.dump(answer, out)
-                    os.replace(tmp, path)
-                    cache.record(cache_dir, path, url=self.listing.url)
+                    old = self._cached_sheets(path) if self.confirms_drops else None
+                    try:
+                        self._store(cache_dir, path, self._fetch(cache_dir, lat, lon, old))
+                    except DroppedFiles as e:  # only with a cached answer: it is read, the grid's other tiles asked
+                        print(f"{self.description}: {e}", flush=True)
         with open(path, encoding="utf-8") as f:
             return json.load(f)["sheets"]
+
+    def _fetch(self, cache_dir: str, lat: float, lon: float, old: Optional[List[Dict]]) -> Dict:
+        """The index's answer for a tile; with confirms_drops and a cached answer (old: its versions) the rule of
+        dropped files (the class's docstring), else DroppedFiles."""
+        answer = self.listing.fetch(lat, lon)
+        if not self.confirms_drops or old is None:
+            return answer
+        names = lambda sheets: {_name(s["url"]) for s in sheets}  # noqa: E731
+        held = names(old) - names(self.extra(cache_dir, lat, lon))
+        if not held - names(answer["sheets"]):
+            return answer
+        again = self.listing.fetch(lat, lon)
+        dropped_names = held - names(again["sheets"])
+        if not dropped_names:
+            return again
+        dropped = {s["url"] for s in old if _name(s["url"]) in dropped_names}  # checked at the cached answer's URL
+        tile = osm.tile_name(lat, lon)
+        if names(again["sheets"]) != names(answer["sheets"]):
+            raise DroppedFiles(f"the index answer of {tile} dropped {len(dropped)} of the files the cached one holds "
+                               f"and, asked again at once, listed other files: the cached answer is kept")
+        if self.check_gone is None:
+            return again
+        for url in sorted(dropped)[:CHECK_GONE_MAX]:
+            gone = self.check_gone(url)
+            if gone is True:
+                continue
+            refused = DroppedStillThere if gone is False else DroppedFiles  # a decision of the index, or not known
+            raise refused(f"the index answer of {tile} dropped {len(dropped)} of the files the cached one holds, "
+                          + (f"of which {url.rsplit('/', 1)[-1]} still answers at its URL: the index is wrong "
+                             f"or delisted files the bucket keeps (the next listing of the bucket takes them in)"
+                             if gone is False else f"and the check of {url.rsplit('/', 1)[-1]} at its URL failed")
+                          + ": the cached answer is kept")
+        return again
+
+    def fresh_answer(self, cache_dir: str, lat: float, lon: float) -> Dict:
+        """The index's answer for a tile now (_fetch, the cached answer read for the drop rule), asked under the tile's
+        lock and not written (store writes it): ComposedBlocks.update_tile, where a refused drop raises."""
+        path = self.index_path(cache_dir, lat, lon)
+        with tile_lock(cache_dir, path):
+            return self._fetch(cache_dir, lat, lon, self._cached_sheets(path))
+
+    def store(self, cache_dir: str, lat: float, lon: float, answer: Dict):
+        """An answer (fresh_answer's) written in place of the cached one, under the tile's lock."""
+        path = self.index_path(cache_dir, lat, lon)
+        with tile_lock(cache_dir, path):
+            self._store(cache_dir, path, answer)
+
+    def _store(self, cache_dir: str, path: str, answer: Dict):
+        """An answer of the index written in place of the cached one (atomically) and recorded."""
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = _part(path)
+        with open(tmp, "w", encoding="utf-8") as out:
+            json.dump(answer, out)
+        os.replace(tmp, path)
+        cache.record(cache_dir, path, url=self.listing.url)
+
+    def ask_again(self, cache_dir: str, lat: float, lon: float, since: Optional[str] = None) -> Optional[bool]:
+        """Ask the index again for one tile (sources/renewal.py), under the tile's lock, and write its answer only
+        when the request succeeded: a failure raises (a requests.RequestException; DroppedFiles: _fetch) and the
+        cached answer stays. None when the cached answer was checked at or after `since` (a time as cache.now_iso
+        gives it, the start of the renewal): another renewal asked it meanwhile, so it is not asked twice. Else
+        whether the listed versions changed (compared as sets: the index's order of its products is left aside); a
+        tile without a cached answer counts as changed."""
+        path = self.index_path(cache_dir, lat, lon)
+        with tile_lock(cache_dir, path):
+            old = self._cached_sheets(path)
+            if since and old is not None:
+                row = cache.info(cache_dir, path)
+                if row and row.get("checked_at") and row["checked_at"] >= since:
+                    return None
+            answer = self._fetch(cache_dir, lat, lon, old)
+            self._store(cache_dir, path, answer)
+        same = lambda sheets: sorted(json.dumps(s, sort_keys=True) for s in sheets)  # noqa: E731
+        return old is None or same(old) != same(answer["sheets"])
+
+    @staticmethod
+    def _cached_sheets(path: str) -> Optional[List[Dict]]:
+        """The versions of a cached answer as the index gave them; None without one (or one that cannot be read)."""
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)["sheets"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def extra(self, cache_dir: str, lat: float, lon: float) -> List[Dict]:
+        """Versions a tile holds besides its cached answer (none here; tnm.UnlistedIndex: the bucket's unlisted
+        files), merged in when an answer is read."""
+        return []
 
     def tiles(self, grid: Grid) -> Optional[list]:
         key = (grid.crs, tuple(grid.bounds), grid.res, self.update)

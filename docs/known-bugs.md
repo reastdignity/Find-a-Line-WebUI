@@ -329,6 +329,47 @@ Measured in batch 6 (2026-11-15/16): a 400 m search in Shizuoka's west reads 25 
 tile not cached yet lists for about 20 s; a 600 m search in Hong Kong reads 24 sheets, 137 MB, in over 6 minutes
 (0.36 MB/s). The providers publish whole sheet ZIPs only; nothing is changed.
 
+## A block's order can change while its name stays (two cases left open by the key rule)
+
+A block's name holds what decides the order of its files only where a list file ties another on its year
+(`versions.block_key`, wave A of the USA, part A-2, fix round 3). Two changes of order keep the name, so a cached
+block stays composed in the order of before until its set of files or newest year changes:
+- (1) A file of the list of unlisted files whose year changes, in any way that leaves it untied before and after:
+  inside the list (a year taken from the project's listed siblings once they are listed), or when the index starts
+  to list it with another year (a project whose folders name no year takes its publication year: 49 of the 1,410
+  files of the shipped list of 2026-11-22 are of that kind, `counts.year_from_siblings`). The scene: files A of 2020,
+  B of 2016 and U of 2018 from the list; the index lists U with 2015: the order changes (U after B) and the name
+  does not (the third code review ran `block_key`: `d276e9a7` both ways; also when U's new year ties B, as no file
+  is marked once U is listed). Two grids can see U from the list and from the index at the same time under one
+  name; whichever composes first stays.
+- (2) Older than wave A and on every layer: a listed file whose date the index changes while its name stays (a
+  project published again): it can swap two files of one year, and where the year comes from the publication date
+  (no year in the folders) it can move past files of other years.
+Cost: the overlap pixels of the files in such blocks, until the block is read again. Not changed.
+
+## Two views of one square name its block differently, and a reader can find its block pruned
+
+Two processes whose views of one square differ (answers of different ages over a newly published file, or one
+tile's answer lacking a file the other's holds while the list carries it, wave A part A-2) compose its block under
+two names; each pass prunes the other's name. A reader between its download and its mosaic can then find its block
+gone (`Layer.files` drops a path that no longer exists): the hole is filled from the fall-back for that run (the
+third code review: a B-only reader's mosaic NaN in 1296 of 1296 pixels before the fall-back), and a country tile
+counted then keeps it in the cube. It needs two processes in that window (two searches, or country workers whose
+tiles share blocks). Without such a reader the two names only flip, one block read per flip. It ends once the
+lacking tile is asked (a renewal over it, `cache update` after 28 days, or the settling of the carried files after
+the next listing). Older than this branch in kind (answers of different ages); the carried files add a trigger.
+Not changed (a possible remedy: `prune` sparing a block of another name younger than a few minutes).
+
+## An IfSAR block's key can depend on the grid
+
+`ComposedBlocks._blocks` clips each file to the grid's bounds before it finds the blocks a file covers, and Alaska's
+IfSAR files are listed with the API's box projected (a little larger than the cell, not a whole number of blocks):
+a narrow grid and a wide one can then give the same 1 km square different sets of files, so different keys (the
+second code review of wave A part A-2, 2026-11-23, ran `_blocks` directly: narrow grid `6dcd4ce2 [A]`, wide grid
+`02775184 [C, A]`). What it costs: the square's block cached twice under two names (one per grid width), each read
+once. The 1 m DEM is not affected (its extents are the names' 10 km
+squares, which the 1 km blocks divide). Older than wave A; not changed.
+
 ## Line volume, the store and the access mark: known and left (2026-11-16)
 
 Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the access mark), none fixed:
@@ -370,7 +411,13 @@ read by share links, the result view then behind `?view=b`), none fixed:
   `sqlite3.OperationalError: disk I/O error` at `PRAGMA journal_mode=WAL`, right after the quick lane's process
   was killed; also seen
   on `main` alone: "`test_quick_lane` fails at some times" above). Run them alone before calling a failure of one a
-  regression.
+  regression. **The two cdd_fetch tests' cause was found on 2026-11-23** (Windows only): the fake reset the connection
+  right after its headers and part of a body, and Windows drops what a socket received and nobody read yet when the
+  reset arrives, so a client reading a moment late met the reset before the headers (on Linux the bytes are read
+  first either way; shown with two sockets on both systems). The fake now waits 0.3 s before a reset (`Fake.reset`
+  of `tests/test_cdd_fetch.py`): a pause, not a proof, so a much slower client can still lose. The action
+  `slowreset` keeps its own reset without the pause: it sends its half body a piece every 10 ms, so the headers are
+  long read.
 - **Exports:** a real iPhone was not tried (only Playwright's WebKit profile); a worker that stops keeps a file made
   just before on disk until it starts again (the file is never sent after the hour); a failure that comes while
   another menu is open shows only at the menu's next opening; a signed-in user whose session ended while the page
@@ -400,10 +447,33 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   `test_fetch_resumes_and_records_every_file` on Linux in both runs since 74de19ae (CI 44170732371 and 44243858723:
   the fake's concurrent connections 2, not 1; read only: the fake counts a request as active until its handler
   returns, after the client may already have read the answer and sent the next) and, on 74de19ae,
-  `test_a_file_whose_body_always_breaks_fails_and_the_rest_come` (waits [30, 30, 60, 60] on Windows).
+  `test_a_file_whose_body_always_breaks_fails_and_the_rest_come` (waits [30, 30, 60, 60] on Windows). The Windows
+  one is the reset race of round 4's entry above (the fake's pause, 2026-11-23). The Linux one failed in all four
+  runs of `main` on 2026-11-17/18 and in none of the three jobs of 2026-11-23, with the test unchanged (another
+  runner image, 20261116, and one more step in the job since). Since 2026-11-23 the fake counts a request out just
+  before the bytes that complete its answer go out (`Fake.send`, `Fake.answered`), no longer when its handler
+  returns: with a handler made 50 ms slow to return the test failed at `fake.most == 1` 3 times of 3 on the old
+  count and passed 3 of 3 on the new one. What that costs: a second request is no longer counted when it arrives
+  while those bytes are written (for a 200 its whole body), or after a 200's headers and before its body was read;
+  two requests at once are seen only while the fake works on the first. And only the answers of `Fake.send` are
+  counted out so: after a reset, a body sent in pieces or without its length, or a close without an answer, a
+  request is counted out when its handler returns, as before, so a later test asserting `most` over such an answer
+  would race as this one did.
 - **The CI's view3d ring job timed out again** (`test_view3d_ring.py::test_ring_drawn_within_its_budget[full-None]`
   and `[full-edges]`, Edge stopped after 1 500 s, on 74de19ae and a86b86e8): the Windows 3D hang seen since
-  CI 43618907225, nothing of store wave 4 in its path.
+  CI 43618907225, nothing of store wave 4 in its path. Read on 2026-11-23 from the last 60 CI runs: the ring job
+  was red in 7 of the 9 runs of `main` since 2026-11-14 (in 1 of 6 runs of `history/*` tags; no cause known for the
+  difference). `main` b1434458 (57 min, red) and its tag's run (6.7 min, green) started two seconds apart on the
+  same runner image (windows-2025-vs2026 20261116.315.1): the three Edge tests took 523, 1 355 and over 1 500 s
+  against 75, 105 and 166 s, while the fixture's search (no browser) took 37 s in the red job and 49 s in the green
+  one. So on some runners only Edge's WebGL in software is slow, not the machine as a whole (three jobs read; not
+  even within a job: on 263b1268 `[full-edges]` took 327 s while `[full-None]` ran into 1 500 s). ci.yml's limits
+  (1 500 s, 60 min) were set from the slow kind. Since 2026-11-23 the two 3D jobs print, before their tests, the
+  runner's CPU and memory, Edge's version, and what Edge draws WebGL with and how fast (ci.yml's step "Runner and
+  Edge", `.github/webgl-report.html`: on the dev PC the Microsoft Basic Render Driver through Direct3D 11, 10 frames
+  in 130 ms): compare that line between a fast and a slow job before anything else. The step's failure does not
+  fail the job, but its time counts against the job's limit: an Edge that has not ended after 15 s is stopped, so it
+  costs a few seconds, about 40 s at most.
 - **Four tests failed once under round 5's loaded full runs on this PC and pass alone** (none in item 5's path; the
   first two passed 3 of 3 alone on the stack and on `main` a86b86e8): `test_web::test_basic_form_sea_cliffs_fills_the_limit`
   (twice; the limit's box and the map view's read before it differ by about 400 m north to south);

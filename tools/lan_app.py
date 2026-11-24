@@ -23,7 +23,7 @@ mode).
 every address of the PC (0.0.0.0) at `--port` (default 8443; never the app's own port, web.PORT 8765), over HTTPS
 with tools/device_page.py's self-signed certificate (localhost, 127.0.0.1 and the PC's LAN addresses; kept in
 `<data>/lan-cert` while it runs and removed at its stop, Ctrl+C or Ctrl+Break), and prints the addresses to open on
-the phone. **No token and no sign-in**: anyone on the network reaches the app while it runs.
+the phone once the port listens. **No token and no sign-in**: anyone on the network reaches the app while it runs.
 So it refuses what would start work on this PC (REFUSED: a search, "Edit & run again", an OSM download: 403 with a
 plain reason); Measure, computed profiles, Download's export and favourites stay, and so does the rest of the local
 app: an estimate and a place's lookup (work of the quick lane, Nominatim), deleting a search or a run (of the scratch
@@ -408,16 +408,30 @@ def serve(data: str, port: int = PORT, host: str = "0.0.0.0", esri: bool = False
     try:
         cert_file, key_file = device_page.certificate(folder, addresses)
         app, _ = make_app(data, port, addresses, build, esri=esri)
-        say(f"\nFind-a-Line on the local network, over HTTPS, from {data}: OPEN TO ANYONE ON THIS NETWORK while it "
-            f"runs (no sign-in). Searches are refused; the result view is the default (?view=today: today's page).")
-        say("Runs: " + "; ".join(r["name"] for r in listed))
-        first = device_page.default_address()
-        for address in (["localhost"] if host in ("127.0.0.1", "localhost") else addresses + ["localhost"]):
-            say(f"  {origin(address, port)}/" + ("   <- the default route: most likely the phone's Wi-Fi"
-                                                 if address == first else ""))
-        say("The certificate is self-signed and made anew at each start: accept it on the phone again after a "
-            "restart.\nCtrl+C stops the server.")
-        server = uvicorn.Server(uvicorn.Config(
+
+        def announce():
+            say(f"\nFind-a-Line on the local network, over HTTPS, from {data}: OPEN TO ANYONE ON THIS NETWORK while "
+                f"it runs (no sign-in). Searches are refused; the result view is the default (?view=today: today's "
+                f"page).")
+            say("Runs: " + "; ".join(r["name"] for r in listed))
+            first = device_page.default_address()
+            for address in (["localhost"] if host in ("127.0.0.1", "localhost") else addresses + ["localhost"]):
+                say(f"  {origin(address, port)}/" + ("   <- the default route: most likely the phone's Wi-Fi"
+                                                     if address == first else ""))
+            say("The certificate is self-signed and made anew at each start: accept it on the phone again after a "
+                "restart.\nCtrl+C stops the server.")
+
+        class Announcing(uvicorn.Server):
+            """Says the addresses once the port listens (the app's start-up done), not before: whoever reads
+            "Ctrl+C stops the server" may open an address at once (on Linux a connection to a port not yet
+            listened on is refused at once: CI 45228163608)."""
+
+            async def startup(self, sockets=None):
+                await super().startup(sockets=sockets)
+                if self.started:
+                    announce()
+
+        server = Announcing(uvicorn.Config(
             app, host=host, port=port, log_level="warning", server_header=False, proxy_headers=False,
             timeout_graceful_shutdown=web.GRACEFUL_SECONDS, timeout_keep_alive=web.KEEP_ALIVE_SECONDS,
             ssl_certfile=cert_file, ssl_keyfile=key_file))

@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- CI's 3D parts print this page's text before their tests (.github/workflows/ci.yml, "Runner and Edge"): which
+     WebGL the runner's headless Edge draws with and how fast it is, in one line. The ring's Edge tests take 75-170 s
+     on some hosted runners and over 1 500 s on others of the same image (docs/known-bugs.md); this line is there to
+     tell the two kinds apart. No test reads it. -->
+<meta charset="utf-8">
+<title>WebGL report</title>
+<body>
+<script>
+(function () {
+  var out = [];
+  try {
+    var canvas = document.createElement("canvas");
+    canvas.width = 1200;
+    canvas.height = 800;
+    var gl = canvas.getContext("webgl2");
+    out.push(gl ? "WebGL 2" : "no WebGL 2");
+    gl = gl || canvas.getContext("webgl");
+    if (!gl) throw new Error("no WebGL context");
+    var info = gl.getExtension("WEBGL_debug_renderer_info");
+    out.push("version: " + gl.getParameter(gl.VERSION));
+    out.push("vendor: " + (info ? gl.getParameter(info.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR)));
+    out.push("renderer: " + (info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)));
+    out.push("threads: " + navigator.hardwareConcurrency);
+    // Ten frames of 1200 x 800 px with a loop of 48 steps per pixel, each read back so that it is drawn
+    var compile = function (type, source) {
+      var shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader));
+      return shader;
+    };
+    var program = gl.createProgram();
+    gl.attachShader(program, compile(gl.VERTEX_SHADER,
+      "attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }"));
+    gl.attachShader(program, compile(gl.FRAGMENT_SHADER,
+      "precision highp float; uniform float t; void main() { vec2 q = gl_FragCoord.xy / 800.0; float s = 0.0;" +
+      " for (int i = 0; i < 48; i++) { q = vec2(sin(q.y * 3.1 + t) + q.x * 0.7, cos(q.x * 2.3 - t) + q.y * 0.6);" +
+      " s += length(q); } gl_FragColor = vec4(fract(s), fract(s * 0.37), fract(s * 0.11), 1.0); }"));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
+    gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    var at = gl.getAttribLocation(program, "p");
+    gl.enableVertexAttribArray(at);
+    gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
+    var time = gl.getUniformLocation(program, "t");
+    var pixel = new Uint8Array(4);
+    var started = performance.now();
+    for (var frame = 0; frame < 10; frame++) {
+      gl.uniform1f(time, frame * 0.1);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.readPixels(600, 400, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+    }
+    out.push("10 frames of 1200 x 800: " + Math.round(performance.now() - started) + " ms");
+  } catch (error) {
+    out.push("failed: " + error.message);
+  }
+  document.body.textContent = "WEBGL-REPORT " + out.join(" | ");
+})();
+</script>
+</body>

@@ -87,6 +87,7 @@ class HttpServer:
         self.routes: List[Tuple[str, Callable[[Request], Optional[Answer]]]] = []
         self.log: List[Request] = []
         self.faults: Dict[str, Tuple[str, Callable[[int, str], bool], bool]] = {}
+        self.fault_keep: Dict[str, Optional[int]] = {}  # bytes of a truncated answer's body (None: half)
         self._ranges_asked: Dict[str, int] = {}
         self._lock = threading.Lock()
         server = self
@@ -168,16 +169,18 @@ class HttpServer:
 
     FAULTS = ("truncate", "close")
 
-    def fault(self, path: str, kind: str, when: Callable[[int, str], bool], plain: bool = False):
+    def fault(self, path: str, kind: str, when: Callable[[int, str], bool], plain: bool = False,
+              keep: Optional[int] = None):
         """Break range answers (206) to path: `when(n, range)` of the n-th range request to path
         (from 1) and its Range header decides. `truncate`: the headers of the whole answer, half
-        of its body, then the connection closed (curl: "end of response with ... bytes
+        of its body (keep: that many bytes of it), then the connection closed (curl: "end of response with ... bytes
         missing"); `close`: the connection closed without an answer (curl: "Empty reply from
         server", no HTTP status). With plain, whole answers (200) to requests without a Range header are
         broken too (`when(n, "")`): a download cut short, its Content-Length larger than the bytes sent."""
         if kind not in self.FAULTS:
             raise ValueError(kind)
         self.faults[path] = (kind, when, plain)
+        self.fault_keep[path] = keep
 
     def _fault_of(self, request: Request) -> Optional[str]:
         if request.path not in self.faults:
@@ -277,7 +280,8 @@ class HttpServer:
         request.ended = time.monotonic()
         handler.end_headers()
         if fault == "truncate":
-            handler.wfile.write(body[:len(body) // 2])
+            keep = self.fault_keep.get(request.path)
+            handler.wfile.write(body[:len(body) // 2 if keep is None else keep])
             handler.wfile.flush()
             handler.close_connection = True
             return

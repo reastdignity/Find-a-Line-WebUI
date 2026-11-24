@@ -496,6 +496,39 @@ def test_a_finished_area_can_be_started_again(settings):
                                                 {"stage": "done"})] == ["new", "resumes", "resumes", "again"]
 
 
+def test_a_row_of_the_usa_says_its_index_is_asked_again(settings):
+    """Starting a row whose source renews its index (sources/renewal.py: the USA's) says that USGS's index is asked
+    again first; a row of another source says nothing of it; while the renewal runs the row shows what it does."""
+    _state(settings, "utah", "done")
+    app, started = _app(settings)
+
+    async def body(pilot):
+        await _tick(pilot, "utah")
+        await _tick(pilot, "czechia")
+        await pilot.click("#start")
+        await pilot.pause()
+        text = str(app.screen.query_one("#dialog-text").render())
+        assert "USGS's index is asked again before the tiles of 1 area are listed: files USGS has published since " \
+               "its answers were cached are downloaded too." in text
+        await pilot.click("#yes")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+    _drive(app, body)
+    assert sorted(started) == [("czechia", "cache"), ("utah", "cache")]
+    assert not ar.renews(ROWS[1]) and ar.renews(ROWS[5])
+    long = "the index of 3DEP 1 m DEM (terrain): 120 of 509 answers, 2 changed, 0 failed; " * 2
+    _state(settings, "utah", "listing", renewal=long[:160])
+    app, _ = _app(settings)
+
+    async def row(pilot):
+        assert _text(app, "utah").startswith("listing, the index of 3DEP 1 m DEM (terrain): 120 of 509 answers")
+    _drive(app, row)
+    renewing = ad.summary({"stage": "listing", "renewal": "asking the index of 3DEP 1 m DEM again: 120 of 509 answers",
+                           "index_done": 3, "index_total": 509}, [], 0.0)
+    assert tui.state_text({**renewing, "stale": False}) == \
+        "listing, asking the index of 3DEP 1 m DEM again: 120 of 509 answers"
+
+
 def test_the_links_come_first_and_a_row_without_them_stays(settings):
     calls = []
 

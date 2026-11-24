@@ -640,6 +640,7 @@
   "page.signin.title": "Sign in to search",
   "page.signin.with": "Sign in with {{provider}}",
   "page.signin.note": "A new account waits for an administrator's approval. The site keeps your provider's user id and display name, no e-mail address.",
+  "page.signin.note_open": "The site keeps your provider's user id and display name, no e-mail address.",
   "page.signin.pending": "Your account {{name}} ({{provider}}) is waiting for an administrator's approval.",
   "page.signin.blocked": "Your account {{name}} ({{provider}}) is blocked.",
   "page.signin.closed": "New accounts are not accepted.",

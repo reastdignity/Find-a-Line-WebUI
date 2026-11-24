@@ -21,7 +21,7 @@ tests that start Edge).
 
 - Server pages: `page.*` and `ui.app.*` via `web.page_text`, the sign-in notes via `messages.text`; HTML byte-pinned
   by `tests/test_texts_in_catalogue.py`, privacy's too (its words in Python). Only with the user's yes on the exact
-  sentence (legal, privacy, safety): `page.about.{esri_terms,osm,fabdem,ring,lead}`, `page.signin.note`, `ui.beta.main`.
+  sentence (legal, privacy, safety): `page.about.{esri_terms,osm,fabdem,ring,lead}`, `page.signin.note{,_open}`, `ui.beta.main`.
 - The message catalogue `locales/en.json` and its users: every field the web may set has `field.<name>.label`, `.unit`
   and `.help`, every choice of a choice field (but the sources' names, from `sources.SOURCES`)
   `choice.<field>.<value>`, every topic of `params.TOPICS` and preset of `params.PRESETS` its title

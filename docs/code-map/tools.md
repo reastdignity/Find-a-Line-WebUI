@@ -59,6 +59,21 @@ folder's address of that code, or it stops. One request at a time, at least `PAU
 tiles a run asks without asking any. The surveys are frozen: run it again only when Tokyo publishes more sheets,
 check the tests' places and commit the table (`tests/test_japan.py`).
 
+## `tools/usa_unlisted.py`
+
+The copy shipped with the code of the list of the USA's 1 m DEM files that USGS's bucket holds and the TNM index does
+not list (`sources/catalogue/usa_unlisted_1m.json`, read where no list is cached: a fresh install, the public site
+before its first renewal), made by the function a renewal uses (`sources.layers.tnmbucket.make_unlisted`): the
+bucket's 1 m projects (about 990 requests), the index over the USA and its territories (about 420 requests, about 620
+MB of answers) and a header read for each unlisted name without a zone that its project does not tell (about 300),
+each part 4 requests at a time: about 8 minutes (2026-11-23: 481 s, 1,410 files, 285 GB, none left out, 49 files of
+two projects without a year in their folders dated by their listed siblings, none by their upload). It refuses an
+index that lists clearly fewer files than the list before (`--allow-drop` after checking; `--cached` renews a cache
+folder's own list instead of the shipped copy through `sources.renewal.renew_list`, forced, so the departures,
+carried files of a renewal apply: a real shrink accepted at once on an installed machine) and names the projects
+dated by their upload and the files left out. Run it again before a release and commit the file
+(`tests/test_usa_unlisted.py::test_shipped_copy`).
+
 ## `tools/hong_kong_sheets.py`
 
 The static table of CEDD's 2020 lidar sheets of Hong Kong (`sources/catalogue/hong_kong_sheets.npz`, read by the
@@ -613,7 +628,15 @@ the process, which would skip the whole layer: a pass names that a failure). A p
 over both: `Reporter.next_plan`; a pass asks each layer's `to_download` for its counts and hands the first plan's
 answers to `download_layers(listed=)`, so the source's own layers are asked once (a stand-in's ask again before
 their download, hours later), and asks about the files by folder, `run_pass` setting `sources.layer.EXISTING` for
-the pass and giving it back: docs/performance.md, "The check of cached tiles"), inside its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
+the pass and giving it back: docs/performance.md, "The check of cached tiles"; every pass of a start asks the
+index of each plan's layers that renew again before the listing until the start's renewal went through (`_renew`:
+`sources/renewal.py` with the start's time, the state's `renewal_since` set by pass 1, as `since`, so a later pass
+asks only the answers the start has not yet asked successfully; the state's `renewal` the row's text while it runs
+and `renewed` the start's totals, `passes` (the pass's number), `asked` (this pass's asked and skipped), `open`,
+`through`, carried by `Reporter` to the start's later passes, which once it went through do not call the renewal;
+pass 1 writes the state as it begins, so no later pass takes an older start's time; a failure of it never a stop),
+inside
+its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
 planning (Denmark's key, an unknown outline) is a `Stop` with its text; the window layers' groups are
 `country.PREFETCH_GROUP_M` times the finest native resolution of the plan's grouped layers (`_group_m`: a group's
 window is read on the files' own pixels, whatever the grid's; Luxembourg's and Scotland's 0.5 m float64 files at the
@@ -645,7 +668,8 @@ outline in the state folder, never in `countries/` (`country._partition` would t
 outline); `status [--watch S]`, `stop <name>`, `<state>/status.html` (one page for every area of the folder, from
 disk), `<name>.state.json`, `.history.csv`, `.log`. On a network share: the data folder local (SQLite's WAL does not
 work over a share) and the tile folders symbolic links to it; `tui --settings <file>` the window below;
-`tests/test_area_download.py`
+`tests/test_area_download.py`; the window's Start says which rows ask USGS's index again (`area_rows.renews`) and
+a row in a renewal shows its text (`state_text`)
 
 The queue (`run --queue <key>`, `Area.queue`; the window passes the source of a row whose source has parts): the
 areas of one key download one at a time, in the order their supervisors were started. Before each pass a supervisor
@@ -833,7 +857,8 @@ a junction to the real cache: Windows PowerShell 5.1's `Remove-Item -Recurse` wo
 
 ## `tools/record_answers.py`, `tools/cache_diff.py`
 
-Run by hand: record small real answers of the index services (WFS, STAC, TNM) into
+Run by hand: record small real answers of the index services (WFS, STAC, TNM; `bucket1m-usgs`: USGS's bucket and the
+TNM index as `tnmbucket.make_unlisted` asks them, read back by `tests/test_usa_unlisted.py`) into
 `tests/data/recorded/<interface>/<case>/` with the index JSON the code writes for them (`expected.json`; served again
 by `tests/http_server.py`, the fixture `http_server` of `tests/conftest.py`: Range requests, recorded answers, a
 request log); compare two cache folders (files, bytes, `index.sqlite` rows but for the times): a search on an empty

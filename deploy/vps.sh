@@ -9,15 +9,17 @@
 # setup: packages and Docker (section 1), SSH with a key only and the firewall (2), the DNS check
 # (3), nginx and the certificate (4), fail2ban (5), automatic security updates (6), the settings
 # and secrets (8: asks for the sign-in apps' values of section 7 when run in a terminal), the
-# start and the OpenStreetMap data (9), the daily backup when /etc/findaline-backup.env exists (11), the monitoring (15: asks
+# start and the OpenStreetMap data (9), the weekly renewal of the USA's 1 m index (13), the daily backup when
+# /etc/findaline-backup.env exists (11), the monitoring (15: asks
 # for the healthchecks.io ping URLs and the ntfy topic when run in a terminal), then check. Every
 # step looks at what is there first, so setup can run again: after a stop (it says what is missing,
 # e.g. DNS not pointing here yet), or to apply changed options.
 # update: the CI of the new commits (GitHub's check runs), git pull, the files of deploy/ again
 # where they changed (nginx reloaded, fail2ban restarted, ufw reloaded), the image built again and
-# the services restarted (section 13), the OpenStreetMap data not there yet (9), then the
-# monitoring's timers and containers (15).
-# check: the checks of sections 2, 12 and 15 that can run on the server.
+# the services restarted (section 13), the OpenStreetMap data not there yet (9), the cached tiles in the
+# current encoding and the weekly renewal of the USA's 1 m index (13), then the monitoring's timers and
+# containers (15).
+# check: the checks of sections 2, 12, 13 and 15 that can run on the server.
 #
 # Options:
 #   --site NAME      the site's name (setup; later read from FINDALINE_PUBLIC_URL in findaline.env)
@@ -708,7 +710,7 @@ backups() {
         return
     fi
     local on_failure=
-    if [ -f /etc/systemd/system/notify-failure@.service ]; then
+    if [ -f "$NOTIFY_FAILURE" ]; then
         on_failure='OnFailure=notify-failure@%N.service'
     else
         warn "no notify-failure@.service (section 11): a failed backup goes unnoticed"
@@ -742,6 +744,124 @@ EOF
     [ "$CHANGED" = 1 ] && systemctl daemon-reload
     systemctl enable -q --now findaline-backup.timer
     note "$(systemctl list-timers findaline-backup.timer --no-legend | awk '{print "next backup:", $1, $2, $3}')"
+}
+
+# --- The USA's 1 m index every week, what is older than 28 days (section 13) -------------------
+
+# The folder of the host's units (tests: one of their own), and the unit the operator's message of a failed backup comes
+# from (section 11): a unit names it in OnFailure= when the host has it
+UNITS=/etc/systemd/system
+NOTIFY_FAILURE=$UNITS/notify-failure@.service
+USA_RENEWAL=findaline-usa-renewal
+# When the timer looks for what is due (the user's answer of 2026-11-23: "Weekly check, the 28 days decide"), the one
+# place of the interval (systemd.time(7)): every Wednesday at 04:15 of the server's clock, after the backup (03:30 and
+# up to 30 minutes), then a delay of up to 4 hours that systemd fixes per machine (FixedRandomDelay), so the
+# installations do not ask at the same minute and one server keeps its hour. `cache update usa` asks only what is
+# older than 28 days (the user's D3a, "every month", and W3): what the timer renewed is renewed again at its fifth run,
+# 35 days later, what a search cached or a run by hand renewed at the first run after its 28 days; a failed run is
+# tried again a week later. A weekday, so a failure's message reaches the operator on a working day.
+# A server's own schedule is a drop-in (`systemctl edit`), which update leaves alone.
+USA_RENEWAL_CALENDAR='Wed *-*-* 04:15'
+# The bound of one run: the listing about 10 minutes, a wait for another process's listing 45 at most, then one
+# request per cached index answer (the whole USA cached: about 4 hours, the session's estimate). Inside the container
+# (coreutils' timeout: a `docker compose exec` that systemd kills leaves its process running there), systemd's
+# TimeoutStartSec 10 minutes longer
+USA_RENEWAL_BOUND=6h
+
+# Whether a unit file is masked (a link to /dev/null: `systemctl mask`)
+is_masked() { [ -L "$1" ] && [ "$(readlink "$1")" = /dev/null ]; }
+
+# findaline-usa-renewal.service and .timer: `findaline.py cache update usa` in the worker's container once a week, as
+# cache_migrate runs its command (update.py: what of the USA is older than its interval; sources/renewal.py: the list
+# of the 1 m files the index does not list and the 1 m answers after 28 days, the blocks whose files changed). No
+# cached data of the USA: one line, nothing asked. The worker not running: compose's one line, the unit failed, the
+# next week tries again. The timer is enabled at its first install, which ends with the marker
+# $MONITORING_DIR/usa-renewal.enabled (the host's state folder of the script's units): a run that stopped before the
+# enable is finished by the next one, a timer file removed by hand is written and enabled again, and a timer the
+# operator disabled (marker there, file there) stays off. A unit the operator masked is left alone.
+usa_renewal() {
+    step "The USA's 1 m index every week, what is older than 28 days (section 13)"
+    local on_failure='' marker=$MONITORING_DIR/usa-renewal.enabled
+    if is_masked "$UNITS/$USA_RENEWAL.timer" || is_masked "$UNITS/$USA_RENEWAL.service"; then
+        note "$USA_RENEWAL is masked: left alone (sudo systemctl unmask $USA_RENEWAL.timer $USA_RENEWAL.service, then update)"
+        return 0
+    fi
+    if [ -f "$NOTIFY_FAILURE" ]; then
+        on_failure='OnFailure=notify-failure@%N.service'
+    else
+        warn "no notify-failure@.service (section 11): a failed renewal of the USA's index shows only in deploy/vps.sh check"
+    fi
+    local first=0
+    if [ ! -f "$UNITS/$USA_RENEWAL.timer" ] || [ ! -f "$marker" ]; then first=1; fi
+    CHANGED=0
+    put "$UNITS/$USA_RENEWAL.service" 644 <<EOF
+[Unit]
+Description=Find-a-Line: the USA's 1 m index, what is older than 28 days (cache update usa)
+Wants=network-online.target
+After=network-online.target docker.service
+$on_failure
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker compose --project-directory $REPO -f $REPO/compose.yaml exec -T worker timeout $USA_RENEWAL_BOUND sh -c '[ -d /data/cache/usa ] || { echo "No cached data of the USA: nothing to renew"; exit 0; }; exec python findaline.py cache update usa'
+TimeoutStartSec=$USA_RENEWAL_BOUND 10min
+EOF
+    put "$UNITS/$USA_RENEWAL.timer" 644 <<EOF
+[Unit]
+Description=Find-a-Line: the USA's 1 m index every week, what is older than 28 days
+
+[Timer]
+OnCalendar=$USA_RENEWAL_CALENDAR
+RandomizedDelaySec=4h
+FixedRandomDelay=true
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    if [ "$CHANGED" = 1 ]; then systemctl daemon-reload; fi
+    if [ "$first" = 1 ]; then
+        if ! systemctl enable -q --now "$USA_RENEWAL.timer"; then
+            rm -f "$marker"   # also one of before (a timer file removed by hand): the next run tries again
+            todo "$USA_RENEWAL.timer could not be enabled (journalctl -u $USA_RENEWAL.timer): sudo $DEPLOY/vps.sh update, later"
+            return 0
+        fi
+        install -d -m 755 "$MONITORING_DIR"
+        date -u '+%Y-%m-%dT%H:%M:%SZ' > "$marker"
+    fi
+    if systemctl is-enabled -q "$USA_RENEWAL.timer"; then
+        # Enabled but stopped (its service was masked at an elapse, then unmasked): started again
+        systemctl is-active -q "$USA_RENEWAL.timer" || systemctl start "$USA_RENEWAL.timer" \
+            || todo "$USA_RENEWAL.timer could not be started (journalctl -u $USA_RENEWAL.timer): sudo $DEPLOY/vps.sh update, later"
+        note "$(systemctl list-timers "$USA_RENEWAL.timer" --no-legend | awk '{print "next renewal:", $1, $2, $3}')"
+    else
+        note "$USA_RENEWAL.timer is off (sudo systemctl enable --now $USA_RENEWAL.timer turns it on)"
+    fi
+}
+
+# check's lines for the renewal (section 13): the timer's state and the service's last run (a failed one shows here
+# until a run succeeds: the next week, or a start by hand)
+# shellcheck disable=SC2015  # "A && ok || bad": ok never fails
+check_usa_renewal() {
+    # The service masked by the operator: the timer stops at its next elapse, the operator's choice (a note)
+    if [ "$(systemctl is-enabled "$USA_RENEWAL.service" 2>/dev/null)" = masked ]; then
+        note "$USA_RENEWAL.service: masked by the operator (section 13)"
+    else
+        case $(systemctl is-enabled "$USA_RENEWAL.timer" 2>/dev/null) in
+            enabled) systemctl is-active -q "$USA_RENEWAL.timer" && ok "$USA_RENEWAL.timer" \
+                         || bad "$USA_RENEWAL.timer is enabled but not active: sudo systemctl start $USA_RENEWAL.timer (section 13)" ;;
+            disabled) if [ -f "$MONITORING_DIR/usa-renewal.enabled" ]; then
+                          note "$USA_RENEWAL.timer: turned off (section 13)"
+                      else
+                          bad "$USA_RENEWAL.timer was installed but never enabled: sudo deploy/vps.sh update (section 13)"
+                      fi ;;
+            masked) note "$USA_RENEWAL.timer: masked by the operator (section 13)" ;;
+            *) bad "$USA_RENEWAL.timer is not installed: sudo deploy/vps.sh update (section 13)" ;;
+        esac
+    fi
+    if systemctl is-failed -q "$USA_RENEWAL.service"; then
+        bad "$USA_RENEWAL.service: its last run failed: journalctl -u $USA_RENEWAL.service -n 30 (section 13)"
+    fi
 }
 
 # --- Section 15 --------------------------------------------------------------------------------
@@ -991,7 +1111,7 @@ bad() { printf 'FAIL: %s\n' "$*" >&2; FAILED=1; }
 
 # shellcheck disable=SC2015  # "A && ok || bad": ok never fails
 check() {
-    step "Checks (sections 2, 12, 15)"
+    step "Checks (sections 2, 12, 13, 15)"
     site_name
     local code headers name addresses service out
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "Host: $SITE" "http://127.0.0.1:$(web_port)/") || true
@@ -1019,6 +1139,7 @@ check() {
     ufw status | grep -q '^Status: active' && ok "ufw active" || bad "ufw is not active"
     fail2ban-client status findaline >/dev/null 2>&1 && ok "the jail findaline" || bad "the jail findaline does not run"
     systemctl is-active -q certbot.timer && ok "certbot.timer" || bad "certbot.timer is not active"
+    check_usa_renewal
     sshd -T 2>/dev/null | grep -qx 'passwordauthentication no' && ok "SSH with a key only" || bad "SSH takes passwords"
     local file wrong=()
     for file in "$DEPLOY"/secrets.example/*; do
@@ -1195,6 +1316,7 @@ update() {
     compose logs --tail 20
     osm_data
     cache_migrate
+    usa_renewal
     monitoring
     local item
     for item in "${TODO[@]}"; do note "- $item"; done
@@ -1225,6 +1347,7 @@ setup() {
     if [ "$SETTINGS_READY" = 1 ]; then
         start
         osm_data
+        usa_renewal
         backups
         monitoring ask
         check || todo "some checks failed (above)"
