@@ -558,12 +558,15 @@ def search_key(name: str, whole: bool = False) -> str:
 
 def stored_answer(cache_dir: str, table: str, key: str) -> Dict:
     """A run's record of a stored Nominatim answer it used: {"table", "query", "sha256"}, the checksum of the stored
-    answer's text as the row holds it (UTF-8), None when the row is gone (an answer too large to store)."""
-    db = _nominatim_db(cache_dir)
-    try:
-        row = db.execute(f"SELECT answer FROM {table} WHERE query = ?", (key,)).fetchone()
-    finally:
-        db.close()
+    answer's text as the row holds it (UTF-8), None when the row is gone (an answer too large to store) or there is
+    no database (nothing made for the record)."""
+    row = None
+    if os.path.isfile(os.path.join(cache_dir, "osm", "nominatim.sqlite")):
+        db = _nominatim_db(cache_dir)
+        try:
+            row = db.execute(f"SELECT answer FROM {table} WHERE query = ?", (key,)).fetchone()
+        finally:
+            db.close()
     sha256 = hashlib.sha256(row[0].encode("utf-8")).hexdigest() if row and row[0] is not None else None
     return {"table": table, "query": key, "sha256": sha256}
 

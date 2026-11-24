@@ -234,6 +234,8 @@ def test_area_identity(tmp_path, monkeypatch):
     assert elsewhere[0]["sha256"] != isle["sha256"] and area.describe()["identity"]["nominatim"] == [isle]
     assert osm.stored_answer(cache_dir, "search", "Nowhere") == {"table": "search", "query": "Nowhere",
                                                                   "sha256": None}
+    assert osm.stored_answer(str(tmp_path / "none"), "search", "Isle")["sha256"] is None
+    assert not (tmp_path / "none").exists()  # the record makes no database
 
 
 def test_record_differs():
