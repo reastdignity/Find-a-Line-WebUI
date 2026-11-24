@@ -93,10 +93,11 @@ The rules of 2026-11-24 (the user's decisions after the regression set's failure
 The claim behind the data record: a run's record names everything its search read, so the same files with the same
 checksums, the same coastline and area inputs and the same code give the same result. `tools/record_check.py` tests
 it per entry: it builds a scratch cache holding only what the entry's stored record (`tests/regression-data.json`)
-names, each file a hard link from the real cache whose sha256 is first checked against the record, with the files'
-index rows and the recorded Nominatim answers, and runs the entry through the harness on it (`--cold --no-seed`) with
-the network blocked (the proxy variables and GDAL's to a dead local port, Overpass's address too, the data server off;
-checked first for requests, urllib and GDAL's `/vsicurl/`). An entry passes when the harness says `ok`, the run log's
+names, each file a hard link from the real cache whose sha256 is first checked against the record where the record
+holds one (the world file's folder is taken by its edition's name; the tool counts both), with the files' index rows
+and the recorded Nominatim answers, and runs the entry through the harness on it (`--cold --no-seed`) with the
+network blocked (every proxy variable, GDAL's too, to a dead local port over the user's own, Overpass's address too,
+the data server off; checked first for requests, urllib and GDAL's `/vsicurl/` over http and https). An entry passes when the harness says `ok`, the run log's
 line says its data were the record's and no tile was downloaded; the tool also prints the requests the search tried
 (all blocked) per host and whether the run's own record names the same data.
 
@@ -106,13 +107,29 @@ python tools/record_check.py R48 --reverse                               # Nomin
 python tools/record_check.py R76 --also mexico/mde-lidar5m/sheet-index/t/G14C15B2.json   # one stored index answer
 ```
 
-What it proves: for the kinds it ran, today's code on today's files needs nothing that changes a result beyond the
-record. What it does not: that a checksum is stable across machines or library versions (it runs on this PC's files
-and libraries), or anything about a kind without an entry. Nor does it show that a filler or neighbour that read
-its files and filled no pixel (left out of the record: `filling._forget_entries`) can be replayed: no entry run was
-seen to take that path, and such a run would try to download those files on a scratch cache. Run it again when a kind of layer or index is added, or
-when what a run records changes; the table below is its run of 2026-11-24 (commit of `data-proof`, the side file of
+What the runs show, for the kinds they ran: the same record gives the same result. For seven entries one more input
+steered the search: Nominatim's stored answer for the country or region of the centre (R21, R45, R48, R64, R90),
+and a stored index answer for two kinds (R24, R76). Each acts only by choosing the source or the files, which the
+record holds (the source's id, the files), so a change of it shows as different data, never as the same record with
+another result: each first try without it came out `different` or `unverified`, never a silent `ok`. But a cache
+built from the record alone is not always enough to run a search again. What the check does not show: that a
+checksum is stable across machines or library versions (it runs on this PC's files and libraries), or anything about
+a kind without an entry. Nor does it show that a filler or neighbour that read its files and filled no pixel (left
+out of the record: `filling._forget_entries`) can be replayed: no entry run was seen to take that path, and such a
+run would try to download those files on a scratch cache. Run it again when a kind of layer or index is added, or
+when what a run records changes; the table below is its run of 2026-11-24 (commit `afe65c7a`, the side file of
 `1675d2ec`).
+
+The scratch cache shares files with the real cache by hard links, so the check rests on one property of the code:
+every writer of a data tile, an OSM theme tile, a file of the world file's folder or a stored index answer writes a
+new file and renames it over the name (`cache.replacing`, `sources.layer._write_tile`, a download's `.part`,
+`CachedIndex._store`), which replaces the scratch name and never touches the real file. Files written in place (the
+databases and their side files, locks, `.part` files, `LAYOUT`, `locks/`, the `.retry` markers) are never linked: the
+tool refuses them whatever names them, in any letter case, and checks after the build that none of the scratch
+cache's is shared with another file. Two places open a cache path directly, both only after a provider answered, so
+never in a blocked run: `PackageListing.fetch` (a package's `.json.retry` marker after a 404 or 410) and
+`osmextract.download` (an extract's outline). A new writer that opens a cache file in place goes into the tool's
+`written_in_place`. (This belongs in `.claude/rules/sources.md`, which is at its size limit.)
 
 Beyond the record, named by the tool for each entry, never silently:
 - the cache's `LAYOUT` file;
@@ -130,13 +147,15 @@ Beyond the record, named by the tool for each entry, never silently:
   files, and the source's id and the files are in the record, so a different answer shows as different data: those
   kinds' proof is the weaker one (the answer was given, not shown to be unneeded).
 
-The stored index answers of every other kind were not copied: each tried its index once or twice (blocked), fell
-back to the cached files by name and gave the same result, which shows the answers only choose files. Nominatim's
-reverse lookups of the run's name (two per circle) were tried and blocked everywhere; they name the run only.
+The stored index answers of every other kind were not copied: each asked its index (1 to 9 requests a host in the
+run log, all failed at the dead port), fell back to the cached files by name and gave the same result, which shows
+the answers only choose files. In the 32 runs without `--reverse`, Nominatim's reverse lookups (the country, the
+run's name) were tried and blocked; with it the stored answers took their place, and R21 and R45 then tried no
+request at all.
 
 | Kind of layer (index or tiling) | Entry | Verdict | Beyond the record (besides LAYOUT and missing marks) |
 | --- | --- | --- | --- |
-| SheetTiles (NewestPerSheet: sheets by year), no sea | R1 | ok | none (the WFS index tried) |
+| SheetTiles (NewestPerSheet: sheets by year), no sea | R1 | ok | none |
 | SheetTiles in tiles of 600 m (tiled), area from a file | R14 | ok | none |
 | WfsFeatureTiles (NewestPerSheet), world file | R68 | ok | none |
 | StacTiles (NewestPerSheet) | R19 | ok | none |
@@ -178,7 +197,8 @@ reverse lookups of the run's name (two per circle) were tried and blocked everyw
 
 The coastline states the real cache gives: the world file (R6 and the others marked so) and no sea in the area (R1
 and most inland entries). Not run: the OSM coastline tiles (Overpass's state; the real cache holds the world file, so
-no baseline rests on them), `DegreeBlocks` (`usgs10m`, no entry), local files (`--elevation-file`, no entry).
+no baseline rests on them), `DegreeBlocks` (`usgs10m`, no entry), local files (`--elevation-file`,
+`--surface-file`, `--slope-file`: no entry).
 
 ## Search tests
 A new place belongs where highlines are rigged: `tools/truth_study.py places` ranks the clusters of SlackMap's known highlines per country and source with the nearest test of this table ("covered by" within 2 km; docs/truth-check.md), and `tools/truth_study.py run --place NAME=OPTIONS --known lines.json` tells how many of a candidate's known lines its search finds.
