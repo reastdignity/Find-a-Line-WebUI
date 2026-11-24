@@ -96,7 +96,8 @@
 .ui .c-card-head { display: flex; align-items: center; gap: 8px; min-height: 32px; }
 .ui .c-card-menu { width: 32px; height: 32px; }
 @media (pointer: coarse) { .ui .c-card-menu { width: 44px; height: 44px; } .ui .c-card-open { min-height: 44px; justify-content: center; } }
-.ui .c-card .r-pop { width: 240px; }
+/* (scrolled into view whole when it opens, Home.tsx: 12 px clear of the edge, as a card's panel) */
+.ui .c-card .r-pop { width: 240px; scroll-margin: 12px; }
 .ui .c-card-open { display: flex; flex-direction: column; gap: 0; color: var(--ink); text-decoration: none; min-width: 0; }
 .ui a.c-card-open:hover .c-card-name { color: var(--accent); }
 .ui .c-card-name { font-weight: 600; font-size: var(--fs-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

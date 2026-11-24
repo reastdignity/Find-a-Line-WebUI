@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Button, Chip, Chips, IconButton, Panel, Progress, StatusChip } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { LinkField, Popover } from "../../result/view";
-import { forgetRun } from "../../result/load";
+import { forgetRun, forgetRunList } from "../../result/load";
+import { RenameForm } from "../../result/view/RunRename";
 import { canReport, openReport } from "../../report";
 import { UsageMeters, type UsageState } from "../../search";
 import { api, jobError, user, type Job, type RunListed, type Usage } from "../api";
@@ -119,7 +120,7 @@ function SearchCard({card, runs, jobs, publicSite, highlight, usage, onGone}:
                      usage: Usage | null; onGone(listed: Promise<boolean>): void}) {
   const {job, run} = card;
   const st = stateOf(card);
-  const [panel, setPanel] = useState<"" | "share" | "delete" | "remove">("");
+  const [panel, setPanel] = useState<"" | "share" | "rename" | "delete" | "remove">("");
   const [counts, setCounts] = useState(false);  // Remove…'s question says the search still counts (countsToday)
   const [menu, setMenu] = useState(false);
   const [url, setUrl] = useState("");
@@ -140,6 +141,13 @@ function SearchCard({card, runs, jobs, publicSite, highlight, usage, onGone}:
     } else if (hadPanel.current) card.querySelector<HTMLElement>(".c-card-menu")?.focus();
     hadPanel.current = !!panel;
   }, [panel]);
+  // The panel again when a line is added to it (a refused name): on a low phone the line would stand under the bar
+  const showPanel = () => ref.current?.querySelector<HTMLElement>(".c-card-panel")?.scrollIntoView?.({block: "nearest"});
+  // The menu too is scrolled into view whole when it opens (a card low on a phone's screen: its last items lay
+  // under the bottom bar)
+  useEffect(() => {
+    if (menu) ref.current?.querySelector<HTMLElement>(".r-pop")?.scrollIntoView?.({block: "nearest"});
+  }, [menu]);
   const panelKeys = (e: KeyboardEvent) => {
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setPanel(""); setUrl(""); }
   };
@@ -147,14 +155,18 @@ function SearchCard({card, runs, jobs, publicSite, highlight, usage, onGone}:
   const name = run?.name || job?.title || t("ui.card.unnamed");
   const canShare = publicSite && !!run && run.own && run.has_map;
   const canDelete = publicSite && !!run && run.own;
+  const canRename = publicSite && !!run && run.own;  // the owner's (a demo run's owner too); the server refuses anyone else
   const act = (then: () => void) => () => { setMenu(false); setError(""); then(); };
+  // Renamed (the form, also one no longer drawn: another panel was opened while it waited): the card shows the
+  // name as stored
+  const renamed = (stored: string) => { runs.change(run!.id, {name: stored}); setPanel((now) => now === "rename" ? "" : now); };
   const share = () => api.share(run!.id).then((r) => { setUrl(r.url); runs.change(run!.id, {shared: true}); },
                                               (e) => setError(e.message));
   const unshare = () => api.unshare(run!.id).then(() => { setUrl(""); runs.change(run!.id, {shared: false}); },
                                                   (e) => setError(e.message));
   // The job that saved the run is then listed as one whose run is gone: listed again, its card goes with the run
   // (onGone with the listing: Home moves the focus on once the card is gone, and forgets it if the listing fails)
-  const remove = () => api.deleteRun(run!.id).then(() => { forgetRun(run!.id); runs.change(run!.id, null);
+  const remove = () => api.deleteRun(run!.id).then(() => { forgetRun(run!.id); forgetRunList(); runs.change(run!.id, null);
                                                            onGone(jobs.refresh()); },
                                                    (e) => setError(e.message));
   const cancel = () => api.cancel(job!.id).then(() => jobs.refresh(), (e) => setError(e.message));
@@ -162,9 +174,11 @@ function SearchCard({card, runs, jobs, publicSite, highlight, usage, onGone}:
   const canRemove = !!job && job.status === "cancelled" && job.own === true;  // not another user's (an administrator's Home)
   const items = [
     open && <a key="open" role="menuitem" class="u-item c-menu-item" href={open}><Icon name="layers" />{t("ui.card.open")}</a>,
-    job && <a key="edit" role="menuitem" class="u-item c-menu-item" href={editHash(job.id)}><Icon name="edit" />{t("ui.app.edit_again")}</a>,
+    job && <a key="edit" role="menuitem" class="u-item c-menu-item" href={editHash(job.id)}><Icon name="refresh" />{t("ui.app.edit_again")}</a>,
     canShare && <button key="share" type="button" role="menuitem" class="u-item c-menu-item" onClick={act(() => setPanel("share"))}>
       <Icon name="share" />{t("ui.card.share")}</button>,
+    canRename && <button key="rename" type="button" role="menuitem" class="u-item c-menu-item" onClick={act(() => setPanel("rename"))}>
+      <Icon name="edit" />{t("ui.card.rename")}</button>,
     job && st.unfinished && <button key="cancel" type="button" role="menuitem" class="u-item c-menu-item" onClick={act(cancel)}>
       <Icon name="stop" />{t("ui.card.cancel")}</button>,
     canReport() && <button key="report" type="button" role="menuitem" class="u-item c-menu-item"
@@ -211,6 +225,9 @@ function SearchCard({card, runs, jobs, publicSite, highlight, usage, onGone}:
         {run.shared && <Button kind="danger" onClick={unshare}>{t("ui.card.share_stop")}</Button>}
         <Button kind="ghost" onClick={() => { setPanel(""); setUrl(""); }}>{t("ui.common.close")}</Button>
       </div>
+    </div>}
+    {panel === "rename" && run && <div class="c-card-panel" role="dialog" aria-label={t("ui.rename.title")} onKeyDown={panelKeys}>
+      <RenameForm id={run.id} name={run.name} onRenamed={renamed} onClose={() => setPanel("")} onLine={showPanel} />
     </div>}
     {panel === "delete" && run && <div class="c-card-panel c-confirm" role="alertdialog" aria-label={t("ui.card.delete_title")}
                                        onKeyDown={panelKeys}>

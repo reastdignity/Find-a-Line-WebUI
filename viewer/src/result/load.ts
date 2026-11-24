@@ -81,6 +81,7 @@ interface Loading {
   promise: Promise<RunData>;
   listeners: Set<OnProgress>;
   last: LoadProgress | null;
+  data: RunData | null;  // the run once it is loaded (renamedRun writes its new name there)
 }
 
 const loaded = new Map<string, Loading>();
@@ -96,12 +97,14 @@ export function loadRun(id: string, base = "/runs/", onProgress?: OnProgress): P
 export function loadRunFrom(folder: string, key: string, onProgress?: OnProgress): Promise<RunData> {
   let loading = loaded.get(key);
   if (!loading) {
-    const entry: Loading = {listeners: new Set(), last: null, promise: Promise.resolve(null as unknown as RunData)};
+    const entry: Loading = {listeners: new Set(), last: null, data: null,
+                            promise: Promise.resolve(null as unknown as RunData)};
     const report = (p: LoadProgress) => { entry.last = p; entry.listeners.forEach((f) => f(p)); };
     entry.promise = overHttp() ? fromServer(new URL(folder, location.href).href, key, report)
       : Promise.reject(new StoreFailed(key, "a page from disk reads no run"));
     loaded.set(key, entry);
-    entry.promise.catch(() => { if (loaded.get(key) === entry) loaded.delete(key); });
+    entry.promise.then((data) => { entry.data = data; },
+                       () => { if (loaded.get(key) === entry) loaded.delete(key); });
     entry.promise.finally(() => entry.listeners.clear()).catch(() => undefined);
     loading = entry;
   }
@@ -116,11 +119,16 @@ function overHttp(): boolean {
   return location.protocol === "http:" || location.protocol === "https:";
 }
 
-/** A run over http(s) from its store in `folder` (an absolute URL ending in "/"), with its profiles. */
+/** A run over http(s) from its store in `folder` (an absolute URL ending in "/"), with its profiles. Its name is
+ *  the list's where the list of runs names the run (listedOf): the store's head keeps the name of the saving, a
+ *  rename (runs.rename_run) changes run.json's, which the list gives. The one place where the listed name meets
+ *  the loaded run; a page the list does not serve (a share link) names the run itself (map/main.tsx: its title). */
 async function fromServer(folder: string, key: string, report: OnProgress): Promise<RunData> {
   report({phase: "download", fraction: null});
-  const store = await storeOf(folder);
-  return Object.assign(await downloadStore(folder, key, report, store, true), {fromStore: true});
+  const listed = await listedOf(folder);
+  const data = Object.assign(await downloadStore(folder, key, report, listed?.store ?? STORE_PROBE, true), {fromStore: true});
+  if (listed && typeof listed.name === "string") data.run.name = listed.name;
+  return data;
 }
 
 /** The store asked for when no list names the run, or names it without its block (storeOf): its files are fetched
@@ -133,11 +141,17 @@ export const STORE_PROBE: Readonly<StoreInfo> = Object.freeze({format: STORE_FOR
  *  (/s/<token>/: its runs.js lists no runs, so none is asked for), get STORE_PROBE: the store's files asked for
  *  directly, no list read again. */
 export async function storeOf(folder: string): Promise<StoreInfo> {
+  return (await listedOf(folder))?.store ?? STORE_PROBE;
+}
+
+/** The entry of the run in `folder` (a URL ending in "/<id>/") in the list of runs the page has (storeOf's list);
+ *  undefined for a run that list does not name, and on a share link (no list is asked for). */
+async function listedOf(folder: string): Promise<RunInfo | undefined> {
   const at = new URL(folder, location.href), parts = at.pathname.split("/");
-  if (at.pathname.startsWith("/s/") || parts.length < 3) return STORE_PROBE;
+  if (at.pathname.startsWith("/s/") || parts.length < 3) return undefined;
   const id = decodeURIComponent(parts[parts.length - 2]);
   const runs = window.FINDALINE_RUNS ?? await loadRunList(new URL("../runs.js", at).href);
-  return runs.find((r) => r.id === id)?.store ?? STORE_PROBE;
+  return runs.find((r) => r.id === id);
 }
 
 /** A run's store in `folder` (an absolute URL ending in "/"): lines.arrow and, with `profiles`, profiles.arrow,
@@ -473,11 +487,30 @@ export function forgetRun(id: string) {
   loaded.delete(id);
 }
 
+/** A run was renamed on this page (Home's card, the result view's head; `name` as the server stored it): its
+ *  loaded data takes the name, so every reader of the page shows it (the head, the phone's pill, a report's
+ *  "about") without a new download, and the list of runs is read again by its next reader (Compare's rows, the
+ *  next run opened). */
+export function renamedRun(id: string, name: string) {
+  const entry = loaded.get(id);
+  if (entry?.data) entry.data.run.name = name;
+  else entry?.promise.then((data) => { data.run.name = name; }, () => undefined);  // still loading: once it is in
+  forgetRunList();
+}
+
 let runList: Promise<RunInfo[]> | null = null;
 
+/** Forget the list of runs: its next reader loads it again (loadRunList). For the page that knows the list
+ *  changed: a search saved its run, a run was renamed or deleted (AppC, Home). Both copies go, the loaded one and
+ *  the script's own window.FINDALINE_RUNS (storeOf reads that one first). */
+export function forgetRunList() {
+  runList = null;
+  if (typeof window !== "undefined") delete window.FINDALINE_RUNS;
+}
+
 /** The runs the user may open as the maps list them (`/runs/runs.js`: window.FINDALINE_RUNS, with their
- * boxes for "other runs nearby"), loaded once; empty when it cannot be loaded. Its FINDALINE_APP (the
- * public site's flags) is set as for a map. */
+ * boxes for "other runs nearby"), loaded once until forgetRunList; empty when it cannot be loaded. Its
+ * FINDALINE_APP (the public site's flags) is set as for a map. */
 export function loadRunList(src = "/runs/runs.js"): Promise<RunInfo[]> {
   if (runList) return runList;
   runList = new Promise<RunInfo[]>((resolve) => {

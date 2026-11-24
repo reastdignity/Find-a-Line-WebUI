@@ -253,6 +253,9 @@ export const api = {
   exportRun: (id: string, format: "csv" | "geojson") =>
     call<{url: string}>("POST", `/api/runs/${encodeURIComponent(id)}/export`, {format}),
   deleteRun: (id: string) => call<{ok: boolean}>("DELETE", `/api/runs/${encodeURIComponent(id)}`),
+  /** A run's new name (the public site, its owner: web.py rename_run); the answer's `name` is the name as stored
+   *  (NFC, runs of spaces one, trimmed), which the page shows. 400: the name refused, 409: the run's files in use. */
+  renameRun: (id: string, name: string) => call<{ok: boolean; name: string}>("POST", `/api/runs/${encodeURIComponent(id)}`, {name}),
   report: (body: {category: string; text: string; context: object}) =>
     call<{id: number}>("POST", "/api/reports", body),
   adminReports: () => call<{reports: AdminReport[]}>("GET", "/api/admin/reports"),

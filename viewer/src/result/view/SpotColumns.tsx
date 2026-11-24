@@ -56,6 +56,7 @@ import { ProfileCard, cardHeightAhead } from "./ProfileCard";
 import { ProfileDock } from "./ProfileDock";
 import type { BackAction, ResultColumnsProps } from "./ResultColumns";
 import { RunActions, useMeasureTip } from "./RunActions";
+import { RunRename } from "./RunRename";
 import { PANELS, useSpotView, type PanelProps, type SpotPanels } from "./SpotPanels";
 import { useLayout, type LayoutState } from "./useLayout";
 import { useViewLink } from "./viewlink";
@@ -242,10 +243,17 @@ function useToast(): [string, (text: string) => void] {
   }];
 }
 
-/** The run's name and date: no line count (the user's W8: the list's headline counts the spots and lines). */
+/** The run's name and date: no line count (the user's W8: the list's headline counts the spots and lines). After
+ *  the name the Rename button, for a run the user may rename (RunRename: their own, on the public site); its box
+ *  opens under the title's left edge (columns.css). A rename writes the name into the loaded run (load.ts
+ *  renamedRun) and the title is drawn again. */
 function Title({data}: {data: RunData}) {
+  const [, setRenamed] = useState(0);
   return <div class="c-run-title">
-    <b class="c-run-name">{data.run.name}</b>
+    <div class="c-run-nameline">
+      <b class="c-run-name">{data.run.name}</b>
+      <RunRename id={data.run.id} name={data.run.name} onRenamed={() => setRenamed((n) => n + 1)} />
+    </div>
     <span class="u-small">{when(data.run.created)}</span>
   </div>;
 }

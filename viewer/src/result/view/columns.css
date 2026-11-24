@@ -13,8 +13,16 @@
 /* The header (as c.css's .c-subtop of C's focused pages) */
 .ui .c-result-top { flex: none; display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 16px; background: var(--surface);
   border-bottom: 1px solid var(--rule); position: relative; z-index: var(--z-bar); min-width: 0; }
-.ui .c-run-title { display: flex; flex-direction: column; min-width: 0; }
+.ui .c-run-title { display: flex; flex-direction: column; min-width: 0; position: relative; }
 .ui .c-run-name { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The name with its Rename button (the result view, RunRename.tsx); the button's box opens under the title's left
+   edge, not the button's (the popover's holder is not positioned: the title is) */
+.ui .c-run-nameline { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ui .c-run-nameline .r-popwrap { position: static; flex: none; }
+/* The rename form (RunRename.tsx: a card's panel on Home, the view's box): the field, then Save and Cancel, the
+   refusal's line under them */
+.ui .c-rename { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.ui .c-rename .c-error { color: var(--bad); font-weight: 500; margin: 0; }
 .ui .c-result-top .c-back { flex: none; }
 .ui .c-result-top .r-actions { flex-wrap: nowrap; }
 .ui .c-result-top .r-actions .u-btn { box-shadow: none; }

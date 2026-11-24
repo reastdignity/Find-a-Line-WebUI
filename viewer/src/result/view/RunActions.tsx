@@ -159,19 +159,44 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
 
 const num0 = (v: number) => v.toFixed(0);
 
+let listing: ReturnType<typeof api.runs> | null = null;  // the request for the user's runs on its way
+
+/** The user's runs (api.runs): one request for all who ask while it is on its way (Share and the head's Rename
+ *  ask together when a run opens). */
+function listedRuns(): ReturnType<typeof api.runs> {
+  if (!listing) {
+    const asked = listing = api.runs();
+    const done = () => { if (listing === asked) listing = null; };
+    asked.then(done, done);
+  }
+  return listing;
+}
+
+/** The run `runId` as the user's list of runs has it when it is their own on the public site, else null; and a
+ *  setter for a change made here (Share's link). Who may share a run and rename it (RunRename): the server lets
+ *  only the owner. Null, with nothing asked, in the local app and on a run's map.html (no signed-in user there:
+ *  `user.local`), and for another user's run an administrator opens. */
+export function useOwnRun(runId: string): [RunListed | null, (run: RunListed) => void] {
+  const [run, setRun] = useState<RunListed | null>(null);
+  useEffect(() => {
+    if (user.local) return;
+    let live = true;
+    setRun(null);
+    listedRuns().then((r) => { if (live) setRun(r.public ? r.runs.find((x) => x.id === runId && x.own) || null : null); },
+                      () => {});
+    return () => { live = false; };
+  }, [runId]);
+  return [user.local ? null : run, setRun];
+}
+
 /** Share (the public site, the owner's runs): a link that opens the run's map for anyone who has it;
  *  nothing unless the run is the user's own. */
 function Share({model, compact, plain}: RunActionsProps) {
-  const runId = model.runId;
-  const [run, setRun] = useState<RunListed | null>(null);
+  const [own, setRun] = useOwnRun(model.runId);
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
-  useEffect(() => {
-    if (user.local) return;
-    api.runs().then((r) => setRun(r.public ? r.runs.find((x) => x.id === runId && x.own && x.has_map) || null
-      : null), () => {});
-  }, [runId]);
-  if (!run || user.local) return null;
+  const run = own && own.has_map ? own : null;
+  if (!run) return null;
   const changed = (shared: boolean) => setRun({...run, shared});
   const share = () => api.share(run.id).then((r) => { setUrl(r.url); setError(""); changed(true); },
                                              (e) => setError(e.message));
