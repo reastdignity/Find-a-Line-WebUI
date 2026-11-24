@@ -750,7 +750,7 @@ def _whole_metres_rows(z, water, filled) -> bool:
     them in the same order (the very sample of whole_metres). Each strip's picked heights are copied: a view would
     keep the strip's heights with data alive until the sample is joined (4 B per pixel with data)."""
     h, w = z.shape
-    n = sum(int(_data_rows(z, water, filled, r0, r1)[1].sum()) for r0, r1 in _strips(h, w))
+    n = sum(np.count_nonzero(_data_rows(z, water, filled, r0, r1)[1]) for r0, r1 in _strips(h, w))
     if not n:
         return False
     step = max(1, n // WHOLE_METRE_SAMPLE)
