@@ -1016,9 +1016,13 @@ g_door() {
     check D01 "the right key logs in over SFTP and sees the mirror folder" eval '[ "${r%%|*}" = 0 ] && printf "%s" "$r" | grep -q "/mirror/staging"'
     r=$(KEY=/root/wrong dssh publish@sftp "sha256sum /mirror/logs/access-2000-01-01.log")
     check D02 "a wrong key is refused" eval '[ "${r%%|*}" = 255 ] && printf "%s" "$r" | grep -q "Permission denied"'
-    r=$(dssh -v -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive publish@sftp true)
+    # ssh ends its -v lines with CR LF: without the CRs, so that "publickey$" below is the line's end on Linux too
+    # (Git Bash's grep lets "$" match before a CR, Linux's does not: D03 passed on Windows and failed in CI's first
+    # run, 45127287004, with the door answering as it should)
+    r=$(dssh -v -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive publish@sftp true | tr -d '\r')
     check D03 "no password or keyboard-interactive login offered (publickey only)" \
         eval '[ "${r%%|*}" = 255 ] && printf "%s" "$r" | grep -q "Authentications that can continue: publickey$" && ! printf "%s" "$r" | grep -qE "can continue: .*(password|keyboard)"'
+    [ "${OUT[D03]}" = PASS ] || info "D03 got: status ${r%%|*}; $(printf '%s' "$r" | grep -E 'can continue|Permission denied' | head -c 300 | tr '\n' ' ')"
     r=$(dssh publish@sftp id)
     check D04 "a command (id) is refused" eval '[ "${r%%|*}" != 0 ] && printf "%s" "$r" | grep -q refused && ! printf "%s" "$r" | grep -q "uid="'
     r=$(dssh publish@sftp)

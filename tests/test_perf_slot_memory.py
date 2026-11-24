@@ -29,11 +29,17 @@ def tree():
              f"'search']); time.sleep(30)")
     root = subprocess.Popen([sys.executable, "-c", outer, psm.CHILD, "launcher"])
     proc = psutil.Process(root.pid)
-    for _ in range(200):  # until the search and its two children run (a venv's python.exe may add launchers)
+    for _ in range(200):  # until the search and its two children run, and the tree has stopped growing
         search = psm.find_search(proc)
         p = psutil.Process(search) if search else None
-        if p and "search" in p.cmdline() and len(p.children(recursive=True)) >= 2:
-            break
+        if p and "search" in p.cmdline():
+            # a venv's python.exe may be a launcher with the real interpreter as its child: then the search has its
+            # launcher above it (the same command line), and each of its two children comes as two processes, the
+            # second a moment after the first (a tree read between them had 7 of its 8: CI 45228163608)
+            above = p.parent()
+            each = 2 if above is not None and "search" in above.cmdline() else 1
+            if len(p.children(recursive=True)) >= 2 * each:
+                break
         time.sleep(0.1)
     yield proc
     for p in proc.children(recursive=True) + [proc]:
