@@ -1854,9 +1854,9 @@ def _message(kind: str, text: str) -> list:
 
 def quick_profile(data_dir: str, request: Dict, limits: Optional[Limits] = None) -> Dict:
     """The profile of a line of a saved run (/api/profile): {"run": id, "line": [lat1, lon1, lat2, lon2]}."""
+    import runs as rn
     import search
-    with open(os.path.join(data_dir, "runs", request["run"], "run.json"), encoding="utf-8") as f:
-        meta = json.load(f)
+    meta = rn.read_meta(os.path.join(data_dir, "runs", request["run"], "run.json"))  # Windows' moment waited out
     lat1, lon1, lat2, lon2 = request["line"]
     paths = search.Paths(data_dir, os.path.join(data_dir, "work", "profiles", uuid.uuid4().hex))
     os.makedirs(paths.work)
@@ -1873,9 +1873,9 @@ def quick_patch(data_dir: str, request: Dict, limits: Optional[Limits] = None) -
     "canopy" the trees and buildings of the same patch (search.canopy_of_line), in the same fields."""
     import base64
 
+    import runs as rn
     import search
-    with open(os.path.join(data_dir, "runs", request["run"], "run.json"), encoding="utf-8") as f:
-        meta = json.load(f)
+    meta = rn.read_meta(os.path.join(data_dir, "runs", request["run"], "run.json"))  # Windows' moment waited out
     lat1, lon1, lat2, lon2 = request["line"]
     paths = search.Paths(data_dir, os.path.join(data_dir, "work", "profiles", uuid.uuid4().hex))
     os.makedirs(paths.work)
@@ -1894,9 +1894,9 @@ def quick_reach(data_dir: str, request: Dict, limits: Optional[Limits] = None) -
     one of a process loads numba (the kernel's compiled code comes from numba's cache, warmup.py)."""
     import base64
 
+    import runs as rn
     import search
-    with open(os.path.join(data_dir, "runs", request["run"], "run.json"), encoding="utf-8") as f:
-        meta = json.load(f)
+    meta = rn.read_meta(os.path.join(data_dir, "runs", request["run"], "run.json"))  # Windows' moment waited out
     lat1, lon1, lat2, lon2 = request["line"]
     paths = search.Paths(data_dir, os.path.join(data_dir, "work", "profiles", uuid.uuid4().hex))
     os.makedirs(paths.work)
@@ -1938,8 +1938,8 @@ def remove_old_exports(data_dir: str) -> int:
 def export_bytes(run_folder: str, fmt: str) -> int:
     """The most bytes an export of a run in the format `fmt` takes: its store's lines (run.json's block
     "store") times EXPORT_LINE_BYTES."""
-    with open(os.path.join(run_folder, "run.json"), encoding="utf-8") as f:
-        lines = int((json.load(f).get("store") or {}).get("lines") or 0)
+    import runs as rn
+    lines = int((rn.read_meta(os.path.join(run_folder, "run.json")).get("store") or {}).get("lines") or 0)
     return lines * EXPORT_LINE_BYTES[fmt]
 
 

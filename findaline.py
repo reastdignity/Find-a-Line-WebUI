@@ -26,7 +26,6 @@ remove-old --dry-run|--yes` (runs_main) lists or deletes the runs saved before t
 """
 
 import gc
-import json
 import os
 import sys
 from typing import Dict, List, Optional
@@ -227,8 +226,7 @@ def app_holds(port: int, folder: str) -> Optional[bool]:
         probe.settimeout(2)
         if probe.connect_ex(("127.0.0.1", port)) != 0:
             return None
-    with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
-        mine = json.load(f)
+    mine = rn.read_meta(os.path.join(folder, "run.json"))  # waits out Windows' moment after a replacement
     session = requests.Session()
     session.trust_env = False  # no proxy for this computer's own port
     try:
