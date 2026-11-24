@@ -10,6 +10,7 @@ import os
 import re
 import socket
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -380,23 +381,24 @@ def test_cache_status_beside_a_writer(tmp_path, monkeypatch, capsys):
 
 def test_a_wal_and_shm_left_by_a_killed_writer(tmp_path, monkeypatch):
     """R1's limit, seen on the real cache: an index with a -wal (empty after its checkpoint) and a -shm left by a
-    writer that was killed is read read-only; SQLite may write into the -shm it finds (seen 2026-11-24: its bytes
-    changed), the database and the -wal stay as they were, nothing is made; the next writer's open and close removes
-    the two (main's
-    `status`, which opened every index for writing, removed them itself)."""
+    writer that was killed is read read-only. Asserted: the database and the -wal keep their bytes and their
+    modification times, every other file its bytes, no file is made (the listing; the -shm by its name only); the
+    next writer's open and close removes the -wal and the -shm (main's `status`, which opened every index for
+    writing, removed them itself). Not asserted, seen (2026-11-24, the reviews too): SQLite's reader writes into the
+    -shm it finds (its bytes and time change)."""
     data, cache_dir = canned(tmp_path)
     index = _index(cache_dir, "spain")
     killed = (f"import os, sqlite3; db = sqlite3.connect({index!r}); db.execute(\"UPDATE files SET url = 'u'\"); "
               "db.commit(); db.execute('PRAGMA wal_checkpoint(TRUNCATE)'); os._exit(0)")
-    import subprocess
     subprocess.run([sys.executable, "-c", killed], check=True)
     assert os.path.getsize(index + "-wal") == 0 and os.path.exists(index + "-shm")
     assert update._mode(index) == "mode=ro"
-    before = listing(data)
+    before, times = listing(data), [os.stat(index + suffix).st_mtime_ns for suffix in ("", "-wal")]
     _tripwire(monkeypatch)
     assert _status(data) == 0
     after = listing(data)
     assert after == before  # the -shm by its name only
+    assert [os.stat(index + suffix).st_mtime_ns for suffix in ("", "-wal")] == times
     with open(index + "-wal", "rb") as f:
         assert f.read() == b""
     monkeypatch.undo()
@@ -421,3 +423,145 @@ def test_a_data_folder_with_brackets(tmp_path, monkeypatch, capsys):
     assert "have no index rows yet (2 of 2 files)" in out and "Runs computed" not in out
     assert update.main(["--data-dir", data, "cache", "update"]) == 0
     assert all(_world_rows(cache_dir))
+
+
+def _spy_modes(monkeypatch):
+    """The modes update._read_only opens with, in order."""
+    modes, real = [], update._read_only
+    monkeypatch.setattr(update, "_read_only",
+                        lambda path, mode=None, timeout=60: modes.append(mode) or real(path, mode, timeout))
+    return modes
+
+
+def test_an_immutable_read_a_writer_may_have_torn_is_made_again(tmp_path, monkeypatch):
+    """G1 (the code review's D1): an index at rest is read immutable, with no lock. A search's writer that opens it,
+    commits and closes between the stamp before the read and its end (here inside the read: the test's ask) writes
+    its WAL into the file under the read; the file's stamp differs afterwards, so the read is made again read-only,
+    and its rows are those a read-only read gives (the writer's row among them). Without a writer the immutable
+    read is kept (one connection)."""
+    data, cache_dir = canned(tmp_path)
+    index = _index(cache_dir, "spain")
+    assert update._mode(index) == "immutable=1"
+    modes = _spy_modes(monkeypatch)
+    rows = lambda db: sorted(r[0] for r in db.execute("SELECT path FROM files"))  # noqa: E731
+    assert update._query(index, rows) == [p.split("/", 1)[1] for p in sorted(
+        r["path"] for r in cache.rows(cache_dir, "spain"))] and modes == ["immutable=1"]
+    calls = []
+
+    def ask(db):
+        calls.append(len(modes))
+        if len(calls) == 1:
+            writer = sqlite3.connect(index)
+            with writer:
+                writer.execute("INSERT INTO files (path, status) VALUES ('w/new.tif', 'ok')")
+            writer.close()  # the WAL into the file, the -wal removed
+            assert not os.path.exists(index + "-wal")
+        return rows(db)
+    modes.clear()
+    found = update._query(index, ask)
+    assert modes == ["immutable=1", "mode=ro"] and len(calls) == 2
+    monkeypatch.undo()
+    assert "w/new.tif" in found and found == update._query(index, rows)
+
+
+def test_reads_beside_a_writer_that_opens_commits_and_closes(tmp_path):
+    """G1, the code review's probe kept short: a 200 000-row index; a writer process opens it, inserts 300 paths,
+    commits, closes and pauses 0.1 s, again and again for 10 s; meanwhile `status`' reader (cache.rows through
+    update._query) reads every row again and again. No read holds a path twice or lacks one that was always there.
+    Before the stamp check the review's probe found such reads in 4 to 20 % of the immutable ones (13 % here: 23 of
+    183 in 60 s); 10-s runs of the unfixed code failed this test as the report of round 1 says."""
+    cache_dir = os.path.join(str(tmp_path), "cache")
+    os.makedirs(os.path.join(cache_dir, "spain"))
+    index = _index(cache_dir, "spain")
+    db = sqlite3.connect(index)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute(cache.SCHEMA)
+    with db:
+        db.executemany("INSERT INTO files (path, status) VALUES (?, 'ok')",
+                       ((f"base/{k:07d}.tif",) for k in range(200_000)))
+    db.close()
+    base = {f"spain/base/{k:07d}.tif" for k in range(200_000)}
+    writer = (f"import random, sqlite3, time\nend = time.monotonic() + 10\nwhile time.monotonic() < end:\n"
+              f"    db = sqlite3.connect({index!r}, timeout=60)\n    with db:\n"
+              "        db.executemany(\"INSERT OR IGNORE INTO files (path, status) VALUES (?, 'ok')\", "
+              "[(f'new/{random.random():.15f}.tif',) for _ in range(300)])\n"
+              "    db.close()\n    time.sleep(0.1)\n")
+    process = subprocess.Popen([sys.executable, "-c", writer])
+    reads, bad = 0, []
+    try:
+        while process.poll() is None:
+            paths = [row["path"] for row in cache.rows(cache_dir, "spain", update._query)]
+            reads += 1
+            if len(paths) != len(set(paths)) or not base <= set(paths):
+                bad.append((len(paths), len(set(paths)), len(base - set(paths))))
+    finally:
+        process.wait(60)
+    assert process.returncode == 0 and reads >= 5
+    assert not bad, f"{len(bad)} of {reads} reads torn: {bad[:5]}"
+
+
+def _expected(replace=(), drop=()):
+    """PRINTED with lines replaced ({start of a line: the new line}) and lines dropped (by their start), the blank
+    line before a dropped section too."""
+    lines = []
+    for line in PRINTED.split("\n"):
+        if any(line.startswith(d) for d in drop):
+            if lines and lines[-1] == "":
+                lines.pop()
+            continue
+        lines.append(next((new for old, new in replace if line.startswith(old)), line))
+    return "\n".join(lines)
+
+
+def _printed(out, cache_dir):
+    return re.sub(r"made \d{4}-\d\d-\d\d \(", "made <day> (", out.replace(cache_dir, "<cache>"))
+
+
+def test_an_index_with_a_hot_journal_is_named(tmp_path, monkeypatch, capsys):
+    """G2 (the code review's D3): a rollback-journal index (poland's) whose writer was killed in the middle of its
+    transaction, after it had written into the file (a hot journal: a read-only reader cannot roll it back and
+    raises). `status` names that folder with the error's class in its row, leaves it out of the tiles in the older
+    encoding, names the run that read its files as not checked, lists the rest as ever and ends with 0; nothing is
+    written (the hot journal is left for the next writer)."""
+    data, cache_dir = canned(tmp_path)
+    index = _index(cache_dir, "poland")
+    killed = (f"import os, sqlite3; db = sqlite3.connect({index!r}); db.execute('PRAGMA cache_size=1'); "
+              "db.execute('BEGIN IMMEDIATE'); db.executemany(\"INSERT INTO files (path, status) VALUES (?, 'ok')\", "
+              "[(f'x/{k}.tif',) for k in range(20000)]); os._exit(0)")
+    subprocess.run([sys.executable, "-c", killed], check=True)
+    assert os.path.getsize(index + "-journal") > 0 and _journal(index) == 1
+    with pytest.raises(sqlite3.Error):
+        update._query(index, lambda db: db.execute("SELECT * FROM files").fetchall())
+    before = listing(data)
+    _tripwire(monkeypatch)
+    assert _status(data) == 0
+    out = _printed(capsys.readouterr().out, cache_dir)
+    error = re.search(r"\npoland +0\.00GB  its index cannot be read now \((\w+)\)\n", out)
+    assert error, out
+    assert out == _expected(
+        replace=[("poland ", f"poland            0.00GB  its index cannot be read now ({error[1]})"),
+                 ("  before:", f"  before: not checked (the index of poland cannot be read now: {error[1]})")],
+        drop=["Tiles in the older encoding"])
+    assert listing(data) == before
+
+
+def test_an_index_that_cannot_be_read_now_is_named(tmp_path, monkeypatch, capsys):
+    """G2: one folder's index raises sqlite3.Error on every read (a writer's lock held over the timeout, made here):
+    its row, the runs that read its files and nothing else change; it is asked once, never again."""
+    data, cache_dir = canned(tmp_path)
+    real, asked = update._query, []
+
+    def query(db_path, ask, timeout=60):
+        if os.sep + "spain" + os.sep in db_path:
+            asked.append(db_path)
+            raise sqlite3.OperationalError("database is locked")
+        return real(db_path, ask, timeout)
+    monkeypatch.setattr(update, "_query", query)
+    _tripwire(monkeypatch)
+    assert _status(data) == 0
+    out = _printed(capsys.readouterr().out, cache_dir)
+    gone = "not checked (the index of spain cannot be read now: OperationalError)"
+    assert out == _expected(
+        replace=[("spain ", "spain             0.00GB  its index cannot be read now (OperationalError)"),
+                 ("  before:", f"  before: {gone}"), ("  recorded:", f"  recorded: {gone}\n  same: {gone}")])
+    assert len(asked) == 1

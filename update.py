@@ -31,10 +31,14 @@ process has open (Windows) are left and make the exit code 1.
 a run whose run.json holds the data record (its `identity` keys: each file's sha256 as the index held it, the
 coastline, the area's inputs, local files) exactly, against the index now; files written again in another
 encoding (`cache migrate`: another checksum, fetched no later than the run read them) apart; an older run by
-fetch times, marked approximate. `status` as a whole only reads: every index and Nominatim's answers through
-_query's read-only connections (cache.rows and cache.info with read=_query), no folder, index, table, row or LAYOUT
-file is made, so it can run at any time, also beside a search. World water polygons put into the cache by hand
-(files without index rows) are named in one line; `update` adopts them (_adopt_world) before it checks.
+fetch times, marked approximate. `status` as a whole reads every index and Nominatim's answers through _query's
+read-only connections (cache.rows and cache.info with read=_query): it changes no cached file, no index and no row,
+and makes no folder, file or LAYOUT; only SQLite's own side files beside an index are touched by SQLite's reader
+(_read_only: a -shm that is there is written, and in two cases a -shm, or a -shm and a -wal, are made). It may run
+beside a search: an immutable read a writer may have torn is made again read-only (_query), so each index's rows are
+those of one moment. An index that cannot be read now (a writer's lock, a hot journal) is named, never ends the command.
+World water polygons put into the cache by hand (files without index rows) are named in one line; `update` adopts
+them (_adopt_world) before it checks.
 
 The intervals are cache.TTL_DAYS; "missing" tiles of data that can change are checked
 again after cache.MISSING_TTL_DAYS. `update` without --all checks only what is older
@@ -260,15 +264,20 @@ def _adopt_world(cache_dir: str):
             cache.state(cache_dir, path)
 
 
-def _world_without_rows(cache_dir: str) -> Optional[Tuple[str, int, int]]:
+def _world_without_rows(cache_dir: str, unread: Optional[Dict[str, str]] = None
+                        ) -> Optional[Tuple[str, int, Optional[int]]]:
     """(the world water polygons' folder relative to the cache, its files, those of them without an index row) when
-    some have none, else None; read-only (_index_rows)."""
+    some have none, else None; read-only (_index_rows). unread as _index_rows': osm's index not readable now gives
+    None for the files without a row (not known)."""
     shapefile = coast.world_file(cache_dir)
     if not shapefile:
         return None
     folder = os.path.dirname(os.path.dirname(shapefile))
     files = [cache.relative(cache_dir, path) for path in coast._world_files(folder)]
-    missing = len(set(files) - set(_index_rows(cache_dir, files)))
+    rows = _index_rows(cache_dir, files, unread)
+    if unread and "osm" in unread:
+        return cache.relative(cache_dir, folder), len(files), None
+    missing = len(set(files) - set(rows))
     return (cache.relative(cache_dir, folder), len(files), missing) if missing else None
 
 
@@ -389,6 +398,7 @@ NOMINATIM_TABLES = ("search", "reverse", "places")  # the tables of osm.MIGRATIO
 NOMINATIM_TIMEOUT = 5  # s a read of nominatim.sqlite waits for a writer's lock (then its answers are not known)
 _IN_CHUNK = 500  # paths asked of an index in one query
 NOT_READ = "its run.json cannot be read (not checked)"
+NOT_NOW = "its index cannot be read now"  # status: a folder whose index raised sqlite3.Error
 
 
 @dataclass
@@ -404,7 +414,8 @@ class RunChange:
     approximate: bool = False  # a run made before the data record: today's rule by fetch times (_approximate)
     notes: List[str] = field(default_factory=list)
     unreadable: bool = False   # its run.json cannot be read or is no object: named (what is left out: _read_runs)
-    error: Optional[str] = None  # the class of an error judging it raised (a fault of the code): named too
+    error: Optional[str] = None  # the class of an error judging it raised (a fault of the code), or the folder whose
+    # index cannot be read now (changed_runs): named too
 
     def listed(self) -> bool:
         """Whether status names the run: a file changed or re-encoded, another input changed, its run.json
@@ -455,45 +466,74 @@ def _mode(db_path: str) -> Optional[str]:
 def _read_only(db_path: str, mode: Optional[str] = None, timeout: float = 60) -> Optional[sqlite3.Connection]:
     """A connection to an existing SQLite file that writes nothing in the cases of _mode, or None when there is no
     file. Two cases leave files, SQLite's own and harmless (the next writer's close removes them): a -wal left by a
-    killed writer without its -shm (SQLite makes the -shm), and _query's read-only retry of an index after a failed
-    immutable read when no -wal is there (it makes both)."""
+    killed writer without its -shm (SQLite makes the -shm), and _query's read-only read of an index again after an
+    immutable read that failed or may be torn, when no -wal is there (it makes both). And a -shm that is there
+    (beside a -wal: a writer has the index open, or a killed one left them) is written by SQLite's read-only reader,
+    which notes its place in it."""
     mode = mode or _mode(db_path)
     return sqlite3.connect(_uri(db_path, mode), uri=True, timeout=timeout) if mode else None
 
 
+def _stamp(db_path: str) -> Optional[Tuple[int, int, bool]]:
+    """(modification time in ns, size, whether a -wal is there) of a database file; None when it cannot be asked."""
+    try:
+        st = os.stat(db_path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size, os.path.exists(db_path + "-wal")
+
+
 def _query(db_path: str, ask: Callable[[sqlite3.Connection], Dict], timeout: float = 60) -> Dict:
     """ask(connection) on _read_only(db_path); {} without the file or without the table asked (an index made and
-    never written). An immutable read that fails (a checkpoint of another process writing into the file while it
-    was read; the checkpoint at a writer's close removes the -wal too) is read once more read-only; a read-only read
-    that fails is not tried again (a writer's lock would cost a second wait), and a failure is raised (as
-    cache.rows, earlier in `status`, raises it). What an immutable read cannot see: a commit made in the instant
-    between the look for a -wal file and the read, still in the WAL; the next `cache status` sees it.
+    never written). An immutable read takes no lock, so a writer that opens the index, commits and closes while it
+    reads (its close checkpoints the WAL into the file under the read and removes the -wal) can tear it: an error,
+    or, without one, rows read twice or not at all (measured 2026-11-24 on a 200 000-row index beside such a writer:
+    23 of 183 immutable reads with a path twice, none raised). So the file is stamped (_stamp) before and after an
+    immutable read, and the read is kept only when both stamps are equal and no -wal was there; otherwise, or when it
+    raised, it is made once more read-only (mode=ro: SQLite's locks, a consistent read that sees the WAL too), and
+    that is the bound: a read-only read is made once, its failure raised (a writer's lock over the timeout, a hot
+    journal; `status` names the folder: _readable), never tried again (a writer's lock would cost a second wait).
+    The check rests on two things: a writer that commits leaves a -wal while it has the index open, and the file's
+    modification time changes when its WAL is written into it (os.stat on Windows opens the file and sees it at
+    once); measured on local NTFS only, never on a network share.
 
     timeout: SQLite's wait for a lock; on Windows one wait lasts about 1.5 times as long (measured 2026-11-24:
     1.09 s at 0.5, 2.49 at 1.5, 4.61 at 3), probably because the tries of the lock inside each step of SQLite's
     busy wait sleep timer ticks the wait does not count (not verified in SQLite's code)."""
+    before = _stamp(db_path)
     mode = _mode(db_path)
-    for attempt in range(2):
-        if mode is None:
-            return {}
+    if mode == "immutable=1" and before is not None and not before[2]:
         db = _read_only(db_path, mode, timeout)
         try:
-            return ask(db)
+            found, error = ask(db), None
         except sqlite3.DatabaseError as e:
-            if str(e).startswith("no such table"):
-                return {}
-            if attempt == 1 or mode != "immutable=1":
-                raise
+            found, error = None, e
         finally:
             db.close()
-        mode = "mode=ro"
-    return {}
+        if _stamp(db_path) == before:
+            if error is None:
+                return found
+            if str(error).startswith("no such table"):
+                return {}
+    if not os.path.isfile(db_path):
+        return {}
+    db = _read_only(db_path, "mode=ro", timeout)
+    try:
+        return ask(db)
+    except sqlite3.DatabaseError as e:
+        if str(e).startswith("no such table"):
+            return {}
+        raise
+    finally:
+        db.close()
 
 
-def _index_rows(cache_dir: str, paths: List[str]) -> Dict[str, Tuple]:
+def _index_rows(cache_dir: str, paths: List[str], unread: Optional[Dict[str, str]] = None) -> Dict[str, Tuple]:
     """The index rows of paths (relative to the cache, with /): path -> (status, fetched_at, sha256); a path
     without a row is left out. One read-only connection per top-level folder, never one per file; a folder or an
-    index that is not there is not made."""
+    index that is not there is not made. unread: {folder: the error's class} of the indexes that cannot be read now
+    (status' _readable); given, a folder in it is not asked again and one whose read raises sqlite3.Error is added
+    to it instead of raising (its paths have no rows then)."""
     by_top: Dict[str, List[str]] = {}
     for path in dict.fromkeys(paths):
         top, _, inner = path.partition("/")
@@ -508,7 +548,14 @@ def _index_rows(cache_dir: str, paths: List[str]) -> Dict[str, Tuple]:
                     f"SELECT path, status, fetched_at, sha256 FROM files WHERE path IN ({','.join('?' * len(chunk))})",
                     chunk)})
             return rows
-        found.update(_query(os.path.join(cache_dir, top, "index.sqlite"), ask))
+        if unread is not None and top in unread:
+            continue
+        try:
+            found.update(_query(os.path.join(cache_dir, top, "index.sqlite"), ask))
+        except sqlite3.Error as e:
+            if unread is None:
+                raise
+            unread[top] = type(e).__name__
     return found
 
 
@@ -744,15 +791,18 @@ def _read_runs(runs_dir: str) -> List[Tuple[str, Optional[Dict]]]:
     return found
 
 
-def changed_runs(cache_dir: str, runs_dir: str) -> List[RunChange]:
+def changed_runs(cache_dir: str, runs_dir: str, unread: Optional[Dict[str, str]] = None) -> List[RunChange]:
     """The saved runs computed on data that has changed since, in the order of their folders (RunChange.listed).
     Exact for a run with the data record (_exact: the checksums the search noted against the index's now); a run
     made before it by fetch times, marked approximate (_approximate); a run whose run.json cannot be read named as
     not checked, never left out (only a run whose folder is gone since the listing is no run: _read_runs), and one
-    whose judging raised (a fault of the code) named with the error's class.
+    whose judging raised (a fault of the code) named with the error's class; a run that read files of a folder whose
+    index cannot be read now (unread, as _index_rows': status' folders, and those this listing finds) is named as
+    not checked with that folder.
     Reads only: every index and Nominatim's answers with one read-only connection per file for all the runs
     (_index_rows), no folder, index or table is made (the files SQLite itself can leave: _read_only)."""
-    runs, paths, asked, failed = [], [], [], {}
+    runs, paths, asked, failed, folders = [], [], [], {}, {}
+    unread = {} if unread is None else unread
     for name, meta in _read_runs(runs_dir):
         try:
             wanted = _wanted(meta) if meta is not None else ([], [])
@@ -761,7 +811,12 @@ def changed_runs(cache_dir: str, runs_dir: str) -> List[RunChange]:
         runs.append((name, meta))
         paths += wanted[0]
         asked += wanted[1]
-    rows = _index_rows(cache_dir, paths)
+        folders[name] = dict.fromkeys(p.partition("/")[0] for p in wanted[0])
+    rows = _index_rows(cache_dir, paths, unread)
+    for name, tops in folders.items():
+        top = next((t for t in tops if t in unread), None)
+        if top is not None and name not in failed:
+            failed[name] = f"the index of {top} cannot be read now: {unread[top]}"
     answers = _nominatim_answers(cache_dir, asked)
     newest = coast.world_file(cache_dir)
     newest = os.path.basename(os.path.dirname(os.path.dirname(newest))) if newest else None
@@ -785,12 +840,31 @@ def changed_runs(cache_dir: str, runs_dir: str) -> List[RunChange]:
 
 def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
     """Print the cached folders, what an update would check and the runs on changed data. Reads only (the module's
-    docstring): every index through _query."""
+    docstring): every index through _query. An index that cannot be read now (sqlite3.Error: a writer's lock held
+    over the timeout, a hot journal of a rollback-journal index) never ends the command: its folder is named with
+    the error's class wherever it is needed, it is not asked again, and the rest is listed as ever."""
     tops = _tops(cache_dir, folder)
+    unread: Dict[str, str] = {}  # folder -> the class of the error its index gave
+
+    def readable(top: str, read: Callable[[], object]):
+        """read() of a folder's index, or None (noted in unread) when it cannot be read now."""
+        if top in unread:
+            return None
+        try:
+            return read()
+        except sqlite3.Error as e:
+            unread[top] = type(e).__name__
+            return None
+
+    def not_now(top: str) -> str:
+        return f"{NOT_NOW} ({unread[top]})"
     print(f"Cache: {cache_dir}")
     print(f"{'Folder':<14} {'Size':>9} {'Files':>7}  {'Fetched':<23}  {'Last used':<10}  To check (stale)")
     for top in tops:
-        rows = cache.rows(cache_dir, top, _query)
+        rows = readable(top, lambda: cache.rows(cache_dir, top, _query))
+        if rows is None:
+            print(f"{top:<14} {_size(os.path.join(cache_dir, top)) / 1e9:>7.2f}GB  {not_now(top)}")
+            continue
         fetched = [r["fetched_at"] for r in rows if r["fetched_at"]]
         used = max((r["last_used_at"] for r in rows if r["last_used_at"]), default=None)
         due: Dict[str, int] = {}
@@ -801,31 +875,42 @@ def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
         span = f"{_date(min(fetched, default=None))} - {_date(max(fetched, default=None))}"
         print(f"{top:<14} {_size(os.path.join(cache_dir, top)) / 1e9:>7.2f}GB {len(rows):>7}  {span:<23}  "
               f"{_date(used):<10}  " + ("; ".join(f"{w}: {n}" for w, n in due.items()) or "-"))
-    world = _world_without_rows(cache_dir) if not folder or folder == "osm" else None
-    if world:
+    world = _world_without_rows(cache_dir, unread) if not folder or folder == "osm" else None
+    if world and world[2] is None:
+        print(f"\nThe world water polygons in {world[0]}: whether they have index rows is not known (the index of "
+              f"osm {not_now('osm')}).")
+    elif world:
         print(f"\nThe world water polygons in {world[0]} have no index rows yet ({world[2]} of {world[1]} files): "
               "`findaline.py cache update` adopts them.")
     lists = {layer.index.top: layer for layer in _sheet_layers()
              if getattr(layer.index, "has_list", False) and layer.index.top in tops}
     for top, layer in lists.items():
         from sources.layers import tnmbucket as tb
+        text = readable(top, lambda: tb.list_status(cache_dir, top, _query))
         print(f"\n{layer.description}, the list of the files its index does not list: "
-              f"{tb.list_status(cache_dir, top, _query)}")
+              f"{text if text is not None else 'not known: ' + not_now(top)}")
     found = [(rid, pbf) for rid, pbf in osmextract.extracts(cache_dir)
              if not folder or cache.relative(cache_dir, pbf).startswith(folder + "/")]
     if found:
         print("\nOSM extracts:")
         for rid, pbf in found:
-            row = cache.info(cache_dir, pbf, _query) or {}
-            print(f"  {rid}: {os.path.getsize(pbf) / 1e9:.2f} GB, data of {(row.get('source_date') or '?')[:16]}, "
-                  f"checked {_date(row.get('checked_at'))}")
-    old = old_tiles(cache_dir, folder, _query)
+            top = cache.relative(cache_dir, pbf).partition("/")[0]
+            row = readable(top, lambda: cache.info(cache_dir, pbf, _query) or {})
+            print(f"  {rid}: {os.path.getsize(pbf) / 1e9:.2f} GB, " + (
+                f"data of {(row.get('source_date') or '?')[:16]}, checked {_date(row.get('checked_at'))}"
+                if row is not None else not_now(top)))
+    old: Dict[str, List[str]] = {}
+    for top in tops:
+        read_before = top not in unread
+        old.update(readable(top, lambda: old_tiles(cache_dir, top, _query)) or {})
+        if read_before and top in unread:  # read for the table, not now
+            print(f"\nTiles in the older encoding in {top}: not counted ({not_now(top)})")
     if old:
         count = sum(len(paths) for paths in old.values())
         gigabytes = sum(os.path.getsize(p) for paths in old.values() for p in paths) / 1e9
         print(f"\nTiles in the older encoding: {count} ({gigabytes:.2f} GB; {', '.join(old)}). A search writes the "
               f"ones it reads again; `findaline.py cache migrate` does all of them.")
-    runs = changed_runs(cache_dir, runs_dir)
+    runs = changed_runs(cache_dir, runs_dir, unread)
     if runs:
         print("\nRuns computed on data that has changed since (run them again to use the new data):")
         for change in runs:

@@ -442,7 +442,8 @@ def test_a_relative_slope_file_is_not_checked(tmp_path, monkeypatch):
 def test_an_immutable_read_that_fails_is_read_again(tmp_path, monkeypatch):
     """F2: an immutable read that fails (here a first connection whose query raises, as a checkpoint tearing the
     read would) is read once more read-only, whether or not a -wal is there now (that read leaves SQLite's -wal and
-    -shm: N2); a second failure is raised."""
+    -shm: N2); a second failure is not tried again and names the runs that read that folder's files as not checked
+    (status-readonly's G2: the listing never ends because one index cannot be read now)."""
     names = ["poland/nmt/a.tif", "poland/nmt/b.tif"]
     data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
     _run(data, "r", {"data": [_entry(cache_dir, names)], "identity": VERSIONS})
@@ -466,11 +467,7 @@ def test_an_immutable_read_that_fails_is_read_again(tmp_path, monkeypatch):
     os.remove(index + "-wal")
     os.remove(index + "-shm")
     modes[:], fail[0] = [], 2
-    try:
-        _changes(data)
-        raise AssertionError("a second failure is raised")
-    except sqlite3.DatabaseError:
-        pass
+    assert _changes(data)["r"].line() == "r: not checked (the index of poland cannot be read now: DatabaseError)"
     assert modes == ["immutable=1", "mode=ro"]
 
 
