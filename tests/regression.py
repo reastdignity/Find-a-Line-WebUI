@@ -6,6 +6,7 @@
     python tests/regression.py --set pl        # a set: quick, pl, search, sources, water, network
     python tests/regression.py --all           # everything (R12 only with OPENTOPOGRAPHY_API_KEY)
     python tests/regression.py R1 --update     # store the new results as expected
+    python tests/regression.py R1 --update-data   # store only the data records of the ok tests (the real cache)
     python tests/regression.py --write-doc     # rewrite the table in docs/regression-tests.md
     python tests/regression.py R1 --browser    # also count the spots of the map in a headless browser (the app)
     python tests/regression.py R72 --cache <scratch>/cache --cold   # a scratch cache: downloads (seeded first)
@@ -65,6 +66,16 @@ An entry with "by_name": true runs only when named or through --set (--all and t
 --update stores nothing for an unverified entry, nor a coastline taken from a fallback, nor live Overpass's
 where the cache folder holds the world file; an ok run keeps the
 stored coastline, a DIFFERENT one stores its own with its values, a first baseline what the search printed.
+
+The data record (record_of): what an entry's search read, from its run.json's "identity" keys (per layer folder
+the files with the cache index's checksums, the coastline's edition or tiles, the search area's shape and inputs, the
+source, the libraries' versions, the access mark, a resumed run's mixed sessions; names relative to the cache only),
+kept per entry in DATA_FILE (tests/regression-data.json), never in regression.json. Under an entry that is DIFFERENT
+or unverified one line says whether its data were the baseline's (data_line: "data as the baseline's", "data
+differ: ..." or "no data record stored"); the outcome and the exit code stay what the results say, a checksum not
+known is never a difference. --update stores an entry's record with its results; --update-data stores only the
+records of the ok entries, on the real cache only, never regression.json. Without either the side file is never
+written. The run log's entries carry "data" (data_state).
 
 Exit code: 0 nothing different and nothing unverified (skips allowed); 1 something different (with
 --update: 0 as before, the new values are stored); 3 nothing different but something unverified, or
