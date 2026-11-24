@@ -11,11 +11,13 @@
     python tests/regression.py R72 --cache <scratch>/cache --cold   # a scratch cache: downloads (seeded first)
 
 Each test runs with its own temporary data folder (runs, map, work) whose cache/ links
-to the real cache (or to --cache, e.g. an empty folder to test downloads). A cache folder that is
-missing or holds no LAYOUT file is refused unless --cold (a worktree's own cache/ is empty: pass
---cache <main checkout>/cache); with --cold an empty folder is first seeded from the real cache
-(SEED_LINKED by hard link per file, SEED_COPIED and the index rows by copy; --no-seed: truly empty),
-so a download test fetches its own source only. The project's data
+to the real cache (or to --cache, e.g. an empty folder to test downloads). The real cache is
+FINDALINE_DATA's cache, else the main checkout's (a link to it counts as it); any other cache folder,
+whatever it holds, is refused unless --cold (from a worktree pass --cache <main checkout>/cache);
+with --cold the folder is first seeded from the real cache with what it lacks (SEED_LINKED by hard
+link per file, SEED_COPIED and the index rows by copy; --no-seed: nothing, for a branch that changes
+the tile encoding), so a download test fetches its own source only; seeding never writes into the
+main checkout's cache when FINDALINE_DATA names another. The project's data
 server is never asked (FINDALINE_MIRROR_URL off) unless --mirror-url names one (a local copy of
 the mirror stack): the entries that read our own tiles (needs_path) then run without the local
 mirror folder too, which FINDALINE_MIRROR may hold first (clear it to test the server). The output
@@ -692,15 +694,19 @@ def _git(*args: str) -> Optional[str]:
     return done.stdout.strip() if done.returncode == 0 else None
 
 
-def real_cache_dir() -> str:
-    """The real cache: FINDALINE_DATA's cache when set, else that of the main checkout (the git common directory's
-    folder, found as tools/test_lock.py lock_dir() finds it, so a worktree names the main checkout's), else this
-    checkout's."""
-    if os.environ.get("FINDALINE_DATA"):
-        return os.path.join(cache.data_dir(), "cache")
+def main_cache_dir() -> str:
+    """The main checkout's cache: beside the git common directory (found as tools/test_lock.py lock_dir() finds it,
+    so a worktree names the main checkout's), else this checkout's."""
     common = _git("rev-parse", "--git-common-dir")
     main = os.path.dirname(os.path.abspath(os.path.join(REPO, common))) if common else REPO
     return os.path.join(main, "cache")
+
+
+def real_cache_dir() -> str:
+    """The real cache: FINDALINE_DATA's cache when set, else the main checkout's (main_cache_dir)."""
+    if os.environ.get("FINDALINE_DATA"):
+        return os.path.join(cache.data_dir(), "cache")
+    return main_cache_dir()
 
 
 def same_folder(a: str, b: str) -> bool:
@@ -1104,11 +1110,12 @@ def main():
     parser.add_argument("--keep", action="store_true",
                         help="keep the log folder (runs, maps, output) also when no test differs")
     parser.add_argument("--cache", help="cache folder for the searches (default: cache/ in FINDALINE_DATA or this "
-                                         "checkout; a worktree's own is empty: pass the main checkout's)")
+                                         "checkout; from a worktree pass the main checkout's, the real cache)")
     parser.add_argument("--cold", action="store_true",
-                        help="run on a missing or empty cache folder too (downloads), seeding it first from the real "
-                             "cache; harmless on a cache that has data already (only what it lacks is seeded)")
-    parser.add_argument("--no-seed", action="store_true", help="with --cold: no seeding, a truly empty cache")
+                        help="run on a cache folder other than the real cache (needed for any other; downloads what "
+                             "it lacks), seeding it first from the real cache with what it lacks")
+    parser.add_argument("--no-seed", action="store_true", help="with --cold: no seeding (a branch that changes the "
+                                                               "cache's tile encoding)")
     parser.add_argument("--mirror-url", help="the project's data server for our own tiles (a local copy of the "
                                               "mirror stack, http://...); default: none, it is never asked")
     args = parser.parse_args()
@@ -1124,17 +1131,24 @@ def main():
     cache_dir = args.cache or os.path.join(cache.data_dir(), "cache")
     real = real_cache_dir()
     searches = [t for t in ids if tests[t].get("kind") != "osm"]  # R17 alone reads only its extract (as before)
+    is_real = same_folder(cache_dir, real)
     if searches and not holds_cache(cache_dir):
         state = "missing" if not os.path.isdir(cache_dir) else "empty" if not os.listdir(cache_dir) else None
         if state is None:  # files but no LAYOUT: no cache of this layout, --cold or not (cache.check_layout's case)
             parser.error(f"the folder {cache_dir} holds files but no LAYOUT file: it is no cache of this layout; "
-                         f"pass --cache {real} or an empty folder")
-        if not args.cold:
-            if same_folder(cache_dir, real):
-                parser.error(f"the cache folder {cache_dir} is the real cache and it is {state} (no LAYOUT file): "
-                             f"fill it, or pass --cold to download")
-            parser.error(f"the cache folder {cache_dir} is {state} (no LAYOUT file): pass --cache {real}, or --cold "
-                         f"to download")
+                         f"pass --cache {real}, or an empty folder with --cold")
+        if not args.cold and is_real:
+            parser.error(f"the cache folder {cache_dir} is the real cache and it is {state} (no LAYOUT file): "
+                         f"fill it, or pass --cold to download")
+    if searches and not args.cold and not is_real:  # whatever it holds: a scratch cache downloads (W3, 2026-11-24)
+        parser.error(f"the cache folder {cache_dir} is not the real cache: pass --cache {real} to verify a change, "
+                     f"or --cold to run on this folder (it downloads what the folder lacks, after seeding it from "
+                     f"the real cache; add --no-seed on a branch that changes the cache's tile encoding, which must "
+                     f"not get the real cache's tiles by link)")
+    if searches and args.cold and not args.no_seed and not is_real and same_folder(cache_dir, main_cache_dir()):
+        parser.error(f"the cache folder {cache_dir} is the main checkout's cache and the real cache is {real} "
+                     f"(FINDALINE_DATA): seeding would write into the main checkout's cache; pass --cache {real}, "
+                     f"or --no-seed")
     started, start_time, seeded = time.time(), datetime.now(timezone.utc), []
     if searches and args.cold:
         cache.check_layout(cache_dir)  # a new cache gets its LAYOUT (a seeded one must have it before its files)
