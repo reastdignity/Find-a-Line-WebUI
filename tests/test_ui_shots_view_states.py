@@ -1,6 +1,6 @@
 """tools/ui_shots.py's states of the result view added in step 3d (VIEW_STATES: the features joined in step 3c, the
-lists of wave B's workers and of the screenshot gate) and the pin of today's page in every other page: the pure parts
-(the pictures are taken by hand: .claude/rules/viewer.md)."""
+lists of wave B's workers and of the screenshot gate) and line volume's round 7 (A3: the filters' panels open), and the
+pin of today's page in every other page: the pure parts (the pictures are taken by hand: .claude/rules/viewer.md)."""
 import json
 import os
 import re
@@ -31,6 +31,8 @@ COVERED = {
     "C4 stepper, phone low": "c-view-stepper-low", "C4 Previous off": "c-view-stepper-first",
     "C4 Next off": "c-view-stepper-last", "C4 smallest first": "c-view-sort-asc",
     "C4 picker, phone": "c-view-picker-low",
+    # round 7's A3: a main filter's editor open, More filters open (every device)
+    "A3 editor": "c-view-editor", "A3 More filters": "c-view-more",
 }
 SHORE = {"c-view-boxes", "c-view-chips-held", "c-view-box-coarser", "c-view-box-shore", "c-view-link-centre"}
 CLICKS = {ui_shots.VIEW_DESKTOP, ui_shots.VIEW_PHONE, ".r-card .r-fold"}  # the only steps that are clicks
@@ -125,3 +127,30 @@ def test_c4s_states():
     assert "wait:window.FINDALINE_VIEW.view.desc === false" in sort
     assert "js:" + ui_shots.VIEW_PRESS % ".vl-tree .vl-dir" in sort
 
+
+# A step that changes the model's filters, which the page keeps in the browser ("findaline.filters") for the pass's
+# later pages: a filter set or cleared, the kinds of lines shown, "Clear all"
+FILTERS_CHANGED = re.compile(r"setFilters|clearFilters|setState|\.vl-clear")
+
+
+def test_the_filters_panels_open():
+    """A3 (line volume's round 7): a main filter's editor (the first chip's, Length) and More filters open on every
+    device, each by its chip's press after a phone's sheet is raised to full (the stop of the list: at half the editor
+    runs on under the screen's edge) and waited for open. That is all they do: no step of theirs changes a filter, and
+    no page of the pass before them does (they show the chips and lines a run opens with), so they stand before
+    c-view-note, the first state that sets one; c-view-sort-asc stays last."""
+    editor, more = ui_shots.PAGES["c-view-editor"][2], ui_shots.PAGES["c-view-more"][2]
+    half, press = "js:" + ui_shots.VIEW_HALF, "js:" + ui_shots.VIEW_PRESS
+    assert editor == [ui_shots.VIEW_READY, half, half, press % ui_shots.VIEW_EDIT_CHIP, ui_shots.VIEW_EDITOR]
+    assert more == [ui_shots.VIEW_READY, half, half, press % ui_shots.VIEW_MORE_CHIP, ui_shots.VIEW_MORE]
+    # the first chip of the bar that opens an editor (Length's: no filter is set, so it is one button); the editor
+    # waited for under its pressed chip, More filters' section in the list's flow under the chips
+    assert ui_shots.VIEW_EDIT_CHIP == ".vl-filters .u-chips > .u-chip[aria-expanded]"
+    assert "[aria-expanded=true]" in ui_shots.VIEW_EDITOR and ".vl-filters .r-editor" in ui_shots.VIEW_EDITOR
+    assert ui_shots.VIEW_MORE_CHIP == ".vl-filters .u-chip.u-add" and "> section.r-more" in ui_shots.VIEW_MORE
+    pages = list(ui_shots.PAGES)
+    changing = [n for n in pages if any(FILTERS_CHANGED.search(s) for s in ui_shots.page_steps(ui_shots.PAGES[n][2]))]
+    assert {"c-view-note", "c-view-none", "c-view-sort-asc"} <= set(changing)
+    assert pages.index("c-view-editor") < pages.index("c-view-more") < min(pages.index(n) for n in changing)
+    names = list(ui_shots.VIEW_STATES)
+    assert names.index("c-view-more") + 1 == names.index("c-view-note") and names[-1] == "c-view-sort-asc"

@@ -578,6 +578,14 @@ VIEW_FULL = [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1, "js:" + VIEW_HA
 VIEW_TREE_PICK = "js:" + VIEW_DO % "const tree = view.sectors.flatMap((s) => s.spots); view.select(tree[%s])"
 VIEW_STEPPER = "wait:document.querySelector('.vl-dhead .vl-spot-next, .vl-sheet-row .vl-spot-next')"
 VIEW_STEP_OFF = "wait:document.querySelector('.vl-dhead .vl-spot-{0}, .vl-sheet-row .vl-spot-{0}')?.disabled === true".format
+# The filters' panels (ViewFilters.tsx) opened by their chips: the first chip that opens an editor (Length's; More
+# filters' chip opens none, a set filter's chip is a span of two buttons), its editor waited for under the pressed chip;
+# More filters' chip, its section waited for in the list's flow (the columns' body, a phone's sheet)
+VIEW_EDIT_CHIP = ".vl-filters .u-chips > .u-chip[aria-expanded]"
+VIEW_EDITOR = ("wait:!!document.querySelector('.vl-filters .u-chips [aria-expanded=true]') && "
+               "!!document.querySelector('.vl-filters .r-editor')")
+VIEW_MORE_CHIP = ".vl-filters .u-chip.u-add"
+VIEW_MORE = "wait:!!document.querySelector('.vl-body > section.r-more, .vl-list > section.r-more')"
 VIEW_STATES = {
     # B1: the map fitted to the search area at Area, its dashed outline, the legend open (the gate's G5); two best
     # spots' lines favourites (their halos); Lines with the best line a favourite and selected; Measure's finished line
@@ -670,6 +678,15 @@ VIEW_STATES = {
                                               "wait:document.querySelector('.vl-sheet-row .r-fav')",
                                               "js:" + VIEW_PRESS % ".vl-sheet-row .r-fav", "wait:document.querySelector('.r-picker')",
                                               "wait:!!document.activeElement?.closest('.r-pop')"]),
+    # line volume's round 7 (A3): a main filter's editor open (Length's, under the chips) and More filters open (after
+    # the chips in the list's flow), on every device; a phone's sheet at full first (at half the editor runs on under
+    # the screen's edge on both phones). Their chips' presses are all they do: no filter changes (which panel is open
+    # is the page's own, not kept in the browser), and they stand before the states that set filters, so they show the
+    # chips a run opens with
+    "c-view-editor": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_PRESS % VIEW_EDIT_CHIP,
+                                          VIEW_EDITOR]),
+    "c-view-more": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_PRESS % VIEW_MORE_CHIP,
+                                        VIEW_MORE]),
     # last of all (the filters they set are kept in the browser, "findaline.filters", for the pass's later pages): a link
     # to a line the filters hide (the note first in the list); no line passing the filters (the sentence, "Clear all")
     "c-view-note": ("c", "#run={run}", [VIEW_READY, VIEW_NOTE, "wait:document.querySelector('.vl-lnote')"]),
