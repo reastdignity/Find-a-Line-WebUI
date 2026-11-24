@@ -71,7 +71,8 @@ Exit code: 0 nothing different and nothing unverified (skips allowed); 1 somethi
 Each run appends one JSON line to regression-runs.jsonl in the test lock's folder
 (tools/test_lock.py lock_dir(): commit, cache folder, each entry's outcome and reason; RUN_LOG_VERSION),
 with each entry's requests and bytes per host and its tiles (its search counts them into COUNTS_FILE in
-its log folder, servicecounts.counted_into; R17 is counted in this process), their sum per host, and the
+its log folder, servicecounts.counted_into, and the checks after it in this process: merged_counts; R17 is
+counted in this process), their sum per host, and the
 test lock's token of the run that wrapped this one (LOCK_TOKEN_ENV).
 """
 
@@ -409,19 +410,22 @@ def run(tests: dict, test_id: str, work: str, cache_dir: str, browser: bool) -> 
     runs = os.path.join(out, "runs")
     found = measure(result.stdout, runs)
     found["exit"] = result.returncode
-    found["service_counts"] = read_counts(counts)
     if result.returncode:
         found["unanswered"] = unanswered(result.stderr)
     table = found.pop("table", None)
+    checks: dict = {}
     if not result.returncode:
-        problems = found.pop("store_problems", []) + check_map(runs, found)
-        if tests[test_id].get("count_anchors_in"):
-            found["lines_in_region"] = count_in_region(table, tests[test_id]["count_anchors_in"], cache_dir)
-        if tests[test_id].get("check_profiles"):
-            problems += check_profiles(runs, out, tests[test_id]["check_profiles"])
-        if browser:
-            problems += check_browser(runs, out, found)
+        # The checks run here, in this process (a named region's Nominatim answer, the profiles' tiles): counted too
+        with servicecounts.counting() as checks:
+            problems = found.pop("store_problems", []) + check_map(runs, found)
+            if tests[test_id].get("count_anchors_in"):
+                found["lines_in_region"] = count_in_region(table, tests[test_id]["count_anchors_in"], cache_dir)
+            if tests[test_id].get("check_profiles"):
+                problems += check_profiles(runs, out, tests[test_id]["check_profiles"])
+            if browser:
+                problems += check_browser(runs, out, found)
         found["problems"] = problems
+    found["service_counts"] = merged_counts(read_counts(counts), checks)
     return found
 
 
@@ -972,6 +976,16 @@ def read_counts(path: str) -> Optional[dict]:
         return {"hosts": hosts, "tiles": {key: int(data["tiles"][key]) for key in ("downloaded", "cached")}}
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return None
+
+
+def merged_counts(search: Optional[dict], checks: Optional[dict]) -> Optional[dict]:
+    """An entry's counts: its search's (read_counts) plus those of the harness's checks after it (a summary of
+    servicecounts.counting); None while the search's are unknown and the checks asked nothing."""
+    if not search and not (checks and checks.get("hosts")):
+        return search
+    parts = [part for part in (search, checks) if part]
+    return {"hosts": hosts_summed(dict(enumerate(parts))),
+            "tiles": {key: sum(part.get("tiles", {}).get(key, 0) for part in parts) for key in ("downloaded", "cached")}}
 
 
 def with_counts(entry: dict, counts: Optional[dict]) -> dict:

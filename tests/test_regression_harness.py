@@ -1132,6 +1132,10 @@ def test_r17_lists_its_differences_and_keeps_both_trees(harness, tmp_path, capsy
     assert "\n    coastline: 1 only in the extract, 1 only in Overpass, 1 in both with another geometry" in out
     assert "\n        only in the extract: way/1" in out and "\n        in both with another geometry: way/3" in out
     assert tests["R17"]["expected"] == {"coastline": 3, "same": False}  # the ids are no expected value
+    asked = len(list(osm.tiles(14.0, 36.0, 14.2, 36.2)))  # one Overpass query per theme tile (osm.fetch_tile)
+    hosts = _log_line(tmp_path)["entries"]["R17"]["hosts"]  # counted in this process; the stand-in's address hidden
+    assert hosts == {"ip-address": {"requests": asked, "bytes": hosts["ip-address"]["bytes"], "failed": 0}}
+    assert asked >= 1 and hosts["ip-address"]["bytes"] == asked * len(theirs)
     work = out.rsplit("logs in ", 1)[1].strip()
     folder = os.path.join(work, "R17")
     with open(os.path.join(folder, "differences.json"), encoding="utf-8") as f:
@@ -1273,6 +1277,39 @@ def test_run_names_the_counts_file(tmp_path, monkeypatch):
     assert seen["path"] == str(tmp_path / "work" / "R1" / regression.COUNTS_FILE)
     assert found["service_counts"] == _counts({"services.example": {"requests": 2, "bytes": 2_400_000, "failed": 0}},
                                               1, 0)
+
+
+def test_run_adds_the_checks_requests(tmp_path, monkeypatch):
+    """run(): what the harness's checks after a search ask in this process (here check_map, standing in for a named
+    region's lookup or the profiles' tiles) is added to the search's counts; with no counts file, to none."""
+    import servicecounts
+
+    def check_map(runs, found):
+        servicecounts.record("https://nominatim.example/search", "ok", 10)
+        servicecounts.record("https://services.example/wcs", "timeout")
+        return []
+
+    for written in (True, False):
+        def search(cmd, env=None, **kwargs):
+            if written:
+                with open(env["FINDALINE_SERVICE_COUNTS"], "w", encoding="utf-8") as f:
+                    json.dump(_counts({"services.example": {"requests": 2, "bytes": 200, "failed": 0}}, 1, 3), f)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(regression.subprocess, "run", search)
+        monkeypatch.setattr(regression, "link", lambda target, path: os.makedirs(path))
+        monkeypatch.setattr(regression, "measure", lambda output, runs: {"store_problems": []})
+        monkeypatch.setattr(regression, "check_map", check_map)
+        work = tmp_path / f"work-{written}"
+        found = regression.run({"R1": _entry(_expected())}, "R1", str(work), str(tmp_path / "cache"), False)
+        nominatim = {"requests": 1, "bytes": 10, "failed": 0}
+        if written:
+            assert found["service_counts"] == _counts({"services.example": {"requests": 3, "bytes": 200, "failed": 1},
+                                                       "nominatim.example": nominatim}, 1, 3)
+        else:
+            assert found["service_counts"] == _counts({"services.example": {"requests": 1, "bytes": 0, "failed": 1},
+                                                       "nominatim.example": nominatim})
+        assert found["problems"] == [] and not servicecounts.enabled()
 
 
 @pytest.mark.parametrize("text", ["", "{", "[]", '{"hosts": []}', '{"hosts": {"a": {"requests": 1}}}',
