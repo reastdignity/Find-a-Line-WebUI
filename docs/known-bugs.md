@@ -119,8 +119,8 @@ none in 16 and 8 rounds (so the size does not decide it simply); none in 240 rou
 `cache.wal` now tries a connection's opening again after that one error (six pauses, 1.6 s in all; any other error
 is raised at once; the pauses run in the web's thread pool for most calls, on the event loop where the web calls the
 queue directly: `web.quick`'s `quick_forget` on its error path, the app's end with `scheduler.stop()`, `osm_job`).
-With `Jobs._db` under the same kill: `main`'s jobs.py 2 of 80 rounds with the error, the branch's 0 of 80; the test
-alone 0 of 40 runs. **Every database opened in WAL mode has it** (the user's "try it", 2026-11-24): jobs.sqlite,
+With `Jobs._db` under the same kill: jobs.py as it was (`main` b1434458) 2 of 80 rounds with the error, with the
+retry 0 of 80; the test alone 0 of 40 runs. **Every database opened in WAL mode has it** (the user's "try it", 2026-11-24): jobs.sqlite,
 accounts.sqlite, audit.sqlite and a country's manifest through `cache.wal`; the cache's index (`cache._connect`) and
 the test lock's queue (`tools/test_lock.py`, the retry written out: it imports nothing of the checkout) in their own
 loops; `tests/test_web.py::test_no_module_switches_a_database_to_wal_on_its_own` keeps it so. At those two openings
