@@ -910,6 +910,81 @@ def test_flat_lakes_in_strips_hold_no_heights_of_a_large_region(tmp_path, monkey
         assert not large and peak > region, (peak, region)
 
 
+def _lake(z, rows, cols, kind, rng):
+    """A lake held as data in z (at 2 m): "kept" (noise of 0.04 m and a gentle cone of 0.6 m, 8 pixels round, on
+    under 5 % of it: its highest less lowest over FLAT_WATER_SPREAD_M, its p95 - p5 under it: kept by the percentiles),
+    "refused" (rising 0.5 m along its rows) or "flat" (noise of 0.04 m: kept by its lowest and highest). Its rim is
+    steep (the ground's)."""
+    r0, r1 = rows
+    c0, c1 = cols
+    if kind == "refused":
+        z[r0:r1, c0:c1] = 50.0 + np.linspace(0, 0.5, r1 - r0)[:, None]
+        return
+    z[r0:r1, c0:c1] = 50.0 + rng.random((r1 - r0, c1 - c0)) * 0.04
+    if kind == "kept":
+        rr, cc = np.mgrid[r0:r1, c0:c1]
+        z[r0:r1, c0:c1] += np.maximum(0.0, 0.6 * (1 - np.hypot(rr - (r0 + r1) // 2, cc - (c0 + 20)) / 8.0))
+
+
+def _seam_lakes():
+    """Steep ground (17 degrees at 2 m, 8 strips of 64 rows) with lakes: one ending on strip 0's last row (it closes a
+    strip later), one inside strip 2 alone, one over strips 3 to 5, two side by side over the seam of rows 383/384
+    (their records share a row band), one kept by its bounds over the seam of rows 447/448, one refused over strips 3
+    and 4."""
+    rng = np.random.default_rng(4)
+    z = tilted(64 * 8, 300, res=2.0, grade=0.3)
+    for rows, cols, kind in (((20, 65), (10, 130), "kept"), ((132, 190), (10, 130), "kept"),
+                             ((200, 340), (10, 80), "kept"), ((360, 410), (80, 180), "kept"),
+                             ((360, 410), (200, 290), "refused"), ((420, 470), (10, 90), "flat"),
+                             ((200, 300), (150, 280), "refused")):
+        _lake(z, rows, cols, kind, rng)
+    return z.astype(np.float32)
+
+
+@pytest.mark.parametrize("gather_px", [4_000_000, 1000, 1])
+def test_flat_lakes_on_the_seams(tmp_path, monkeypatch, gather_px):
+    """The flat lakes of the grid in blocks (access._flat_lakes_rows: kept lakes written in the forward sweep, the
+    questions of one strip answered there, the others through their records) = flat_water at once, pixel for pixel,
+    with every question gathered, some over GATHER_PX (B) and all of them over it; the gather visits only the strips
+    its questions span."""
+    z = _seam_lakes()
+    res = 2.0
+    want = access.flat_water(z, access.slope_deg(z, res), res)
+    assert want[40, 100] and want[150, 100] and want[220, 60] and want[370, 150] and want[445, 50]
+    assert not want[385, 250] and not want[250, 200]
+    monkeypatch.setattr(access, "STRIP_PX", 1)  # 64 rows a strip
+    monkeypatch.setattr(access, "GATHER_PX", gather_px)
+    visited, phase = [], {"gather": False}
+    real_visit, real_spread = access._Regions.visit, access._spread_flat
+
+    def visit(self, s, records):
+        if phase["gather"]:
+            visited.append((s, {int(c) for c in records[:, 6]}))
+        return real_visit(self, s, records)
+
+    def spread(regions, z, keep, done):
+        phase["gather"] = True
+        try:
+            real_spread(regions, z, keep, done)
+        finally:
+            phase["gather"] = False
+        q = regions.questions
+        for s, codes in visited:  # every strip visited holds a question asked there, in its span
+            assert all(c >= access.ASK and q["first"][c - access.ASK] <= s <= q["last"][c - access.ASK]
+                       and not done[c - access.ASK] for c in codes), (s, codes)
+
+    monkeypatch.setattr(access._Regions, "visit", visit)
+    monkeypatch.setattr(access, "_spread_flat", spread)
+    wet = access._Mask(str(tmp_path / "wet.npy"), z.shape)
+    wet.write(0, z.shape[0], False)
+    access._flat_lakes_rows(z, res, str(tmp_path), wet)
+    got = wet.rows(0, z.shape[0])
+    wet.remove()
+    assert os.listdir(tmp_path) == []
+    assert np.array_equal(got, want), int((got != want).sum())
+    assert visited  # some questions were left to the gather or B
+
+
 def test_speed_logged(record_property):
     """About 0.3 s per megapixel (part P3d, indicative): logged, not asserted."""
     z = rough(n=1000)

@@ -479,6 +479,7 @@ class _Mask:
 
 DROP, KEEP, ASK = 0, 1, 2  # a region's verdict (_Regions); an open question q gets the code ASK + q
 REGIONS_FILE = "access_regions.bin"  # the regions' tables of the pass running (one at a time)
+BITS_FILE = "access_bits.bin"  # the pixels of the flat lakes' large open question being answered (one at a time)
 
 
 class _Regions:
@@ -498,8 +499,10 @@ class _Regions:
       as j", and with on_strip the records of the pieces still pending.
     - on_strip(regions, s, labels, final), if given, is called with each strip's labels and every piece's verdict
       (final[label]; below 0: pending, its class carried on and not settled), so the caller writes what is known at
-      once. A pending piece touches the strip's first or last row (only those join other strips); its record (_REC)
-      holds its box in the strip and its first pixel, so a later visit labels that box alone.
+      once; it may return the labels of more pieces to record (bool by label: the flat lakes' questions it leaves for
+      later). A pending piece touches the strip's first or last row (only those join other strips), and so does a
+      piece of a class that began above; their records (_REC) hold their box in the strip and their first pixel, so a
+      later visit labels that box alone.
     - The backward sweep over the tables alone: a carried class takes the verdict of the class it joined below, in
       the pieces' tables and the records, in place.
     - Reading: `visit` labels the boxes of a strip's records again; `codes` and `kept` a whole strip (the same call on
@@ -609,8 +612,12 @@ class _Regions:
                 if on_strip is not None:
                     final = np.zeros(n + 1, np.int32)
                     final[1:] = piece
-                    records = _records_of(lab, final)
-                    on_strip(self, s, lab, final)
+                    more = on_strip(self, s, lab, final)  # pieces the caller wants recorded too (bool by label)
+                    want = final < 0
+                    if more is not None:
+                        want |= more
+                    want[0] = False
+                    records = _records_of(lab, final, want, pixels)
                 self._records.append((f.tell(), len(records)))
                 records.tofile(f)
                 c_pixels, c_first, c_last = cls_pixels[on], cls_first[on], cls_last[on]
@@ -705,28 +712,37 @@ _REC = 8  # a record's int32: the piece, its box in the strip (first row, last +
 # of its first pixel (in its box's first row), its verdict, 1
 
 
-def _records_of(lab: np.ndarray, final: np.ndarray) -> np.ndarray:
-    """The records (_REC) of a strip's pending pieces (final[label] below 0), from their own pixels only: a pending
-    piece is not settled, so it is small (the caller's `settled` says how small)."""
-    pending = final < 0
-    pending[0] = False
-    if not pending.any():
-        return np.zeros((0, _REC), np.int32)
-    rr, cc = np.nonzero(pending[lab])  # in raster order: a label's first index is its first pixel
-    ll = lab[rr, cc]
-    p, first = np.unique(ll, return_index=True)
-    out = np.zeros((len(p), _REC), np.int32)
-    out[:, 0], out[:, 1], out[:, 5], out[:, 6], out[:, 7] = p, rr[first], cc[first], final[p], 1
-    end = np.zeros(int(p.max()) + 1, np.int64)
-    np.maximum.at(end, ll, rr)
-    out[:, 2] = end[p] + 1
-    left = np.full(int(p.max()) + 1, lab.shape[1], np.int64)
-    np.minimum.at(left, ll, cc)
-    out[:, 3] = left[p]
-    end[:] = 0
-    np.maximum.at(end, ll, cc)
-    out[:, 4] = end[p] + 1
-    return out
+def _records_of(lab: np.ndarray, final: np.ndarray, want: np.ndarray, pixels: np.ndarray) -> np.ndarray:
+    """The records (_REC) of a strip's pieces marked in `want` (by label): their verdicts (final[label]; below 0:
+    pending) and boxes. A piece of more than a sixteenth of the strip's pixels gets the strip's whole width and its
+    rows from its first pixel down (one search for that pixel; at most 16 such pieces); the others their own box,
+    found from their own pixels."""
+    h, w = lab.shape
+    large = np.zeros(len(want), bool)
+    large[1:] = pixels > max(1, lab.size // 16)
+    large &= want
+    small = want & ~large
+    rows = []
+    if small.any():
+        rr, cc = np.nonzero(small[lab])  # in raster order: a label's first index is its first pixel
+        ll = lab[rr, cc]
+        p, first = np.unique(ll, return_index=True)
+        out = np.zeros((len(p), _REC), np.int32)
+        out[:, 0], out[:, 1], out[:, 5], out[:, 6], out[:, 7] = p, rr[first], cc[first], final[p], final[p] < 0
+        end = np.zeros(int(p.max()) + 1, np.int64)
+        np.maximum.at(end, ll, rr)
+        out[:, 2] = end[p] + 1
+        left = np.full(int(p.max()) + 1, w, np.int64)
+        np.minimum.at(left, ll, cc)
+        out[:, 3] = left[p]
+        end[:] = 0
+        np.maximum.at(end, ll, cc)
+        out[:, 4] = end[p] + 1
+        rows.append(out)
+    for p in np.flatnonzero(large).tolist():
+        r, c = divmod(int(np.argmax(lab.ravel() == p)), w)
+        rows.append(np.array([[p, r, h, 0, w, c, final[p], final[p] < 0]], np.int32))
+    return np.concatenate(rows) if rows else np.zeros((0, _REC), np.int32)
 
 
 def _whole_metres_rows(z, water, filled) -> bool:
@@ -765,48 +781,64 @@ def _batches(regions: np.ndarray, count: np.ndarray):
         yield np.array(batch)
 
 
-def _spread_flat(regions: "_Regions", z) -> np.ndarray:
-    """flat_water's test of the open questions' heights (p95 - p5 at most FLAT_WATER_SPREAD_M), bool by question: a
-    region over GATHER_PX by the selection, without its heights (_spread_large); the others in batches, a batch's
-    heights gathered into one float32 array (GATHER_PX at a time) from the batch's strips only, each region's judged
-    in place (np.percentile with overwrite_input: no copy; two calls with scalar q, as flat_water, whose spread they
-    give to the last bit) and released with its batch. The order of a region's heights is not that of the grid at
-    once: an order statistic does not depend on it."""
+def _spread_ok(k: np.ndarray, zz: np.ndarray, slots: int) -> np.ndarray:
+    """flat_water's test (p95 - p5 at most FLAT_WATER_SPREAD_M) of `slots` regions at once: zz their heights, k each
+    height's region (0 .. slots - 1). The heights ordered by region (a copy), each region's judged in place
+    (np.percentile with overwrite_input; two calls with scalar q, as flat_water, whose spread they give to the last
+    bit: an order statistic does not depend on the heights' order)."""
+    order = np.argsort(k, kind="stable")
+    zz = zz[order]
+    del order
+    start = np.concatenate([[0], np.cumsum(np.bincount(k, minlength=slots))])
+    ok = np.zeros(slots, bool)
+    for j in range(slots):
+        v = zz[start[j]:start[j + 1]]
+        p95 = np.percentile(v, 95, overwrite_input=True)
+        ok[j] = p95 - np.percentile(v, 5, overwrite_input=True) <= FLAT_WATER_SPREAD_M
+    return ok
+
+
+def _spread_flat(regions: "_Regions", z, keep: np.ndarray, done: np.ndarray) -> None:
+    """flat_water's test of the open questions not answered yet (done False), setting keep: a region over GATHER_PX
+    by the selection, without its heights (_spread_large); the others in batches of at most GATHER_PX pixels, a batch's
+    heights gathered into one float32 array from the records of its regions (their visits: only the strips and the
+    boxes they span) and judged by _spread_ok's way, region by region."""
     q = regions.questions
     count = np.array(q["pixels"], np.int64)
     first, last = np.array(q["first"], np.int64), np.array(q["last"], np.int64)
-    keep = np.zeros(len(count), bool)
-    for j in np.flatnonzero(count > GATHER_PX).tolist():
+    rest = np.flatnonzero(~done)
+    for j in rest[count[rest] > GATHER_PX].tolist():
         keep[j] = _spread_large(regions, z, j)
-    for batch in _batches(np.flatnonzero(count <= GATHER_PX), count):
+    for batch in _batches(rest[count[rest] <= GATHER_PX], count):
         sizes = count[batch]
         start = np.concatenate([[0], np.cumsum(sizes)])
-        slot = np.full(ASK + len(count), -1, np.int64)  # by a pixel's code: its region's place in the batch
+        slot = np.full(ASK + len(count), -1, np.int64)  # by a record's code: its region's place in the batch
         slot[ASK + batch] = np.arange(len(batch))
         heights = np.empty(int(start[-1]), np.float32)
         filled = np.zeros(len(batch), np.int64)
-        for s in range(int(first[batch].min()), int(last[batch].max()) + 1):
-            r0, r1 = regions.strips[s]
-            k = slot[regions.codes(s).ravel()]
-            sel = k >= 0
-            if not sel.any():
-                continue
-            k = k[sel]
-            zz = np.asarray(z[r0:r1], np.float32).ravel()[sel]
-            order = np.argsort(k, kind="stable")
-            k, zz = k[order], zz[order]
-            got = np.bincount(k, minlength=len(batch))
-            at = np.cumsum(got) - got  # where each region's pixels begin in this strip's sorted k
-            heights[start[k] + filled[k] + np.arange(len(k)) - at[k]] = zz
-            filled += got
-            del k, zz, order, sel
+        spans = sorted({s for j in batch.tolist() for s in range(int(first[j]), int(last[j]) + 1)})
+        for s in spans:
+            records = regions.records(s)
+            records = records[slot[records[:, 6]] >= 0]
+            for a, b, c, d, labels, ids, group in regions.visit(s, records):
+                t = np.full(int(labels.max()) + 1, -1, np.int64)
+                t[ids] = slot[group[:, 6]]
+                k = t[labels]
+                sel = k >= 0
+                k = k[sel]
+                zz = np.asarray(z[a:b, c:d], np.float32)[sel]
+                order = np.argsort(k, kind="stable")
+                k, zz = k[order], zz[order]
+                got = np.bincount(k, minlength=len(batch))
+                at = np.cumsum(got) - got  # where each region's pixels begin in this window's sorted k
+                heights[start[k] + filled[k] + np.arange(len(k)) - at[k]] = zz
+                filled += got
+                del k, zz, order, sel
         for j, b in enumerate(batch.tolist()):
             v = heights[start[j]:start[j + 1]]
             p95 = np.percentile(v, 95, overwrite_input=True)
-            if p95 - np.percentile(v, 5, overwrite_input=True) <= FLAT_WATER_SPREAD_M:
-                keep[b] = True
+            keep[b] = p95 - np.percentile(v, 5, overwrite_input=True) <= FLAT_WATER_SPREAD_M
         del heights
-    return keep
 
 
 def _key_range(lowest: float, highest: float):
@@ -845,26 +877,54 @@ def _percentile_of(chunks, n: int, q, lo: int, hi: int) -> np.float32:
 def _spread_large(regions: "_Regions", z, q: int) -> bool:
     """flat_water's test (p95 - p5 at most FLAT_WATER_SPREAD_M) of the open question q, a region over GATHER_PX,
     without its heights: p95 and p5 as np.percentile gives them (_percentile_of), its heights read again for every
-    pass of the selection from its own strips only (_Regions' reading). Each of the two takes a pass per histogram
-    of filling._select (SELECT_BINS counters) and one to collect at most SELECT_COLLECT heights of the last bin."""
+    pass of the selection. The first pass reads its pixels from its records (_Regions.visit: its own strips and
+    boxes) and keeps them as bits in the scratch file BITS_FILE (one bit a pixel of its windows, at most 1/8 B per
+    pixel of the grid; removed after the region), which the later passes read instead of labelling again. Each of the
+    two percentiles takes a pass per histogram of filling._select (SELECT_BINS counters) and one to collect at most
+    SELECT_COLLECT heights of the last bin."""
     code = ASK + q
     first, last = regions.questions["first"][q], regions.questions["last"][q]
+    path = os.path.join(os.path.dirname(regions.path), BITS_FILE)
+    windows = []  # after the first pass: the region's windows (rows, columns) and their bits' place in the file
 
     def chunks():
-        for s in range(first, last + 1):
-            r0, r1 = regions.strips[s]
-            yield np.asarray(z[r0:r1], np.float32)[regions.codes(s) == code]
+        if windows and windows[-1] is None:  # the later passes: the pixels from their bits, no labels again
+            with open(path, "rb") as f:
+                for a, b, c, d, at in windows[:-1]:
+                    size = (b - a) * (d - c)
+                    f.seek(at)
+                    mine = np.unpackbits(np.fromfile(f, np.uint8, (size + 7) // 8), count=size).view(bool)
+                    yield np.asarray(z[a:b, c:d], np.float32)[mine.reshape(b - a, d - c)]
+            return
+        windows.clear()
+        with open(path, "wb") as f:
+            for s in range(first, last + 1):
+                records = regions.records(s)
+                for a, b, c, d, labels, ids, _ in regions.visit(s, records[records[:, 6] == code]):
+                    mine = np.zeros(int(labels.max()) + 1, bool)
+                    mine[ids] = True
+                    mine = mine[labels]
+                    windows.append((a, b, c, d, f.tell()))
+                    np.packbits(mine).tofile(f)
+                    yield np.asarray(z[a:b, c:d], np.float32)[mine]
+        windows.append(None)  # complete: a pass read every window
 
     n = regions.questions["pixels"][q]
     lo, hi = _key_range(regions.questions["lowest"][q], regions.questions["highest"][q])
-    p95 = _percentile_of(chunks, n, 95, lo, hi)
-    return bool(p95 - _percentile_of(chunks, n, 5, lo, hi) <= FLAT_WATER_SPREAD_M)
+    try:
+        p95 = _percentile_of(chunks, n, 95, lo, hi)
+        return bool(p95 - _percentile_of(chunks, n, 5, lo, hi) <= FLAT_WATER_SPREAD_M)
+    finally:
+        _remove(path)
 
 
 def _flat_lakes_rows(z, res: float, work: str, out: _Mask) -> None:
     """flat_water of the whole grid, strip by strip, ORed into `out` (the water): the regions of the flat pixels
     (_Regions) judged by their area and their lowest and highest height, the exact percentiles of flat_water only for
-    the regions whose highest less lowest is over FLAT_WATER_SPREAD_M (open questions: _spread_flat)."""
+    the regions whose highest less lowest is over FLAT_WATER_SPREAD_M (open questions). In the forward sweep each
+    strip's kept lakes are ORed into the water at once, and the open questions that begin and end in the strip (at
+    most GATHER_PX pixels) are answered there from its heights; the other open questions (_spread_flat), the lakes of
+    regions still growing below and the writes they leave are read through their records (_Regions.visit)."""
     h, w = z.shape
     flat = _Mask(os.path.join(work, "access_flat.npy"), (h, w))
     for r0, r1 in _strips(h, w):
@@ -876,11 +936,48 @@ def _flat_lakes_rows(z, res: float, work: str, out: _Mask) -> None:
         keep = big & (highest - lowest <= FLAT_WATER_SPREAD_M - 1e-6)  # p95 - p5 lies within the lowest and highest
         return np.where(keep, KEEP, np.where(big, ASK, DROP))
 
+    answered = {}  # the open questions answered in the forward sweep
+
+    def write(regions, s, labels, final):
+        r0, r1 = regions.strips[s]
+        q = regions.questions
+        tab = final == KEEP
+        asked = np.unique(final[final >= ASK]) - ASK  # questions closed in this strip
+        now = np.array([j for j in asked.tolist() if q["first"][j] == s and q["pixels"][j] <= GATHER_PX], np.int64)
+        if len(now):
+            values = np.asarray(z[r0:r1], np.float32)
+            count = np.array(q["pixels"], np.int64)
+            for batch in _batches(now, count):
+                slot = np.full(ASK + len(count), -1, np.int32)
+                slot[ASK + batch] = np.arange(len(batch))
+                of = np.where(final >= ASK, slot[np.maximum(final, 0)], -1)  # by label: its region's place
+                sel = (of >= 0)[labels]
+                ok = _spread_ok(of[labels[sel]], values[sel], len(batch))
+                del sel
+                for j, v in zip(batch.tolist(), ok.tolist()):
+                    answered[j] = v
+                tab |= np.isin(final, ASK + batch[ok])
+        out.write(r0, r1, out.rows(r0, r1) | tab[labels])
+        return (final >= ASK) & ~np.isin(final, ASK + now)  # the questions left: their pieces recorded
+
     regions = _Regions(flat, os.path.join(work, REGIONS_FILE), judge,
-                       heights=lambda r0, r1: np.asarray(z[r0:r1], np.float32))
-    answers = _spread_flat(regions, z)
-    for s, (r0, r1) in enumerate(regions.strips):
-        out.write(r0, r1, out.rows(r0, r1) | regions.kept(s, answers))
+                       heights=lambda r0, r1: np.asarray(z[r0:r1], np.float32), on_strip=write)
+    nq = len(regions.questions["pixels"])
+    keep, done = np.zeros(nq, bool), np.zeros(nq, bool)
+    for j, v in answered.items():
+        keep[j], done[j] = v, True
+    _spread_flat(regions, z, keep, done)
+    verdict = np.zeros(ASK + nq, bool)  # by a record's code: written now (a lake kept, or a question kept)
+    verdict[ASK:] = keep & ~done
+    for s in range(len(regions.strips)):
+        records = regions.records(s)
+        now = verdict[records[:, 6]] | ((records[:, 6] == KEEP) & (records[:, 7] == 1))
+        for a, b, c, d, labels, ids, _ in regions.visit(s, records[now]):
+            mine = np.zeros(int(labels.max()) + 1, bool)
+            mine[ids] = True
+            rows = out.rows(a, b)
+            rows[:, c:d] |= mine[labels]
+            out.write(a, b, rows)
     regions.remove()
     flat.remove()
 
