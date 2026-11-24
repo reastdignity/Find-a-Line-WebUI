@@ -582,4 +582,4 @@ def test_cache_status_skips_parked_folders(tmp_path_factory):
     (data / "runs" / current / "run.json").write_text(json.dumps(meta), "utf-8")
     parked = data / "runs" / f"{rn.REMOVING}{OLD['data_js']}" / "run.json"
     parked.write_text(json.dumps(meta), "utf-8")
-    assert [name for name, _, _ in update.changed_runs(str(data / "cache"), str(data / "runs"))] == [current]
+    assert [change.name for change in update.changed_runs(str(data / "cache"), str(data / "runs"))] == [current]

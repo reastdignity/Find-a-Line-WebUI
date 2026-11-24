@@ -12,6 +12,7 @@ uv run tests/regression.py R1 R7          # chosen tests
 uv run tests/regression.py --all          # everything but R17, run by name only (about 9 min on the real cache, 2026-11-23)
 uv run tests/regression.py --all --browser   # also count the spots of every map in headless Edge
 uv run tests/regression.py R1 --update --write-doc   # store new results, rewrite the table below
+uv run tests/regression.py R1 R7 --update-data   # store only the data records of the ok tests (the real cache)
 uv run tests/regression.py R72 --cache <scratch>/cache --cold   # a scratch cache, seeded: downloads R72's source
 ```
 
@@ -44,7 +45,27 @@ uv run tests/regression.py R72 --cache <scratch>/cache --cold   # a scratch cach
 - The summary counts them apart (`N ok, M different, U unverified, K skipped; logs ...`). The exit code: 0 nothing different and nothing unverified (skips allowed), 1 something different (with `--update` 0, the values stored), 3 nothing different but something unverified or not stored by `--update`, 2 a usage error (the refused cache too).
 - `--update` stores nothing for an unverified test, nor a coastline from a fallback (`... (fallback)`), a first baseline too: it prints `R85: not stored (...)` and the run ends with exit code 3. Nor does it store live Overpass's text where the cache folder holds the world file (a search that did not take the world file it had is no baseline). An `ok` run keeps the stored `coastline` (its values equal the baseline's on any source); a `DIFFERENT` run stores the coastline it printed with its values; a first baseline stores what the search printed (live Overpass's text too, on a folder without the world file). An entry asking for another coastline (`--coastline copernicus`) prints no `(fallback)` and is stored as any other.
 - An entry with `"by_name": true` runs only when named or through `--set`: `--all` and the quick set leave it out, print `R17: not run (by name only)` and count it apart (`..., 1 by name only`). R17 has it since 2026-11-24 (the user's decision: 12 Overpass queries and about 7 min a run, skipped whenever Overpass does not answer): run it by name (`R17`, or `--set network`) after a change of `osm.py` or `osmextract.py`, at most once a day while Overpass does not answer.
-- Every run with a test appends one JSON line to `regression-runs.jsonl` in the test lock's folder (`.git/findaline-locks/`; `FINDALINE_TEST_LOCK_DIR` moves it): `v` (1), `time` (the start, UTC), `seconds`, `commit`, `branch`, `worktree` (the checkout's folder), `cache` as given and `cache_real` resolved (a junction to the real cache shows there), `real_cache`, `cold`, `seeded`, `args` (ids, `all`, `sets`, `update`, `browser`), `entries` (each test's `outcome`, `reason`, `coastline`, `seconds`, and `hosts` and `tiles` when its search counted them), `counts`, `exit`, `lock_token` (the token of the test lock's queue entry that wrapped the run, which the lock gives the command as `FINDALINE_TEST_LOCK_TOKEN`; null outside the lock) and `hosts` (the entries' summed). An entry's `hosts` holds per host name its `requests` (every attempt, retries too), `bytes` and `failed` (the attempts not answered with data or a 404), and `tiles` the elevation layers' tiles `downloaded` and found `cached`: its search counts them with the web worker's counting (`servicecounts`) into `service-counts.json` in its log folder, which `FINDALINE_SERVICE_COUNTS` names (any command-line search writes that file when the variable is set, and counts nothing without it), and the harness adds what its own checks after the search asked (a named region of `count_anchors_in`, the profiles of `check_profiles`); R17's Overpass queries are counted in the harness's own process. A host marked `"reads": true` had files read through GDAL (`sources/readers/windows.py`, which says so itself): each file read for a block is one request without bytes, as GDAL's own requests, their bytes and its retries are not seen; a host asked both ways carries the mark over the sum. Every other count is of our own requests and ranges, each attempt with the bytes it received. One question the log now answers: the requests per host per day, `entries.*.hosts` summed by the date of `time` (a run on a warm cache asks nothing: `hosts` is `{}`). No key or address goes into it (host names only: an IP address is written as `ip-address`), nor any environment value but the lock's token; a failure to write it is one warning line.
+- Every run with a test appends one JSON line to `regression-runs.jsonl` in the test lock's folder (`.git/findaline-locks/`; `FINDALINE_TEST_LOCK_DIR` moves it): `v` (1), `time` (the start, UTC), `seconds`, `commit`, `branch`, `worktree` (the checkout's folder), `cache` as given and `cache_real` resolved (a junction to the real cache shows there), `real_cache`, `cold`, `seeded`, `args` (ids, `all`, `sets`, `update`, `update_data`, `browser`), `entries` (each test's `outcome`, `reason`, `coastline`, `seconds`, and `hosts` and `tiles` when its search counted them), `counts`, `exit`, `lock_token` (the token of the test lock's queue entry that wrapped the run, which the lock gives the command as `FINDALINE_TEST_LOCK_TOKEN`; null outside the lock) and `hosts` (the entries' summed). An entry's `hosts` holds per host name its `requests` (every attempt, retries too), `bytes` and `failed` (the attempts not answered with data or a 404), and `tiles` the elevation layers' tiles `downloaded` and found `cached`: its search counts them with the web worker's counting (`servicecounts`) into `service-counts.json` in its log folder, which `FINDALINE_SERVICE_COUNTS` names (any command-line search writes that file when the variable is set, and counts nothing without it), and the harness adds what its own checks after the search asked (a named region of `count_anchors_in`, the profiles of `check_profiles`); R17's Overpass queries are counted in the harness's own process. A host marked `"reads": true` had files read through GDAL (`sources/readers/windows.py`, which says so itself): each file read for a block is one request without bytes, as GDAL's own requests, their bytes and its retries are not seen; a host asked both ways carries the mark over the sum. Every other count is of our own requests and ranges, each attempt with the bytes it received. One question the log now answers: the requests per host per day, `entries.*.hosts` summed by the date of `time` (a run on a warm cache asks nothing: `hosts` is `{}`). No key or address goes into it (host names only: an IP address is written as `ip-address`), nor any environment value but the lock's token; a failure to write it is one warning line. Each entry also holds `data`, of the data alone (a library's version never makes it `differs`): `same` (the line's two "same data" texts), `differs`, `unknown` (nothing could be compared) or null (no data record stored for it, its search made no run.json, or the stored record could not be compared), for `ok` entries too.
+- **The data record.** A search writes into its run.json what it read, under keys named `identity` (the checksum of each cached file from the cache index, the world coastline file's edition or the OSM coastline tiles, the OSM tiles and Nominatim answers an area by coast, cliffs or name was built from, the GDAL, PROJ and rasterio versions). After each search the harness reads from it the entry's record (`record_of` in `tests/regression.py`): per layer folder the files with their checksums and the layers that read them, the coastline, the search area's shape (the sha256 of its geometry, or of a circle's centre and radius; never its `spec`, which may hold an `--area` file's path) and inputs, the source's id, the libraries' versions, whether the access mark was left out and whether the sessions of a resumed tiled search read different data. Never a time, a URL, a credit or a local file's path. A name is taken only when it is relative to the cache with `/` (no leading slash, no backslash, no `..` or empty part, no colon at all (a drive letter, a URL), no control character): a part with any other name is left out whole and named as left out. A run.json without `identity` (a search of before) gives names whose checksums are all not known; an entry without run.json (a failed search, R17) has no record. The record is never a compared value.
+- The records live in `tests/regression-data.json`, never in `tests/regression.json`: per entry, in the order of `tests/regression.json`, every mapping's keys sorted, one file name per line, UTF-8 with LF, written whole through a temporary file and a rename, tried again for a moment while Windows refuses it (written again with nothing changed, its bytes stay). A record of an entry no longer in `tests/regression.json` is dropped when the file is written; a missing file is an empty one, a broken one (no JSON, or a record not of the shape below in every part, name and checksum) a usage error that names it, before any search. Two runs that write it at once: the last one's file stays, as for `tests/regression.json` with `--update`. A record's shape:
+
+  ```
+  "R56": {
+   "access_skipped": null,                         // or "memory": the access mark left out
+   "area": {"inputs": null,                        // or {"nominatim": {table: {query: checksum}}, "tiles": {name: checksum}}
+            "shape": "fc0524b0...", "type": "circle"},
+   "coastline": {},                                // null: no coastline entry; {}: not known; {"edition": "2026-10-23"}; {"tiles": {name: checksum}}
+   "folders": {"schleswig_holstein/dgm1": {"files": {"schleswig_holstein/dgm1/42_600/425_6003_2025_941a4232.tif": "<64 hex or null>", ...},
+                                           "layers": ["DGM1 (terrain)"]}, ...},
+   "left_out": [],                                 // the parts left out (a name not relative to the cache)
+   "mixed": false,                                 // the sessions of a resumed tiled search read different data
+   "source": "schleswig_holstein",
+   "versions": {"gdal": "...", "proj": "...", "rasterio": "..."}   // null when not recorded
+  }
+  ```
+- Under an entry that is `DIFFERENT` or `unverified`, when its search made a run.json, one line after its differences (the outcome, its reason, the exit code and the lines above it stay as they were; an `ok` entry prints nothing more). First the data: `same data, other result` when every file, the coastline, the search area's inputs and the source are known and equal; `same data where known (N files, the coastline not known), other result` when nothing known differs and something is not known (files or Nominatim answers named on both sides whose checksum is not known on one of them, a part not recorded on one side); `data not known` when nothing could be compared; else `data differs:` and the parts that differ, joined by `; `: per layer folder `N of M files` (M the baseline's files, N those of them not read or read with another checksum), `, K new` for files the baseline lacks, `, R replaced under their names` for those read with another checksum; `coastline (... -> ...)` for another edition or another kind, `coastline N of M tiles` for the tiles; `the search area's inputs (OSM tiles, Nominatim)`; `the search area` when only its outline differs and its inputs are equal (with ` (code or OSM)` for an outline whose inputs are not known); `the source (a -> b)`. No record stored for the entry: `no data record stored`; a stored record that cannot be compared: `the stored data record cannot be compared (...)`, and the run goes on. Then, after `; ` and only when they differ, what is neither data nor code: `GDAL a -> b` (also PROJ, rasterio), `the access mark left out` (or `... left out in the baseline`), `sessions read different data`; so `same data, other result; GDAL 3.10.0 -> 3.11.0`. A checksum not known never counts as a difference, nor does a folder with a layer left out of either record (not known as a whole). Under every entry, whatever its outcome, whose run's record left a part out (a name not relative to the cache: a machine's path was about to reach the side file): `left out of the data record (a name not relative to the cache): <layer>`.
+- `--update` stores each entry's record with the results it stores (a run without a record removes the stored one); an entry it refuses or does not store keeps its record. `--update-data` stores only the records: of each entry run that is `ok` and has one (an entry not `ok` keeps what it had and prints `R1: not stored (DIFFERENT: ...)`), never writes `tests/regression.json`, is refused together with `--update` and on any cache folder but the real one, and ends with one line (`Data records: S stored (C of them changed), L tests left as they were`; changed: the stored record is not the one before); its exit code is the run's own. Without either switch the side file is never written. With `--update` both files are written to temporary files first (`.regression.json-*.tmp`, `.regression-data.json-*.tmp` beside them, removed afterwards), then `tests/regression.json` is replaced, then the side file. A temporary file that cannot be written (a full disk) replaces neither; when `tests/regression.json` cannot be replaced, neither is; only when the side file alone cannot be replaced are the new baselines stored with their old records, and the line says to store the records again with `--update-data`. Such a failure is one line naming the file and what was stored, `Expected values updated` only when `tests/regression.json` was replaced, no table written by `--write-doc` from values that were not stored; the run still ends with its summary and its run log line, and the exit code is 3 (or 1 when something differs). A stored record holding a text that cannot be written as UTF-8 makes the side file broken; in a run's record such a part is left out.
+- What the record cannot say: a checksum is not known for a file the cache index has none for (a file adopted by hand), for runs of before, and on a scratch cache whose files have no index rows; where two sheets of one layer overlap, which one the mosaic takes is the code's order, not recorded.
 - Always checked: the store (`lines.arrow` a row per line of the export; `profiles.arrow` a profile for every line of a circle (run.json `summary.profiles` "all") and otherwise for the line shown for each group: an area, or a circle whose profiles would take more than `search.CIRCLE_PROFILES_BYTES`); with `check_profiles` (R16) that profiles computed again from the cache (`search.profile_of_line`) equal the saved ones (the store's, as data.js held them); with `--browser` that the map, opened through the local app as today's result page (`?view=today`) (a `findaline.py web` of the test's data folder on a free port), shows the spots of the export.
 - Each test records its time (`seconds`); one more than twice as slow (and 5 s slower) gets a warning, not a failure.
 - R17 (`kind: osm`, set `network`) builds the coastline and cliff tiles of Malta from the Geofabrik extract and fetches them from Overpass: the features and geometries must be the same. It is skipped without the extract (`findaline.py osm download malta`) or when Overpass does not answer. When they differ it prints per theme how many feature ids are only in the extract, only in Overpass and in both with another geometry, with up to 10 ids of each, and writes the full lists to `differences.json` in its log folder, beside both sides' tiles (`extract/cache/osm/themes`, `overpass/cache/osm/themes`).
@@ -58,7 +79,7 @@ The rules of 2026-11-24 (the user's decisions after the regression set's failure
 2. **Testing a download** (a new source, a changed reader): `--cold --cache <scratch>/cache` and only the entries of the touched source. A cold run of a whole set downloads several GB from some sixty providers again: on the user's word only.
 3. **A new entry's data goes into the real cache before the merge**, and its baseline is stored from a run there (run it once on the real cache, or copy the source's folder from the scratch cache with its `index.sqlite`). R70's never did, and it could not run once its provider blocked the network.
 4. **Unverified is not a pass.** The closing report names every unverified and skipped entry with its reason; one that stays so goes to docs/known-bugs.md with the day to try again. An outside service that did not answer is tried again at most once a day per session, never in a loop.
-5. **A provider's new data is re-baselined in the same step.** After a `cache update`, or when a fresh cache shows that a provider replaced its files (R48, 2026-11-24), the touched entries are re-baselined with the old and new lines compared; until then such an entry is `ok` on the real cache and different on every fresh one.
+5. **A provider's new data is re-baselined in the same step.** After a `cache update`, or when a fresh cache shows that a provider replaced its files (R48, 2026-11-24), the touched entries are re-baselined with the old and new lines compared; until then such an entry is `ok` on the real cache and different on every fresh one. The line under a different entry now names it (`data differs: rhineland_palatinate/dgm1 4 of 9 files, 4 new`); `--update` stores the new record with the new results. After `cache migrate` (the files it re-encodes get new checksums) every record is stored again with `--update-data` on the real cache.
 
 ## When a number differs
 1. A difference after a code change that should not affect results is a regression.
@@ -67,6 +88,118 @@ The rules of 2026-11-24 (the user's decisions after the regression set's failure
 4. The exact centre matters: grid snapping and the circle mask make a centre moved by a fraction of a metre change a few lines at the edge. Always use the coordinates below as written.
 5. A coastal entry's coastline comes from one of three places: the OSM world water polygons when the cache holds them (the real cache does, and every baseline rests on them), live Overpass when it does not, and the Copernicus water body mask when Overpass fails (`Coastline: Copernicus water body mask (fallback)`). The last two can give another sea, other lines and another checksum. On the real cache, which holds the world file, a search that takes Overpass or the fallback can only do so through changed code, and its differences are DIFFERENT. On a scratch cache without the world file (`--cold --no-seed`, or seeding that left it out) a run on Overpass, or on the fallback whose warning says Overpass did not answer, is `unverified (coastline: ...; the baseline's: ...)`: run it again on the real cache, or on a seeded scratch cache (`--cold`), before calling anything a regression. Twice in batch 6 a first baseline was written on the fallback (R85: 158 lines against 1 002 on the OSM coastline; R86: 7 052 against 7 184) and re-baselined on 2026-11-16; `--update` now refuses such a run. `--update` still rewrites the `seconds` of every test it stores (restore those not meant to change). A data folder that holds the OSM world water polygons (`cache/osm/water-polygons`) gives them to a search instead of Overpass: on 2026-11-16, on a scratch cache with a copy of that file, R80, R85-R88 and R92 gave their Overpass baselines' checksums, and R89 the same `lines.csv` with 0.01 km² more sea (its summary is baselined on the world file).
 6. `unverified (a data provider did not answer: ...)` or `(Nominatim or Overpass did not answer: ...)`: the search ended on a service that gave no answer. It says nothing about the code: run the entry again later (an outside service at most once a day). The log folder keeps the search's output. A sign that persists over reruns on different days may come from our own network code (a timeout set too short, a wrong address): read the output before waiting longer.
+
+## The completeness check of the data record
+The claim behind the data record: a run's record names everything its search read, so the same files with the same
+checksums, the same coastline and area inputs and the same code give the same result. `tools/record_check.py` tests
+it per entry: it builds a scratch cache holding only what the entry's stored record (`tests/regression-data.json`)
+names, each file a hard link from the real cache whose sha256 is first checked against the record where the record
+holds one (the world file's folder is taken by its edition's name; the tool counts both), with the files' index rows
+and the recorded Nominatim answers, and runs the entry through the harness on it (`--cold --no-seed`) with the
+network blocked (every proxy variable, GDAL's too, to a dead local port over the user's own, Overpass's address too,
+the data server off; checked first for requests, urllib and GDAL's `/vsicurl/` over http and https). An entry passes when the harness says `ok`, the run log's
+line says its data were the record's and no tile was downloaded; the tool also prints the requests the search tried
+(all blocked) per host and whether the run's own record names the same data.
+
+```
+python tools/record_check.py R1 R6 R18 --out C:\fal\record-check        # under the test lock; removed at the end
+python tools/record_check.py R48 --reverse                               # Nominatim's reverse answers of the centre
+python tools/record_check.py R76 --also mexico/mde-lidar5m/sheet-index/t/G14C15B2.json   # one stored index answer
+```
+
+What the runs show, for the kinds they ran: the same record gives the same result. For seven entries one more input
+steered the search: Nominatim's stored answer for the country or region of the centre (R21, R45, R48, R64, R90),
+and a stored index answer for two kinds (R24, R76). Each acts only by choosing the source or the files, which the
+record holds (the source's id, the files), so a change of it shows as different data, never as the same record with
+another result: each first try without it came out `different` or `unverified`, never a silent `ok`. But a cache
+built from the record alone is not always enough to run a search again. What the check does not show: that a
+checksum is stable across machines or library versions (it runs on this PC's files and libraries), or anything about
+a kind without an entry. Nor does it show that a filler or neighbour that read its files and filled no pixel (left
+out of the record: `filling._forget_entries`) can be replayed: no entry run was seen to take that path, and such a
+run would try to download those files on a scratch cache. Run it again when a kind of layer or index is added, or
+when what a run records changes; the table below is its run of 2026-11-24 (commit `afe65c7a`, the side file of
+`1675d2ec`).
+
+The scratch cache shares files with the real cache by hard links, so the check rests on one property of the code:
+every writer of a data tile, an OSM theme tile, a file of the world file's folder or a stored index answer writes a
+new file and renames it over the name (`cache.replacing`, `sources.layer._write_tile`, a download's `.part`,
+`CachedIndex._store`), which replaces the scratch name and never touches the real file. Files written in place (the
+databases and their side files, locks, `.part` files, `LAYOUT`, `locks/`, the `.retry` markers) are never linked: the
+tool refuses them whatever names them, in any letter case, and checks after the build that none of the scratch
+cache's is shared with another file. Two places open a cache path directly, both only after a provider answered, so
+never in a blocked run: `PackageListing.fetch` (a package's `.json.retry` marker after a 404 or 410) and
+`osmextract.download` (an extract's outline). A new writer that opens a cache file in place goes into the tool's
+`written_in_place`. (This belongs in `.claude/rules/sources.md`, which is at its size limit.)
+
+Beyond the record, named by the tool for each entry, never silently:
+- the cache's `LAYOUT` file;
+- the "missing" marks of the folders the record touches: a tile without a row is asked for again
+  (`cache.due`); given equal records they only say "nothing is there" (a tile that gained a file would be in the
+  record's paths);
+- a stand-in for the local mirror folder (`FINDALINE_MIRROR`) holding only the empty folders of the entry's
+  `needs_path` and of the resolutions its record read: the source is available, no tile can come from it;
+- a dummy value of `OPENTOPOGRAPHY_API_KEY` and `DATAFORDELER_API_KEY` (R12, R38): `unavailable()` asks only that
+  one is set;
+- only when an entry cannot run without them: `--reverse`, Nominatim's stored reverse answers of the centre (the
+  country and region that choose the source: the offline boxes chose another source for R21, R45, R48, R64, R90),
+  and `--also`, a stored index answer (R24: the 3DEP answer `has_data_near` reads to take Alaska's IfSAR instead of
+  the 1 m DEM; R76: INEGI's JSON per sheet, without which the sheet is left out). Each chooses the source or the
+  files, and the source's id and the files are in the record, so a different answer shows as different data: those
+  kinds' proof is the weaker one (the answer was given, not shown to be unneeded).
+
+No other stored index answer was copied. The kinds that ask an index over the network at search time asked it,
+were refused at the dead port, fell back to the cached files by name and gave the same result, which shows the
+answers only choose files; the other kinds asked no host but Nominatim (their tiles come from the grid, or their
+index is code or a cached file). Every run without `--reverse` (R24 and R76 too) tried Nominatim's reverse lookups
+(the country, the run's name) and was refused; with `--reverse` the stored answers took their place, and R21 and
+R45 then tried no request at all. The run log holds each run's hosts and counts.
+
+| Kind of layer (index or tiling) | Entry | Verdict | Beyond the record (besides LAYOUT and missing marks) |
+| --- | --- | --- | --- |
+| SheetTiles (NewestPerSheet: sheets by year), no sea | R1 | ok | none |
+| SheetTiles in tiles of 600 m (tiled), area from a file | R14 | ok | none |
+| WfsFeatureTiles (NewestPerSheet), world file | R68 | ok | none |
+| StacTiles (NewestPerSheet) | R19 | ok | none |
+| MetalinkTiles (ShaPerTile) | R48 | ok | `--reverse` (DE-RP, not DE-BW) |
+| GeoJsonTiles (XyzPerTile), world file | R56 | ok | none |
+| ZipMemberTiles (ZipPerTile) | R63 | ok | none |
+| PackageTiles (PackageVersions), fallbacks HRDEM (FileBlocks) | R90 | ok | `--reverse` (Canada, not the USA) |
+| Usgs1mBlocks (ComposedBlocks with the unlisted files) | R94 | ok | none |
+| IfsarBlocks (ComposedBlocks) | R24 | ok | `--also` the 3DEP 1 m answer of its tile (`has_data_near`) |
+| S3Blocks (ComposedBlocks), world file | R49 | ok | none |
+| LidarBcBlocks (ComposedBlocks) | R64 | ok | `--reverse` (Canada, not the USA) |
+| S3SheetSets (SheetSets), world file | R85 | ok | none |
+| CartotecaTiles (CartotecaVersions) | R77 | ok | none |
+| ZipSheetTiles (ZipSheetIndex), `instead_without_data` | R82 | ok | none |
+| InegiSheets (InegiIndex) | R76 | ok | `--also` INEGI's two JSON answers of its sheet |
+| GridTiles (our own tiles) | R21 | ok | mirror stand-in; `--reverse` (Slovakia, not Poland) |
+| GridTiles as a neighbour's fill | R34 | ok | mirror stand-in |
+| WcsTiles (WcsTiling), world file | R6 | ok | none |
+| WcsTiles, Malta 2012 (a shift by year) | R7 | ok | none |
+| GeoWcsTiles (GeoPixelTiling), world file | R72 | ok | none |
+| ImageServerTiles (WcsTiling) | R44 | ok | none |
+| ImageServerTiles (ZonedTiling) | R57 | ok | none |
+| WmsrTiles (ResolutionTiling), world file | R89 | ok | none |
+| FileBlocks (FileBlockTiling) | R25 | ok | none |
+| FileBlocks with the geoid (EGM2008 in the blocks' bytes) | R58 | ok | none |
+| DegreeTiles (europe: FABDEM, Copernicus) | R11 | ok | none |
+| OpenTopographyTiles | R12 | ok | dummy key |
+| LercTiles (MercatorTiling), world file | R75 | ok | none |
+| MetricSheetTiles (SheetTiling), world file | R79 | ok | none |
+| GeoSheetTiles (GeoSheetTiling) | R73 | ok | none |
+| ZippedTiles (ZipTiling) | R45 | ok | `--reverse` (Saxony, not Poland) |
+| CellSheetTiles | R91 | ok | none |
+| TokyoSheets (a floor by the file's name), world file | R92 | ok | none |
+| WcsTiles with Datafordeler's key | R38 | ok | dummy key |
+| FABDEM filling gaps (a fallback) | R29 | ok | none |
+| Area by coast in tiles, gap filling, profiles computed again | R16 | ok | none |
+| R16 with the access mark | R83 | ok | none |
+| Area by coast within a named place (Nominatim's answer from the record) | R18 | ok | none |
+
+The coastline states the real cache gives: the world file (R6 and the others marked so) and no sea in the area (R1
+and most inland entries). Not run: the OSM coastline tiles (Overpass's state; the real cache holds the world file, so
+no baseline rests on them), `DegreeBlocks` (`usgs10m`, no entry), local files (`--elevation-file`,
+`--surface-file`, `--slope-file`: no entry).
 
 ## Search tests
 A new place belongs where highlines are rigged: `tools/truth_study.py places` ranks the clusters of SlackMap's known highlines per country and source with the nearest test of this table ("covered by" within 2 km; docs/truth-check.md), and `tools/truth_study.py run --place NAME=OPTIONS --known lines.json` tells how many of a candidate's known lines its search finds.

@@ -12,6 +12,7 @@ Read the section you need, not the whole file (several are over 200 KB).
   proposing a design read "Decisions" and the section of your area.
 - [docs/regression-tests.md](docs/regression-tests.md): how a change is verified.
   [docs/known-bugs.md](docs/known-bugs.md): failures and findings that are known and not a regression.
+  [docs/regression-failures.md](docs/regression-failures.md): why a regression entry fails and what to do.
 - [docs/performance.md](docs/performance.md): where time and memory go, what was measured and decided.
 - [docs/deployment.md](docs/deployment.md) (the VPS; kept in step with `deploy/`, compose.yaml and
   `tests/nginx_check.sh`), [docs/monitoring.md](docs/monitoring.md).

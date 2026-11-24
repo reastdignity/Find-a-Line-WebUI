@@ -27,6 +27,13 @@ file as it came) again as LERC_ZSTD, the cache's encoding now (sources.layer.ree
 the tiles it reads, this does the rest at once, to free the disk space. It is safe to repeat; tiles another
 process has open (Windows) are left and make the exit code 1.
 
+`status` ends with the saved runs computed on data that has changed since (changed_runs), one line each: for
+a run whose run.json holds the data record (its `identity` keys: each file's sha256 as the index held it, the
+coastline, the area's inputs, local files) exactly, against the index now; files written again in another
+encoding (`cache migrate`: another checksum, fetched no later than the run read them) apart; an older run by
+fetch times, marked approximate. That part only reads; the rest of `status` still writes as before (it adopts
+the world water polygons' files, and cache.rows opens each index for writing).
+
 The intervals are cache.TTL_DAYS; "missing" tiles of data that can change are checked
 again after cache.MISSING_TTL_DAYS. `update` without --all checks only what is older
 than its interval (stale); --all checks everything that can change.
@@ -34,9 +41,12 @@ than its interval (stale); --all checks everything that can change.
 
 import argparse
 import glob
+import hashlib
 import os
+import sqlite3
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
@@ -359,25 +369,401 @@ def _date(timestamp: Optional[str]) -> str:
     return timestamp[:10] if timestamp else "-"
 
 
-def changed_runs(cache_dir: str, runs_dir: str) -> List[Tuple[str, int, int]]:
-    """Runs computed on data that has changed since: (run folder, changed files, files). Every run of the folder is
-    read, also one a search saves at this moment: its run.json through runs.read_meta, which waits out Windows'
-    refusal of a file that has just appeared (the command ended with the PermissionError)."""
+NOMINATIM_TABLES = ("search", "reverse", "places")  # the tables of osm.MIGRATIONS (nominatim.sqlite)
+NOMINATIM_TIMEOUT = 5  # s a read of nominatim.sqlite waits for a writer's lock (then its answers are not known)
+_IN_CHUNK = 500  # paths asked of an index in one query
+NOT_READ = "its run.json cannot be read (not checked)"
+
+
+@dataclass
+class RunChange:
+    """What changed under one saved run's data since it was made (changed_runs). files/changed/reencoded/unknown
+    count the files of its data layers (run.json's `data` entries with `paths`); notes say the rest in words: the
+    coastline, the search area's inputs, local files, a resumed search's sessions."""
+    name: str                  # the run's folder
+    files: int = 0
+    changed: int = 0           # gone, its index row gone, or other content fetched after the run read it
+    reencoded: int = 0         # other content fetched no later than the run read it: written again (cache migrate)
+    unknown: int = 0           # no checksum on one side (a file adopted by hand): neither changed nor the same
+    approximate: bool = False  # a run made before the data record: today's rule by fetch times (_approximate)
+    notes: List[str] = field(default_factory=list)
+    unreadable: bool = False   # its run.json cannot be read or is no object: named (what is left out: _read_runs)
+    error: Optional[str] = None  # the class of an error judging it raised (a fault of the code): named too
+
+    def listed(self) -> bool:
+        """Whether status names the run: a file changed or re-encoded, another input changed, its run.json
+        unreadable or its judging failed (a run with only files "not known" is not named)."""
+        return bool(self.unreadable or self.error or self.changed or self.reencoded or self.notes)
+
+    def line(self) -> str:
+        """The run's line of `cache status`, in words a user can act on."""
+        if self.unreadable:
+            return f"{self.name}: {NOT_READ}"
+        if self.error:
+            return f"{self.name}: not checked ({self.error})"
+        parts = []
+        if self.changed or self.reencoded or (self.unknown and not self.approximate):
+            files = f"{self.changed} of {self.files} file{'' if self.files == 1 else 's'} changed"
+            files += f", {self.reencoded} re-encoded" if self.reencoded else ""
+            parts.append(files + (f", {self.unknown} not known" if self.unknown else ""))
+        parts += self.notes or []
+        return f"{self.name}: {'; '.join(parts)}" + (" (approximate: a run made before the data record)"
+                                                     if self.approximate else "")
+
+
+def _uri(db_path: str, mode: str) -> str:
+    """An SQLite URI of a file: a drive path as file:///C:/..., a network path (\\\\server\\share\\...) as
+    file:////server/share/... (pathlib's file://server/share/... is refused by SQLite: "invalid uri authority"), a
+    Linux path as file:///... (a backslash there is a letter of a name, kept); "%", "?", "#", "\\", spaces and
+    letters outside ASCII percent-encoded (UTF-8)."""
+    path = os.path.abspath(db_path)
+    path = path.replace("\\", "/") if os.sep == "\\" else path
+    quoted = urllib.parse.quote(path, safe="/:")
+    return f"file:{'//' if path.startswith('/') else '///'}{quoted}?{mode}"  # /x on Linux, //server/.. or C:/..
+
+
+def _mode(db_path: str) -> Optional[str]:
+    """How _read_only opens an existing SQLite file (None: no file). A read-only open of a WAL database leaves its
+    -shm and -wal files behind, so a WAL database (the indexes: the file's header says it) without a -wal file, which
+    then holds everything, is read as immutable (no lock, no side file); one with a -wal file (another connection has
+    it open, rows may still be in the WAL) and a database of a rollback journal (nominatim.sqlite) read-only, which
+    reads the WAL and waits for a writer's lock."""
+    if not os.path.isfile(db_path):
+        return None
+    with open(db_path, "rb") as f:
+        header = f.read(20)
+    wal = len(header) == 20 and header[18] == 2
+    return "immutable=1" if wal and not os.path.exists(db_path + "-wal") else "mode=ro"
+
+
+def _read_only(db_path: str, mode: Optional[str] = None, timeout: float = 60) -> Optional[sqlite3.Connection]:
+    """A connection to an existing SQLite file that writes nothing in the cases of _mode, or None when there is no
+    file. Two cases leave files, SQLite's own and harmless (the next writer's close removes them): a -wal left by a
+    killed writer without its -shm (SQLite makes the -shm), and _query's read-only retry of an index after a failed
+    immutable read when no -wal is there (it makes both)."""
+    mode = mode or _mode(db_path)
+    return sqlite3.connect(_uri(db_path, mode), uri=True, timeout=timeout) if mode else None
+
+
+def _query(db_path: str, ask: Callable[[sqlite3.Connection], Dict], timeout: float = 60) -> Dict:
+    """ask(connection) on _read_only(db_path); {} without the file or without the table asked (an index made and
+    never written). An immutable read that fails (a checkpoint of another process writing into the file while it
+    was read; the checkpoint at a writer's close removes the -wal too) is read once more read-only; a read-only read
+    that fails is not tried again (a writer's lock would cost a second wait), and a failure is raised (as
+    cache.rows, earlier in `status`, raises it). What an immutable read cannot see: a commit made in the instant
+    between the look for a -wal file and the read, still in the WAL; the next `cache status` sees it.
+
+    timeout: SQLite's wait for a lock; on Windows one wait lasts about 1.5 times as long (measured 2026-11-24:
+    1.09 s at 0.5, 2.49 at 1.5, 4.61 at 3), probably because the tries of the lock inside each step of SQLite's
+    busy wait sleep timer ticks the wait does not count (not verified in SQLite's code)."""
+    mode = _mode(db_path)
+    for attempt in range(2):
+        if mode is None:
+            return {}
+        db = _read_only(db_path, mode, timeout)
+        try:
+            return ask(db)
+        except sqlite3.DatabaseError as e:
+            if str(e).startswith("no such table"):
+                return {}
+            if attempt == 1 or mode != "immutable=1":
+                raise
+        finally:
+            db.close()
+        mode = "mode=ro"
+    return {}
+
+
+def _index_rows(cache_dir: str, paths: List[str]) -> Dict[str, Tuple]:
+    """The index rows of paths (relative to the cache, with /): path -> (status, fetched_at, sha256); a path
+    without a row is left out. One read-only connection per top-level folder, never one per file; a folder or an
+    index that is not there is not made."""
+    by_top: Dict[str, List[str]] = {}
+    for path in dict.fromkeys(paths):
+        top, _, inner = path.partition("/")
+        by_top.setdefault(top, []).append(inner)
+    found: Dict[str, Tuple] = {}
+    for top, inners in by_top.items():
+        def ask(db, top=top, inners=inners):
+            rows = {}
+            for k in range(0, len(inners), _IN_CHUNK):
+                chunk = inners[k:k + _IN_CHUNK]
+                rows.update({f"{top}/{p}": (status, fetched, sha) for p, status, fetched, sha in db.execute(
+                    f"SELECT path, status, fetched_at, sha256 FROM files WHERE path IN ({','.join('?' * len(chunk))})",
+                    chunk)})
+            return rows
+        found.update(_query(os.path.join(cache_dir, top, "index.sqlite"), ask))
+    return found
+
+
+def _nominatim_answers(cache_dir: str, asked: List[Tuple[str, str]]) -> Optional[Dict[Tuple[str, str], str]]:
+    """The sha256 of each stored Nominatim answer (table, query) -> hex of its text as UTF-8; a row gone is left
+    out. Read-only, never through osm._nominatim_db (which creates and migrates the file). None when the file
+    cannot be read (a hot journal left by a killed writer, a writer's lock held over NOMINATIM_TIMEOUT, no
+    database): the answers are then not known."""
+    wanted = sorted(set(asked))
+
+    def ask(db):
+        found = {}
+        for table, query in wanted:
+            row = db.execute(f"SELECT answer FROM {table} WHERE query = ?", (query,)).fetchone()
+            if row is not None and isinstance(row[0], str):
+                found[(table, query)] = hashlib.sha256(row[0].encode("utf-8")).hexdigest()
+        return found
+    if not wanted:
+        return {}
+    try:
+        return _query(os.path.join(cache_dir, "osm", "nominatim.sqlite"), ask, NOMINATIM_TIMEOUT)
+    except sqlite3.Error:
+        return None
+
+
+def _time(text) -> Optional[datetime]:
+    """A stored time in UTC (one without an offset as local time, as cache.utc_iso), None if it is none."""
+    try:
+        return datetime.fromisoformat(text).astimezone(timezone.utc) if isinstance(text, str) and text else None
+    except ValueError:
+        return None
+
+
+def _later(fetched: Optional[str], moment: Optional[datetime]) -> bool:
+    fetched = _time(fetched)
+    return fetched is not None and moment is not None and fetched > moment
+
+
+def _read_at(entry: Dict, created: Optional[datetime]) -> Optional[datetime]:
+    """The time by which a run had read an entry's files: no content fetched later can be what it read. The
+    entry's `fetched.newest` (cache.touch, in the lookup that gave the checksums: no file of the entry had a later
+    fetch time then, and a file fetched again with other content gets the time of that fetch), whatever the run's
+    `created` is: a tiled run sets `created` before its step 1, so the files it downloaded itself are fetched
+    after it and before it read them, and a one-grid run sets it when it saves, after step 1. Without `newest`
+    the run's `created`; None without both. It holds to the second and for one clock: a real change can read
+    "re-encoded" when its other content was stamped in the same second as `newest` (fetch times have whole
+    seconds), when a writer's fetch time was taken before it waited for the index's lock (record_many takes it
+    first), or when a clock was set back (or machines sharing a cache disagree)."""
+    fetched = entry.get("fetched") if isinstance(entry.get("fetched"), dict) else {}
+    return _time(fetched.get("newest")) or created
+
+
+def _file_state(cache_dir: str, path: str, recorded, row: Optional[Tuple], read_at: Optional[datetime]) -> str:
+    """"changed", "reencoded", "unknown" or "same" for one file a run with the data record read (path relative
+    to the cache, recorded: the checksum its run.json holds). Gone, or its row gone or not "ok": changed, whatever
+    was recorded. A checksum missing on either side: not known. Another checksum: re-encoded when the row's fetch
+    time is not later than read_at (_read_at: cache.reencoded keeps the fetch time, `cache migrate`, a search's
+    reencode, tools/sk_tiles.py), changed when it is later (cache.record_many gives new content the fetch time of
+    now) or when either time is missing: never re-encoded for want of a time."""
+    if not _text(path):  # no valid text (a lone surrogate): never asked of the index
+        return "unknown"
+    if row is None or row[0] != "ok" or not os.path.isfile(os.path.join(cache_dir, path)):
+        return "changed"
+    if not isinstance(recorded, str) or not recorded or not row[2]:
+        return "unknown"
+    if recorded == row[2]:
+        return "same"
+    fetched = _time(row[1])
+    return "reencoded" if fetched is not None and read_at is not None and fetched <= read_at else "changed"
+
+
+def _text(value) -> bool:
+    """Whether a value is text SQLite and the file system can take (no lone surrogate of a hand-made JSON)."""
+    if not isinstance(value, str):
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _strings(values) -> List[str]:
+    """The valid texts of a list (_text); anything else, or no list, is left out."""
+    return [v for v in values if _text(v)] if isinstance(values, list) else []
+
+
+def _parallel(paths, sums) -> List[Tuple[str, Optional[str]]]:
+    """(path, recorded checksum) pairs; checksums that are not a list as long as the paths are none."""
+    if not isinstance(paths, list):
+        return []
+    sums = sums if isinstance(sums, list) and len(sums) == len(paths) else [None] * len(paths)
+    return [(p, s) for p, s in zip(paths, sums) if isinstance(p, str)]
+
+
+def _local_file(path, identity) -> Optional[str]:
+    """"missing", "may have changed" or None (the same size and modification time, nothing recorded, or a path
+    that is not absolute: a --slope-file given relative to a folder cannot be found from another) for a local file
+    (--elevation-file, --surface-file, --slope-file): a size or a time that differs is not proof."""
+    if not _text(path) or not os.path.isabs(path) or not isinstance(identity, dict) or "size" not in identity:
+        return None
+    try:
+        st = os.stat(path)
+    except OSError:
+        return "missing"
+    modified = datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat(timespec="seconds")
+    return None if (st.st_size, modified) == (identity.get("size"), identity.get("modified")) else "may have changed"
+
+
+def _entries(meta: Dict) -> List[Dict]:
+    return [e for e in meta.get("data") if isinstance(e, dict)] if isinstance(meta.get("data"), list) else []
+
+
+def _identity(owner) -> Dict:
+    return owner.get("identity") if isinstance(owner, dict) and isinstance(owner.get("identity"), dict) else {}
+
+
+def _approximate(cache_dir: str, meta: Dict, rows: Dict[str, Tuple], change: RunChange,
+                 created: Optional[datetime]):
+    """A run made before the data record (no `identity` in its run.json): a file counts as changed when it or its
+    row is gone or the row's fetch time is later than the run (the rule before the record; wrong both ways: a file
+    a command-line tiled run downloaded itself counts, a file replaced with an older fetch time does not)."""
+    for entry in _entries(meta):
+        for path in _strings(entry.get("paths")):
+            change.files += 1
+            row = rows.get(path)
+            if row is None or not os.path.exists(os.path.join(cache_dir, path)) or _later(row[1], created):
+                change.changed += 1
+
+
+def _tiles_note(what: str, pairs, rows, cache_dir) -> Optional[str]:
+    """OSM tiles (never re-encoded): another checksum is a change whatever the times."""
+    states = [_file_state(cache_dir, p, s, rows.get(p), None) for p, s in pairs]
+    changed = sum(state in ("changed", "reencoded") for state in states)
+    return f"{what}: {changed} of {len(states)} OSM tile{'' if len(states) == 1 else 's'} changed" if changed else None
+
+
+def _asked(identity: Dict) -> List[Dict]:
+    """The Nominatim items of an area's record that can be looked up: a known table, a query that is valid text
+    (_text); the others are not known."""
+    items = identity.get("nominatim") if isinstance(identity.get("nominatim"), list) else []
+    return [a for a in items if isinstance(a, dict) and a.get("table") in NOMINATIM_TABLES and _text(a.get("query"))]
+
+
+def _exact(cache_dir: str, meta: Dict, rows: Dict[str, Tuple], answers: Optional[Dict], newest: Optional[str],
+           change: RunChange, created: Optional[datetime]):
+    """A run with the data record (contract of wave 4: run.json's `identity` keys): each file by its checksum,
+    the coastline by its world file's edition (newest: the edition in the cache now) or its tiles, the area's OSM
+    tiles and Nominatim's answers (answers None: not readable), local files by size and modification time, a
+    resumed search's mark."""
+    for entry in _entries(meta):
+        identity = _identity(entry)
+        if entry.get("paths"):
+            read_at = _read_at(entry, created)
+            for path, recorded in _parallel(entry["paths"], identity.get("sha256")):
+                change.files += 1
+                state = _file_state(cache_dir, path, recorded, rows.get(path), read_at)
+                if state != "same":
+                    setattr(change, state, getattr(change, state) + 1)
+        elif isinstance(identity.get("edition"), str):
+            if newest is None:
+                change.notes.append("coastline: the world file is gone")
+            elif newest != identity["edition"]:
+                change.notes.append("coastline: newer edition" if newest > identity["edition"]
+                                    else "coastline: another edition")
+        elif identity.get("paths"):
+            note = _tiles_note("coastline", _parallel(identity["paths"], identity.get("sha256")), rows, cache_dir)
+            change.notes += [note] if note else []
+        elif entry.get("file"):
+            state = _local_file(entry["file"], identity)
+            if state:
+                layer = entry.get("layer") if isinstance(entry.get("layer"), str) and entry.get("layer") else "local file"
+                change.notes.append(f"{layer.lower()} {state}")
+    identity = _identity(meta.get("area"))
+    note = _tiles_note("area", _parallel(identity.get("paths"), identity.get("sha256")), rows, cache_dir)
+    change.notes += [note] if note else []
+    asked = [a for a in _asked(identity) if isinstance(a.get("sha256"), str) and a["sha256"]]
+    if asked and answers is None:
+        change.notes.append("area: the place name answers could not be read")
+    elif asked:
+        differ = sum(answers.get((a["table"], a["query"])) != a["sha256"] for a in asked)
+        if differ:
+            change.notes.append(f"area: {differ} of {len(asked)} place name "
+                                f"answer{'' if len(asked) == 1 else 's'} changed")
+    top = _identity(meta)
+    params = meta.get("params") if isinstance(meta.get("params"), dict) else {}
+    state = _local_file(params.get("slope_file"), top.get("slope_file"))
+    change.notes += [f"slope file {state}"] if state else []
+    if top.get("mixed") is True:
+        change.notes.append("its sessions read different data (a resumed search)")
+
+
+def _recorded(meta: Dict) -> bool:
+    """Whether a run.json holds the data record (made after it was added): an `identity` key at its top level or
+    in a data entry."""
+    return isinstance(meta.get("identity"), dict) or any(_identity(entry) for entry in _entries(meta))
+
+
+def _wanted(meta: Dict) -> Tuple[List[str], List[Tuple[str, str]]]:
+    """The cached files a run's checks ask the index about, and its Nominatim answers (table, query)."""
+    paths = []
+    for entry in _entries(meta):
+        paths += _strings(entry.get("paths")) + _strings(_identity(entry).get("paths"))
+    identity = _identity(meta.get("area"))
+    paths += _strings(identity.get("paths"))
+    return paths, [(a["table"], a["query"]) for a in _asked(identity)]
+
+
+def _read_runs(runs_dir: str) -> List[Tuple[str, Optional[Dict]]]:
+    """(folder, run.json as an object, or None when it cannot be read, is nested too deep for the parser or is no
+    object), in the folders' order; folders starting with "_" or "." are no runs (runs.list_runs' rule). The runs
+    folder's own name is no pattern ("[" and "]" in a data folder's path). Every run of the folder is read, also one
+    a search saves at this moment: through runs.read_meta, which waits out Windows' refusal of a file that has just
+    appeared (the command used to end with the PermissionError); one still refused after the last pause cannot be
+    read, like any other. One run is left out: a run whose folder is gone since the folder was listed (a run being
+    removed: runs.park_run renames it) is no run any more. A run.json that is missing while its folder is there, or
+    while the runs folder itself cannot be reached (Windows reports a lost drive as "not found" too), cannot be read:
+    the run is named, not left out."""
     found = []
-    for path in sorted(glob.glob(os.path.join(runs_dir, "*", "run.json"))):
-        if os.path.basename(os.path.dirname(path)).startswith((".", "_")):  # no run (runs.list_runs' rule)
+    for path in sorted(glob.glob(os.path.join(glob.escape(runs_dir), "*", "run.json"))):
+        name = os.path.basename(os.path.dirname(path))
+        if name.startswith((".", "_")):
             continue
-        meta = rn.read_meta(path)
-        created = datetime.fromisoformat(meta["created"]).astimezone(timezone.utc)
-        files = [p for entry in meta.get("data", []) for p in entry.get("paths", [])]
-        changed = 0
-        for rel in files:
-            full = os.path.join(cache_dir, rel)
-            row = cache.info(cache_dir, full) if os.path.exists(full) else None
-            if row is None or (row["fetched_at"] and datetime.fromisoformat(row["fetched_at"]) > created):
-                changed += 1  # newer data, or the file was replaced (a newer survey of a sheet)
-        if changed:
-            found.append((os.path.basename(os.path.dirname(path)), changed, len(files)))
+        try:
+            meta = rn.read_meta(path)
+        except FileNotFoundError:
+            if os.path.isdir(runs_dir) and not os.path.lexists(os.path.dirname(path)):
+                continue  # its folder is gone since the listing (a run being removed): no run any more
+            meta = None
+        except (OSError, ValueError, RecursionError):
+            meta = None
+        found.append((name, meta if isinstance(meta, dict) else None))
+    return found
+
+
+def changed_runs(cache_dir: str, runs_dir: str) -> List[RunChange]:
+    """The saved runs computed on data that has changed since, in the order of their folders (RunChange.listed).
+    Exact for a run with the data record (_exact: the checksums the search noted against the index's now); a run
+    made before it by fetch times, marked approximate (_approximate); a run whose run.json cannot be read named as
+    not checked, never left out (only a run whose folder is gone since the listing is no run: _read_runs), and one
+    whose judging raised (a fault of the code) named with the error's class.
+    Reads only: every index and Nominatim's answers with one read-only connection per file for all the runs
+    (_index_rows), no folder, index or table is made (the files SQLite itself can leave: _read_only)."""
+    runs, paths, asked, failed = [], [], [], {}
+    for name, meta in _read_runs(runs_dir):
+        try:
+            wanted = _wanted(meta) if meta is not None else ([], [])
+        except Exception as e:  # a fault nobody foresaw: this run is not checked, the others are
+            failed[name], wanted = type(e).__name__, ([], [])
+        runs.append((name, meta))
+        paths += wanted[0]
+        asked += wanted[1]
+    rows = _index_rows(cache_dir, paths)
+    answers = _nominatim_answers(cache_dir, asked)
+    newest = coast.world_file(cache_dir)
+    newest = os.path.basename(os.path.dirname(os.path.dirname(newest))) if newest else None
+    found = []
+    for name, meta in runs:
+        change = RunChange(name, unreadable=meta is None, error=failed.get(name))
+        if meta is not None and name not in failed:
+            try:
+                created = _time(meta.get("created"))
+                change.approximate = not _recorded(meta)
+                if change.approximate:
+                    _approximate(cache_dir, meta, rows, change, created)
+                else:
+                    _exact(cache_dir, meta, rows, answers, newest, change, created)
+            except Exception as e:  # a fault nobody foresaw: this run is named with it, the listing goes on
+                change = RunChange(name, error=type(e).__name__)
+        if change.listed():
+            found.append(change)
     return found
 
 
@@ -421,8 +807,8 @@ def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
     runs = changed_runs(cache_dir, runs_dir)
     if runs:
         print("\nRuns computed on data that has changed since (run them again to use the new data):")
-        for name, changed, total in runs:
-            print(f"  {name}: {changed} of {total} files")
+        for change in runs:
+            print(f"  {change.line()}")
     print("\n`findaline.py cache update` checks what is stale; delete a folder to free its space "
           "(it is downloaded again when needed).")
 
