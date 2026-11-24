@@ -662,9 +662,9 @@ def _batches(regions: np.ndarray, count: np.ndarray):
 
 
 def _spread_flat(regions: "_Regions", z) -> np.ndarray:
-    """flat_water's test of the open questions' heights (p95 - p5 at most FLAT_WATER_SPREAD_M), bool by question,
-    in batches: a batch's heights gathered into one float32 array (GATHER_PX at a time, a larger region alone) from
-    the batch's strips only, each region's judged
+    """flat_water's test of the open questions' heights (p95 - p5 at most FLAT_WATER_SPREAD_M), bool by question: a
+    region over GATHER_PX by the selection, without its heights (_spread_large); the others in batches, a batch's
+    heights gathered into one float32 array (GATHER_PX at a time) from the batch's strips only, each region's judged
     in place (np.percentile with overwrite_input: no copy; two calls with scalar q, as flat_water, whose spread they
     give to the last bit) and released with its batch. The order of a region's heights is not that of the grid at
     once: an order statistic does not depend on it."""
@@ -672,7 +672,9 @@ def _spread_flat(regions: "_Regions", z) -> np.ndarray:
     count = np.array(q["pixels"], np.int64)
     first, last = np.array(q["first"], np.int64), np.array(q["last"], np.int64)
     keep = np.zeros(len(count), bool)
-    for batch in _batches(np.arange(len(count)), count):
+    for j in np.flatnonzero(count > GATHER_PX).tolist():
+        keep[j] = _spread_large(regions, z, j)
+    for batch in _batches(np.flatnonzero(count <= GATHER_PX), count):
         sizes = count[batch]
         start = np.concatenate([[0], np.cumsum(sizes)])
         slot = np.full(ASK + len(count), -1, np.int64)  # by a pixel's code: its region's place in the batch
@@ -701,6 +703,58 @@ def _spread_flat(regions: "_Regions", z) -> np.ndarray:
                 keep[b] = True
         del heights
     return keep
+
+
+def _key_range(lowest: float, highest: float):
+    """The keys (sources.filling._keys) of a region's lowest and highest height, filling._select's range, widened at
+    zero: the float64 bounds cannot tell 0.0 from -0.0, whose keys differ (-1 and 0)."""
+    from sources import filling
+    lo, hi = (int(k) for k in filling._keys32(np.array([lowest, highest], np.float32)))
+    if lowest == 0:
+        lo = min(lo, -1)
+    if highest == 0:
+        hi = max(hi, 0)
+    return lo, hi
+
+
+def _percentile_of(chunks, n: int, q, lo: int, hi: int) -> np.float32:
+    """np.percentile(v, q) of the n float32 values (no NaN) that chunks() yields, read again for each pass and never
+    held whole, to the last bit as numpy (2.5.4: percentile, _quantile, _get_indexes, _get_gamma, _lerp) computes it
+    for a scalar q: the rank in float64, (n - 1) * (q / 100); its floor the index (past the last one: the last value
+    twice, the weight the rank less -1), the rest the weight, a Python float; the two order statistics there
+    (filling._select with `pair`: both in the same passes; keys within [lo, hi]) joined in float32 as _lerp joins
+    them, a + (b - a) * t below a weight of 0.5, b - (b - a) * (1 - t) from 0.5. A later numpy that changes any of
+    this fails tests/test_access.py::test_percentile_without_the_heights_is_numpys."""
+    from sources import filling
+    rank = (n - 1) * (q / 100)
+    if rank >= n - 1:
+        a = b = np.float32(filling._select(chunks, n - 1, lo, hi))
+        t = float(rank + 1)
+    else:
+        i = math.floor(rank)
+        t = float(rank - i)
+        a, b = (np.float32(x) for x in filling._select(chunks, i, lo, hi, pair=True))
+    d = b - a
+    return np.float32(b - d * (1 - t)) if t >= 0.5 else np.float32(a + d * t)
+
+
+def _spread_large(regions: "_Regions", z, q: int) -> bool:
+    """flat_water's test (p95 - p5 at most FLAT_WATER_SPREAD_M) of the open question q, a region over GATHER_PX,
+    without its heights: p95 and p5 as np.percentile gives them (_percentile_of), its heights read again for every
+    pass of the selection from its own strips only (_Regions' reading). Each of the two takes a pass per histogram
+    of filling._select (SELECT_BINS counters) and one to collect at most SELECT_COLLECT heights of the last bin."""
+    code = ASK + q
+    first, last = regions.questions["first"][q], regions.questions["last"][q]
+
+    def chunks():
+        for s in range(first, last + 1):
+            r0, r1 = regions.strips[s]
+            yield np.asarray(z[r0:r1], np.float32)[regions.codes(s) == code]
+
+    n = regions.questions["pixels"][q]
+    lo, hi = _key_range(regions.questions["lowest"][q], regions.questions["highest"][q])
+    p95 = _percentile_of(chunks, n, 95, lo, hi)
+    return bool(p95 - _percentile_of(chunks, n, 5, lo, hi) <= FLAT_WATER_SPREAD_M)
 
 
 def _flat_lakes_rows(z, res: float, work: str, out: _Mask) -> None:

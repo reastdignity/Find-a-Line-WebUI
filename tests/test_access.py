@@ -3,6 +3,7 @@ ledge in the face, a pillar, ground of 35, 45 and 60 degrees, whole-metre height
 lakes held as data, the alpine variant; threads; a window with the measure's margin against the whole grid and the
 study's noted exception; the speed, logged (offline, seconds)."""
 
+import os
 import time
 
 import numpy as np
@@ -616,6 +617,165 @@ def test_a_strip_labelled_twice_gives_the_same_labels(tmp_path, monkeypatch):
         assert np.array_equal(regions.codes(s), regions.codes(s))
     regions.remove()
     m.remove()
+
+
+def _bits(x) -> bytes:
+    return np.float32(x).tobytes()
+
+
+def _pieces(v: np.ndarray, rng, parts: int):
+    """chunks() of v cut at random places (a region's heights strip by strip), views only."""
+    cuts = np.sort(rng.integers(0, len(v) + 1, max(0, parts - 1)))
+    bounds = [0, *cuts.tolist(), len(v)]
+    return lambda: (v[a:b] for a, b in zip(bounds, bounds[1:]))
+
+
+def _key_range(v: np.ndarray):
+    lo, hi = float(v.min()), float(v.max())
+    return access._key_range(lo, hi)
+
+
+def _made_up_region(rng, n: int, kind: int) -> np.ndarray:
+    if kind == 0:
+        return rng.normal(100, 50, n).astype(np.float32)
+    if kind == 1:  # ties, negative heights
+        return np.round(rng.normal(0, 3, n), 1).astype(np.float32)
+    if kind == 2:  # a spread near 0.3 m: one float32 step each side of it at the ends
+        v = (1000 + rng.random(n) * 0.3).astype(np.float32)
+        if n > 2:
+            v[0] = np.float32(1000.0)
+            v[1] = np.nextafter(np.float32(1000.3), np.float32(rng.choice([0, 2000])))
+        return v
+    if kind == 3:
+        return rng.integers(-5, 5, n).astype(np.float32)
+    if kind == 4:  # the sea's fill: most heights one value, the rest near it
+        v = np.zeros(n, np.float32) + np.float32(0.25)
+        some = rng.random(n) < 0.1
+        v[some] = rng.normal(0.25, 0.2, int(some.sum())).astype(np.float32)
+        return v
+    return -rng.random(n).astype(np.float32) * 1e-3  # all negative, close together
+
+
+def test_percentile_without_the_heights_is_numpys(monkeypatch):
+    """access._percentile_of (spec B: p5 and p95 of a large flat region from filling._select on its heights strip by
+    strip, joined as numpy joins them) = np.percentile(v, q, overwrite_input=True) to the last bit, two calls with a
+    scalar q as flat_water makes them, on 10 000 made-up regions (sizes 1 to 10^6, ties, negative heights, sizes whose
+    rank is whole, spreads one float32 step each side of 0.3 m, a sea's fill), each cut into a random number of
+    strips; a fifth of them with filling's selection narrowed (16 bins, 64 values collected) so that its many passes,
+    its pair split into two and its single key are used; and the spread's verdict is flat_water's."""
+    from sources import filling
+    rng = np.random.default_rng(11)
+    sizes = np.concatenate([np.arange(1, 60), 20 * np.arange(1, 40) + 1, rng.integers(1, 3000, 9_200),
+                            np.round(10 ** rng.uniform(3.5, 6, 750)).astype(int), [10 ** 6, 10 ** 6 - 1]])
+    checked = 0
+    for j, n in enumerate(sizes.tolist()):
+        v = _made_up_region(rng, n, j % 6)
+        lo, hi = _key_range(v)
+        narrow = j % 5 == 0 and n < 50_000
+        with monkeypatch.context() as m:
+            if narrow:
+                m.setattr(filling, "SELECT_BINS", 16)
+                m.setattr(filling, "SELECT_COLLECT", 64)
+            chunks = _pieces(v, rng, int(rng.integers(1, 12)))
+            got = {q: access._percentile_of(chunks, n, q, lo, hi) for q in (95, 5)}
+        for q in (95, 5):
+            want = np.percentile(v.copy(), q, overwrite_input=True)
+            assert _bits(got[q]) == _bits(want), (n, j % 6, q, got[q], want)
+            assert type(got[q]) is type(want)
+        assert ((got[95] - got[5]) <= access.FLAT_WATER_SPREAD_M) == \
+            ((np.percentile(v, 95) - np.percentile(v, 5)) <= access.FLAT_WATER_SPREAD_M)
+        checked += 1
+    assert checked >= 10_000
+
+
+def test_percentile_without_the_heights_of_mixed_zeros():
+    """Heights of 0.0 and -0.0 together (keys -1 and 0): the range of keys widened at zero, so none is left out; the
+    verdict is numpy's (the sign of a zero numpy returns depends on its partition's order, not on the values)."""
+    rng = np.random.default_rng(5)
+    for n in (2, 3, 21, 1000, 20_001):
+        v = np.where(rng.random(n) < 0.5, np.float32(0.0), np.float32(-0.0)).astype(np.float32)
+        v[: n // 10] = rng.random(n // 10).astype(np.float32) * 0.5
+        for lowest, highest in ((float(v.min()), float(v.max())), (0.0, float(v.max())), (-0.0, 0.0 + float(v.max()))):
+            lo, hi = access._key_range(lowest, highest)
+            chunks = _pieces(v, rng, 4)
+            for q in (95, 5):
+                got, want = access._percentile_of(chunks, n, q, lo, hi), np.percentile(v.copy(), q)
+                assert got == want, (n, q, got, want)
+
+
+def test_percentile_without_the_heights_of_large_regions():
+    """The same on regions over 2^24 pixels (the sizes B decides in a search, over GATHER_PX), among them sizes whose
+    n - 1 is not a float32 number (a rank computed in float32 picks another index there): consecutive float32 bit
+    patterns, shuffled (the result's bits show the index picked), and widely spaced ones (the weight matters). One
+    array at a time, up to 135 MB, freed before the next."""
+    rng = np.random.default_rng(3)
+    for n in (16_777_217, 16_777_218, 16_777_220, 20_000_002, 33_554_435, 33_554_436):
+        for spaced in (False, True):
+            u = np.arange(n, dtype=np.uint32)
+            if spaced:
+                u *= np.uint32(1024)  # modulo 2^32
+                u &= np.uint32((1 << 30) - 1)
+            u += np.uint32(0x3F800000)  # from 1.0 up, at most the largest finite float32
+            v = u.view(np.float32)
+            del u
+            rng.shuffle(v)
+            lo, hi = _key_range(v)
+            chunks = _pieces(v, rng, 9)
+            got = {q: access._percentile_of(chunks, n, q, lo, hi) for q in (95, 5)}
+            for q in (95, 5):  # numpy partitions v in place: the same values
+                assert _bits(got[q]) == _bits(np.percentile(v, q, overwrite_input=True)), (n, spaced, q)
+            del v, chunks
+
+
+LAKE_PX = 2800 * 700
+
+
+def _wide_flat(rows=64 * 48, cols=700):
+    """At 2 m: steep ground (17 degrees) with one large flat region (a lake held as data, 2800 x 700 pixels) whose
+    heights spread over FLAT_WATER_SPREAD_M between its lowest and highest (a cone of 0.8 m on 0.4 % of it) but not
+    between p5 and p95 (kept only by the exact percentiles), and one of 100 x 500 pixels rising 0.5 m (refused by
+    them)."""
+    rng = np.random.default_rng(2)
+    z = tilted(rows, cols, res=2.0, grade=0.3)
+    z[100:2900] = 200.0 + rng.random((2800, cols)) * 0.1
+    rr, cc = np.mgrid[100:2900, 0:cols]
+    z[100:2900] += np.maximum(0.0, 0.8 * (1 - np.hypot(rr - 1500, cc - 350) / 30.0))
+    z[2950:3050, 100:600] = 220.0 + np.linspace(0, 0.5, 100)[:, None]
+    return z.astype(np.float32)
+
+
+@pytest.mark.parametrize("gather_px", [5_000, 4_000_000], ids=["selected", "gathered"])
+def test_flat_lakes_in_strips_hold_no_heights_of_a_large_region(tmp_path, monkeypatch, gather_px):
+    """The flat lakes of the grid in blocks (access._flat_lakes_rows) = flat_water of the grid at once, pixel for
+    pixel, whether an open question over GATHER_PX is answered by the selection (spec B: _spread_large) or by today's
+    gather; with the selection Python's traced peak stays under half the large region's heights, which the gather
+    holds whole."""
+    import tracemalloc
+    z = _wide_flat()
+    res = 2.0
+    want = access.flat_water(z, access.slope_deg(z, res), res)
+    monkeypatch.setattr(access, "STRIP_PX", 1)  # 64 rows a strip
+    monkeypatch.setattr(access, "GATHER_PX", gather_px)
+    large = []
+    real = access._spread_large
+    monkeypatch.setattr(access, "_spread_large", lambda regions, z, q: large.append(q) or real(regions, z, q))
+    wet = access._Mask(str(tmp_path / "wet.npy"), z.shape)
+    wet.write(0, z.shape[0], False)
+    tracemalloc.start()
+    try:
+        access._flat_lakes_rows(z, res, str(tmp_path), wet)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    got = wet.rows(0, z.shape[0])
+    wet.remove()
+    assert os.listdir(tmp_path) == []
+    assert np.array_equal(got, want) and want[600, 300] and want[1500, 350] and not want[3000, 300]
+    region = LAKE_PX * 4  # the large region's heights, float32
+    if gather_px < LAKE_PX:
+        assert len(large) == 2 and peak < region / 2, (large, peak, region)
+    else:
+        assert not large and peak > region, (peak, region)
 
 
 def test_speed_logged(record_property):

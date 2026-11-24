@@ -455,16 +455,18 @@ def test_the_grid_wide_pass_makes_nothing_of_4_bytes_a_pixel(tmp_path, monkeypat
     functions in the pass is recorded (shape and type), and every file it removes (its size); none has the grid's
     shape (or as many elements) with more than 1 B an element, no file more bytes than the grid has pixels (and the
     .npy header). Python's traced peak of the pass after the whole-metre sample (a fixed size, about
-    WHOLE_METRE_SAMPLE heights: 2.9 MB here) stays under 2 B per pixel of the grid (a catch-all for arrays made by
-    operators and methods). The blocks then run
-    unrecorded (numba compiles them with the real modules) and give the grid at once."""
+    WHOLE_METRE_SAMPLE heights) stays under 2 B per pixel of the grid and the fixed counters of the selection of a
+    large flat region (spec B: three arrays of SELECT_BINS int64): a catch-all for arrays made by operators and
+    methods, which an array of 4 B per pixel breaks. The blocks then run unrecorded (numba compiles them with the real
+    modules) and give the grid at once."""
     import tracemalloc
-    z = _lakes(_hills(1600, 420, 5.0, 8))
+    from sources import filling
+    z = _lakes(_hills(4800, 420, 5.0, 8))
     z = (np.round(z) if whole else z).astype(np.float32)
     h, w = z.shape
     one = access.access_grid(z, None, 5.0, alpine=True)
-    monkeypatch.setattr(access, "STRIP_PX", 1)  # 64 rows a strip: 25 strips
-    monkeypatch.setattr(access, "GATHER_PX", 5_000)
+    monkeypatch.setattr(access, "STRIP_PX", 1)  # 64 rows a strip: 75 strips
+    monkeypatch.setattr(access, "GATHER_PX", 5_000)  # the lakes over it: B decides them
     seen, removed, peak = set(), [], []
     real_np, real_ndimage, real_remove = access.np, access.ndimage, access._remove
 
@@ -492,7 +494,7 @@ def test_the_grid_wide_pass_makes_nothing_of_4_bytes_a_pixel(tmp_path, monkeypat
     tracemalloc.start()
     try:
         access.np, access.ndimage = _Recording(real_np, seen), _Recording(real_ndimage, seen)
-        access.block_grid(z, None, 5.0, None, str(work / "access.npy"), str(work), 100, alpine=True, on_part=on_part)
+        access.block_grid(z, None, 5.0, None, str(work / "access.npy"), str(work), 400, alpine=True, on_part=on_part)
     finally:
         access.np, access.ndimage = real_np, real_ndimage
         if tracemalloc.is_tracing():
@@ -502,7 +504,9 @@ def test_the_grid_wide_pass_makes_nothing_of_4_bytes_a_pixel(tmp_path, monkeypat
            if np.dtype(dtype).itemsize > 1 and (tuple(shape) == (h, w) or int(np.prod(shape)) >= h * w)]
     assert not big, big
     assert all(size <= h * w + 4096 for _, size in removed), removed  # a bool grid and its .npy header at most
-    assert peak[0] < 16 * access.WHOLE_METRE_SAMPLE and peak[1] < 2 * h * w, (peak, h * w)
+    counters = 3 * 8 * filling.SELECT_BINS
+    assert 2 * h * w + counters < 4 * h * w  # an int32 grid would break the bound
+    assert peak[0] < 16 * access.WHOLE_METRE_SAMPLE and peak[1] < 2 * h * w + counters, (peak, h * w)
     blocks = np.array(np.load(work / "access.npy", mmap_mode="r"))
     assert np.array_equal(blocks, one), int((blocks != one).sum())
     assert os.listdir(work) == ["access.npy"]
