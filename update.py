@@ -715,6 +715,8 @@ def _read_runs(runs_dir: str) -> List[Tuple[str, Optional[Dict]]]:
             continue
         try:
             meta = rn.read_meta(path)
+        except FileNotFoundError:
+            continue  # gone since the folder was listed (a run being removed: runs.park_run): no run any more
         except (OSError, ValueError, RecursionError):
             meta = None
         found.append((name, meta if isinstance(meta, dict) else None))

@@ -189,7 +189,9 @@ the mended code in none in two runs, having waited in 755 and in 892 of them, on
 the listing's waiting read now (`runs.read_meta`: the same pauses, on Windows only);
 `tests/test_units.py::test_cache_status_waits_for_a_run_json_windows_refuses` makes the refusal with a fake `open`.
 Since the data record (the same day) a run.json still refused after the last pause no longer ends the command: that
-run is named as not checked ("its run.json cannot be read") and the other runs are listed.
+run is named as not checked ("its run.json cannot be read") and the other runs are listed (the user's choice of
+2026-11-24); and a run folder taken away between the listing and the read (a run being removed, `runs.park_run`),
+which ended the command with a FileNotFoundError, is no run any more and is left out.
 `runs.run_state` (the command `findaline.py runs remove-old`) needed no mending: it takes a run.json it cannot open
 for a run to skip ("cannot read now"), never for an old one.
 

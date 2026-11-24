@@ -350,6 +350,26 @@ def test_a_run_json_that_cannot_be_read_is_named(tmp_path, monkeypatch):
                      "list: its run.json cannot be read (not checked)"]
 
 
+def test_a_run_removed_while_the_runs_are_listed_is_no_run(tmp_path, monkeypatch):
+    """A run folder taken away between the listing of the folder and the read of its run.json (a run being removed:
+    runs.park_run moves it aside) is no run any more: left out without a line (the command used to end with the
+    FileNotFoundError); the other runs are told as ever."""
+    names = ["poland/nmt/a.tif", "poland/nmt/b.tif"]
+    data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
+    for name in ("gone", "stays"):
+        _run(data, name, {"data": [_entry(cache_dir, names)], "identity": VERSIONS})
+    os.remove(os.path.join(cache_dir, names[0]))
+    read = update.rn.read_meta
+
+    def parked(path):
+        if os.path.basename(os.path.dirname(path)) == "gone":
+            raise FileNotFoundError(2, "No such file or directory", path)
+        return read(path)
+    monkeypatch.setattr(update.rn, "read_meta", parked)
+    lines = [c.line() for c in update.changed_runs(os.path.join(data, "cache"), os.path.join(data, "runs"))]
+    assert lines == ["stays: 1 of 2 files changed"]
+
+
 def test_more_files_than_one_query_and_rows_not_ok(tmp_path):
     """Over _IN_CHUNK paths of one folder are asked in several queries, every row found; a row whose status is
     "missing" (the service had no data) is changed for a run that read the file."""
