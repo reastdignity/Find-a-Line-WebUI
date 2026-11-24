@@ -270,6 +270,40 @@ a tile edge. Since the fix the record is kept in the run's folder (`data_used.js
 so: a run folder with `progress.json` and `tiles/` whose run.json has `"data": []`. They are not repaired; search
 again to get a run that names its data and credits.
 
+## The data record: what it does not see (2026-11-24)
+
+A run records what data it read (run.json's `identity` keys: docs/code-map/search.md), and the regression
+harness, `cache status` and `tools/record_check.py` compare by it. Known and left:
+- **Content replaced while a search reads it.** A layer's files are noted (`cache.touch`, so their checksums) just
+  after the mosaic has read them: a file replaced in between (a `cache update` or an `--update` search running
+  beside it) is recorded with its new checksum although the old content was read, and a later comparison says
+  "same". A way to close it: note the checksums before the read too and call a file whose two readings differ not
+  known.
+- **A real change read as "re-encoded" by `cache status`**, in narrow cases: other content stamped in the same
+  second as the entry's newest fetch, a writer's fetch time taken before it waited for the index's lock, a clock set
+  back. The run is still listed; only the word is wrong.
+- **A file replaced by hand** without the index being told reads "same": the index's stored checksum is compared,
+  a file is never hashed again.
+- **The order of overlapping files** of one layer is the code's (the first written wins), not recorded.
+  `NewestPerSheet`'s order is total since this change (the name as the last key); no tied overlapping pair of
+  sheets was in the real cache's stored answers then (8 indexes, 242 778 sheets), an area holding one could give
+  other lines than before.
+- **Checksums across machines.** A float tile is written again in the cache's encoding: its bytes may differ under
+  another GDAL or rasterio for the same values, so a record made on one machine can read "data differs" on another
+  (the record holds the versions, and the harness names a change of them). On one PC two caches that downloaded
+  apart gave equal checksums (60 of 60 files, 2026-11-24).
+- **What steers a search and is recorded only by its outcome**: Nominatim's answer for the country of a search's
+  centre (the source's id is recorded) and, for two kinds of layer, an index answer (the files are recorded): the
+  same record gives the same result, but a cache built from a record alone is not always enough to run the search
+  again (docs/regression-tests.md, "The completeness check").
+- **A filler or neighbour that read its files and filled no pixel** is left out of the record, as of the credits.
+- **`cache status` as a whole still writes** into the cache (it adopts a world file put there by hand and opens
+  each index); only its list of runs reads. With `[` in a data folder's path `coast.world_file` finds no world
+  file (an unescaped `glob`), so such runs would read "the world file is gone".
+- A run made before the record is counted by the rule of before (fetch times) and marked approximate; a relative
+  `--slope-file` is not checked; a resumed run marked because earlier tiles exist keeps its mark even if the
+  marking session stopped before its own first tile.
+
 ## The square rule: a tiled search's line limit counts a pair of squares twice
 
 Seen 2026-11-14 (the line-volume task, confirmed by a run): with `--same-line-square`, a tiled search checks the

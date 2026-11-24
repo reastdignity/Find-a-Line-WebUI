@@ -169,6 +169,23 @@ measure's own answer; an anchor on a pixel without heights asserted impossible);
 whole grid) count its files (docs/performance.md, "The access grid's memory"); `save_run`'s
 `SearchError` `run_not_saved` and note `view_columns_failed` hold the exception's text on the command line only
 
+The data record (2026-11-24; the user's "do it once and correct"): what a search read, under the one key name
+`identity`, so that with every `identity` removed a run.json is what it was. Each `data` entry with `paths` holds
+`identity.sha256`, parallel to `paths`: the cache index's stored checksum of each file, read in `cache.touch`'s own
+lookup (`Layer.used`, cartoteca's and s3sheets' entries: `cache.identity_of`); the coastline's entry the world
+file's edition or the OSM coastline tiles of the grid's box (`coast.identity`); a local file's entry its size and
+modification time (`cache.file_identity`); the `area` block the OSM theme tiles and Nominatim answers an area by
+coast, cliffs or name was built from (`area.Inputs`, carried by the area object: `osm.theme_files`,
+`osm.stored_answer`); the top level `v`, the versions of GDAL, PROJ and rasterio, `slope_file` and `mixed`
+(`_run_identity`). `_merged_data` keeps the checksums in step with the united paths (a path met with two different
+ones: null). A tiled search keeps the record in its run folder between sessions (`USED_FILE`: `data`, `mixed`,
+`area`, `slope_file`, `_session_record`); a resuming session that finds a tile of an earlier one compares its
+record with the kept one (`_record_differs`) and marks the run `mixed`; with no tile left it takes the kept record
+whole. One exit: `runs.without_identity` (`public_meta`, `_listed`, `country._credits`); a country tile's record
+keeps the key, nothing built from the tiles does. Read by `tests/regression.py` (the side file
+`tests/regression-data.json`, the line under an entry that differs), `update.changed_runs` (`cache status`) and
+`tools/record_check.py` (the completeness check); its limits: docs/known-bugs.md, "The data record".
+
 ## `area.py`
 
 Search areas (`Circle`, `Polygon`): grid bounds, mask, shapes for maps and orthophoto; `from_spec` builds `--area`
