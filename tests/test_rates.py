@@ -849,6 +849,7 @@ def test_perf_window_reads_predicted_under_the_limits(one_slot_tools, tmp_path):
     layer = FileBlocks("AHN test", "test/ahn/1", "EPSG:2180", 0.5, 100, url, extent=(2000.0, 3700.0, 2300.0, 4000.0))
     tiles = layer.tiles(gd.Grid(left=2001.0, top=3999.0, res=0.5, height=398, width=398, crs="EPSG:2180"))
     cache_dir = str(tmp_path / "cache")
+    net.HOST_SLOTS_OF["127.0.0.1"] = 2  # a host of one slot is not measured through GDAL (the test below)
     assert pw.predicted(layer, tiles, cache_dir)["file_tiles"] > 0
     assert seen["slots"] == [(cache_dir, url)] and seen["turns"] == [url]
     assert seen["opens"][0]["GDAL_HTTP_MAX_RETRY"] == str(net.OPEN_RETRIES)
@@ -875,3 +876,20 @@ def test_probe_window_serial_for_one_slot(one_slot_tools, tmp_path, monkeypatch)
         tile = layer.tiles(gd.Grid(left=2001.0, top=3999.0, res=0.5, height=10, width=10, crs="EPSG:2180"))[0]
         assert probe._window(str(tmp_path), layer, tile).endswith("% with data")
         assert asked[-1] is serial and seen["opens"][-1]["GDAL_HTTP_MAX_RETRY"] == str(net.OPEN_RETRIES)
+
+
+def test_perf_window_reads_skips_one_connection_layers(one_slot_tools, tmp_path, capsys):
+    """predicted never reads through GDAL a layer read through our own ranges, nor one whose host takes one
+    connection (GDAL would ask its ranges on several): it says so in a line and gives nothing, no request."""
+    import perf_window_reads as pw
+    import grid as gd
+    from sources.layers.fileblocks import FileBlocks
+    url, seen = one_slot_tools
+    g = gd.Grid(left=2001.0, top=3999.0, res=0.5, height=398, width=398, crs="EPSG:2180")
+    for ranged in (False, True):  # the host at one slot; then a ranged layer on a host of 2
+        net.HOST_SLOTS_OF["127.0.0.1"] = 2 if ranged else 1
+        layer = FileBlocks("AHN test", "test/ahn/1", "EPSG:2180", 0.5, 100, url,
+                           extent=(2000.0, 3700.0, 2300.0, 4000.0), ranged=ranged)
+        assert pw.predicted(layer, layer.tiles(g), str(tmp_path / "cache")) is None
+        assert "not measured through GDAL" in capsys.readouterr().out
+    assert seen["opens"] == [] and seen["turns"] == []

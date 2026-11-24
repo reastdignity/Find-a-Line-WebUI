@@ -656,8 +656,38 @@ def connect_kind(error: Optional[BaseException]) -> Optional[str]:
             error = error.args[0] if error.args and isinstance(error.args[0], BaseException) else None
         elif isinstance(error, (requests.RequestException, u3.HTTPError)):
             return None
-        elif isinstance(error, (rio.errors.RasterioIOError, RuntimeError)):
-            return next((kind for pattern, kind in GDAL_CONNECT_FAILURES if re.search(pattern, str(error))), None)
+        elif isinstance(error, rio.errors.RasterioIOError):
+            return next((kind for pattern, kind in GDAL_CONNECT_FAILURES if re.search(pattern, curl)), None) \
+                if (curl := _curl_error(str(error))) else None
+        else:  # our own RuntimeError (a status, a server's body, an answer cut short): never
+            return None
+    return None
+
+
+def _curl_error(text: str) -> Optional[str]:
+    """The text of curl's own error in a GDAL error ("CURL error: ..."), where GDAL reports that the request got no
+    answer; None for anything else (an HTTP status, a server's body: "HTTP response code: 502", whose body may well
+    say "Failed to connect to backend port 8080", the code review of 2026-11-24)."""
+    match = re.match(r"\s*CURL error: (.*)", text, re.S)
+    return match.group(1) if match else None
+
+
+def failed_host(error: Optional[BaseException]) -> Optional[str]:
+    """The host an error says it could not connect to, when it says it: requests' (urllib3's pool of the host that
+    failed: a redirect's target too) or curl's "Failed to connect to <host> port" / "resolve host: <host>"; None
+    otherwise (curl's "Connection timed out after ..." names none)."""
+    import urllib3.exceptions as u3
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, u3.MaxRetryError):
+            return getattr(getattr(error, "pool", None), "host", None) or _host(getattr(error, "url", None))
+        if isinstance(error, requests.exceptions.RequestException):
+            error = error.args[0] if error.args and isinstance(error.args[0], BaseException) else None
+        elif isinstance(error, rio.errors.RasterioIOError):
+            match = re.search(r"(?:Failed to connect to|resolve host:?) \[?([\w.:-]+?)\]?(?: port \d+|$|\s)",
+                              _curl_error(str(error)) or "")
+            return match.group(1) if match else None
         else:
             return None
     return None
@@ -672,10 +702,12 @@ def unreachable(url: str, error: BaseException) -> Unreachable:
     """The Unreachable of a read of url that could not connect (connect_kind of error, which must say so): our own
     message, "<host> could not be connected to (<kind>)", the same from both readers and for every failure of that
     kind (no object address, no port, no duration: tools/area_download.py and the regression harness compare it);
-    the library's text logged at debug level."""
+    the host the error names (failed_host: a redirect's target that did not answer), else url's; the library's text
+    logged at debug level."""
     kind = connect_kind(error) or REFUSED
-    logging.getLogger(__name__).debug("%s: %s", _host(url), cache.clean_error(error))
-    return Unreachable(f"{_host(url)} could not be connected to ({kind})")
+    host = failed_host(error) or _host(url)
+    logging.getLogger(__name__).debug("%s: %s", host, cache.clean_error(error))
+    return Unreachable(f"{host} could not be connected to ({kind})")
 
 
 _downloads = threading.local()  # .current: the UnreachableHosts of the download whose task this thread runs
@@ -686,7 +718,9 @@ class UnreachableHosts:
     same error (host_slot, before any request), so a dead host costs one failed open, not one per block (8 tasks
     of download_layers' pool each waited for its own). Only Unreachable trips it: an HTTP status, a read timeout,
     a short answer never do. In memory, for this download only: the next one tries the host again; nothing on disk,
-    nothing between processes."""
+    nothing between processes. A host is marked by the address its slot was taken for (the block's first file, the
+    one a redirect starts from), whichever file or redirect target failed: a block whose files lie on two hosts would
+    mark the first file's host (no catalogue layer has such blocks)."""
 
     def __init__(self):
         self.failed: Dict[str, Unreachable] = {}

@@ -225,9 +225,10 @@ GDAL_TEXTS = [  # curl's texts as GDAL passes them on: the first two seen on Win
 @pytest.mark.parametrize("text, expected", GDAL_TEXTS)
 def test_gdal_connect_failures(text, expected):
     """net.GDAL_CONNECT_FAILURES, a case each: no connection made trips; a read timeout, a status, a reset, a short
-    answer or an unclear text never."""
+    answer or an unclear text never. Only in GDAL's report of curl's own error: never in a RuntimeError of ours,
+    which may carry a server's body."""
     assert net.connect_failed(rio.errors.RasterioIOError(text)) is expected
-    assert net.connect_failed(RuntimeError(f"Could not read terrain x: {text}")) is expected
+    assert net.connect_failed(RuntimeError(f"Could not read terrain x: {text}")) is False
 
 
 def _pool_error(reason):
@@ -457,3 +458,43 @@ def test_a_dead_host_and_a_live_one_in_one_download(short, http_server, small_fi
     assert len({str(e) for _, _, e in calls}) == 1 and all(isinstance(e, net.Unreachable) for _, _, e in calls)
     assert attempts.count(DEAD) == net.OPEN_RETRIES + 1
     assert sum(os.path.exists(live.tile_path(cache_dir, tile)) for tile in live.tiles(grid)) == 6  # 2 beyond the file
+
+
+def test_a_servers_words_are_no_failed_connection(http_server, monkeypatch):
+    """A 502 whose body says what curl says of a failed connection (a gateway's words about its own backend) is an
+    HTTP status: a RuntimeError, never net.Unreachable (the code review's case of 2026-11-24); nor in GDAL's report
+    of a status."""
+    monkeypatch.setattr(net, "_sleep", lambda attempt: None)
+    body = b"Failed to connect to backend port 8080: Connection refused"
+    http_server.route("/gw/", lambda r: Answer(502, body, {"Content-Type": "text/plain"}))
+    with pytest.raises(RuntimeError, match="HTTP 502") as error:
+        ranges.get_range(http_server.url("/gw/x.tif"), 0, 99, attempts=1)
+    assert not isinstance(error.value, net.Unreachable)
+    assert net.connect_kind(rio.errors.RasterioIOError(f"HTTP response code: 502 - {body.decode()}")) is None
+
+
+@pytest.mark.parametrize("text, host", [
+    ("CURL error: Failed to connect to fsn1.your-objectstorage.com port 443 after 21 ms: Could not connect to server",
+     "fsn1.your-objectstorage.com"),
+    ("CURL error: Could not resolve host: basisdata.invalid", "basisdata.invalid"),
+    ("CURL error: Connection timed out after 5012 milliseconds", None),
+])
+def test_the_host_curl_names(text, host):
+    """The host GDAL's report of curl's error names, when it names one."""
+    assert net.failed_host(rio.errors.RasterioIOError(text)) == host
+
+
+def test_a_dead_redirect_target(short, http_server, tmp_path, monkeypatch):
+    """The front answers 307 and its target does not answer: the message names the target (requests' error tells
+    it), and the download still marks the front's other blocks, which send nothing."""
+    target = f"http://localhost:{_closed_port()}/t/M_DEAD2023.TIF"
+    http_server.route("/front/", lambda r: Answer(307, b"", {"Location": target, "Content-Type": "text/plain"}))
+    front = http_server.url("/front/M_DEAD2023.TIF")
+    with pytest.raises(net.Unreachable, match=MESSAGE) as error:
+        ranges.get_range(front, 0, 99, attempts=1)
+    assert re.match(MESSAGE, str(error.value)).group(1) == "localhost"
+    monkeypatch.setattr(net, "HOST_SLOTS_OF", dict(net.HOST_SLOTS_OF, **{"127.0.0.1": 1}))
+    layer, grid = _dead_layer(front)
+    errors = _download(layer, grid, str(tmp_path / "cache"))
+    assert len(errors) == 8 and {str(e) for e in errors} == {str(error.value)}
+    assert len(http_server.requests("/front/")) == 1 + net.OPEN_RETRIES + 1  # the call above, then one block's

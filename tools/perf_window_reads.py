@@ -154,20 +154,28 @@ class _TiffTags:
             self.handle = None
 
 
-def predicted(layer, tiles: Sequence, cache_dir: Optional[str] = None) -> Dict:
+def predicted(layer, tiles: Sequence, cache_dir: Optional[str] = None) -> Optional[Dict]:
     """The bytes the files' internal tiles predict for the blocks (first file of each): summed per block
     and each tile once, from the files' headers (requests of their own: after the measurement), the tiles' sizes
     read with the GIL released (_TiffTags). A size GDAL could not read (it signalled an error: the bytes of its
     array not fetched) raises RuntimeError naming the file and the tile, never a 0 in the sum (the child process
     fails, as when the measurement fails: no table); a tile without bytes or outside the file counts 0 as ever.
     Each file is opened in its turn of its host's rate (net.rate_turn), retried net.OPEN_RETRIES times
-    (net.open_gdal) and, with cache_dir, read under a slot of its host (net.host_slot, held to the end)."""
+    (net.open_gdal) and, with cache_dir, read under a slot of its host (net.host_slot, held to the end). A layer read
+    through our own ranges, or one whose host takes one connection (net.single_connection), is not measured through
+    GDAL (its ranges in parallel): None, and a line saying why."""
     import contextlib
     import numpy as np
     import cache
     import rasterio as rio
     from rasterio.windows import from_bounds
     from sources import net
+    first = next((r.files[0][1] for r in map(layer.index.request, tiles) if r.files), None)
+    if getattr(getattr(layer, "reader", None), "ranged", False) or net.single_connection(first):
+        why = "it is read through our own ranges" if getattr(layer.reader, "ranged", False) else \
+            "its host takes one connection (GDAL would ask its ranges on several)"
+        print(f"{layer.description}: the prediction is not measured through GDAL: {why}")
+        return None
     lib = gdal_library()
     per_block, union, tile_px = 0, {}, set()
     with net._gdal_http(), contextlib.ExitStack() as slots:
