@@ -699,8 +699,9 @@ run's data record against the index read-only, `_read_only`, one connection per 
 fetch times, approximate); `status` changes no cached file, index or row and makes no folder (every index through
 `_query`: `cache.rows`, `cache.info` and `tnmbucket.list_status` with `read=_query`; no LAYOUT for a missing cache,
 `cache.check_layout(mark=False)`; SQLite's reader writes a `-shm` it finds and makes side files in two cases,
-`_read_only`), reads again read-only an immutable read a writer may have torn (`_query`'s `_stamp` before and
-after), names a folder whose index cannot be read now instead of failing (`NOT_NOW`, `_index_rows`' `unread`), and
+`_read_only`), reads again an immutable read a writer may have torn (`_query`: `_stamp` before and after, a file
+written within `STAMP_MARGIN_NS` waited out by `_settled`, up to `IMMUTABLE_TURNS` immutable reads, then `mode=ro`),
+names a folder whose index cannot be read now instead of failing (`NOT_NOW`, `_index_rows`' `unread`), and
 names world water polygons without index rows (`_world_without_rows`), which `checks` adopts (`_adopt_world`)
 before every `cache update`; an `IndexedTiles`'
 `update_ttl_days` in place of its index's TTL (the USA's 1 m DEM: `cache.TTL_DAYS["usgs-1m-index"]`, 28 days, the

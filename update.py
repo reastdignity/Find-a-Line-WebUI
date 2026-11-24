@@ -34,9 +34,10 @@ encoding (`cache migrate`: another checksum, fetched no later than the run read 
 fetch times, marked approximate. `status` as a whole reads every index and Nominatim's answers through _query's
 read-only connections (cache.rows and cache.info with read=_query): it changes no cached file, no index and no row,
 and makes no folder, file or LAYOUT; only SQLite's own side files beside an index are touched by SQLite's reader
-(_read_only: a -shm that is there is written, and in two cases a -shm, or a -shm and a -wal, are made). It may run
-beside a search: an immutable read a writer may have torn is made again read-only (_query), so each index's rows are
-those of one moment. An index that cannot be read now (a writer's lock, a hot journal) is named, never ends the command.
+(_read_only: a -shm that is there is written; a -shm, or a -shm and a -wal, are made beside a killed writer's -wal
+and at _query's bound). It may run beside a search: an immutable read a writer may have torn is made again
+(_query: a stamp check with a margin of a clock tick; not sound on a network share), so each index's rows are those
+of one moment. An index that cannot be read now (a writer's lock, a hot journal) is named, never ends the command.
 World water polygons put into the cache by hand (files without index rows) are named in one line; `update` adopts
 them (_adopt_world) before it checks.
 
@@ -50,6 +51,7 @@ import glob
 import hashlib
 import os
 import sqlite3
+import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -390,6 +392,14 @@ def _size(folder: str) -> int:
     return total
 
 
+def _file_size(path: str) -> Optional[int]:
+    """A file's size, None when it is gone (deleted while `status` runs)."""
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return None
+
+
 def _date(timestamp: Optional[str]) -> str:
     return timestamp[:10] if timestamp else "-"
 
@@ -466,10 +476,10 @@ def _mode(db_path: str) -> Optional[str]:
 def _read_only(db_path: str, mode: Optional[str] = None, timeout: float = 60) -> Optional[sqlite3.Connection]:
     """A connection to an existing SQLite file that writes nothing in the cases of _mode, or None when there is no
     file. Two cases leave files, SQLite's own and harmless (the next writer's close removes them): a -wal left by a
-    killed writer without its -shm (SQLite makes the -shm), and _query's read-only read of an index again after an
-    immutable read that failed or may be torn, when no -wal is there (it makes both). And a -shm that is there
-    (beside a -wal: a writer has the index open, or a killed one left them) is written by SQLite's read-only reader,
-    which notes its place in it."""
+    killed writer without its -shm (SQLite makes the -shm), and _query's read-only read at its bound (three
+    immutable reads in a row a writer changed, or a file dated in the future) when no -wal is there (it makes both).
+    And a -shm that is there (beside a -wal: a writer has the index open, or one left them) is written by SQLite's
+    read-only reader, which notes its place in it."""
     mode = mode or _mode(db_path)
     return sqlite3.connect(_uri(db_path, mode), uri=True, timeout=timeout) if mode else None
 
@@ -483,28 +493,63 @@ def _stamp(db_path: str) -> Optional[Tuple[int, int, bool]]:
     return st.st_mtime_ns, st.st_size, os.path.exists(db_path + "-wal")
 
 
+# How old a file's last write must be (its modification time against the clock) before an immutable read of it is
+# trusted: a write's time moves in ticks (Windows' clock tick: 15.6 ms by default, about 1 ms measured on this PC;
+# ext4 and xfs a jiffy, 4-10 ms; exFAT 10 ms), so a write in the same tick as the last one before the first stamp,
+# leaving the size as it was, would not change the stamp. 0.1 s covers those; not FAT32 (2 s steps).
+STAMP_MARGIN_NS = 100_000_000
+IMMUTABLE_TURNS = 3  # immutable reads of one index a writer may spoil in a row before _query reads it read-only
+_now_ns = time.time_ns  # the clock and the pause of _query (tests stub them)
+_sleep = time.sleep
+
+
+def _settled(db_path: str) -> Tuple[str, Optional[Tuple[int, int, bool]]]:
+    """Whether a WAL index may be read immutable now: ("read", its stamp) when it has no -wal and its last write is
+    more than STAMP_MARGIN_NS old (a newer one is waited out once, then stamped again); ("again", None) when it was
+    written again meanwhile; ("read-only", None) when it is not to be read immutable at all (no file, a rollback
+    journal, a -wal: a writer has it open, a modification time in the future: a clock set back)."""
+    for wait in (True, False):
+        stamp = _stamp(db_path) if _mode(db_path) == "immutable=1" else None
+        if stamp is None or stamp[2]:
+            return "read-only", None
+        age = _now_ns() - stamp[0]
+        if age > STAMP_MARGIN_NS:
+            return "read", stamp
+        if age < 0:
+            return "read-only", None
+        if wait:
+            _sleep((STAMP_MARGIN_NS - age) / 1e9 + 0.001)
+    return "again", None
+
+
 def _query(db_path: str, ask: Callable[[sqlite3.Connection], Dict], timeout: float = 60) -> Dict:
     """ask(connection) on _read_only(db_path); {} without the file or without the table asked (an index made and
     never written). An immutable read takes no lock, so a writer that opens the index, commits and closes while it
     reads (its close checkpoints the WAL into the file under the read and removes the -wal) can tear it: an error,
     or, without one, rows read twice or not at all (measured 2026-11-24 on a 200 000-row index beside such a writer:
-    23 of 183 immutable reads with a path twice, none raised). So the file is stamped (_stamp) before and after an
-    immutable read, and the read is kept only when both stamps are equal and no -wal was there; otherwise, or when it
-    raised, it is made once more read-only (mode=ro: SQLite's locks, a consistent read that sees the WAL too), and
-    that is the bound: a read-only read is made once, its failure raised (a writer's lock over the timeout, a hot
-    journal; `status` names the folder: its `readable`), never tried again (a writer's lock would cost a second
-    wait). That read-only read of an index without a -wal makes a -shm and a -wal and leaves them (_read_only).
-    The check rests on two things: a writer that commits leaves a -wal while it has the index open, and the file's
-    modification time changes when its WAL is written into it (os.stat on Windows opens the file and sees it at
-    once); measured on local NTFS only: not on Linux (the VPS), not on a network share.
+    23 of 183 immutable reads with a path twice, none raised). So an immutable read is made only of a settled file
+    (_settled: no -wal, its last write older than STAMP_MARGIN_NS, a newer one waited out once: at most 0.1 s a turn)
+    and kept only when the file's stamp (_stamp: modification time, size, a -wal) after it is the one before; up to
+    IMMUTABLE_TURNS such reads (one that raised counts). The index is read read-only (mode=ro: SQLite's locks, a
+    consistent read that sees the WAL too) when a -wal is there (a writer has it open: nothing is made then), and at
+    the bound or for a file dated in the future, which on an index without a -wal makes a -shm and a -wal and leaves
+    them (_read_only). The read-only read is made once, its failure raised (a writer's lock over the timeout, a hot
+    journal; `status` names the folder: its `readable`). Worst case of waiting per index: 3 times 0.1 s.
+    The check rests on a writer that commits leaving a -wal while it has the index open, and on the file's
+    modification time moving when its WAL is written into it, by at least a tick (the margin); measured on local
+    NTFS. Not sound on a network share (the Windows client caches a file's details for seconds; a cache shared
+    between machines is not supported anyway), not covered on FAT32.
 
     timeout: SQLite's wait for a lock; on Windows one wait lasts about 1.5 times as long (measured 2026-11-24:
     1.09 s at 0.5, 2.49 at 1.5, 4.61 at 3), probably because the tries of the lock inside each step of SQLite's
     busy wait sleep timer ticks the wait does not count (not verified in SQLite's code)."""
-    before = _stamp(db_path)
-    mode = _mode(db_path)
-    if mode == "immutable=1" and before is not None and not before[2]:
-        db = _read_only(db_path, mode, timeout)
+    for _ in range(IMMUTABLE_TURNS):
+        state, before = _settled(db_path)
+        if state == "again":
+            continue
+        if state == "read-only":
+            break
+        db = _read_only(db_path, "immutable=1", timeout)
         try:
             found, error = ask(db), None
         except sqlite3.DatabaseError as e:
@@ -859,9 +904,15 @@ def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
 
     def not_now(top: str) -> str:
         return f"{NOT_NOW} ({unread[top]})"
+
+    def there(top: str) -> bool:
+        """Whether a listed folder is still there (one deleted while `status` runs is left out from then on)."""
+        return os.path.isdir(os.path.join(cache_dir, top))
     print(f"Cache: {cache_dir}")
     print(f"{'Folder':<14} {'Size':>9} {'Files':>7}  {'Fetched':<23}  {'Last used':<10}  To check (stale)")
     for top in tops:
+        if not there(top):
+            continue
         rows = readable(top, lambda: cache.rows(cache_dir, top, _query))
         if rows is None:
             print(f"{top:<14} {_size(os.path.join(cache_dir, top)) / 1e9:>7.2f}GB  {not_now(top)}")
@@ -884,7 +935,7 @@ def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
         print(f"\nThe world water polygons in {world[0]} have no index rows yet ({world[2]} of {world[1]} files): "
               "`findaline.py cache update` adopts them.")
     lists = {layer.index.top: layer for layer in _sheet_layers()
-             if getattr(layer.index, "has_list", False) and layer.index.top in tops}
+             if getattr(layer.index, "has_list", False) and layer.index.top in tops and there(layer.index.top)}
     for top, layer in lists.items():
         from sources.layers import tnmbucket as tb
         text = readable(top, lambda: tb.list_status(cache_dir, top, _query))
@@ -897,18 +948,28 @@ def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
         for rid, pbf in found:
             top = cache.relative(cache_dir, pbf).partition("/")[0]
             row = readable(top, lambda: cache.info(cache_dir, pbf, _query) or {})
-            print(f"  {rid}: {os.path.getsize(pbf) / 1e9:.2f} GB, " + (
+            size = _file_size(pbf)
+            if size is None:  # deleted since the listing
+                continue
+            print(f"  {rid}: {size / 1e9:.2f} GB, " + (
                 f"data of {(row.get('source_date') or '?')[:16]}, checked {_date(row.get('checked_at'))}"
                 if row is not None else not_now(top)))
     old: Dict[str, List[str]] = {}
     for top in tops:
+        if not there(top):  # old_tiles would stop with "No folder" (_tops)
+            continue
         read_before = top not in unread
-        old.update(readable(top, lambda: old_tiles(cache_dir, top, _query)) or {})
+        try:
+            old.update(readable(top, lambda: old_tiles(cache_dir, top, _query)) or {})
+        except SystemExit:  # deleted between the look and old_tiles' own listing
+            if there(top):
+                raise
+            continue
         if read_before and top in unread:  # read for the table, not now
             print(f"\nTiles in the older encoding in {top}: not counted, {not_now(top)}")
     if old:
         count = sum(len(paths) for paths in old.values())
-        gigabytes = sum(os.path.getsize(p) for paths in old.values() for p in paths) / 1e9
+        gigabytes = sum(_file_size(p) or 0 for paths in old.values() for p in paths) / 1e9
         print(f"\nTiles in the older encoding: {count} ({gigabytes:.2f} GB; {', '.join(old)}). A search writes the "
               f"ones it reads again; `findaline.py cache migrate` does all of them.")
     runs = changed_runs(cache_dir, runs_dir, unread)

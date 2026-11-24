@@ -331,13 +331,16 @@ harness, `cache status` and `tools/record_check.py` compare by it. Known and lef
     beside an empty `-wal`, of unknown origin, got a new modification time and nothing else changed
     (`tests/test_status_readonly.py::test_a_wal_and_shm_left_by_a_killed_writer`);
   - it makes a `-shm`, or a `-shm` and a `-wal`, in the two cases `update._read_only` names (a `-wal` without its
-    `-shm`; an index read again read-only after an immutable read that failed or that a writer may have torn,
-    which beside a search happens: 9 of 373 reads in a probe of 2026-11-24; a `-shm` and a `-wal` are left when
-    the writer has closed by then).
+    `-shm`; `update._query`'s bound: a writer changed the index during three immutable reads in a row, then it is
+    read read-only; none in the second code review's 40-s probes beside a busy writer, where reading read-only
+    after one such read made 15 a run).
   Not used: SQLite's `readonly_shm` (undocumented), and an empty `-wal` read as no WAL (a live connection that has
   only read, or has just checkpointed, shows one too). Beside a search an index's rows are read again when the
-  stamp check of `update._query` sees a writer (the file's time or size, or a `-wal`): it rests on the file's
-  modification time changing when a WAL is written into it, measured on local NTFS, not on Linux (the VPS) or a network share. An
+  stamp check of `update._query` sees a writer (the file's time or size, or a `-wal`). It rests on the file's
+  modification time moving when a WAL is written into it, by at least a clock tick (NTFS up to 15.6 ms, ext4 and
+  xfs a jiffy), so a file written less than `STAMP_MARGIN_NS` (0.1 s) ago is waited out first (at most 0.1 s a
+  read, 0.3 s an index); measured on local NTFS. Not covered on FAT32 (2 s steps); not sound on a network share
+  (the Windows client caches a file's details for seconds; a cache shared between machines is not supported). An
   index that cannot be read at the moment (a writer's lock over the timeout, a hot journal of a rollback-journal
   index) is named with the error's class, and the runs that read its files as not checked. A world file put there
   by hand gets its index rows only from `cache update` (`status` names it), so until then a search's

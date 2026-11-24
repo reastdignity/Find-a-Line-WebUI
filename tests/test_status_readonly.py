@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -433,36 +434,115 @@ def _spy_modes(monkeypatch):
     return modes
 
 
+def _rows(db):
+    return sorted(r[0] for r in db.execute("SELECT path FROM files"))
+
+
+def _write_one(index, path, close=True):
+    """A search's writer: opens the index, commits a row and closes (its WAL into the file, the -wal removed), or
+    stays open (close False: its -wal there); returns the connection when open."""
+    writer = sqlite3.connect(index)
+    with writer:
+        writer.execute("INSERT INTO files (path, status) VALUES (?, 'ok')", (path,))
+    if not close:
+        return writer
+    writer.close()
+    assert not os.path.exists(index + "-wal")
+
+
 def test_an_immutable_read_a_writer_may_have_torn_is_made_again(tmp_path, monkeypatch):
-    """G1 (the code review's D1): an index at rest is read immutable, with no lock. A search's writer that opens it,
-    commits and closes between the stamp before the read and its end (here inside the read: the test's ask) writes
-    its WAL into the file under the read; the file's stamp differs afterwards, so the read is made again read-only,
-    and its rows are those a read-only read gives (the writer's row among them). Without a writer the immutable
-    read is kept (one connection)."""
+    """G1, H2 (the code reviews' D1, E3): an index at rest is read immutable, with no lock. A search's writer that
+    opens it, commits and closes between the stamp before the read and its end (here inside the read: the test's
+    ask) writes its WAL into the file under the read; the file's stamp differs afterwards, so the read is made again
+    immutable (once the write is older than the margin), its rows those of a read-only read (the writer's row among
+    them), and no side file is made. Without a writer the immutable read is kept (one connection)."""
     data, cache_dir = canned(tmp_path)
     index = _index(cache_dir, "spain")
     assert update._mode(index) == "immutable=1"
     modes = _spy_modes(monkeypatch)
-    rows = lambda db: sorted(r[0] for r in db.execute("SELECT path FROM files"))  # noqa: E731
-    assert update._query(index, rows) == [p.split("/", 1)[1] for p in sorted(
+    assert update._query(index, _rows) == [p.split("/", 1)[1] for p in sorted(
         r["path"] for r in cache.rows(cache_dir, "spain"))] and modes == ["immutable=1"]
     calls = []
 
     def ask(db):
         calls.append(len(modes))
         if len(calls) == 1:
-            writer = sqlite3.connect(index)
-            with writer:
-                writer.execute("INSERT INTO files (path, status) VALUES ('w/new.tif', 'ok')")
-            writer.close()  # the WAL into the file, the -wal removed
-            assert not os.path.exists(index + "-wal")
-        return rows(db)
+            _write_one(index, "w/new.tif")
+        return _rows(db)
     modes.clear()
     found = update._query(index, ask)
-    assert modes == ["immutable=1", "mode=ro"] and len(calls) == 2
-    assert os.path.exists(index + "-wal") and os.path.exists(index + "-shm")  # the read-only read left them
+    assert modes == ["immutable=1", "immutable=1"] and len(calls) == 2
+    assert not os.path.exists(index + "-wal") and not os.path.exists(index + "-shm")
     monkeypatch.undo()
-    assert "w/new.tif" in found and found == update._query(index, rows)
+    assert "w/new.tif" in found and found == update._query(index, _rows)
+
+
+def test_a_writer_still_open_sends_the_read_to_read_only(tmp_path, monkeypatch):
+    """H2: a writer that commits inside the immutable read and stays open (its -wal there at the next turn): the index
+    is read read-only, which sees its row, and makes no file (the -wal and -shm are the writer's: its close removes
+    them)."""
+    data, cache_dir = canned(tmp_path)
+    index = _index(cache_dir, "spain")
+    modes, held = _spy_modes(monkeypatch), []
+
+    def ask(db):
+        if not held:
+            held.append(_write_one(index, "w/open.tif", close=False))
+        return _rows(db)
+    try:
+        found = update._query(index, ask)
+        assert modes == ["immutable=1", "mode=ro"] and "w/open.tif" in found
+        assert sorted(n for n in os.listdir(os.path.dirname(index)) if n.startswith("index.sqlite")) == [
+            "index.sqlite", "index.sqlite-shm", "index.sqlite-wal"]
+    finally:
+        held[0].close()
+    assert not os.path.exists(index + "-wal") and not os.path.exists(index + "-shm")
+
+
+def test_a_writer_inside_every_immutable_read_reaches_the_bound(tmp_path, monkeypatch):
+    """H2: a writer that opens, commits and closes inside each of the IMMUTABLE_TURNS immutable reads: the index is
+    then read read-only (its rows all there), which on an index without a -wal makes a -shm and a -wal and leaves
+    them (SQLite's own, removed by the next writer's close)."""
+    data, cache_dir = canned(tmp_path)
+    index = _index(cache_dir, "spain")
+    modes = _spy_modes(monkeypatch)
+
+    def ask(db):
+        if modes[-1] == "immutable=1":
+            _write_one(index, f"w/{len(modes)}.tif")
+        return _rows(db)
+    found = update._query(index, ask)
+    assert update.IMMUTABLE_TURNS == 3 and modes == ["immutable=1"] * 3 + ["mode=ro"]
+    assert {"w/1.tif", "w/2.tif", "w/3.tif"} <= set(found)
+    assert os.path.exists(index + "-wal") and os.path.exists(index + "-shm")
+
+
+@pytest.mark.parametrize("age", [0.01, 10.0, -60.0])
+def test_a_file_written_within_the_margin_is_waited_out(tmp_path, monkeypatch, age):
+    """H3 (the code review's E2), with the clock and the pause stubbed: a file written 0.01 s ago is not read
+    immutable before STAMP_MARGIN_NS has passed (one pause of the rest, then the read); a file written 10 s ago is
+    read immutable at once with one connection and no pause; a file dated 60 s in the future (a clock set back) is
+    never read immutable: read-only."""
+    data, cache_dir = canned(tmp_path)
+    index = _index(cache_dir, "spain")
+    events, clock = [], [os.stat(index).st_mtime_ns + int(age * 1e9)]
+    real = update._read_only
+    monkeypatch.setattr(update, "_now_ns", lambda: clock[0])
+
+    def pause(seconds):
+        events.append(("pause", seconds))
+        clock[0] += int(seconds * 1e9)
+    monkeypatch.setattr(update, "_sleep", pause)
+    monkeypatch.setattr(update, "_read_only",
+                        lambda path, mode=None, timeout=60: events.append(("read", mode)) or real(path, mode, timeout))
+    assert update._query(index, _rows) and update.STAMP_MARGIN_NS == 100_000_000
+    if age < 0:
+        assert events == [("read", "mode=ro")]
+    elif age < 0.1:
+        assert [e[0] for e in events] == ["pause", "read"] and events[1] == ("read", "immutable=1")
+        assert 0.09 < events[0][1] < 0.092
+    else:
+        assert events == [("read", "immutable=1")]
 
 
 def test_reads_beside_a_writer_that_opens_commits_and_closes(tmp_path):
@@ -496,6 +576,8 @@ def test_reads_beside_a_writer_that_opens_commits_and_closes(tmp_path):
             if len(paths) != len(set(paths)) or not base <= set(paths):
                 bad.append((len(paths), len(set(paths)), len(base - set(paths))))
     finally:
+        if process.poll() is None:  # the test failed or was interrupted: the writer ends now, not at its own end
+            process.kill()
         process.wait(60)
     assert process.returncode == 0 and reads >= 1
     assert not bad, f"{len(bad)} of {reads} reads torn: {bad[:5]}"
@@ -590,3 +672,20 @@ def test_an_index_that_cannot_be_read_now_is_named(tmp_path, monkeypatch, capsys
     gone = f"not checked (the index of {top} cannot be read now: OperationalError)"
     assert out == _expected([(old, new.replace("<gone>", gone)) for old, new in changes["replace"]])
     assert len(asked) == first
+
+
+def test_a_folder_deleted_while_status_runs(tmp_path, monkeypatch, capsys):
+    """H1 (the code review's E1): a folder deleted after the table was printed (its closing line tells the user to
+    delete folders, and on a big cache it runs for minutes) is left out from then on: poland's old tile is no longer
+    counted, the runs are listed, the command ends with 0. A folder that never was there still ends it as before."""
+    data, cache_dir = canned(tmp_path)
+    real = update._world_without_rows
+
+    def delete_then(*args, **kwargs):
+        shutil.rmtree(os.path.join(cache_dir, "poland"))
+        return real(*args, **kwargs)
+    monkeypatch.setattr(update, "_world_without_rows", delete_then)
+    assert _status(data) == 0
+    assert _printed(capsys.readouterr().out, cache_dir) == _expected(drop=["Tiles in the older encoding"])
+    with pytest.raises(SystemExit, match="No folder nowhere"):
+        _status(data, "nowhere")
