@@ -171,10 +171,14 @@ def open_menu(page, run: str) -> list:
 
 
 def open_rename(page, run: str):
-    """"Rename…" pressed in the card's menu: the panel's field."""
+    """"Rename…" pressed in the card's menu: the panel's field, once it has the focus with its whole name selected."""
     open_menu(page, run)
     page.click(f"{card(run)} [role=menuitem]:has-text('Rename…')")
     page.wait_for_selector(f"{card(run)} .c-card-panel .c-rename input")
+    # the form takes the focus and selects the name in an effect, after the paint: waited for (the tests then read it)
+    page.wait_for_function("(sel) => { const i = document.querySelector(sel + ' .c-rename input'); "
+                           "return document.activeElement === i && i.selectionStart === 0 && i.selectionEnd === i.value.length; }",
+                           arg=card(run))
     return page.locator(f"{card(run)} .c-rename input")
 
 
@@ -197,6 +201,18 @@ FORM = """(sel) => { const f = document.querySelector(sel + ' .c-rename'), i = f
           focus: document.activeElement === i, selected: [i.selectionStart, i.selectionEnd]}; }"""
 NAME = "(sel) => document.querySelector(sel + ' .c-card-name').textContent"
 ON_MENU_BUTTON = "(sel) => document.activeElement === document.querySelector(sel + ' .c-card-menu')"
+
+
+def closed(page, run: str) -> bool:
+    """The card's panel gone; then whether the focus came to the menu's button (the page puts it there in an effect,
+    after the paint: waited for, at most WAIT)."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+    page.wait_for_selector(f"{card(run)} .c-card-panel", state="detached")
+    try:
+        page.wait_for_function(ON_MENU_BUTTON, arg=card(run))
+    except PlaywrightTimeout:
+        return False
+    return True
 
 
 def test_the_menu_has_rename_for_the_owner(rename_site):
@@ -250,18 +266,16 @@ def test_rename_on_a_card(rename_site):
         field.fill("Another name")
         typed = page.evaluate(FORM, card(RUN_A))
         page.keyboard.press("Escape")
-        page.wait_for_selector(f"{card(RUN_A)} .c-card-panel", state="detached")
-        escaped = [page.evaluate(NAME, card(RUN_A)), page.evaluate(ON_MENU_BUTTON, card(RUN_A))]
+        escaped = [page.evaluate(NAME, card(RUN_A)), closed(page, RUN_A)]
         open_rename(page, RUN_A)
         page.click(f"{card(RUN_A)} .c-rename button:has-text('Cancel')")
-        page.wait_for_selector(f"{card(RUN_A)} .c-card-panel", state="detached")
-        cancelled = [page.evaluate(NAME, card(RUN_A)), page.evaluate(ON_MENU_BUTTON, card(RUN_A))]
+        cancelled = [page.evaluate(NAME, card(RUN_A)), closed(page, RUN_A)]
         field = open_rename(page, RUN_A)
         field.fill("  The north   side ")
         with page.expect_response(lambda r: r.request.method == "POST" and r.url.endswith(f"/api/runs/{RUN_A}")) as answer:
             page.keyboard.press("Enter")
-        page.wait_for_selector(f"{card(RUN_A)} .c-card-panel", state="detached")
-        saved = [page.evaluate(NAME, card(RUN_A)), page.evaluate(ON_MENU_BUTTON, card(RUN_A))]
+        on_button = closed(page, RUN_A)
+        saved = [page.evaluate(NAME, card(RUN_A)), on_button]
         href = page.evaluate("(sel) => document.querySelector(sel + ' a.c-card-open').getAttribute('href')", card(RUN_A))
         sent = answer.value.request.post_data_json
     assert panel == ["dialog", "Rename the run", 0], panel
