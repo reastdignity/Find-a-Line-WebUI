@@ -141,6 +141,7 @@ NICE = 10             # the niceness of shared and tamed commands on POSIX (Wind
 SLACK = 120.0         # seconds a command passing a waiting one may end after that one's reservation
 POLL = float(os.environ.get("FINDALINE_TEST_LOCK_POLL", "2"))  # seconds between looks at the queue
 REPORT = 300                                                    # seconds between "still waiting" lines
+TOKEN_ENV = "FINDALINE_TEST_LOCK_TOKEN"  # the command's queue entry, in its environment (tests/regression.py)
 TIMEOUT = {"shared": 3600, "heavy": 3 * 3600, "exclusive": 3 * 3600}   # default --timeout per mode,
 TIMEOUT_FACTOR = 1.5                                            # or this times the estimate when longer
 WAIT = 4 * 3600                                                 # default --wait
@@ -1010,11 +1011,14 @@ def _tamed_threads() -> int:
     return max(1, min(HEAVY_TAMED_THREADS, os.cpu_count() or 1))
 
 
-def _environment(mode: str, tamed: bool = False, workers: Optional[int] = None) -> dict:
+def _environment(mode: str, tamed: bool = False, workers: Optional[int] = None, token: Optional[str] = None) -> dict:
     """The command's environment: FINDALINE_TEST_LOCK names its mode (heavy-tamed for a tamed heavy
-    one); the threads of numba, OpenMP, BLAS and GDAL capped for a shared or tamed one, all the
+    one); TOKEN_ENV the token of its queue entry (tests/regression.py writes it into its run log); the
+    threads of numba, OpenMP, BLAS and GDAL capped for a shared or tamed one, all the
     cores otherwise; for a parallel pytest (workers) those of each worker (worker_threads)."""
     env = dict(os.environ, FINDALINE_TEST_LOCK="heavy-tamed" if tamed else mode)
+    if token:
+        env[TOKEN_ENV] = token
     if workers:
         env.update({name: str(worker_threads(workers, tamed)) for name in THREAD_VARS})
     elif mode == "shared" or tamed:
@@ -1133,7 +1137,8 @@ def run(args) -> int:
                   f"threads (-n {workers} --dist loadfile; -n 0 for a serial run)", file=sys.stderr)
         began = time.time()
         deadline = began + timeout
-        process = subprocess.Popen(command, env=_environment(mode, tamed, workers), start_new_session=os.name != "nt",
+        process = subprocess.Popen(command, env=_environment(mode, tamed, workers, token),
+                                   start_new_session=os.name != "nt",
                                    **_priority(mode, tamed))
         code, peak = None, None
         tree, listed = [], None   # the command's processes, listed at that time (TREE_EVERY)
