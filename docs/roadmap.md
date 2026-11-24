@@ -88,6 +88,10 @@ Rules for every step:
      | 30° | 191 | 100 / 129 | 48 % / 32 % | 357 / 818 |
      | 20° | 241 | 114 / 153 | 53 % / 37 % | 403 / 903 |
 
+     Measured again at 40.5° on 2026-11-24 for the animations (`tools/coverage_contrast.py`, today's search; the
+     Stawamus Chief on British Columbia's lidar, which `--source auto` takes now, not HRDEM): 2010 spots at 1 m,
+     107 at 30 m, 81 real (45 m), 794 of the 1 m spots found (45 m); the other thresholds not measured again.
+
      Small rocks gain the most from a lower threshold (Bastei: 2 spots at 45°, 19 at 30°, nearly all real); on
      big walls the threshold hardly matters (Matterhorn: 9-10 spots at every threshold, none within 30 m of a
      1 m line). Real 30 m data (FABDEM, Copernicus: radar, trees removed by estimate) are likely worse than this
