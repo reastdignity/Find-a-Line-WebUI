@@ -901,9 +901,10 @@ def compare_records(old: dict, new: dict) -> dict:
         parts.append("the search area" + (" (code or OSM)" if guess else ""))
     if old["source"] != new["source"]:
         parts.append(f"the source ({old['source']} -> {new['source']})")
-    if old["versions"] and new["versions"]:
+    if old["versions"] and new["versions"]:  # a version not recorded on one side is not known
         parts += [f"{label} {old['versions'][key]} -> {new['versions'][key]}" for key, label in LIBRARIES
-                  if old["versions"][key] != new["versions"][key]]
+                  if isinstance(old["versions"][key], str) and isinstance(new["versions"][key], str)
+                  and old["versions"][key] != new["versions"][key]]
     if new["access_skipped"] and not old["access_skipped"]:
         parts.append("the access mark left out")
     elif old["access_skipped"] and not new["access_skipped"]:
@@ -977,6 +978,10 @@ def load_data(path: str = None) -> dict:
             raise ValueError("not a JSON object")
         for test_id, record in data.items():
             _check_record(test_id, record)
+            try:  # every part the comparison reads is there: a wrong shape fails here, before any search
+                compare_records(record, record)
+            except (KeyError, TypeError, AttributeError, ValueError):
+                raise ValueError(f"the record of {test_id} is not of the shape regression.py writes") from None
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as e:

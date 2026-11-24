@@ -1655,12 +1655,19 @@ def test_run_reads_the_record_of_its_run_json(tmp_path, monkeypatch):
     assert regression.read_record(str(tmp_path / "nothing")) is None
 
 
-def test_the_record_is_never_a_result(harness, capsys):
+def test_the_record_is_never_a_result(harness, capsys, monkeypatch):
     """The record never enters the compared or stored values (R17 stores every key of found)."""
     harness.write({"R1": _entry(_expected())})
     harness.results.update(R1=_result(data_record=regression.record_of(_meta())))
     code, out, tests = harness("R1", "--update", capsys=capsys)
     assert code == 0 and "R1: ok" in out and tests["R1"]["expected"] == _expected()
+    # R17's kind stores every key of found: a record there (run_osm makes none) is popped before it, never a result
+    harness.write({"R17": {"place": "x", "kind": "osm", "region": "malta", "bbox": [14.0, 36.0, 14.2, 36.2],
+                           "themes": ["coastline"], "sets": ["network"], "expected": {"coastline": 3, "same": True}}})
+    monkeypatch.setattr(regression, "run_osm", lambda test, work, cache_dir: {
+        "coastline": 4, "same": True, "data_record": regression.record_of(_meta())})
+    code, out, tests = harness("R17", "--update", capsys=capsys)
+    assert "R17: DIFFERENT" in out and tests["R17"]["expected"] == {"coastline": 4, "same": True}
 
 
 # H2: the side file
@@ -1692,10 +1699,24 @@ def test_the_side_file_is_written_whole_and_stably(tmp_path):
     assert open(path, "rb").read() == b"{}\n"
 
 
-@pytest.mark.parametrize("text", ["{", "[]", '{"R1": []}', '{"R1": {"folders": {}}}'])
-def test_a_broken_side_file_is_a_usage_error(harness, capsys, text):
+def _broken(**parts) -> str:
+    """A side file whose record of R1 has the parts given in place of record_of's."""
+    record = _record()
+    for key, value in parts.items():
+        if key == "inputs":
+            record["area"]["inputs"] = value
+        else:
+            record[key] = value
+    return json.dumps({"R1": record})
+
+
+@pytest.mark.parametrize("text", ["{", "[]", '{"R1": []}', '{"R1": {"folders": {}}}', _broken(coastline={"x": 1}),
+                                  _broken(versions={"gdal": "3.10.0"}), _broken(inputs={"tiles": {}})])
+def test_a_broken_side_file_is_a_usage_error(harness, capsys, monkeypatch, text):
+    """A file that is no JSON, or a record of another shape (also one the comparison would fail on after the
+    searches): a usage error naming the file, before any search."""
     harness.write({"R1": _entry(_expected())})
-    harness.results.update(R1=_result())
+    monkeypatch.setattr(regression, "run", lambda *args: pytest.fail("a search ran"))
     harness.data_file.write_text(text, encoding="utf-8")
     code, out, _ = harness("R1", capsys=capsys)
     assert code == 2 and f"{harness.data_file} is broken" in out
@@ -1751,6 +1772,9 @@ def test_data_differ_in_every_other_part():
         "data differ: coastline (the world file of 2026-10-23 -> none)"
     assert _explained(_record(access_skipped="memory"), _record()) == \
         "data differ: the access mark left out in the baseline"
+    unrecorded = _record()
+    unrecorded["versions"]["gdal"] = None  # a version not recorded on one side: not known, no difference
+    assert _explained(unrecorded, _record(gdal="3.11.0")) == "data as the baseline's"
 
 
 def test_the_search_area_itself():
@@ -1870,7 +1894,11 @@ def test_the_side_files_entries_are_regression_entries():
     tests = regression.load()
     data = regression.load_data()
     assert set(data) <= set(tests) and list(data) == [t for t in tests if t in data]
-    for test_id, record in data.items():
+
+
+def test_the_side_files_names_are_relative_to_the_cache():
+    """Every stored name passes record_of's rule: no machine's path in the repository."""
+    for test_id, record in regression.load_data().items():
         names = [n for place in record["folders"].values() for n in place["files"]] + list(record["folders"])
         names += list((record["coastline"] or {}).get("tiles", {}))
         names += list((record["area"]["inputs"] or {}).get("tiles", {}))
