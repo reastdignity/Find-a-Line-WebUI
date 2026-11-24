@@ -492,10 +492,11 @@ def _query(db_path: str, ask: Callable[[sqlite3.Connection], Dict], timeout: flo
     immutable read, and the read is kept only when both stamps are equal and no -wal was there; otherwise, or when it
     raised, it is made once more read-only (mode=ro: SQLite's locks, a consistent read that sees the WAL too), and
     that is the bound: a read-only read is made once, its failure raised (a writer's lock over the timeout, a hot
-    journal; `status` names the folder: _readable), never tried again (a writer's lock would cost a second wait).
+    journal; `status` names the folder: its `readable`), never tried again (a writer's lock would cost a second
+    wait). That read-only read of an index without a -wal makes a -shm and a -wal and leaves them (_read_only).
     The check rests on two things: a writer that commits leaves a -wal while it has the index open, and the file's
     modification time changes when its WAL is written into it (os.stat on Windows opens the file and sees it at
-    once); measured on local NTFS only, never on a network share.
+    once); measured on local NTFS only: not on Linux (the VPS), not on a network share.
 
     timeout: SQLite's wait for a lock; on Windows one wait lasts about 1.5 times as long (measured 2026-11-24:
     1.09 s at 0.5, 2.49 at 1.5, 4.61 at 3), probably because the tries of the lock inside each step of SQLite's
@@ -532,7 +533,7 @@ def _index_rows(cache_dir: str, paths: List[str], unread: Optional[Dict[str, str
     """The index rows of paths (relative to the cache, with /): path -> (status, fetched_at, sha256); a path
     without a row is left out. One read-only connection per top-level folder, never one per file; a folder or an
     index that is not there is not made. unread: {folder: the error's class} of the indexes that cannot be read now
-    (status' _readable); given, a folder in it is not asked again and one whose read raises sqlite3.Error is added
+    (status' `readable`); given, a folder in it is not asked again and one whose read raises sqlite3.Error is added
     to it instead of raising (its paths have no rows then)."""
     by_top: Dict[str, List[str]] = {}
     for path in dict.fromkeys(paths):
@@ -877,8 +878,8 @@ def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
               f"{_date(used):<10}  " + ("; ".join(f"{w}: {n}" for w, n in due.items()) or "-"))
     world = _world_without_rows(cache_dir, unread) if not folder or folder == "osm" else None
     if world and world[2] is None:
-        print(f"\nThe world water polygons in {world[0]}: whether they have index rows is not known (the index of "
-              f"osm {not_now('osm')}).")
+        print(f"\nThe world water polygons in {world[0]}: whether they have index rows is not known (osm: "
+              f"{not_now('osm')}).")
     elif world:
         print(f"\nThe world water polygons in {world[0]} have no index rows yet ({world[2]} of {world[1]} files): "
               "`findaline.py cache update` adopts them.")
@@ -904,7 +905,7 @@ def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
         read_before = top not in unread
         old.update(readable(top, lambda: old_tiles(cache_dir, top, _query)) or {})
         if read_before and top in unread:  # read for the table, not now
-            print(f"\nTiles in the older encoding in {top}: not counted ({not_now(top)})")
+            print(f"\nTiles in the older encoding in {top}: not counted, {not_now(top)}")
     if old:
         count = sum(len(paths) for paths in old.values())
         gigabytes = sum(os.path.getsize(p) for paths in old.values() for p in paths) / 1e9

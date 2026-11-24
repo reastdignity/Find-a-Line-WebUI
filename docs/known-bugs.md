@@ -325,16 +325,19 @@ harness, `cache status` and `tools/record_check.py` compare by it. Known and lef
 - **What `cache status` still touches or misses.** Since 2026-11-24 it changes no cached file, no index and no row
   and makes no folder, but SQLite's own side files beside an index are not left alone by SQLite's reader:
   - it writes into a `-shm` that is there (it notes its place there), which is the case beside an index a search
-    has open, beside a `-wal` that still holds rows, and beside an empty `-wal` a killed writer left (the next
-    writer's close removes those two, which `status` used to do itself, opening every index for writing): on the
-    real cache three such `-shm` files got a new modification time and nothing else changed
+    has open, beside a `-wal` that still holds rows, and beside an empty `-wal` with its `-shm` left behind (by a
+    writer that was killed, made by a test, or by the read-only read below; the next writer's close removes the
+    two, which `status` used to do itself, opening every index for writing): on the real cache three `-shm` files
+    beside an empty `-wal`, of unknown origin, got a new modification time and nothing else changed
     (`tests/test_status_readonly.py::test_a_wal_and_shm_left_by_a_killed_writer`);
   - it makes a `-shm`, or a `-shm` and a `-wal`, in the two cases `update._read_only` names (a `-wal` without its
-    `-shm`; an index read again read-only after an immutable read that failed or that a writer may have torn).
+    `-shm`; an index read again read-only after an immutable read that failed or that a writer may have torn,
+    which beside a search happens: 9 of 373 reads in a probe of 2026-11-24; a `-shm` and a `-wal` are left when
+    the writer has closed by then).
   Not used: SQLite's `readonly_shm` (undocumented), and an empty `-wal` read as no WAL (a live connection that has
   only read, or has just checkpointed, shows one too). Beside a search an index's rows are read again when the
   stamp check of `update._query` sees a writer (the file's time or size, or a `-wal`): it rests on the file's
-  modification time changing when a WAL is written into it, measured on local NTFS, not on a network share. An
+  modification time changing when a WAL is written into it, measured on local NTFS, not on Linux (the VPS) or a network share. An
   index that cannot be read at the moment (a writer's lock over the timeout, a hot journal of a rollback-journal
   index) is named with the error's class, and the runs that read its files as not checked. A world file put there
   by hand gets its index rows only from `cache update` (`status` names it), so until then a search's
