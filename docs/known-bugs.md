@@ -246,6 +246,17 @@ past the area's grid. Grids whose resolution and origin are exact in binary (1, 
 are not concerned. A fix would place a tile's edges by the area grid's pixel indices (whole numbers) instead of by
 coordinates.
 
+## Tiled runs saved by a resume with no tile left: no data record, no credits (before the fix)
+
+Found 2026-11-24 by the regression-failures task, and fixed: before the fix a tiled area search stopped
+between its last tile and its saved run (killed while saving, or its save failed) and then resumed found no tile
+left, skipped step 1 and saved a run without the record of the data used: run.json's `"data": []`, no
+`attribution`, and ATTRIBUTION.txt says the data were not recorded. Its lines, terrain, shore and terrain origins
+are right. A search of local files (`--elevation-file`) could not resume at all when a group needed its profile at
+a tile edge. Since the fix the record is kept in the run's folder (`data_used.json`) and read back. The runs saved
+so: a run folder with `progress.json` and `tiles/` whose run.json has `"data": []`. They are not repaired; search
+again to get a run that names its data and credits.
+
 ## The square rule: a tiled search's line limit counts a pair of squares twice
 
 Seen 2026-11-14 (the line-volume task, confirmed by a run): with `--same-line-square`, a tiled search checks the
