@@ -255,7 +255,7 @@ they are, a known finding (the user's decision of 2026-11-16; the source's note 
 
 ## Regression entries not checked: R70 and R17 (2026-11-24)
 
-On the real cache every other entry is `ok` (91 of 93 on 2026-11-24, R48 after its re-baseline that day). The entries that differed "on `main`" in
+On the real cache every other entry is `ok` (92 of 94 on 2026-11-24, R48 after its re-baseline that day). The entries that differed "on `main`" in
 rounds 4 and 5 of the line-volume task differed on fresh caches only: R56 and R87 on the Copernicus coastline
 fallback (now `unverified`, and `--update` refuses such a run: docs/regression-tests.md), R48 because its provider
 had replaced the survey of 2022 (re-baselined on the survey of 2026).
