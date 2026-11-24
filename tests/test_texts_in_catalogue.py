@@ -186,20 +186,22 @@ def test_footer_unchanged():
 # its footer's link "About and data licences" since G5 (the user's answer of 2026-11-21; the page's own words unchanged:
 # each page with that link put back as "About / data licences" gave the digest of before), and the row "Elevation data
 # from the project's data server" of the mirror's task (its words approved by the user on 2026-11-15, U13:
-# docs/mirror-hosting/spec.md, section 7; web.py differs from main's only by that row)
+# docs/mirror-hosting/spec.md, section 7; web.py differs from main's only by that row), and line volume round 7's two
+# sentences (renaming a run, approved by the user on 2026-11-23): the Runs entry's "or the name you give" and the
+# audit log's "runs renamed (not their names) and deleted"
 PRIVACY = {
-    ("admin@example.org", None, False): "d31eaa982420ed046353498f66874e7f738bf9be0292a03d173c0490f424a337",
-    ("admin@example.org", None, True): "e79035d8bf88cfd6470e046bc485d2d7a8dd779bff035c7c40cae84e2c1b41e1",
-    ("admin@example.org", 30, False): "97a4152d3b99e99d3613a818cc13d957e018ef041873df0a77617076b69d7225",
-    ("admin@example.org", 30, True): "e32c7424fa2b3e3213408a3cd1f6e19a625635feb914ae8277d71e8397318704",
-    ("admin@example.org", 7.5, False): "73a03466b3f9cfd8be13b590642c2f403f47701bf9616d30318246972ea0c12a",
-    ("admin@example.org", 7.5, True): "c88f0690b835e685bfdfa85d3ddae4c21d568e31819255eb61fbb59b4db6b42c",
-    ("<Ann & Bob>", None, False): "b261559665c3fdb441a9ae15f1da0e43b1712d8878a297fa5cdf127ad9924c0d",
-    ("<Ann & Bob>", None, True): "4caaed9f7319720e1b3df54cd7fb5c6499a8582925aeea46741a397504ffb464",
-    ("<Ann & Bob>", 30, False): "0a818af58eb593c75a179056ab983bf659555d0b8e3eb102af469747c74cafcd",
-    ("<Ann & Bob>", 30, True): "ecf206892b4eac12d2054fb4aef3e4e6f0ad624a3da5413f81386fcbe3e07bb5",
-    ("<Ann & Bob>", 7.5, False): "1c280a7f8417bc5cfb266014cf4cdc282ceace9c36f35ab04eb9ff6e311fa741",
-    ("<Ann & Bob>", 7.5, True): "bbb438fe35f5d928b467a50cec466ea398de678583b9872cc912dd1d720dc80e",
+    ("admin@example.org", None, False): "69becc15a3a6048c0943398c477886f13f90b0bcef09c1ad2d3b8568e0b6d050",
+    ("admin@example.org", None, True): "9059c936ef53abb1f873e5aab4aa090246361bd87a2ac8976e9d729a194a2b2a",
+    ("admin@example.org", 30, False): "39c2b938c887c8a5e17eb32591b92c56b6aba8fb480169bdb2a89b9c594503cd",
+    ("admin@example.org", 30, True): "45dad8ad125fd51d16cdb7ccae1221968667568b15f538d2ec7de5724bbe6d7a",
+    ("admin@example.org", 7.5, False): "1740b92f4d32f6527fbfada8e9d4132bf31f583fc65d77d968b4b8d50e342bc6",
+    ("admin@example.org", 7.5, True): "7b867960294a90a1bc14d6e8fdf99eaa4f11d2dba109b4db61a2499627072294",
+    ("<Ann & Bob>", None, False): "581830f46bc280a0686bbdcf41914ba4151c4a2110109620c87cd3b82ca46bef",
+    ("<Ann & Bob>", None, True): "a7a94c92e0e39926478d8ab3943ce57cc1be30220307f6033b46e9835164e490",
+    ("<Ann & Bob>", 30, False): "f348426cbb344e63680e77c6efecf35619c6878a5260c38742a62c8df3d69f1f",
+    ("<Ann & Bob>", 30, True): "49fa20e1adb692edc974f41a97131d72a8b922323699a60eefe0beef2c229d4a",
+    ("<Ann & Bob>", 7.5, False): "433601a390e68209660eac1ec18d3ea079d8511f6cc6fa42af9125042cff4168",
+    ("<Ann & Bob>", 7.5, True): "0fc8e69086c26082f9b646042079048cb9ad70f62f0d4e741b3a1087440f0eb0",
 }
 
 
