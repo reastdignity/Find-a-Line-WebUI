@@ -174,6 +174,9 @@ SHORE_FILE = "shore.json"  # a tiled search's shore in its run folder (search_li
 # The fallbacks' share of the search area's land (sources.filling.terrain_origins) from which a search warns
 FALLBACK_WARN_SHARE = 0.10
 ORIGINS_FILE = "terrain_sources.json"  # a tiled search's terrain_origins in its run folder (as SHORE_FILE)
+# A tiled search's record of the data used (src.used_data after step 1: run.json's "data" and credits) in its run
+# folder, written whole (_keep_used): read back by a resumed search that has no tile left (search_lines)
+USED_FILE = "data_used.json"
 PATCH_ROWS = 512  # rows encoded at a time (float64 temporaries of a block only)
 # The reach of a fixed anchor (reach_of_anchor, docs/3d-view-contract.md, "/api/reach"): every sample of the
 # patch is a target while at most REACH_FULL_TARGETS lie within the run's limits, else every second one;
@@ -2348,6 +2351,25 @@ def _silent_progress():
         del progress.set_step
 
 
+def _keep_used(path: str):
+    """The record of the data used after step 1 of a tiled search (src.used_data) into its run folder's USED_FILE,
+    written whole (a .part beside it, then replaced): a search stopped while writing it leaves the file of before."""
+    with open(path + ".part", "w", encoding="utf-8") as f:
+        json.dump(src.used_data, f, separators=(",", ":"))
+    os.replace(path + ".part", path)
+
+
+def _read_used(path: str) -> Optional[List[Dict]]:
+    """The record of the data used kept by _keep_used, or None: no file (a run begun before it) or one that cannot be
+    read as a list."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            used = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return used if isinstance(used, list) else None
+
+
 def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     """Steps 1-4 for one grid or, for a large area, tile by tile (resumable).
 
@@ -2355,7 +2377,9 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     offsets, the lake levels and the border gaps are the area's, in strips of rows); each tile
     then takes its window of the area's grids (_tile_data) for steps 2-4. The area's grids
     are made again when a search resumes (the work folder does not outlive a job) and removed
-    once the last tile is done.
+    once the last tile is done. What save_run needs of step 1 is kept in the run's folder (USED_FILE,
+    SHORE_FILE, ORIGINS_FILE), so a search resumed with no tile left (stopped before its run was saved,
+    or its save failed) skips step 1 and saves the run of one go.
     Returns the lines and, for a tiled search, its run (to be completed by save_run).
     """
     if not plan.tiles:
@@ -2368,7 +2392,17 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     tables, count = [], 0
     terrain: Optional[hy.Histogram] = hy.Histogram.empty()  # of the tiles' cores; None once one is not known
     todo = [k for k in range(len(plan.tiles)) if not os.path.exists(os.path.join(folder, TILE_FILE.format(k)))]
-    area = prepare_data(plan, strips=True) if todo else None  # step 1 once, on the whole grid
+    # Step 1 once, on the whole grid, while a tile is left. With none left the record of the data used comes from the
+    # run's folder (USED_FILE, as the shore and the terrain's origins), read back before the profiles at tile edges,
+    # which read the run's data from it; a run begun before that file (or with it cut short) runs step 1 once more
+    # for its record, so its run never goes without one
+    used_path = os.path.join(run["path"], USED_FILE)
+    used = None if todo else _read_used(used_path)
+    area = prepare_data(plan, strips=True) if used is None else None
+    if area is None:
+        src.used_data[:] = used  # in place of what plan_search recorded
+    else:
+        _keep_used(used_path)
     shore_path = os.path.join(run["path"], SHORE_FILE)  # the area's uncertain shore, kept for a resumed search
     if area is not None and area.shore is not None:
         with open(shore_path, "w", encoding="utf-8") as f:
@@ -2377,9 +2411,9 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     if area is not None and area.terrain_sources is not None:
         with open(origins_path, "w", encoding="utf-8") as f:
             json.dump(area.terrain_sources, f, separators=(",", ":"))
-    if area is not None and _samples(plan):  # the size before the pairs, from every tile
+    if area is not None and todo and _samples(plan):  # the size before the pairs, from every tile
         _estimate_tiles(plan, area)
-    if area is not None and plan.access_on:  # the access grid once, after the estimate: one grid's in every tile
+    if area is not None and todo and plan.access_on:  # the access grid once, after the estimate: one grid's per tile
         area.access = _access_grid(plan, area, os.path.join(plan.paths.work, ACCESS_FILE))
     for k, (core, tile) in enumerate(plan.tiles):
         path = os.path.join(folder, TILE_FILE.format(k))
