@@ -444,23 +444,33 @@ def _remove(path: str):
 class _Mask:
     """A grid-wide bool mask of the work folder (the water with the flat lakes, a pass's mask, the open ground),
     memory-mapped: written and read in rows, read in a block's window. Every read is a copy, so no view of the map
-    outlives a call (Windows holds a mapped file until its last view is gone)."""
+    outlives a call (Windows holds a mapped file until its last view is gone). `close` ends the writing: the map is
+    let go (its pages leave the process's working set) and the next read maps the file again, read only."""
 
     def __init__(self, path: str, shape):
         self.path, self.shape = path, (int(shape[0]), int(shape[1]))
         self._map = _new(path, self.shape, bool)
 
+    def _view(self):
+        if self._map is None:
+            self._map = np.load(self.path, mmap_mode="r")
+        return self._map
+
     def write(self, r0: int, r1: int, rows) -> None:
         self._map[r0:r1] = rows
 
     def rows(self, r0: int, r1: int) -> np.ndarray:
-        return np.array(self._map[r0:r1])
+        return np.array(self._view()[r0:r1])
 
     def window(self, r0: int, r1: int, c0: int, c1: int) -> np.ndarray:
-        return np.array(self._map[r0:r1, c0:c1])
+        return np.array(self._view()[r0:r1, c0:c1])
 
     def flush(self) -> None:
         self._map.flush()
+
+    def close(self) -> None:
+        self._map.flush()
+        self._map = None
 
     def remove(self) -> None:
         """The map closed and its file removed."""
@@ -804,7 +814,7 @@ def _open_ground_rows(z, water, filled, wet: _Mask, res: float, work: str, name:
                        lambda pixels, lowest, highest: np.where(pixels * res * res >= OPEN_MIN_M2, KEEP, DROP))
     for s, (r0, r1) in enumerate(regions.strips):
         g.write(r0, r1, regions.kept(s))
-    g.flush()
+    g.close()  # not mapped while the next pass runs (as the file of before: closed, opened again for the blocks)
     regions.remove()
     return g
 

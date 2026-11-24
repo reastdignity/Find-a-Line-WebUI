@@ -688,6 +688,36 @@ def test_percentile_without_the_heights_is_numpys(monkeypatch):
     assert checked >= 10_000
 
 
+def test_percentile_without_the_heights_at_the_spreads_edge():
+    """Regions whose lowest and highest tenths are constants a and b, b - a one float32 step either side of
+    FLAT_WATER_SPREAD_M as flat_water's comparison sees it (so p95 - p5 is b - a): the percentiles are numpy's bit for
+    bit and both verdicts occur, each numpy's."""
+    rng = np.random.default_rng(8)
+    a = np.float32(1000.0)
+    b = np.float32(1000.3)
+    while (b - a) <= access.FLAT_WATER_SPREAD_M:  # the first b over the edge, then the last one at it
+        b = np.nextafter(b, np.float32(2000))
+    while (b - a) > access.FLAT_WATER_SPREAD_M:
+        b = np.nextafter(b, np.float32(0))
+    over = np.nextafter(b, np.float32(2000))
+    verdicts = set()
+    for top in (b, over):
+        for n in (100, 1001, 20_001, 300_007):
+            v = (a + rng.random(n).astype(np.float32) * (top - a)).astype(np.float32)
+            v[: n // 10 + 2], v[-(n // 10 + 2):] = a, top
+            rng.shuffle(v)
+            lo, hi = _key_range(v)
+            chunks = _pieces(v, rng, 5)
+            got = {q: access._percentile_of(chunks, n, q, lo, hi) for q in (95, 5)}
+            want = {q: np.percentile(v.copy(), q, overwrite_input=True) for q in (95, 5)}
+            assert all(_bits(got[q]) == _bits(want[q]) for q in (95, 5)), (n, got, want)
+            assert want[95] == top and want[5] == a
+            verdict = bool(want[95] - want[5] <= access.FLAT_WATER_SPREAD_M)
+            assert bool(got[95] - got[5] <= access.FLAT_WATER_SPREAD_M) == verdict
+            verdicts.add((top == b, verdict))
+    assert verdicts == {(True, True), (False, False)}
+
+
 def test_percentile_without_the_heights_of_mixed_zeros():
     """Heights of 0.0 and -0.0 together (keys -1 and 0): the range of keys widened at zero, so none is left out; the
     verdict is numpy's (the sign of a zero numpy returns depends on its partition's order, not on the values)."""
