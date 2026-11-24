@@ -74,11 +74,12 @@ class CartotecaTiles(IndexedTiles):
             paths = owned.get(owner)
             if not paths:
                 continue
-            years = [self._year(p) for p in paths]
+            years, checksums = [self._year(p) for p in paths], {}
             entries.append({"layer": f"{self.description}, {self.labels[owner]}", "folder": self.folder,
-                            "files": len(paths), "fetched": cache.touch(cache_dir, paths),
+                            "files": len(paths), "fetched": cache.touch(cache_dir, paths, checksums),
                             "paths": sorted(cache.relative(cache_dir, p) for p in paths),
                             "survey_years": [min(years), max(years)], "credit": self.credits[owner].as_dict()})
+            entries[-1]["identity"] = cache.identity_of(entries[-1]["paths"], checksums)
         return entries
 
     def _download_and_record(self, tile, cache_dir: str, update: Optional[str] = None,

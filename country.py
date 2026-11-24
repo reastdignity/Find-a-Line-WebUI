@@ -1183,6 +1183,8 @@ class TileWork:
                 "io": {"read": read1 - read0, "write": written1 - written0},
                 "threads": threads, "threads_max": getattr(sink, "most", threads), "peak_memory": _peak_memory(),
                 "commit": self.commit,
+                # the data entries as a run's, with the record of the data read (`identity`: C2, "Keep them"),
+                # which nothing built from the tiles carries (_credits, the cube: runs.without_identity)
                 "data": json.loads(json.dumps(src.used_data)), "started": started, "finished": _now()}
         path = self.tile_path(band.name, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -2203,7 +2205,9 @@ def _tile_meta(path: str) -> Dict:
 
 def _credits(metas: List[Dict], area_spec: str, year: int) -> List[Dict]:
     """The credits of the data the tiles used: merged per layer as search._merged_data does, years
-    filled, each once (search._credits), and OSM for an outline from OpenStreetMap."""
+    filled, each once (search._credits), and OSM for an outline from OpenStreetMap. Only the credits leave: the
+    tiles' record of the data read (`identity`) never reaches the cube (runs.without_identity)."""
+    import runs
     import search
     import sources as src
     saved = list(src.used_data)
@@ -2216,7 +2220,7 @@ def _credits(metas: List[Dict], area_spec: str, year: int) -> List[Dict]:
     if area_spec.startswith("osm:"):
         credits.append(src.OSM_CREDIT.as_dict())
     unique: Dict[str, Dict] = {}
-    for credit in credits:
+    for credit in runs.without_identity(credits):
         unique.setdefault(json.dumps(credit, sort_keys=True), credit)
     return list(unique.values())
 

@@ -629,6 +629,9 @@ def test_shizuoka_two_levels(shizuoka, http_server, tmp_path):
     assert [e["layer"] for e in entries] == [shizuoka.description, f"{shizuoka.description}, FY2022 Southern Alps"]
     assert "5関治第142号-1" in entries[1]["credit"]["attribution"]
     assert entries[0]["survey_years"] == [2021, 2025]
+    for entry in entries:  # each entry's own files' stored checksums, parallel to its paths (the run's record)
+        stored = [cache.info(cache_dir, os.path.join(cache_dir, p))["sha256"] for p in entry["paths"]]
+        assert entry["identity"] == {"sha256": stored} and all(len(s) == 64 for s in stored)
     # a sheet of FY2022 that gave no pixel brings no FY2022 credit
     wrote = {p: "/q/" not in p.replace(os.sep, "/") for p in files}
     assert len(shizuoka.used_entries(grid, cache_dir, wrote)) == 1
