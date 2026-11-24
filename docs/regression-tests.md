@@ -108,7 +108,9 @@ python tools/record_check.py R76 --also mexico/mde-lidar5m/sheet-index/t/G14C15B
 
 What it proves: for the kinds it ran, today's code on today's files needs nothing that changes a result beyond the
 record. What it does not: that a checksum is stable across machines or library versions (it runs on this PC's files
-and libraries), or anything about a kind without an entry. Run it again when a kind of layer or index is added, or
+and libraries), or anything about a kind without an entry. Nor does it show that a filler or neighbour that read
+its files and filled no pixel (left out of the record: `filling._forget_entries`) can be replayed: no entry run was
+seen to take that path, and such a run would try to download those files on a scratch cache. Run it again when a kind of layer or index is added, or
 when what a run records changes; the table below is its run of 2026-11-24 (commit of `data-proof`, the side file of
 `1675d2ec`).
 
