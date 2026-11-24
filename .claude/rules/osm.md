@@ -32,6 +32,10 @@ What each module holds: docs/code-map/sources.md (`osm.py`, `coast.py`, `osmextr
   not answer (12 queries a run), and report it as not checked until it has run.
 - `osm update` of an extract rebuilds the theme tiles built from it: the regression entries that take an area from
   them (`--area coast`: R16, R18, R83, Malta) run on the real cache afterwards, and are re-baselined if OSM changed.
+- A run records its OSM inputs (`identity`, run-files.md): the coastline's entry the world file's edition or the
+  coastline tiles of the grid's box with `MARGIN_DEG` (`coast.identity`: derived from the box and the index, never on
+  a read), an area by coast, cliffs or name the tiles and Nominatim answers it read (`area.Inputs`: `osm.theme_files`,
+  `osm.stored_answer`); a new read of a theme or of Nominatim for the sea or an area notes it there too.
 
 ## Pitfalls
 
