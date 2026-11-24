@@ -610,8 +610,9 @@ def touch(cache_dir: str, paths: Iterable[str],
     """Mark files as used now; return the range of their fetch times (oldest, newest). checksums: filled with each
     file's stored sha256 by its path relative to the cache (relative()), None where the index has none (a file
     adopted by hand), read in the same query as its fetch time, in the transaction of the update of last_used_at (a
-    run's record, identity_of). A limit: prepare_layer notes a layer's files after the mosaic read them, so a file
-    replaced between that read and this call is recorded as what the run read."""
+    run's record, identity_of). This is the note after the read: prepare_layer and the water mask note the files
+    before the read too (sources.mosaic.noted_before, with each file's identity on disk) and keep a checksum only
+    where both notes agree (read_window)."""
     by_top: Dict[str, List[str]] = {}
     for path in paths:
         top, inner = _split(cache_dir, path)
@@ -632,8 +633,9 @@ def touch(cache_dir: str, paths: Iterable[str],
 
 def stored_checksums(cache_dir: str, paths: Sequence[str]) -> List[Optional[str]]:
     """The stored sha256 of each file (paths relative to the cache, with /), in their order, None where the index
-    has no row or no checksum; reads only, one connection per top-level folder, none for a folder without an index
-    (the OSM tiles of a run's coastline and of its area: a run's record)."""
+    has no row or no checksum; writes no row (it opens the index through _connect, as every lookup does), one
+    connection per top-level folder, none for a folder without an index (a run's record: the OSM tiles of its
+    coastline and of its area, a layer's files before the read: sources.mosaic.noted_before)."""
     answers: List[Optional[str]] = [None] * len(paths)
     by_top: Dict[str, List[int]] = {}
     for k, path in enumerate(paths):
