@@ -499,10 +499,13 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   22 min, view3d in 10 and 16 min); one on AMD EPYC 9V45 in 664 and 666 ms (view3d in 7.5 min); and the one red job,
   the ring's of 45335814910 (`[phone-None]` 1 463 s, `[full-None]` over its 1 500 s, the job stopped at 60 min), on
   Intel Xeon Platinum 8573C in 1 076 and 1 122 ms. So the first slow job with the line ran on another CPU, where
-  the ten frames were only a tenth slower while the ring's tests took many times longer: the line's frame time does
-  not show the slowness, the CPU's name may. One red job: an observation, not a cause. The next red and green
-  lines say whether every slow job is on that CPU (then: what the ring's page asks of Edge's software WebGL that
-  the ten frames, a loop per pixel without a texture, do not).
+  the ten frames were only a tenth slower while `[full-None]` ran over its 1 500 s against 114 and 187 s in the two
+  green ring jobs, and `[phone-None]` 1 463 s against 220 and 904 s: the line's frame time does not show the
+  slowness, the CPU's name may. But the two green ring jobs, both on the EPYC 7763, differ four times in a test
+  themselves (`[phone-None]` 220 and 904 s, `[full-edges]` 702 and 186 s), so the CPU is a lead and no more. One
+  red job: an observation, not a cause. The next red and green lines say whether every slow job is on that CPU
+  (then: what the ring's page asks of Edge's software WebGL that the ten frames, a loop per pixel without a texture,
+  do not).
 - **Four tests failed once under round 5's loaded full runs on this PC and pass alone** (none in item 5's path; the
   first two passed 3 of 3 alone on the stack and on `main` a86b86e8): `test_web::test_basic_form_sea_cliffs_fills_the_limit`
   (twice; the limit's box and the map view's read before it differ by about 400 m north to south);
