@@ -356,7 +356,7 @@
       "filled_from": "ÚGKK SR (DMR 5.0 / DMP 1.0)",
       "coastline": "no sea in the area"
     },
-    "notes": "PL-1992 input; the filled gaps are on the Slovak side; with `--cache` on an empty folder it also tests the geoportal sheet download (index WFS, ASCII grid sheets, NMPT at 0.5 m); since the neighbours (2026-11-01) the Slovak side comes from ÚGKK SR (FINDALINE_MIRROR), the rest from FABDEM; since 2026-11-05 the Slovak side comes from the 1 m tiles again, averaged by the mosaic (the tiles averaged to 5 m go only to a grid of their own CRS: reprojected onto Poland's grid they were smoothed twice), with the anchors of before 2026-11-04",
+    "notes": "PL-1992 input; the filled gaps are on the Slovak side; with `--cold --cache` on an empty folder it also tests the geoportal sheet download (index WFS, ASCII grid sheets, NMPT at 0.5 m); since the neighbours (2026-11-01) the Slovak side comes from ÚGKK SR (FINDALINE_MIRROR), the rest from FABDEM; since 2026-11-05 the Slovak side comes from the 1 m tiles again, averaged by the mosaic (the tiles averaged to 5 m go only to a grid of their own CRS: reprojected onto Poland's grid they were smoothed twice), with the anchors of before 2026-11-04",
     "seconds": 3.2
   },
   "R14": {

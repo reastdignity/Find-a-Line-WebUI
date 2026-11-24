@@ -1,8 +1,8 @@
 """tests/regression.py's harness, offline (no real search: `run` and `run_osm` stubbed, `measure` fed canned output):
 the coastline source stored with a baseline (H1), the outcomes ok, unverified and DIFFERENT (H2) and their exit codes
-(H3), the --update guard (H4), the refusal of a cache other than the real one without --cold (H5), seeding a scratch cache from the
-real one by hard links (H6), the run log (H7), R17's list of differences (H8), entries run by name only (H9) and the
-requests per host and the test lock's token in the run log (H10)."""
+(H3), the --update guard (H4), the refusal of a cache other than the real one without --cold (H5), seeding a scratch
+cache from the real one by hard links (H6), the run log (H7), R17's list of differences (H8), entries run by name
+only (H9) and the requests per host and the test lock's token in the run log (H10)."""
 
 import contextlib
 import http.server
@@ -867,6 +867,28 @@ def test_the_real_cache_named(tmp_path, monkeypatch):
     assert os.path.normcase(regression.real_cache_dir()) == os.path.normcase(os.path.join(main, "cache"))
     monkeypatch.setenv("FINDALINE_DATA", str(tmp_path / "data"))
     assert regression.real_cache_dir() == os.path.join(str(tmp_path / "data"), "cache")
+
+
+def test_the_main_checkout_found_without_git(tmp_path, monkeypatch):
+    """When git gives no answer (not on PATH, a timeout) a linked worktree still names the main checkout's cache,
+    from its own .git file and that folder's `commondir`: its own cache/ never counts as the real cache. A main
+    checkout (its .git a folder) names its own."""
+    monkeypatch.delenv("FINDALINE_DATA", raising=False)
+    monkeypatch.setattr(regression, "_git", lambda *args: None)
+    main, worktree = tmp_path / "main", tmp_path / "main" / ".claude" / "worktrees" / "w"
+    git_dir = main / ".git" / "worktrees" / "w"
+    git_dir.mkdir(parents=True)
+    (git_dir / "commondir").write_text("../..\n", encoding="utf-8")
+    worktree.mkdir(parents=True)
+    (worktree / ".git").write_text(f"gitdir: {git_dir.as_posix()}\n", encoding="utf-8")
+    monkeypatch.setattr(regression, "REPO", str(worktree))
+    assert os.path.normcase(regression.main_cache_dir()) == os.path.normcase(str(main / "cache"))
+    assert not regression.same_folder(str(worktree / "cache"), regression.real_cache_dir())
+    monkeypatch.setattr(regression, "REPO", str(main))  # the main checkout: .git is a folder
+    assert os.path.normcase(regression.main_cache_dir()) == os.path.normcase(str(main / "cache"))
+    (worktree / ".git").write_text("not a pointer\n", encoding="utf-8")  # files that say nothing: this checkout's
+    monkeypatch.setattr(regression, "REPO", str(worktree))
+    assert os.path.normcase(regression.main_cache_dir()) == os.path.normcase(str(worktree / "cache"))
 
 
 def test_no_refusal_without_a_search(harness, tmp_path, capsys, monkeypatch):

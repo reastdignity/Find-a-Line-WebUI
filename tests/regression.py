@@ -694,10 +694,31 @@ def _git(*args: str) -> Optional[str]:
     return done.stdout.strip() if done.returncode == 0 else None
 
 
+def _worktree_common_dir() -> Optional[str]:
+    """The git common directory of a linked worktree, read from its own files: REPO/.git is then a file naming the
+    worktree's git folder, whose `commondir` names the common one. For when git gives no answer (not on PATH, a
+    timeout): without it a worktree's own cache/ would count as the real cache. None in a main checkout (its .git
+    is a folder) and when the files say nothing."""
+    pointer = os.path.join(REPO, ".git")
+    try:
+        if not os.path.isfile(pointer):
+            return None
+        with open(pointer, encoding="utf-8") as f:
+            text = f.read().strip()
+        if not text.startswith("gitdir:"):
+            return None
+        git_dir = os.path.normpath(os.path.join(REPO, text[len("gitdir:"):].strip()))
+        with open(os.path.join(git_dir, "commondir"), encoding="utf-8") as f:
+            return os.path.normpath(os.path.join(git_dir, f.read().strip()))
+    except OSError:
+        return None
+
+
 def main_cache_dir() -> str:
     """The main checkout's cache: beside the git common directory (found as tools/test_lock.py lock_dir() finds it,
-    so a worktree names the main checkout's), else this checkout's."""
-    common = _git("rev-parse", "--git-common-dir")
+    so a worktree names the main checkout's; from the worktree's own files when git gives no answer), else this
+    checkout's."""
+    common = _git("rev-parse", "--git-common-dir") or _worktree_common_dir()
     main = os.path.dirname(os.path.abspath(os.path.join(REPO, common))) if common else REPO
     return os.path.join(main, "cache")
 
@@ -1110,7 +1131,8 @@ def main():
     parser.add_argument("--keep", action="store_true",
                         help="keep the log folder (runs, maps, output) also when no test differs")
     parser.add_argument("--cache", help="cache folder for the searches (default: cache/ in FINDALINE_DATA or this "
-                                         "checkout; from a worktree pass the main checkout's, the real cache)")
+                                         "checkout; from a worktree pass the real cache: FINDALINE_DATA's, else the "
+                                         "main checkout's)")
     parser.add_argument("--cold", action="store_true",
                         help="run on a cache folder other than the real cache (needed for any other; downloads what "
                              "it lacks), seeding it first from the real cache with what it lacks")
