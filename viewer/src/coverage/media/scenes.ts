@@ -230,8 +230,8 @@ function revealSchedule(depth: Depth): Map<string, number> {
     put(GROUPS.filter(g => g !== "europe").flatMap(g => groups[g]), .82, .9);
   } else {
     for (const [v, , , a, b] of STOPS) put(groups[v as Group], a, b);
-    put(Object.keys(COVERAGE.areas).filter(id => !at.has(id)), .95, .97);
   }
+  // areas of no stop (Africa's) with the last look at the world, each fully in by the end
   put(Object.keys(COVERAGE.areas).filter(id => !at.has(id)), .9, .94);
   return at;
 }

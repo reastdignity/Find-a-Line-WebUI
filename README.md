@@ -524,7 +524,7 @@ Run "Żabi Koń, Gaj Kobylański" saved to ...
 View it: findaline.py view 2026-11-24_201625_Zabi-Kon-Gaj-Kobylanski_03e989eef7547ac3
 ```
 
-On a 24-core PC the line search took a fraction of a second (plus a few seconds to compile the search code on the very first run); the first run in an area also downloads about 100 MB of elevation data and a few hundred orthophoto tiles.
+On a 24-core PC the line search took a fraction of a second (plus a few seconds to compile the search code on the very first run); the first run in an area also downloads about 100 MB of elevation data and a few thousand orthophoto tiles.
 
 Of the 109 spots, 24 are clear over the trees as well (pink, *Clear*); the other 85 only over the terrain (orange, *Over trees or buildings*). `findaline.py view` opens the run in the app: the spots in a list, the best ones in view numbered on the map:
 

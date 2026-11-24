@@ -326,11 +326,12 @@ class MediaPage:
         return self
 
     def _compare(self):
-        """The tool's lists of stories, lengths and formats must be the page's."""
+        """The tool's lists of stories, lengths, formats, groups and README views must be the page's."""
         info = self.info
         if (tuple(info["stories"]) != STORIES or info["lengths"] != LENGTHS
                 or {k: tuple(v) for k, v in info["formats"].items()} != FORMATS
-                or {s["group"] for s in info["statics"]} != set(GROUPS)):
+                or {s["group"] for s in info["statics"]} != set(GROUPS)
+                or {s["name"] for s in info["statics"] if s["group"] == "readme"} != {f"gh-{v}" for v in README_VIEWS}):
             raise Failure(f"the media page offers other stories, lengths, formats or groups: {info}")
 
     def __exit__(self, *exc):

@@ -12,7 +12,7 @@ import type { View, World } from "./world";
  *  enough for Madeira, the Canaries and Cyprus; Africa close on Réunion and Mayotte; East Asia on Japan and Hong
  *  Kong). */
 export const BOXES: Record<View, [[number, number], [number, number]]> = {
-  world: [[-170, -58], [190, 80]], europe: [[-18, 32], [35, 71.5]], na: [[-168, 16], [-52, 71]],
+  world: [[-170, -58], [190, 80]], europe: [[-18, 27], [35, 71.5]], na: [[-168, 16], [-52, 71]],
   caribbean: [[-86, 9], [-59, 27]], sa: [[-82, -56], [-34, 13]], asia: [[108, 16], [146, 44]],
   oceania: [[138, -48], [180, -10]], africa: [[22, -32], [68, 0]],
 };

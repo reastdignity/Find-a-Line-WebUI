@@ -1243,11 +1243,12 @@ def serve(data: str, run_folder: str | None = None, fresh: bool = False, times: 
 
 def select_pages(only: str = "", exclude: str = "") -> dict:
     """The pages of PAGES whose name contains one of `only`'s comma-separated parts (all for none), less those
-    whose name contains one of `exclude`'s."""
+    whose name contains one of `exclude`'s; the README's pages (README_SHOTS) never: they are --readme's, of a real run
+    (the orthophoto and 3D view online, waits of minutes)."""
     wanted = [w for w in only.split(",") if w]
     dropped = [w for w in exclude.split(",") if w]
-    return {n: p for n, p in PAGES.items()
-            if (not wanted or any(w in n for w in wanted)) and not any(w in n for w in dropped)}
+    return {n: p for n, p in PAGES.items() if n not in README_SHOTS
+            and (not wanted or any(w in n for w in wanted)) and not any(w in n for w in dropped)}
 
 
 def page_steps(steps) -> list:
@@ -1720,13 +1721,18 @@ def shoot_all(pw, site: dict, shown: list, devices: list, themes: list, out: str
 
 def readme_images(rows: list, folder: str = README_IMAGES) -> list:
     """The README's pictures (README_SHOTS) from the rows of a --readme pass: each page's screenshot written into
-    `folder` under its README name, a .jpg at README_JPEG's quality; a page that failed or timed out writes nothing
-    and stops the run (the README keeps its old picture). Returns the paths written."""
+    `folder` under its README name, a .jpg at README_JPEG's quality; a page that failed, timed out or was shot still
+    busy (tiles loading: "unsettled") writes nothing and stops the run (the README keeps its old pictures). Returns
+    the paths written."""
     from PIL import Image
     taken = {row["page"]: row for row in rows if row.get("path")}
     missing = [name for name in README_SHOTS if name not in taken or failed([taken[name]])]
-    if missing:
-        raise SystemExit(f"the README's pictures not written: {', '.join(missing)} not taken")
+    busy = [name for name in README_SHOTS if name in taken and taken[name].get("unsettled")]
+    if missing or busy:
+        raise SystemExit("the README's pictures not written: " + "; ".join(
+            part for part in (f"{', '.join(missing)} not taken" if missing else "",
+                              f"{', '.join(busy)} still busy (map tiles or requests: run it again)" if busy else "")
+            if part))
     written = []
     for name, file in README_SHOTS.items():
         path = os.path.join(folder, file)
@@ -1772,11 +1778,15 @@ def main() -> int:
     parser.add_argument("--timings", help="a JSON file of the set-up's parts and every page's seconds and outcome")
     parser.add_argument("--strict", action="store_true", help="stop at the first wait that times out or failed step")
     args = parser.parse_args()
+    shots_temp = None
     if args.readme:
         if not args.run:
             parser.error("--readme needs --run: the README's Żabi Koń run")
-        args.devices, args.themes, args.dark = "desktop", "light", False
-        args.out = args.out or tempfile.mkdtemp(prefix="ui-shots-readme-")
+        if args.list or args.only or args.exclude or args.dark or args.themes or args.devices != "desktop,iphone,pixel":
+            parser.error("--readme takes its own pages, device and theme (README_SHOTS, the desktop, light)")
+        args.devices, args.themes = "desktop", "light"
+        if not args.out:
+            args.out = shots_temp = tempfile.mkdtemp(prefix="ui-shots-readme-")
     if not args.out and not args.list:
         parser.error("the following arguments are required: --out")
     themes = themes_of(args.dark, args.themes)
@@ -1827,6 +1837,8 @@ def main() -> int:
         interrupted = sys.exc_info()[0] is not None
         if stop:
             close(stop, times, "the server's stop")
+        if shots_temp:  # --readme's screenshots without --out: their pictures are in docs/images/ now
+            shutil.rmtree(shots_temp, ignore_errors=True)
         if not args.data_dir:  # the folder made above (tools/clean_temp.py removes those of runs that did not end)
             with timed(times, "the temporary folder's removal"):
                 gc.collect()  # SQLite connections left in reference cycles keep their files open on Windows

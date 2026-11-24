@@ -469,7 +469,8 @@ def test_no_sleep_after_a_wait(tmp_path):
 def test_pages_selected_by_their_names():
     """--only: the pages whose name contains one of its parts, all for none; --exclude then drops those whose name
     contains one of its parts."""
-    assert list(ui_shots.select_pages()) == list(ui_shots.PAGES)
+    assert list(ui_shots.select_pages()) == [name for name in ui_shots.PAGES if name not in ui_shots.README_SHOTS]
+    assert not ui_shots.select_pages("readme")  # the README's pages: --readme's only
     assert set(ui_shots.select_pages("c-line,map-shared")) == {"c-line", "c-line-profile", "map-shared",
                                                                  "map-shared-credits"}
     assert set(ui_shots.select_pages("c-line,map-shared", "credits,profile")) == {"c-line", "map-shared"}
@@ -1119,3 +1120,19 @@ def test_readme_images_named_as_the_readme_shows_them(tmp_path):
     for path in written:
         with Image.open(path) as picture:
             assert picture.format == ("JPEG" if path.endswith(".jpg") else "PNG") and picture.size == (40, 30)
+
+
+def test_readme_images_refused_while_a_page_was_busy(tmp_path):
+    """A README picture shot with its map tiles still loading (a settled wait at its limit) writes nothing."""
+    from PIL import Image
+    rows = []
+    for name in ui_shots.README_SHOTS:
+        path = tmp_path / f"{name}.png"
+        Image.new("RGB", (8, 8)).save(path)
+        rows.append({"page": name, "path": str(path), "timeouts": [], "outcome": "saved", "unsettled": []})
+    rows[2]["unsettled"] = [{"after": "js:...", "busy": [ui_shots.TILES_NOTE]}]
+    out = tmp_path / "images"
+    out.mkdir()
+    with pytest.raises(SystemExit, match="readme-ortho still busy"):
+        ui_shots.readme_images(rows, str(out))
+    assert not os.listdir(out)

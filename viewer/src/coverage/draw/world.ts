@@ -13,18 +13,25 @@ export type View = "world" | Group;
 /** The frame an area's view is judged in: the README's map (1600 x 800 less its caption band). */
 const FRAME = {x: 0, y: 0, w: 1600, h: 664};
 
+/** How far beyond a frame's edge an area's centre may lie and the area still count as that view's (in half-frames
+ *  from the middle): Greenland's and Svalbard's centres lie above Europe's and North America's frames, their land in
+ *  them. */
+const REACH = 1.6;
+
 /** The view an area belongs to: of the views whose frame shows its centre, the one where it lies nearest the middle
- *  (Puerto Rico the Caribbean's, not North America's; Iceland Europe's); none when no view shows it. */
+ *  (Puerto Rico the Caribbean's, not North America's; Iceland Europe's); else the view where it lies nearest within
+ *  REACH (Greenland, Svalbard); none beyond that. */
 function homeOf(at: [number, number]): Group | null {
-  let best: Group | null = null, bestD = Infinity;
+  let inside: Group | null = null, near: Group | null = null, insideD = Infinity, nearD = Infinity;
   for (const g of GROUPS) {
     const xy = projFor(camFor(g, FRAME), FRAME)(at);
     if (!xy) continue;
     const dx = (xy[0] - FRAME.w / 2) / (FRAME.w / 2), dy = (xy[1] - FRAME.h / 2) / (FRAME.h / 2);
-    const d = Math.hypot(dx, dy);
-    if (Math.abs(dx) <= .96 && Math.abs(dy) <= .96 && d < bestD) { best = g; bestD = d; }
+    const d = Math.hypot(dx, dy), edge = Math.max(Math.abs(dx), Math.abs(dy));
+    if (edge <= .96 && d < insideD) { inside = g; insideD = d; }
+    if (edge <= REACH && d < nearD) { near = g; nearD = d; }
   }
-  return best;
+  return inside ?? near;
 }
 
 export interface World {
