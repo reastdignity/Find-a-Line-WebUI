@@ -518,11 +518,12 @@ def _later(fetched: Optional[str], moment: Optional[datetime]) -> bool:
 def _read_at(entry: Dict, created: Optional[datetime]) -> Optional[datetime]:
     """The time by which a run had read an entry's files: no content fetched later can be what it read. The
     entry's `fetched.newest` (cache.touch, in the lookup that gave the checksums: no file of the entry had a later
-    fetch time then), or the run's `created` if earlier (a tiled run sets it before its first tile; a one-grid run
-    when it saves), or the one of the two there is; None without both."""
+    fetch time then, and a file fetched again with other content gets the time of that fetch), whatever the run's
+    `created` is: a tiled run sets `created` before its step 1, so the files it downloaded itself are fetched
+    after it and before it read them, and a one-grid run sets it when it saves, after step 1. Without `newest`
+    the run's `created`; None without both."""
     fetched = entry.get("fetched") if isinstance(entry.get("fetched"), dict) else {}
-    times = [t for t in (_time(fetched.get("newest")), created) if t is not None]
-    return min(times, default=None)
+    return _time(fetched.get("newest")) or created
 
 
 def _file_state(cache_dir: str, path: str, recorded, row: Optional[Tuple], read_at: Optional[datetime]) -> str:

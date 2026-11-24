@@ -172,12 +172,13 @@ def test_re_encoded_files_apart(tmp_path):
 
 def test_the_time_a_run_read_its_files(tmp_path):
     """F0: another checksum is re-encoded only when its fetch time is not later than the time the run had read the
-    entry's files: the earlier of the entry's `fetched.newest` and the run's `created`; either alone when the other
-    is missing; without both it is changed (never re-encoded for want of a time). Per entry: of an entry's several
-    files only the one fetched again counts."""
+    entry's files: the entry's `fetched.newest` (taken with the checksums), whatever `created` is; `created` only
+    when the entry has no `newest`; without both it is changed (never re-encoded for want of a time). Per entry: of
+    an entry's several files only the one fetched again counts."""
     names = [f"poland/nmt/{k}.tif" for k in "abcd"]
     data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
-    # "tiled": created before its first tile (May 10), its entry's newest a file one of its later tiles read (DURING)
+    # "tiled": created before its step 1 (May 10), which then downloaded b and c itself (DURING) and read them: their
+    # checksums of now, with the fetch times they had when read, are a re-encoding, not other content
     for name, newest, created in (("both", BEFORE, CREATED), ("tiled", DURING, "2026-05-10T00:00:00+00:00"),
                                   ("nocreated", BEFORE, None),
                                   ("nonewest", None, CREATED), ("neither", None, None)):
@@ -193,7 +194,7 @@ def test_the_time_a_run_read_its_files(tmp_path):
     for p, at in ((names[0], BEFORE), (names[1], DURING), (names[2], DURING)):  # a, b, c: other checksums
         _set(cache_dir, p, sha256="9" * 64, fetched_at=at)
     found = {name: (c.changed, c.reencoded) for name, c in _changes(data).items()}
-    assert found == {"both": (2, 1), "tiled": (2, 1), "nocreated": (2, 1), "nonewest": (0, 3), "neither": (3, 0)}
+    assert found == {"both": (2, 1), "tiled": (0, 3), "nocreated": (2, 1), "nonewest": (0, 3), "neither": (3, 0)}
 
 
 def test_runs_made_before_the_record_are_approximate(tmp_path):
