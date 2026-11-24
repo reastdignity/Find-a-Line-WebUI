@@ -2356,62 +2356,102 @@ def _silent_progress():
         del progress.set_step
 
 
-def _keep_used(path: str, mixed: bool):
-    """The record of the data used after step 1 of a tiled search (src.used_data, with its `identity`) into its run
-    folder's USED_FILE as {"data": [...], "mixed": <whether its sessions read different data>}, written whole (a
-    .part beside it, then replaced): a search stopped while writing it leaves the file of before."""
+def _keep_used(path: str, state: Dict):
+    """The record of the data used after step 1 of a tiled search into its run folder's USED_FILE: {"data":
+    src.used_data with its `identity`, "mixed": whether its sessions read different data, "area": the search area's
+    `identity` as this session built it (None: none), "slope_file": the --slope-file's size and time (None: none)},
+    written whole (a .part beside it, then replaced): a search stopped while writing it leaves the file of before."""
     with open(path + ".part", "w", encoding="utf-8") as f:
-        json.dump({"data": src.used_data, "mixed": mixed}, f, separators=(",", ":"))
+        json.dump(state, f, separators=(",", ":"))
     os.replace(path + ".part", path)
 
 
-def _read_used(path: str) -> Optional[Tuple[List[Dict], bool]]:
-    """The record of the data used kept by _keep_used and its mark (entries, mixed), or None: no file (a run begun
-    before it) or one that cannot be read. A list (a run begun before the record had its mark) is its entries, not
-    mixed."""
+def _session_record(plan: Plan, mixed: bool) -> Dict:
+    """This session's record for USED_FILE (_keep_used): src.used_data, the mark, the area's and the slope file's."""
+    slope = plan.params.slope_file
+    return {"data": src.used_data, "mixed": mixed, "area": getattr(plan.area, "identity", None),
+            "slope_file": cache.file_identity(slope) if slope else None}
+
+
+def _read_used(path: str) -> Optional[Dict]:
+    """The record kept by _keep_used as {"data", "mixed", and, when kept, "area", "slope_file"}, or None: no file (a
+    run begun before it) or one that cannot be read. A list (a run begun before the record had its mark) is its
+    entries, not mixed; an object of before without "area" and "slope_file" lacks them (never compared)."""
     try:
         with open(path, encoding="utf-8") as f:
             used = json.load(f)
     except (OSError, ValueError):
         return None
     if isinstance(used, list):
-        return used, False
+        return {"data": used, "mixed": False}
     if isinstance(used, dict) and isinstance(used.get("data"), list):
-        return used["data"], bool(used.get("mixed"))
+        return {**used, "mixed": bool(used.get("mixed"))}
     return None
 
 
-def _record_differs(before: List[Dict], now: List[Dict]) -> bool:
+def _known_differ(a: Dict[str, set], b: Dict[str, set]) -> bool:
+    """Whether two maps of name -> the checksums met for it differ: other names, or a name with known checksums on
+    both sides that differ (an empty set: not known, never a difference)."""
+    return a.keys() != b.keys() or any(a[k] and b[k] and a[k] != b[k] for k in a)
+
+
+def _record_differs(before: Dict, now: Dict) -> bool:
     """Whether two sessions of a tiled search read different data (C6: run.json's identity "mixed"), by their records
-    of the data used (src.used_data): an entry is in one record only (a layer, the coastline's source, a file), an
-    entry's list of files differs, a file both name has two known checksums that differ, or the coastline's edition,
-    its tiles or a local file's size or time differ where both know them. A checksum or a value not known (None, absent: a record of
-    before, a file adopted by hand) never marks; nor does a record of before that names no file and holds no
-    `identity` (nothing to compare)."""
-    def by_key(record):
-        return {(e.get("layer"), e.get("folder"), e.get("file")): e for e in record if isinstance(e, dict)}
+    (_read_used's, _session_record's): a data entry in one record only (a layer, the coastline's source, a file), a
+    key's files differ (every entry of a (layer, folder, file) key united: a fallback fills the terrain and then the
+    surface), a file both name has known checksums that differ, the coastline's edition or tiles, a local file's
+    size or time differ; the search area's OSM tiles or Nominatim answers differ; the slope file's size or time
+    differ. A value not known (null, absent: a record of before, a file adopted by hand) never marks; nor does a
+    record of before that names no file and holds no `identity` (nothing to compare)."""
+    def view(record):  # key -> {"files": {path: checksums} or None, "tiles": ... or None, value name: set}
+        out: Dict[tuple, Dict] = {}
+        for e in record:
+            if not isinstance(e, dict):
+                continue
+            v = out.setdefault((e.get("layer"), e.get("folder"), e.get("file")), {"files": None, "tiles": None})
+            identity = e.get("identity") or {}
+            for field, paths, sha256 in (("files", e.get("paths"), identity.get("sha256")),
+                                         ("tiles", identity.get("paths") if "paths" not in e else None,
+                                          identity.get("sha256"))):
+                if paths is not None:
+                    v[field] = v[field] or {}
+                    for path, sha in zip(paths, sha256 or [None] * len(paths)):
+                        v[field].setdefault(path, set()).update([sha] if sha else [])
+            for name in ("edition", "size", "modified"):
+                if identity.get(name) is not None:
+                    v.setdefault(name, set()).add(identity[name])
+        return out
 
-    def named(files, sha256):  # path -> checksum (None: not known)
-        return dict(zip(files, sha256 or [None] * len(files)))
-
-    old, new = by_key(before), by_key(now)
-    if not any("paths" in e or "identity" in e for e in old.values()):
+    old, new = before.get("data") or [], now.get("data") or []
+    if not any("paths" in e or "identity" in e for e in old if isinstance(e, dict)):
         return False  # nothing known of the session before
-    if old.keys() != new.keys():
+    a, b = view(old), view(new)
+    if a.keys() != b.keys():
         return True  # a layer, a coastline or a file in one record only (the world file, then Copernicus)
-    for key in old:
-        a, b = old[key], new[key]
-        ida, idb = a.get("identity") or {}, b.get("identity") or {}
-        pairs = [(named(a.get("paths") or [], ida.get("sha256")), named(b.get("paths") or [], idb.get("sha256")))]
-        if "paths" not in a and ida.get("paths") is not None and idb.get("paths") is not None:  # coastline tiles
-            pairs.append((named(ida["paths"], ida.get("sha256")), named(idb["paths"], idb.get("sha256"))))
-        for files_a, files_b in pairs:
-            if files_a.keys() != files_b.keys():
+    for key in a:
+        for field in ("files", "tiles"):
+            if (a[key][field] is None) != (b[key][field] is None):
+                if field == "files":
+                    return True
+            elif a[key][field] is not None and _known_differ(a[key][field], b[key][field]):
                 return True
-            if any(files_a[p] and files_b[p] and files_a[p] != files_b[p] for p in files_a):
-                return True
-        if any(ida.get(k) is not None and idb.get(k) is not None and ida[k] != idb[k]
-               for k in ("edition", "size", "modified")):
+        if any(a[key].get(n) and b[key].get(n) and a[key][n] != b[key][n] for n in ("edition", "size", "modified")):
+            return True
+    area_a, area_b = before.get("area"), now.get("area")
+    if isinstance(area_a, dict) and isinstance(area_b, dict):
+        def tiles(area):
+            return {p: {s} if s else set() for p, s in zip(area.get("paths") or [],
+                                                           area.get("sha256") or [None] * len(area.get("paths") or []))}
+
+        def answers(area):
+            return {(n.get("table"), n.get("query")): {n["sha256"]} if n.get("sha256") else set()
+                    for n in area.get("nominatim") or [] if isinstance(n, dict)}
+        if _known_differ(tiles(area_a), tiles(area_b)) or _known_differ(answers(area_a), answers(area_b)):
+            return True
+    slope_a, slope_b = before.get("slope_file"), now.get("slope_file")
+    if isinstance(slope_a, dict) and isinstance(slope_b, dict):
+        if any(slope_a.get(n) is not None and slope_b.get(n) is not None and slope_a[n] != slope_b[n]
+               for n in ("size", "modified")):
             return True
     return False
 
@@ -2446,11 +2486,14 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     kept = _read_used(used_path)  # the record of the sessions before and their mark (C6), None in the first
     area = prepare_data(plan, strips=True) if todo or kept is None else None
     if area is None:
-        src.used_data[:] = kept[0]  # in place of what plan_search recorded
-        run["mixed"] = kept[1]  # no new mark: no step 1 read anything
-    else:  # a mark once made stays; a session that read other data than the one before makes it
-        run["mixed"] = kept is not None and (kept[1] or _record_differs(kept[0], src.used_data))
-        _keep_used(used_path, run["mixed"])
+        src.used_data[:] = kept["data"]  # in place of what plan_search recorded
+        run["mixed"] = kept["mixed"]  # no new mark: no step 1 read anything
+    else:  # a mark once made stays; a session that read other data than the one before makes it, when lines of an
+        # earlier session exist (a tile done): a session stopped before its first tile leaves no line of its data
+        now = _session_record(plan, False)
+        earlier = len(todo) < len(plan.tiles)
+        now["mixed"] = run["mixed"] = kept is not None and (kept["mixed"] or (earlier and _record_differs(kept, now)))
+        _keep_used(used_path, now)
     shore_path = os.path.join(run["path"], SHORE_FILE)  # the area's uncertain shore, kept for a resumed search
     if area is not None and area.shore is not None:
         with open(shore_path, "w", encoding="utf-8") as f:

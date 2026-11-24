@@ -110,6 +110,11 @@ def test_local_file_identity(tmp_path):
     used = layer.used(None, str(tmp_path))
     assert list(used) == ["layer", "file", "identity"]
     assert used["identity"] == cache.file_identity(os.path.join(DATA, "zabi_kon_nmt.tif"))
+    gone = tmp_path / "gone_later.tif"
+    shutil.copy(os.path.join(DATA, "zabi_kon_nmt.tif"), gone)
+    layer = src.FileLayer("Terrain", str(gone))
+    os.remove(gone)  # a file that cannot be read when the run notes it: no `identity`, never a failed record
+    assert layer.used(None, str(tmp_path)) == {"layer": "Terrain", "file": os.path.abspath(str(gone))}
 
 
 def test_top_level_identity(tmp_path):
@@ -227,6 +232,9 @@ def test_area_identity(tmp_path, monkeypatch):
     path.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": drawn}))
     assert "identity" not in ar.from_spec(str(path), 0.0, None, cache_dir).describe()
     assert "identity" not in ar.Circle(36.0, 14.2, 100.0).describe()
+    # the country layer's outline (whole=True): the key of its own row, "whole:<name>"
+    whole = ar.from_spec("osm:Isle", 0.0, None, cache_dir, whole=True).describe()["identity"]["nominatim"]
+    assert [(a["table"], a["query"]) for a in whole] == [("search", "whole:Isle")] and whole[0]["sha256"]
     # another cache, the same name: that cache's own answer; the first area keeps its own
     other = str(tmp_path / "other")
     _nominatim(monkeypatch, {"Isle": (14.20, 36.00, 14.30, 36.06)})
@@ -247,7 +255,8 @@ def test_record_differs():
     tiles = {"layer": "OSM tiles", "identity": {"paths": ["osm/t/1"], "sha256": [A]}}
     local = {"layer": "F", "file": "/x/f.tif", "identity": {"size": 5, "modified": "2026-11-24T10:00:00+00:00"}}
     record = [layer, world, tiles, local]
-    differs = search._record_differs
+    def differs(before, now):
+        return search._record_differs({"data": before}, {"data": now})
     assert not differs(record, json.loads(json.dumps(record)))
     assert differs(record, [{**layer, "identity": {"sha256": [A, C]}}, world, tiles, local])
     assert not differs(record, [{**layer, "identity": {"sha256": [None, B]}}, world, tiles, local])
@@ -264,6 +273,27 @@ def test_record_differs():
     assert not differs([{"layer": "stale"}], record)  # nothing known of before
     old = [{k: v for k, v in e.items() if k != "identity"} for e in record]  # a list of before: paths, no checksums
     assert not differs(old, record) and differs(old, [{**layer, "paths": ["f/1"]}, world, tiles, local])
+    # every entry of one key: a fallback fills the terrain, then the surface (two entries of one layer)
+    surface = {**layer, "paths": ["f/3"], "identity": {"sha256": [C]}}
+    assert differs([layer, surface], [layer, {**surface, "identity": {"sha256": [A]}}])
+    assert not differs([layer, surface], [layer, surface]) and differs([layer, surface], [layer])
+    # the search area's inputs and the slope file, kept beside the data (a null or an absent one never marks)
+    area = {"paths": ["osm/t/1", "osm/t/2"], "sha256": [A, B],
+            "nominatim": [{"table": "search", "query": "Isle", "sha256": C}]}
+    slope = {"size": 7, "modified": "2026-11-24T10:00:00+00:00"}
+    kept = {"data": record, "mixed": False, "area": area, "slope_file": slope}
+
+    def now(**changes):
+        return {**kept, **changes}
+    assert not search._record_differs(kept, now())
+    assert search._record_differs(kept, now(area={**area, "sha256": [A, C]}))
+    assert search._record_differs(kept, now(area={**area, "paths": ["osm/t/1"], "sha256": [A]}))
+    assert search._record_differs(kept, now(area={**area, "nominatim": [{**area["nominatim"][0], "sha256": A}]}))
+    assert not search._record_differs(kept, now(area={**area, "nominatim": [{**area["nominatim"][0], "sha256": None}],
+                                                      "sha256": [None, B]}))
+    assert search._record_differs(kept, now(slope_file={**slope, "size": 8}))
+    assert not search._record_differs(kept, now(slope_file=None, area=None))
+    assert not search._record_differs({"data": record, "mixed": False}, now(area={**area, "sha256": [C, C]}))
 
 
 def _resume(tmp_path, monkeypatch):
@@ -278,11 +308,12 @@ def _resume(tmp_path, monkeypatch):
     return params, folder, copy
 
 
-def _again(params, tmp_path, folder, tile: bool, save: bool):
-    """Resume the search, with its last tile removed first (tile: one tile left) or not."""
+def _again(params, tmp_path, folder, tile, save: bool):
+    """Resume the search, with its last tile removed first (tile True: one tile left), every tile ("all") or none."""
     from test_offline import _tiled_search
-    if tile:
-        os.remove(sorted(glob.glob(os.path.join(folder, "tiles", search.TILE_FILE.format("*"))))[-1])
+    done = sorted(glob.glob(os.path.join(folder, "tiles", search.TILE_FILE.format("*"))))
+    for path in done if tile == "all" else done[-1:] if tile else []:
+        os.remove(path)
     return _tiled_search(params, tmp_path / "data", save=save)
 
 
@@ -296,7 +327,7 @@ def test_resumed_on_the_same_data(tmp_path, monkeypatch):
     record's `identity` (the elevation file's size and time), and its run.json has no mark."""
     params, folder, copy = _resume(tmp_path, monkeypatch)
     kept = _kept(folder)
-    assert list(kept) == ["data", "mixed"] and kept["mixed"] is False
+    assert kept == {"data": kept["data"], "mixed": False, "area": None, "slope_file": None}  # a file's area, no slope
     assert kept["data"][0]["identity"] == cache.file_identity(str(copy))
     run = _again(params, tmp_path, folder, tile=True, save=True)
     meta = json.load(open(os.path.join(run, "run.json"), encoding="utf-8"))
@@ -332,10 +363,68 @@ def test_resumed_with_no_tile_left_makes_no_mark(tmp_path, monkeypatch):
     old = rn.without_identity(_kept(folder)["data"])  # as a run begun before wrote it: a list, no record
     with open(os.path.join(folder, search.USED_FILE), "w", encoding="utf-8") as f:
         json.dump(old, f)
-    assert search._read_used(os.path.join(folder, search.USED_FILE))[1] is False
+    assert search._read_used(os.path.join(folder, search.USED_FILE)) == {"data": old, "mixed": False}
     os.utime(copy, (os.stat(copy).st_atime, os.stat(copy).st_mtime + 3600))
     run = _again(params, tmp_path / "list", folder, tile=True, save=True)
     assert "mixed" not in json.load(open(os.path.join(run, "run.json"), encoding="utf-8"))["identity"]
+
+
+def test_resumed_without_a_tile_of_the_session_before(tmp_path, monkeypatch):
+    """A session that stopped before its first tile was done leaves its record and no tile: the next session, on
+    other data, computes every line on its own data and is not marked; its record replaces the one kept."""
+    params, folder, copy = _resume(tmp_path, monkeypatch)
+    os.utime(copy, (os.stat(copy).st_atime, os.stat(copy).st_mtime + 3600))
+    run = _again(params, tmp_path, folder, tile="all", save=True)
+    meta = json.load(open(os.path.join(run, "run.json"), encoding="utf-8"))
+    assert "mixed" not in meta["identity"] and meta["data"][0]["identity"] == cache.file_identity(str(copy))
+    assert _kept(folder)["mixed"] is False and _kept(folder)["data"][0]["identity"] == cache.file_identity(str(copy))
+
+
+def test_resumed_after_the_areas_inputs_changed_is_marked(tmp_path, monkeypatch):
+    """A tiled search of an area by cliffs within a box (its theme tiles canned, with their index rows) keeps the
+    area's `identity` in its state file; a theme tile replaced between two sessions (another checksum, the same
+    outline) marks the run "mixed"; unchanged, it is not marked."""
+    from test_offline import _resume_scene, _tiled_search
+    params = _resume_scene(tmp_path, monkeypatch, "clip")
+    with rio.open(params.elevation_file) as s:
+        left, bottom, right, top = s.bounds
+    from rasterio.warp import transform
+    lons, lats = transform("EPSG:2180", "EPSG:4326", [left + 150, right - 150], [top - 300, bottom + 300])
+    cliff = {"type": "Feature", "properties": {"id": "w1", "natural": "cliff"},
+             "geometry": {"type": "LineString", "coordinates": [[lons[0], lats[0]], [lons[1], lats[1]]]}}
+    within = f"{min(lats) - 0.002},{min(lons) - 0.002},{max(lats) + 0.002},{max(lons) + 0.002}"
+    cache_dir = str(tmp_path / "data" / "cache")
+    tiles = _theme_tiles(cache_dir, "cliff", (min(lons) - 0.3, min(lats) - 0.3, max(lons) + 0.3, max(lats) + 0.3),
+                         [cliff])
+    monkeypatch.setattr(osm, "fetch_tile", lambda *args: pytest.fail("a tile was asked"))
+    params = params.model_copy(update={"area": "cliffs", "within": within, "buffer": 60.0})
+    folder = _tiled_search(params, tmp_path / "data", save=False)
+    kept = _kept(folder)
+    assert kept["area"]["paths"] and set(kept["area"]["paths"]) <= set(tiles) and kept["area"]["nominatim"] == []
+    _again(params, tmp_path, folder, tile=True, save=False)
+    assert _kept(folder)["mixed"] is False  # the same inputs
+    path = os.path.join(cache_dir, *kept["area"]["paths"][0].split("/"))
+    osm.write_tile(path, [{**cliff, "properties": {**cliff["properties"], "name": "renamed"}}])
+    cache.record(cache_dir, path, "ok", "https://overpass.example/api")
+    run = _again(params, tmp_path, folder, tile=True, save=True)
+    meta = json.load(open(os.path.join(run, "run.json"), encoding="utf-8"))
+    assert meta["identity"]["mixed"] is True and meta["area"]["identity"]["sha256"][0] != kept["area"]["sha256"][0]
+
+
+def test_session_record_holds_the_area_and_the_slope_file(tmp_path):
+    """The state file's record of a session: the data, the mark, the area's `identity` and the slope file's size
+    and time (None without)."""
+    from types import SimpleNamespace
+    slope = tmp_path / "slope.tif"
+    slope.write_bytes(b"s" * 9)
+    area = SimpleNamespace(identity={"paths": [], "sha256": [], "nominatim": []})
+    plan = SimpleNamespace(params=SimpleNamespace(slope_file=str(slope)), area=area)
+    record = search._session_record(plan, True)
+    assert record == {"data": src.used_data, "mixed": True, "area": area.identity,
+                      "slope_file": cache.file_identity(str(slope))}
+    plan = SimpleNamespace(params=SimpleNamespace(slope_file=None), area=SimpleNamespace())
+    assert search._session_record(plan, False)["area"] is None and search._session_record(plan, False)[
+        "slope_file"] is None
 
 
 def test_coastline_tiles_in_a_run(tmp_path, monkeypatch):
