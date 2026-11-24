@@ -1893,7 +1893,9 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 - **A geographic raster's pixel counted at 111 320 m both ways** (found 2026-11-15, batch 5 wave 2, the review of the LERC tiles): `mosaic.src_pixel_m` takes a degree as 111 320 m for the mosaic's choice of resampling (average when the data are finer than `FINER` 0.75 of the grid's pixel, else bilinear), but a degree of longitude is that times the cosine of the latitude, so a geographic raster counts its east-west pixel too coarse by 1/cos(lat) (FABDEM, Copernicus GLO-30, GA's 5 m DEM in EPSG:4283: at 50° N FABDEM's 1″ is 30.9 m north-south but 19.9 m east-west), and the mosaic may pick bilinear where average would apply. Only EPSG:3857 got the cosine (3c80a85: Northern Ireland's LERC tiles). A fix moves existing results (every entry whose grid takes a geographic layer near the threshold): measure first which entries change, then decide. Not assigned.
 - **Noted in batch 6 of the new sources** (2026-11-15/16; not assigned):
   - `docs/images/coverage-*` were not rendered again (`tools/coverage_media.py readme`) by any batch since e881195,
-    while batches 5 and 6 added areas to the coverage map.
+    while batches 5 and 6 added areas to the coverage map. Done 2026-11-24 (branch `readme-graphics`): rendered
+    again with four new views (South America, East Asia, Africa, the Caribbean), Europe widened, dots sized by the
+    zoom and merged on the world, and level 2 up to 10 m (Italy's TINITALY had the 30 m colour).
   - `tests/test_web.py::test_search_panel_on_a_phone` fails now and then in a loaded full run (KeyError 'phone').
   - `CachedIndex._listed` is kept per process and keyed by the grid alone, not by the data folder: a test that lists
     one grid in two data folders must clear it.

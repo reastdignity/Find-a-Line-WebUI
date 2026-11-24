@@ -205,7 +205,11 @@ The elevation models of Slovakia, Madeira (with Porto Santo, the Desertas and th
 <p>
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-europe-dark.png"><img src="docs/images/coverage-europe-light.png" alt="Detailed elevation data in Europe" width="100%"></picture>
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-na-dark.png"><img src="docs/images/coverage-na-light.png" alt="Detailed elevation data in North America" width="49%"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-caribbean-dark.png"><img src="docs/images/coverage-caribbean-light.png" alt="Detailed elevation data in the Caribbean" width="49%"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-sa-dark.png"><img src="docs/images/coverage-sa-light.png" alt="Detailed elevation data in South America" width="49%"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-asia-dark.png"><img src="docs/images/coverage-asia-light.png" alt="Detailed elevation data in East Asia" width="49%"></picture>
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-oceania-dark.png"><img src="docs/images/coverage-oceania-light.png" alt="Detailed elevation data in Oceania" width="49%"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-africa-dark.png"><img src="docs/images/coverage-africa-light.png" alt="Detailed elevation data in Africa (Réunion and Mayotte)" width="49%"></picture>
 </p>
 
 - The map is generated from the catalogue: each source that colours it declares a `coverage` (`Coverage` in [sources/source.py](sources/source.py): its provider, the areas, partial or not, the survey, notes), `uv run tools/coverage_data.py` writes [viewer/src/coverage/coverage.json](viewer/src/coverage/coverage.json) from it (`--check` in the tests), and `uv run tools/coverage_shapes.py` the outlines of the countries and regions from [Natural Earth](https://www.naturalearthdata.com) (public domain; a part of a country its source does not cover, such as France's overseas regions or Svalbard, stays at 30 m). Change a source's coverage or add one, then run both and `node build.mjs` in `viewer/`.
