@@ -45,7 +45,8 @@ pytest that fails now and then (known-bugs.md names them).
   whether its data were the baseline's. "Which entry failed, how often and why" and "what did the runs ask of
   which provider" are queries on it.
 - **`findaline.py cache status`** ends with the runs computed on data that has changed since, per file changed,
-  re-encoded or not known; a run made before the record is counted by fetch times and marked approximate.
+  re-encoded or not known; a run made before the record is counted by fetch times and marked approximate. The
+  command only reads, so it may run at any time, also while searches run.
 - **`tools/record_check.py`** runs an entry offline on a cache built only from its stored record: the check that
   the record names everything (regression-tests.md, "The completeness check").
 
@@ -113,6 +114,10 @@ was built from, local files' size and time, the versions of GDAL, PROJ and raste
 entry's record in `tests/regression-data.json` and compares; `cache status` compares a saved run's record with the
 cache as it is now. With the key removed a run.json is what it was; the public export never carries it.
 
+A checksum in the record means "these bytes were read": each file of a layer is noted before the read and after
+it (its stored checksum and its inode, time and size on disk), and a file whose two notes differ is recorded as
+not known, never as one of the two contents. Not known reads as "same data where known", never as "differs".
+
 Three options were weighed: the names of the files a run read (they would have named R48's cause, and miss a file
 replaced under its name); names with the provider's own identity (ETag, date), which only a quarter of the cached
 files have; and the search recording what it read. The user chose the last ("do it once and correct"), with the
@@ -132,7 +137,7 @@ it does not see").
 | 2026-11-24 | Three outcomes and the `--update` guard; the refusal of an empty cache; seeding; the run log with requests per host; basisdata.nl's limits; a dead host fails fast; R48 re-baselined; the rules for sessions | tag `history/regression-failures` |
 | 2026-11-24 | R17 by name only; `--cold` for every cache but the real one; a tiled search resumed with no tile left keeps its data record and credits (a fault found on the way) | tags `history/regression-cold`, `history/resume-record` |
 | 2026-11-24 | The data record: run.json's `identity`, the harness's side file and line, `cache status` exact, the completeness check | tag `history/data-record-task` |
-| chosen 2026-11-24, not built yet | The checksums noted before a layer is read too; `cache status` reading only, as a whole | |
+| 2026-11-24 | Two follow-ups of the data record: a layer's files noted before the read too (a file replaced while it is read is not known); `cache status` reading only as a whole, also beside a running search; the world coastline file found in a data folder whose path holds `[` | tag `history/data-record-followups` |
 
 ## Still open
 
@@ -140,4 +145,7 @@ it does not see").
   edits) or its two readers differ (a fault).
 - **R70**: waits for the provider's answer; the islands' new read path has not met the real host yet.
 - **PC-wide limits for Overpass and Nominatim**, and a contact in the User-Agent of a development machine.
-- The two follow-ups of the table's last row.
+- **The data record's short windows that are left** (known-bugs.md, "The data record: what it does not see"): the
+  OpenStreetMap tiles of a coastline or an area and the world file's edition are noted once, after their read.
+- **A data folder whose path holds `[`**: the world coastline file is found since 2026-11-24; about 25 other
+  listings of the code are not mended (among them the OpenStreetMap extracts in `cache status`).
