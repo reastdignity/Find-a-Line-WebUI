@@ -11,7 +11,7 @@ import { api, ApiError, canChange, user, type RunListed } from "../../app/api";
 import { t } from "../../i18n";
 import { listOthers, NEARBY_KM, colorOf } from "../../others";
 import type { Line, RunData, RunInfo } from "../../types";
-import { loadOtherRun, loadRunList } from "../load";
+import { loadOtherRun, loadRunList, NewerStore, TooLarge } from "../load";
 import type { ResultModel } from "../model";
 import { LinkField } from "./LineDetails";
 import { Popover, Swatch, useModel } from "./common";
@@ -103,17 +103,30 @@ function Measure({model, view, onMeasured, compact, plain, tip = "below", select
   </span>;
 }
 
-interface OtherItem { run: RunInfo; km: number; status: "off" | "loading" | "on" | "error" }
+/** Why a run cannot be shown with this one: its store is too large for the browser, of a newer format, or could
+ *  not be loaded (load.ts TooLarge, NewerStore; anything else, a StoreFailed among it). A new try can help only
+ *  the last. */
+type Cause = "too_large" | "newer" | "failed";
+const CAUSE_TEXT: Record<Cause, string> = {too_large: "ui.actions.other_too_large", newer: "ui.actions.other_newer",
+                                           failed: "ui.actions.other_failed"};
+const causeOf = (e: unknown): Cause => e instanceof TooLarge ? "too_large" : e instanceof NewerStore ? "newer" : "failed";
 
-/** Compare: other runs with lines, nearest first (the ones within NEARBY_KM unfolded). */
+interface OtherItem { run: RunInfo; km: number; status: "off" | "loading" | "on" | "error"; cause?: Cause }
+
+/** Compare: other runs with lines, nearest first (the ones within NEARBY_KM unfolded). The rows are made from
+ *  the list of runs at each opening: the same rows while the list is the one they were made from, new rows once
+ *  it was read again (load.ts forgetRunList: a search saved its run, a run was renamed or deleted on this page). A
+ *  run that cannot be shown says why after its row's words; its box is off where a new try cannot help. */
 function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
   const [items, setItems] = useState<OtherItem[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [farOpen, setFarOpen] = useState<boolean | null>(null);  // null: open when one of them is shown
+  const listed = useRef<RunInfo[] | null>(null);  // the list the rows were made from
   const load = () => {
-    if (items) return;
     setFailed(false);
     loadRunList(base + "runs.js").then((runs) => {
+      if (runs === listed.current) return;
+      listed.current = runs;
       const b = view ? view.areaBounds() : null;
       const box = b ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
         : model.data.run.bbox || [model.data.center[1], model.data.center[0], model.data.center[1], model.data.center[0]];
@@ -121,20 +134,23 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
         .map(({run, km}) => ({run, km, status: model.others.has(run.id) ? "on" : "off"})));
     }, () => setFailed(true));
   };
-  const change = (item: OtherItem, status: OtherItem["status"]) =>
-    setItems((all) => all && all.map((i) => i.run.id === item.run.id ? {...i, status} : i));
+  const change = (item: OtherItem, status: OtherItem["status"], cause?: Cause) =>
+    setItems((all) => all && all.map((i) => i.run.id === item.run.id ? {...i, status, cause} : i));
   const toggle = (item: OtherItem) => {
     if (item.status === "on" || item.status === "loading") { model.removeRun(item.run.id); change(item, "off"); return; }
     change(item, "loading");
     // its store's lines.arrow (load.ts loadOtherRun)
     loadOtherRun(item.run, base).then((lines) => { model.addRun(item.run, lines); change(item, "on"); },
-                                      () => change(item, "error"));
+                                      (e) => change(item, "error", causeOf(e)));
   };
+  const note = (item: OtherItem) => item.status === "loading" ? " · " + t("ui.actions.loading")
+    : item.status === "error" ? " · " + t(CAUSE_TEXT[item.cause ?? "failed"]) : "";
   const row = (item: OtherItem) => <label class="r-check r-other" key={item.run.id} title={item.run.description}>
-    <input type="checkbox" class="u-check" checked={item.status === "on" || item.status === "loading"} onChange={() => toggle(item)} />
+    <input type="checkbox" class="u-check" checked={item.status === "on" || item.status === "loading"}
+           disabled={item.status === "error" && item.cause !== "failed"} onChange={() => toggle(item)} />
     <Swatch color={colorOf(item.run.id)} />
     <span class="u-grow">{item.run.name}<span class="u-small"> · {day(item.run.created)} · {item.km < 1 ? t("ui.actions.here")
-      : num0(item.km) + " km"}{item.status === "loading" ? " · " + t("ui.actions.loading") : item.status === "error" ? " · " + t("ui.actions.no_lines") : ""}</span></span>
+      : num0(item.km) + " km"}{note(item)}</span></span>
   </label>;
   return <Popover label={t("ui.actions.compare_label")} align="right"
                   button={(open, toggleOpen) => compact
