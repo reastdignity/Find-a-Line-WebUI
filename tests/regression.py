@@ -69,7 +69,10 @@ Exit code: 0 nothing different and nothing unverified (skips allowed); 1 somethi
 --update refused to store an entry; 2 argparse's usage error (also a cache refused without --cold).
 
 Each run appends one JSON line to regression-runs.jsonl in the test lock's folder
-(tools/test_lock.py lock_dir(): commit, cache folder, each entry's outcome and reason; RUN_LOG_VERSION).
+(tools/test_lock.py lock_dir(): commit, cache folder, each entry's outcome and reason; RUN_LOG_VERSION),
+with each entry's requests and bytes per host and its tiles (its search counts them into COUNTS_FILE in
+its log folder, servicecounts.counted_into; R17 is counted in this process), their sum per host, and the
+test lock's token of the run that wrapped this one (LOCK_TOKEN_ENV).
 """
 
 import argparse
@@ -95,6 +98,7 @@ from typing import Dict, List, Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cache  # noqa: E402
 import coast  # noqa: E402  (its source texts, never copied here)
+import servicecounts  # noqa: E402  (the searches' requests per host: counted_into, counting)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TESTS = os.path.join(REPO, "tests", "regression.json")
@@ -169,6 +173,8 @@ SEED_COPY_MAX_BYTES = 200 * 2 ** 20  # another volume (no hard link): a folder u
 SEED_SKIP = re.compile(r"^index\.sqlite(?:-wal|-shm|-journal)?$|\.part$|\.lock$|-rate\.sqlite|overpass-day\.sqlite")
 RUN_LOG = "regression-runs.jsonl"  # in tools/test_lock.py lock_dir(): one line per run
 RUN_LOG_VERSION = 1  # "v" of each line: a field added later (wave 2's "hosts") needs no new version
+COUNTS_FILE = "service-counts.json"  # in an entry's log folder: its search's requests and tiles (read_counts)
+LOCK_TOKEN_ENV = "FINDALINE_TEST_LOCK_TOKEN"  # tools/test_lock.py TOKEN_ENV: the queue entry wrapping this run
 
 
 def load() -> dict:
@@ -394,13 +400,16 @@ def run(tests: dict, test_id: str, work: str, cache_dir: str, browser: bool) -> 
     # Orthophoto tiles are not compared and can take many minutes to fetch (R9: 15 000 tiles)
     cmd = [sys.executable, "findaline.py", *full_args(tests, test_id), "--no-plot", "--yes", "--ortho", "never",
            "--data-dir", out]
-    env = {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8"}
+    counts = os.path.join(out, COUNTS_FILE)
+    env = {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8",
+           servicecounts.COUNTS_FILE_ENV: counts}
     result = subprocess.run(cmd, cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8")
     with open(os.path.join(out, "output.log"), "w", encoding="utf-8") as f:
         f.write(result.stdout + result.stderr)
     runs = os.path.join(out, "runs")
     found = measure(result.stdout, runs)
     found["exit"] = result.returncode
+    found["service_counts"] = read_counts(counts)
     if result.returncode:
         found["unanswered"] = unanswered(result.stderr)
     table = found.pop("table", None)
@@ -947,6 +956,44 @@ def _lock_dir() -> Optional[str]:
         return None
 
 
+def read_counts(path: str) -> Optional[dict]:
+    """A search's counts file (servicecounts.summary, written by findaline.py's search): {"hosts": {host: {"requests",
+    "bytes", "failed"[, "reads": true]}}, "tiles": {"downloaded", "cached"}}; None when it is missing or not of that
+    shape (no counts for the entry, never an error). Host names only (servicecounts.written_host again)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        hosts = {}
+        for host, values in data["hosts"].items():
+            found = {key: int(values[key]) for key in ("requests", "bytes", "failed")}
+            if values.get("reads") is True:
+                found["reads"] = True
+            hosts[servicecounts.written_host(str(host))] = found
+        return {"hosts": hosts, "tiles": {key: int(data["tiles"][key]) for key in ("downloaded", "cached")}}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
+def with_counts(entry: dict, counts: Optional[dict]) -> dict:
+    """An entry of the run log with its search's requests per host and tiles (`hosts`, `tiles`), when counted."""
+    if counts:
+        entry["hosts"], entry["tiles"] = counts.get("hosts", {}), counts.get("tiles", {"downloaded": 0, "cached": 0})
+    return entry
+
+
+def hosts_summed(entries: dict) -> dict:
+    """The run's requests, bytes and failed attempts per host, summed over its entries (`reads` where any has it)."""
+    total: Dict[str, dict] = {}
+    for entry in entries.values():
+        for host, values in entry.get("hosts", {}).items():
+            found = total.setdefault(host, {"requests": 0, "bytes": 0, "failed": 0})
+            for key in ("requests", "bytes", "failed"):
+                found[key] += values[key]
+            if values.get("reads"):
+                found["reads"] = True
+    return total
+
+
 def write_run_log(record: dict):
     """Append one JSON line to RUN_LOG in the test lock's folder, under a file lock (two runs ending at once never
     tear a line). Never fails a run: an error is one warning line; no lock folder, no file."""
@@ -1095,16 +1142,19 @@ def main():
             continue
         start = time.time()
         if osm_kind:
-            found = run_osm(test, os.path.join(work, test_id), cache_dir)
+            with servicecounts.counting() as counted:  # R17's Overpass queries, in this process
+                found = run_osm(test, os.path.join(work, test_id), cache_dir)
+            found["service_counts"] = counted or None
         else:
             found = run(tests, test_id, work, cache_dir, args.browser)
         seconds = time.time() - start - found.pop("store_seconds", 0)  # the export check is not the search's
         found.pop("store_problems", None)  # a failed search's: its exit code says it
+        counts = found.pop("service_counts", None)  # never a compared or stored value
         if "skipped" in found:
             print(f"{test_id}: skipped ({found['skipped']})")
             skipped.append(test_id)
-            entries[test_id] = {"outcome": "skipped", "reason": found["skipped"], "coastline": None,
-                                "seconds": round(seconds, 1)}
+            entries[test_id] = with_counts({"outcome": "skipped", "reason": found["skipped"], "coastline": None,
+                                            "seconds": round(seconds, 1)}, counts)
             continue
         differences = found.pop("differences", None)  # R17's feature ids, printed below
         results[test_id] = found
@@ -1132,8 +1182,9 @@ def main():
               + (f", WARNING: recorded {test['seconds']:.0f} s" if slow else "")
               + ")" + "".join(f"\n    {d}" for d in diffs), flush=True)
         (failed if status == "DIFFERENT" else unverified if status == "unverified" else []).append(test_id)
-        entries[test_id] = {"outcome": status.lower(), "reason": reason,
-                            "coastline": None if osm_kind else found.get("coastline"), "seconds": round(seconds, 1)}
+        entries[test_id] = with_counts({"outcome": status.lower(), "reason": reason,
+                                        "coastline": None if osm_kind else found.get("coastline"),
+                                        "seconds": round(seconds, 1)}, counts)
         if args.update:
             why = not_storable(test, found, status, reason, world_file)
             if why:
@@ -1175,7 +1226,7 @@ def main():
             "entries": entries,
             "counts": {"ok": ok, "different": len(failed), "unverified": len(unverified), "skipped": len(skipped),
                        "by_name": len(by_name)},
-            "exit": code})
+            "exit": code, "lock_token": os.environ.get(LOCK_TOKEN_ENV) or None, "hosts": hosts_summed(entries)})
     sys.exit(code)
 
 
