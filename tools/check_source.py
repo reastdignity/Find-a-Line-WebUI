@@ -205,7 +205,7 @@ def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.ne
     Download does), NaN without data. A read GDAL could not complete although it
     returned (src.net.gdal_errors: what it could not fetch comes back as nodata or zeros) raises
     RuntimeError with GDAL's error, never a false difference. GDAL's settings as
-    src.net._gdal_http's (retries of requests without an answer, the open's fewer: net.gdal_open, the connect
+    src.net._gdal_http's (retries of requests without an answer, the open's fewer: net.open_gdal, the connect
     timeout, a one-connection host's ranges one after another: net.single_connection, the blocks read in this
     thread) but for the extensions: the sources here include zips and ASCII grids. With cache_dir the read holds a
     slot of the host (net.host_slot) as the layers' reads do."""
@@ -218,9 +218,7 @@ def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.ne
     try:
         with slot, env, src.net.gdal_errors() as errors:
             src.net.rate_turn(url)  # the file's read counts as one request where its host has a rate (HOST_RATES_OF)
-            with src.net.gdal_open():
-                opened = rio.open(_gdal_path(url))
-            with opened as source:
+            with src.net.open_gdal(_gdal_path(url)) as source:
                 # ASCII grids name no CRS, Caribbean Netherlands' AHN files only a local one (the layer forces its
                 # own)
                 local = source.crs is None or windows._local(source.crs)

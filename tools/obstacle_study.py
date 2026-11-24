@@ -328,7 +328,7 @@ def on_grid(urls: List[str], grid: Dict, resampling, cache_dir: Optional[str] = 
     when none of them exists. Inside sources.net's GDAL settings, a read during which GDAL
     signalled an error is made again (net.gdal_errors: values it could not fetch come back as
     zeros), as sources/readers/windows.py does: every attempt in its turn of the host's rate (net.rate_turn), the
-    open retried net.OPEN_RETRIES times (net.gdal_open), a one-connection host's ranges one after another
+    open retried net.OPEN_RETRIES times and its reads RETRIES (net.open_gdal), a one-connection host's ranges one after another
     (net.single_connection) and, with cache_dir, under a slot of the host (net.host_slot) as the layers' reads.
     No HTTP request is made holding the GIL (_scan_footprint before each warp)."""
     import contextlib
@@ -351,9 +351,7 @@ def on_grid(urls: List[str], grid: Dict, resampling, cache_dir: Optional[str] = 
                 net.rate_turn(url)
                 try:
                     with net.gdal_errors() as errors:
-                        with net.gdal_open():
-                            opened = rio.open(net._remote(url))
-                        with opened as src:
+                        with net.open_gdal(net._remote(url)) as src:
                             _scan_footprint(src, grid, transform, shape)
                             reproject(rio.band(src, 1), part, src_transform=src.transform, src_crs=src.crs,
                                       src_nodata=src.nodata, dst_transform=transform, dst_crs=grid["crs"],

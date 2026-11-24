@@ -221,9 +221,9 @@ def _read_file(url: str, crs: str, transform: Affine, shape: Tuple[int, int], na
     another CRS (with force_crs, a file naming only a local CRS is taken in crs; with warp, a file in another
     real CRS is warped: _wrong_crs), Incomplete when GDAL signalled an error while opening or reading it: values
     it could not fetch come back as nodata or zeros without an exception (net.gdal_errors). The open is retried
-    net.OPEN_RETRIES times (net.gdal_open), the reads after it as _gdal_http says."""
-    with net.gdal_errors() as errors, net.gdal_open():
-        src = rio.open(_remote(url))
+    net.OPEN_RETRIES times, the reads after it as _gdal_http says (net.open_gdal)."""
+    with net.gdal_errors() as errors:
+        src = net.open_gdal(_remote(url))
     with src:
         if _wrong_crs(src, crs, force_crs, warp):
             raise WrongCrs(what, name, src.crs.to_string(), crs)

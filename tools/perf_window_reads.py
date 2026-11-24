@@ -161,7 +161,7 @@ def predicted(layer, tiles: Sequence, cache_dir: Optional[str] = None) -> Dict:
     array not fetched) raises RuntimeError naming the file and the tile, never a 0 in the sum (the child process
     fails, as when the measurement fails: no table); a tile without bytes or outside the file counts 0 as ever.
     Each file is opened in its turn of its host's rate (net.rate_turn), retried net.OPEN_RETRIES times
-    (net.gdal_open) and, with cache_dir, read under a slot of its host (net.host_slot, held to the end)."""
+    (net.open_gdal) and, with cache_dir, read under a slot of its host (net.host_slot, held to the end)."""
     import contextlib
     import numpy as np
     import cache
@@ -184,9 +184,8 @@ def predicted(layer, tiles: Sequence, cache_dir: Optional[str] = None) -> Dict:
                         slots.enter_context(net.host_slot(cache_dir, url))
                         held.add(host)
                     net.rate_turn(url)
-                    with net.gdal_open():
-                        opened[url] = rio.open(net._remote(url))
-                        tags[url] = _TiffTags(lib, net._remote(url))
+                    opened[url] = net.open_gdal(net._remote(url))
+                    tags[url] = _TiffTags(lib, net._remote(url))
                 src = opened[url]
                 h, w = r.shape
                 left, top = r.transform.c, r.transform.f

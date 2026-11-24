@@ -153,7 +153,7 @@ class RangeFile:
         self.url, self.pos = url, 0
         self.chunks = {}
         self.error: Optional[BaseException] = None
-        # its size, and the header's first bytes: opening the file, retried net.OPEN_RETRIES times (net.gdal_open)
+        # its size, and the header's first bytes: opening the file, retried net.OPEN_RETRIES times (as net.open_gdal)
         first, self.size = get_range(url, 0, CHUNK - 1, net.OPEN_RETRIES + 1)
         if tiff_only and first[:4] not in TIFF_MAGIC:
             raise NotTiff(f"not a TIFF ({self.size} bytes): {page_text(first)}")

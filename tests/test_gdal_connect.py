@@ -122,9 +122,10 @@ def small_file(tmp_path_factory):
 
 @pytest.mark.parametrize("in_thread", [False, True])
 def test_the_open_once_again_the_reads_three_times(short, http_server, small_file, tmp_path, in_thread):
-    """Opening a file is retried once (net.gdal_open): a header answered 503 every time fails the open after two
-    requests. The reads after it are retried three times again: the block's first two data ranges answered 503 are
-    asked again and the block is the file's. In the main thread and in another (a download's pool thread: rasterio
+    """Opening a file is retried once (net.open_gdal): a header answered 503 every time fails the open after two
+    requests. The reads keep three retries: every data range answered 503 twice is asked a third time and the block
+    is the file's (the code review's case of 2026-11-24: GDAL keeps a file's retries from its open, so the reads of a
+    file opened at one retry failed). In the main thread and in another (a download's pool thread: rasterio
     keeps GDAL's options per thread there)."""
     if in_thread:
         outcome = []
@@ -146,31 +147,65 @@ def test_the_open_once_again_the_reads_three_times(short, http_server, small_fil
 
 def _open_and_read(http_server, small_file, tmp_path):
     body = small_file.read_bytes()
-    busy = {"/open/": lambda r: True, "/read/": lambda r: int(r.split("=")[1].split("-")[0]) >= 16384}
-    failed = {path: 0 for path in busy}
+    seen = {"/open/": {}, "/read/": {}}  # range -> times asked
 
     def route(path):
         def answer(request):
             asked = request.headers.get("range")
-            if asked and busy[path](asked) and (path == "/open/" or failed[path] < 2):
-                failed[path] += 1
-                return Answer(503, b"busy", {"Content-Type": "text/plain"})
+            if asked and (path == "/open/" or int(asked.split("=")[1].split("-")[0]) >= 16384):
+                seen[path][asked] = seen[path].get(asked, 0) + 1
+                if path == "/open/" or seen[path][asked] <= 2:  # every data range twice: two retries of it
+                    return Answer(503, b"busy", {"Content-Type": "text/plain"})
             return Answer(200, body, {"Content-Type": "image/tiff"})
         return answer
-    for path in busy:
+    for path in seen:
         http_server.route(path, route(path))
     transform = Affine(0.5, 0, 2000.0 + 50, 0, -0.5, 4000.0 - 50)
     with pytest.raises(RuntimeError, match="Could not read open"):
         windows._read_block([("open", http_server.url("/open/S.tif"), 2023)], CRS, transform, (200, 200),
                             str(tmp_path / "open.tif"), "open")
-    assert failed["/open/"] == net.OPEN_RETRIES + 1
+    assert sum(seen["/open/"].values()) == net.OPEN_RETRIES + 1
     windows._read_block([("read", http_server.url("/read/S.tif"), 2023)], CRS, transform, (200, 200),
                         str(tmp_path / "read.tif"), "read")
     windows._read_block([("local", str(small_file), 2023)], CRS, transform, (200, 200), str(tmp_path / "local.tif"),
                         "local")
     with rio.open(tmp_path / "read.tif") as a, rio.open(tmp_path / "local.tif") as b:
         assert np.array_equal(a.read(1), b.read(1), equal_nan=True)
-    assert failed["/read/"] == 2
+    assert seen["/read/"] and max(seen["/read/"].values()) == 3  # the range read at its third try
+
+
+def test_the_second_open_sends_nothing(short, http_server, small_file, tmp_path, monkeypatch):
+    """net.open_gdal's second open (with the caller's retries) sends no request: GDAL's cache of the first answers
+    it. A block costs the requests and bytes of one open (net.open_gdal a plain rio.open, as before 2026-11-24)."""
+    from http_server import _ranges
+    size = os.path.getsize(small_file)
+    http_server.add("/twice/S.tif", small_file.read_bytes(), "image/tiff")
+    url = http_server.url("/twice/S.tif")
+    after_first = []
+    first = net.gdal_open
+
+    @contextlib.contextmanager
+    def noting():
+        with first():
+            yield
+        after_first.append(len(http_server.requests("/twice/")))
+    monkeypatch.setattr(net, "gdal_open", noting)
+    rasterio.cache.invalidate(url)
+    with windows._gdal_http():
+        net.open_gdal(net._remote(url)).close()
+    assert after_first and len(http_server.requests("/twice/")) == after_first[0] > 0
+    transform = Affine(0.5, 0, 2000.0 + 50, 0, -0.5, 4000.0 - 50)
+
+    def block(name):
+        rasterio.cache.invalidate(url)
+        before = len(http_server.requests("/twice/"))
+        windows._read_block([("t", url, 2023)], CRS, transform, (200, 200), str(tmp_path / f"{name}.tif"), name)
+        asked = http_server.requests("/twice/")[before:]
+        ranges_ = [_ranges(r.headers["range"], size) for r in asked if "range" in r.headers]
+        return len(asked), sum(b - a + 1 for found in ranges_ for a, b in found)
+    twice = block("twice")
+    monkeypatch.setattr(net, "open_gdal", lambda path, **kwargs: rio.open(path, **kwargs))
+    assert twice == block("once")
 
 
 GDAL_TEXTS = [  # curl's texts as GDAL passes them on: the first two seen on Windows (192.0.2.1, a closed port gives

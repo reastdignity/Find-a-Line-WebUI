@@ -784,7 +784,7 @@ GDAL_RETRY_CODES = "0,429,500,502,503,504"
 # timeout). A slow server that answers keeps the read timeout of 120 s (Hong Kong's 0.36 MB/s). Without it each
 # attempt waited for the system's own connect timeout: one failed open 201 s on Windows (21 s an attempt).
 CONNECT_TIMEOUT_S = 5
-# Retries of opening a remote file (gdal_open; ranges.RangeFile's first request: OPEN_RETRIES + 1 attempts), the
+# Retries of opening a remote file (open_gdal; ranges.RangeFile's first request: OPEN_RETRIES + 1 attempts), the
 # user's decision of 2026-11-24; the reads after it keep GDAL_HTTP_MAX_RETRY = RETRIES. A host that never answers
 # then costs one failed open of 2 x (2 x 5 s + GDAL's first retry pause of 2 s) = 24 s computed, 24.1 s measured
 # with these settings (TEST-NET 192.0.2.1, 2026-11-24): GDAL asks the file's size twice when it opens a file (two
@@ -796,7 +796,7 @@ OPEN_RETRIES = 1
 
 def _gdal_http(serial: bool = False) -> rio.Env:
     """GDAL's settings for reading windows of remote files: our User-Agent, no directory
-    listing, retries of failed requests (GDAL_RETRY_CODES; opening a file: gdal_open), a connection given up after
+    listing, retries of failed requests (GDAL_RETRY_CODES; opening a file: open_gdal), a connection given up after
     CONNECT_TIMEOUT_S (a slow read is not cut: GDAL_HTTP_TIMEOUT), neighbouring blocks in one request
     (serial: the ranges of a window one after another, each through GDAL's cache of ranges,
     RANGE_CACHE_BYTES, so neighbouring blocks read in a row fetch a shared tile once).
@@ -814,13 +814,24 @@ def _gdal_http(serial: bool = False) -> rio.Env:
 
 
 def gdal_open() -> rio.Env:
-    """GDAL's settings for opening a remote file, inside _gdal_http's (or a tool's own): OPEN_RETRIES retries
-    instead of RETRIES, so a host that never answers costs one open about 24 s (OPEN_RETRIES' comment); rasterio's
-    environments nest, so the reads after the open (outside this one) are retried RETRIES times again
-    (tests/test_gdal_connect.py: a range failing twice is still read). Every GDAL open of a remote file uses it:
-    windows._read_file, the probe's _window, tools/check_source.py, tools/obstacle_study.py,
-    tools/perf_window_reads.py."""
+    """GDAL's settings for the first open of a remote file (open_gdal), inside _gdal_http's (or a tool's own):
+    OPEN_RETRIES retries instead of RETRIES. GDAL keeps the retries a file was opened with for that file's reads,
+    so a dataset opened inside it is never read (open_gdal opens it again)."""
     return rio.Env(GDAL_HTTP_MAX_RETRY=str(OPEN_RETRIES))
+
+
+def open_gdal(path: str, **kwargs):
+    """rio.open(path) for a read, a remote file (/vsicurl/) opened twice: first inside gdal_open, so a host that
+    never answers costs one open about 24 s (OPEN_RETRIES' comment), and closed; then again with the caller's
+    settings, whose RETRIES its reads keep (GDAL keeps a file's retries from its open: a dataset opened at one retry
+    read its ranges at one retry, the code review of 2026-11-24). The second open sends no request: GDAL's cache of
+    the file's size and ranges answers it (tests/test_gdal_connect.py counts it). Every GDAL open of a remote file
+    for reading goes through here: windows._read_file, the probe's _window, tools/check_source.py,
+    tools/obstacle_study.py, tools/perf_window_reads.py."""
+    if "/vsicurl/" in path:
+        with gdal_open():
+            rio.open(path, **kwargs).close()
+    return rio.open(path, **kwargs)
 
 
 # GDAL's errors as rasterio logs them: an error (CE_Failure) that did not make the call fail is
