@@ -1093,3 +1093,29 @@ def test_first_line_of_the_store_and_of_data_js(tmp_path_factory, tmp_path):
         assert line == ui_shots.first_line(str(tmp_path), "text", k)
         assert line == ",".join(str(v) for v in rows[min(k, len(rows) - 1)][:4])
     assert tool_runs.snapshot(str(tmp_path)) == before
+
+
+def test_readme_images_named_as_the_readme_shows_them(tmp_path):
+    """--readme: each page of README_SHOTS written under its README name (a .jpg as JPEG, a .png as PNG); a page
+    not taken, or one whose wait timed out, writes nothing at all (the README keeps its old pictures)."""
+    from PIL import Image
+    shots = tmp_path / "shots"
+    shots.mkdir()
+    rows = []
+    for name in ui_shots.README_SHOTS:
+        path = shots / f"{name}-desktop-light.png"
+        Image.new("RGB", (40, 30), (200, 10, 180)).save(path)
+        rows.append({"page": name, "path": str(path), "timeouts": [], "outcome": "saved"})
+    out = tmp_path / "images"
+    out.mkdir()
+    bad = [dict(rows[0], timeouts=["wait"])] + rows[1:]
+    with pytest.raises(SystemExit, match="readme-overview"):
+        ui_shots.readme_images(bad, str(out))
+    with pytest.raises(SystemExit, match="readme-3d"):
+        ui_shots.readme_images(rows[:-1], str(out))
+    assert not os.listdir(out)
+    written = ui_shots.readme_images(rows, str(out))
+    assert sorted(os.path.basename(p) for p in written) == sorted(ui_shots.README_SHOTS.values())
+    for path in written:
+        with Image.open(path) as picture:
+            assert picture.format == ("JPEG" if path.endswith(".jpg") else "PNG") and picture.size == (40, 30)

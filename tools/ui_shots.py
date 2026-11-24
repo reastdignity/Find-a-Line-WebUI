@@ -18,6 +18,12 @@ HTTPS with a certificate made for the run: WebKit, unlike Chromium, sends no Sec
                              [--data-dir <scratch>] [--timings <file>.json] [--strict]
     uv run tools/ui_shots.py --list [--only ...] [--data-dir <scratch>]
 
+`--readme --run <folder>` takes the README's pictures of its worked example (README_SHOTS: the Żabi Koń run of
+README.md's "Examples", its line by `--line`, default the run's first: the result view, the line selected with its
+profile, the orthophoto, the 3D view) on the desktop in the light theme and writes them into docs/images/ under the
+names the README shows (`--out`, if given, keeps the screenshots as taken). The run is made as the README says, in a
+data folder whose cache holds the place (the 3D view and the orthophoto ask geoportal.gov.pl from the browser).
+
 `--run <folder>` shows a saved run instead of the clip's (copied into the data folder's runs/ unless it is there;
 the data folder then needs the run's cache, e.g. a link to the real one) and `--line <lat1,lon1,lat2,lon2>` its line
 on the pages of a line ("c-line", the 3D view's); the search's other pages stay as they are.
@@ -108,6 +114,9 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 LAYERS_OPEN = "document.querySelector('.leaflet-control-layers').classList.add('leaflet-control-layers-expanded')"
 ESRI_ON = ("[...document.querySelectorAll('.leaflet-control-layers-base label')].find((l) => "
            "l.textContent.trim() === 'Esri World Imagery')?.querySelector('input').click()")
+# The run's orthophoto as the base layer (its label "Orthophoto (geoportal.gov.pl)" in Poland)
+ORTHO_ON = ("[...document.querySelectorAll('.leaflet-control-layers-base label')].find((l) => "
+            "l.textContent.trim().startsWith('Orthophoto'))?.querySelector('input').click()")
 # The coverage page: a click on an area of the flat view (by its key)
 COVERAGE_CLICK = "document.querySelector('.cov-shape[data-key=\"{key}\"]').dispatchEvent(new MouseEvent('click', {{bubbles: true}}))"
 GLOBE = ".cov-bar .u-seg button:nth-child(3)"  # the globe view: it turns by itself until touched (SPINS)
@@ -275,8 +284,10 @@ VIEW3D = "#run={run}&line={line}"
 FIRST_DRAW = (VIEW3D_READY[5:], READY[5:], NEED_READY, VIEW_READY[5:])
 # A page whose first-draw marks (and settled waits after its steps) may take longer: page -> its limit. "c-basic-sea":
 # the first "Sea cliffs" estimate in a fresh data folder fetches the view's coastline from Overpass (160 s in stage 2's
-# run, 33 s on 2026-11-17; then cached in the folder)
-SLOW_MARKS = {"c-basic-sea": 240000}
+# run, 33 s on 2026-11-17; then cached in the folder). The README's orthophoto and 3D view (--readme): geoportal.gov.pl's
+# orthophoto WMS answers a tile in seconds (the 2D map's tiles not settled after 10 s, the 3D view not ready after
+# 30 s on 2026-11-24)
+SLOW_MARKS = {"c-basic-sea": 240000, "readme-ortho": 120000, "readme-3d": 240000}
 # A mark that can no longer come: expression -> (what says so, the words of the note). Its wait ends there, as a wait
 # that did not come true (the picture shows the page as it is; exit code 1), without its limit and without a quarter
 # for the rest of the pass. The estimate's bar after a failed request: "unavailable" (no answer; Overpass's 502 Bad
@@ -488,7 +499,15 @@ LAYOUTS = {
 VIEWS = {name: "b" for name in ("c-view", "c-view-area", "c-view-spots", "c-view-lines", "c-view-best30", "c-view-all",
                                 "c-view-held", "c-view-crowded", "c-view-controls", "c-view-half",
                                 "c-view-selected", "c-view-selected-half", "c-view-fan", "c-view-sector", "c-view-all-levels",
-                                "c-view-why", "c-view-start", "c-view-tight", "c-view-trees", "c-view-trees-list")}
+                                "c-view-why", "c-view-start", "c-view-tight", "c-view-trees", "c-view-trees-list",
+                                "readme-overview", "readme-line", "readme-ortho")}
+
+# --readme: the README's pictures of the worked example (page -> file in docs/images/; a .jpg is written at
+# README_JPEG's quality, a .png as it was taken)
+README_SHOTS = {"readme-overview": "zabi-kon-overview.jpg", "readme-line": "zabi-kon-profile.png",
+                "readme-ortho": "zabi-kon-ortho.jpg", "readme-3d": "zabi-kon-3d.jpg"}
+README_IMAGES = os.path.join(REPO, "docs", "images")
+README_JPEG = 85
 
 # The pages that show something only some runs have (run_features, read from the run's run.json before any browser
 # starts): a page whose feature the run lacks is left out without a load
@@ -527,6 +546,17 @@ VIEW_FAV_REFUSED = ("js:(() => { const f = window.fetch; window.fetch = (url, in
 VIEW_FAV_KNOWN = "wait:window.FINDALINE_VIEW && window.FINDALINE_VIEW.view.model.favouritesOn"
 VIEW_CHART = "wait:document.querySelector('.r-card .fal-profile-chart, .u-sheet-body .fal-profile-chart')"
 VIEW_DOCK_DONE = "wait:!document.querySelector('.r-dock [aria-busy=true]')"
+# The README's worked example (--readme, README_SHOTS): the run as it opens, its line selected with the profile,
+# the same over the orthophoto (the run's own layer, "Orthophoto (...)"), the 3D view of the line at level full
+PAGES.update({
+    "readme-overview": ("c", "#run={run}", [VIEW_READY]),
+    "readme-line": ("c", "#run={run}&line={line}", [VIEW_READY, VIEW_SELECTED, VIEW_CHART, VIEW_DOCK_DONE]),
+    "readme-ortho": ("c", "#run={run}&line={line}", [VIEW_READY, VIEW_SELECTED, VIEW_CHART, VIEW_DOCK_DONE,
+                                                     "js:" + LAYERS_OPEN, "js:" + ORTHO_ON,
+                                                     "js:document.querySelector('.leaflet-control-layers')"
+                                                     ".classList.remove('leaflet-control-layers-expanded')"]),
+    "readme-3d": ("/view3d?level=full", VIEW3D, VIEW3D_READY),
+})
 # A run's action of the header (a desktop) or the phone's pill, pressed by its name
 VIEW_ACTION = ("js:[...document.querySelectorAll('.r-actions button')].find((b) => "
                "(b.getAttribute('aria-label') || b.textContent).trim() === %r)?.click()")
@@ -1688,6 +1718,27 @@ def shoot_all(pw, site: dict, shown: list, devices: list, themes: list, out: str
             break
 
 
+def readme_images(rows: list, folder: str = README_IMAGES) -> list:
+    """The README's pictures (README_SHOTS) from the rows of a --readme pass: each page's screenshot written into
+    `folder` under its README name, a .jpg at README_JPEG's quality; a page that failed or timed out writes nothing
+    and stops the run (the README keeps its old picture). Returns the paths written."""
+    from PIL import Image
+    taken = {row["page"]: row for row in rows if row.get("path")}
+    missing = [name for name in README_SHOTS if name not in taken or failed([taken[name]])]
+    if missing:
+        raise SystemExit(f"the README's pictures not written: {', '.join(missing)} not taken")
+    written = []
+    for name, file in README_SHOTS.items():
+        path = os.path.join(folder, file)
+        with Image.open(taken[name]["path"]) as picture:
+            if file.endswith(".jpg"):
+                picture.convert("RGB").save(path, quality=README_JPEG, optimize=True)
+            else:
+                picture.save(path, optimize=True)
+        written.append(path)
+    return written
+
+
 def close(call, times: dict, part: str, *args):
     """A closing call timed as `part`; while an error (Ctrl+C) is on its way out, an error of the call is printed and
     dropped, so the first one reaches the caller."""
@@ -1715,10 +1766,17 @@ def main() -> int:
     parser.add_argument("--fresh", action="store_true", help="the data folder's clip run and cubes made anew")
     parser.add_argument("--run", help="a saved run's folder to show instead of the clip's (its cache in the data folder)")
     parser.add_argument("--line", help="the line of the line's pages (lat1,lon1,lat2,lon2; default: the run's first)")
+    parser.add_argument("--readme", action="store_true", help="the README's pictures of its worked example from --run "
+                                                               "into docs/images/ (desktop, light)")
     parser.add_argument("--list", action="store_true", help="list the pages (and those the run leaves out), no browser")
     parser.add_argument("--timings", help="a JSON file of the set-up's parts and every page's seconds and outcome")
     parser.add_argument("--strict", action="store_true", help="stop at the first wait that times out or failed step")
     args = parser.parse_args()
+    if args.readme:
+        if not args.run:
+            parser.error("--readme needs --run: the README's Żabi Koń run")
+        args.devices, args.themes, args.dark = "desktop", "light", False
+        args.out = args.out or tempfile.mkdtemp(prefix="ui-shots-readme-")
     if not args.out and not args.list:
         parser.error("the following arguments are required: --out")
     themes = themes_of(args.dark, args.themes)
@@ -1728,7 +1786,7 @@ def main() -> int:
     for device in devices:
         if device not in DEVICES:
             parser.error(f"unknown device {device!r} (of: {', '.join(DEVICES)})")
-    pages = select_pages(args.only, args.exclude)
+    pages = {name: PAGES[name] for name in README_SHOTS} if args.readme else select_pages(args.only, args.exclude)
 
     began = time.perf_counter()
     data = args.data_dir or tempfile.mkdtemp(prefix="ui-shots-")
@@ -1762,6 +1820,9 @@ def main() -> int:
             shoot_all(pw, site_of, shown, devices, themes, args.out, args.strict, times, rows, passes)
         finally:
             close(playwright.__exit__, times, "Playwright's stop", *sys.exc_info())
+        if args.readme:
+            for path in readme_images(rows):
+                print(f"README: {path}")
     finally:
         interrupted = sys.exc_info()[0] is not None
         if stop:

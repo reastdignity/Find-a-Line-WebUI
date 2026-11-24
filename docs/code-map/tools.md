@@ -224,7 +224,10 @@ A page whose feature the run lacks (`NEEDS`: `c-result-rigging` a no-fall zone o
 an uncertain shore, `c-result-why` the square rule; `run_features` reads run.json before any browser) is left out
 without a load, and a page whose step `need:<expression>` is false once the result is drawn as well. Selection:
 `--only`, `--exclude` (substrings), `--themes light|dark|both` (`--dark` = both), `--list` (the pages and which the run
-leaves out, no browser). No fixed sleeps: after a load and after each step `settled` waits for a quiet time with no
+leaves out, no browser). `--readme --run <folder> [--line ...]`: the README's pictures of its Żabi Koń example
+(`README_SHOTS`: the result view, the line with its profile, over the orthophoto, the 3D view; desktop, light) written
+into docs/images/ under the README's names by `readme_images` (none when a page failed or timed out; the orthophoto
+and 3D pages wait longer: `SLOW_MARKS`). No fixed sleeps: after a load and after each step `settled` waits for a quiet time with no
 request in flight (Playwright's events, the event stream ignored), no tile loading (a failed one is not waited
 for), map move, CSS animation, busy spinner, animation frame or short timer (`WATCH`, an init script) and the mark of
 the page's family (`page_family`, `PAGE_STATE`), at most 30 s after a load and 10 s after a step, then shot and noted "not settled"; a `wait:` waits at
