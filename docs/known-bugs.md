@@ -516,8 +516,9 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   do not). **The next two lines, of the same day** (CI 45352195288, `main` 89c2f507): view3d on AMD EPYC 9V74
   (834 and 837 ms, passed in 8 min), and a second slow ring job, this one on the AMD EPYC 7763 itself (977 and
   980 ms; `[full-None]` over its 1 500 s, `[phone-None]` 530 s, the job stopped at 60 min). So the lead is gone:
-  the EPYC 7763 has four jobs that passed and one that stalled, with the same ten-frame time. Neither the CPU's name
-  nor the line's frame time tells a slow job from a fast one; in both slow jobs `[full-None]` ran into its 1 500 s.
+  on the EPYC 7763 two ring jobs passed and one stalled (and two view3d jobs passed, which do not run the ring's
+  tests), all with the same ten-frame time. Neither the CPU's name nor the line's frame time tells a slow job from a
+  fast one; in both slow jobs `[full-None]` ran into its 1 500 s.
 - **Four tests failed once under round 5's loaded full runs on this PC and pass alone** (none in item 5's path; the
   first two passed 3 of 3 alone on the stack and on `main` a86b86e8): `test_web::test_basic_form_sea_cliffs_fills_the_limit`
   (twice; the limit's box and the map view's read before it differ by about 400 m north to south);
