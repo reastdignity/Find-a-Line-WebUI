@@ -31,8 +31,10 @@ process has open (Windows) are left and make the exit code 1.
 a run whose run.json holds the data record (its `identity` keys: each file's sha256 as the index held it, the
 coastline, the area's inputs, local files) exactly, against the index now; files written again in another
 encoding (`cache migrate`: another checksum, fetched no later than the run read them) apart; an older run by
-fetch times, marked approximate. That part only reads; the rest of `status` still writes as before (it adopts
-the world water polygons' files, and cache.rows opens each index for writing).
+fetch times, marked approximate. `status` as a whole only reads: every index and Nominatim's answers through
+_query's read-only connections (cache.rows and cache.info with read=_query), no folder, index, table, row or LAYOUT
+file is made, so it can run at any time, also beside a search. World water polygons put into the cache by hand
+(files without index rows) are named in one line; `update` adopts them (_adopt_world) before it checks.
 
 The intervals are cache.TTL_DAYS; "missing" tiles of data that can change are checked
 again after cache.MISSING_TTL_DAYS. `update` without --all checks only what is older
@@ -184,12 +186,13 @@ def rewriting_layer(path: str) -> Optional[src.Layer]:
     return layer if layer is not None and layer.rewrites else None
 
 
-def old_tiles(cache_dir: str, folder: Optional[str] = None) -> Dict[str, List[str]]:
+def old_tiles(cache_dir: str, folder: Optional[str] = None, read: Optional[Callable] = None) -> Dict[str, List[str]]:
     """The cached files still in the old encoding (sources.layer.old_encoding) of the layers that rewrite their
-    tiles, by top-level folder, full paths (only the folders that have some)."""
+    tiles, by top-level folder, full paths (only the folders that have some). read: the indexes' reading door
+    (cache.rows; `status` gives _query)."""
     candidates: Dict[str, List[str]] = {}
     for top in _tops(cache_dir, folder):
-        paths = [os.path.join(cache_dir, row["path"]) for row in cache.rows(cache_dir, top)
+        paths = [os.path.join(cache_dir, row["path"]) for row in cache.rows(cache_dir, top, read)
                  if row["status"] == "ok" and rewriting_layer(row["path"]) is not None]
         if paths:
             candidates[top] = paths
@@ -248,12 +251,25 @@ def _tops(cache_dir: str, folder: Optional[str]) -> List[str]:
 
 
 def _adopt_world(cache_dir: str):
-    """Index the files of a world water polygons folder that was put there by hand."""
+    """Index the files of a world water polygons folder that was put there by hand (`update`, before it checks:
+    the .shp's row is what makes it checked after a year, _check; `status` only names such files,
+    _world_without_rows)."""
     shapefile = coast.world_file(cache_dir)
     if shapefile:
-        for path in glob.glob(os.path.join(os.path.dirname(os.path.dirname(shapefile)), "**", "*"), recursive=True):
-            if os.path.isfile(path):
-                cache.state(cache_dir, path)
+        for path in coast._world_files(os.path.dirname(os.path.dirname(shapefile))):
+            cache.state(cache_dir, path)
+
+
+def _world_without_rows(cache_dir: str) -> Optional[Tuple[str, int, int]]:
+    """(the world water polygons' folder relative to the cache, its files, those of them without an index row) when
+    some have none, else None; read-only (_index_rows)."""
+    shapefile = coast.world_file(cache_dir)
+    if not shapefile:
+        return None
+    folder = os.path.dirname(os.path.dirname(shapefile))
+    files = [cache.relative(cache_dir, path) for path in coast._world_files(folder)]
+    missing = len(set(files) - set(_index_rows(cache_dir, files)))
+    return (cache.relative(cache_dir, folder), len(files), missing) if missing else None
 
 
 def _list_check(cache_dir: str, layer: src.IndexedTiles, rows: List[Dict], update: str) -> Optional[Check]:
@@ -768,13 +784,13 @@ def changed_runs(cache_dir: str, runs_dir: str) -> List[RunChange]:
 
 
 def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
-    """Print the cached folders, what an update would check and the runs on changed data."""
+    """Print the cached folders, what an update would check and the runs on changed data. Reads only (the module's
+    docstring): every index through _query."""
     tops = _tops(cache_dir, folder)
-    _adopt_world(cache_dir)
     print(f"Cache: {cache_dir}")
     print(f"{'Folder':<14} {'Size':>9} {'Files':>7}  {'Fetched':<23}  {'Last used':<10}  To check (stale)")
     for top in tops:
-        rows = cache.rows(cache_dir, top)
+        rows = cache.rows(cache_dir, top, _query)
         fetched = [r["fetched_at"] for r in rows if r["fetched_at"]]
         used = max((r["last_used_at"] for r in rows if r["last_used_at"]), default=None)
         due: Dict[str, int] = {}
@@ -785,20 +801,25 @@ def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
         span = f"{_date(min(fetched, default=None))} - {_date(max(fetched, default=None))}"
         print(f"{top:<14} {_size(os.path.join(cache_dir, top)) / 1e9:>7.2f}GB {len(rows):>7}  {span:<23}  "
               f"{_date(used):<10}  " + ("; ".join(f"{w}: {n}" for w, n in due.items()) or "-"))
+    world = _world_without_rows(cache_dir) if not folder or folder == "osm" else None
+    if world:
+        print(f"\nThe world water polygons in {world[0]} have no index rows yet ({world[2]} of {world[1]} files): "
+              "`findaline.py cache update` adopts them.")
     lists = {layer.index.top: layer for layer in _sheet_layers()
              if getattr(layer.index, "has_list", False) and layer.index.top in tops}
     for top, layer in lists.items():
         from sources.layers import tnmbucket as tb
-        print(f"\n{layer.description}, the list of the files its index does not list: {tb.list_status(cache_dir, top)}")
+        print(f"\n{layer.description}, the list of the files its index does not list: "
+              f"{tb.list_status(cache_dir, top, _query)}")
     found = [(rid, pbf) for rid, pbf in osmextract.extracts(cache_dir)
              if not folder or cache.relative(cache_dir, pbf).startswith(folder + "/")]
     if found:
         print("\nOSM extracts:")
         for rid, pbf in found:
-            row = cache.info(cache_dir, pbf) or {}
+            row = cache.info(cache_dir, pbf, _query) or {}
             print(f"  {rid}: {os.path.getsize(pbf) / 1e9:.2f} GB, data of {(row.get('source_date') or '?')[:16]}, "
                   f"checked {_date(row.get('checked_at'))}")
-    old = old_tiles(cache_dir, folder)
+    old = old_tiles(cache_dir, folder, _query)
     if old:
         count = sum(len(paths) for paths in old.values())
         gigabytes = sum(os.path.getsize(p) for paths in old.values() for p in paths) / 1e9
@@ -859,7 +880,7 @@ def main(argv: List[str]) -> int:
 
     data = cache.data_dir(args.data_dir)
     cache_dir = os.path.join(data, "cache")
-    cache.check_layout(cache_dir)
+    cache.check_layout(cache_dir, mark=not (args.group == "cache" and args.command == "status"))  # status reads only
     try:
         with progress.bars():
             if args.group == "cache" and args.command == "status":
