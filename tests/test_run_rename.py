@@ -21,6 +21,9 @@ from test_public import (DENIED, LINE, LOCAL, RUN_A, RUN_B, TOKEN, URL, account_
                          mark, providers, run_people, settings)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# error.run_name's words with its limit: one text for every fault of a name (line volume's round 7, the user's
+# answer 11 a, 2026-11-24)
+REFUSED = "Give the run a name of 1 to 100 characters, with no tab or invisible character."
 
 # mapping.MAP_HTML at b1434458 (before the template moved to runs.py): a search's map.html stays byte for byte this
 FROZEN_MAP_HTML = """<!doctype html>
@@ -105,8 +108,8 @@ def test_names_refused(value):
     with pytest.raises(UserError) as refused:
         rn.run_name(value)
     assert refused.value.code == "run_name" and refused.value.detail() == {
-        "message": "Give the run a name of 1 to 100 characters.", "code": "run_name", "params": {"max": 100}}
-    assert messages.text("error.run_name", max=100) == "Give the run a name of 1 to 100 characters."
+        "message": REFUSED, "code": "run_name", "params": {"max": 100}}
+    assert messages.text("error.run_name", max=100) == REFUSED
     if isinstance(value, str) and value.strip():
         assert value.strip() not in str(refused.value)
 
@@ -373,7 +376,7 @@ def test_rename_refused(run_people, tmp_path, monkeypatch):
                  {"name": "a\u200bb"}, {"name": 5}, {"name": None}, {}, {"title": "x"}):
         refused = a.post(f"/api/runs/{RUN_A}", json=body)
         assert refused.status_code == 400 and refused.json()["detail"] == {
-            "message": "Give the run a name of 1 to 100 characters.", "code": "run_name", "params": {"max": 100}}, body
+            "message": REFUSED, "code": "run_name", "params": {"max": 100}}, body
     assert a.post(f"/api/runs/{RUN_A}", json=["Mine"]).status_code == 422  # not an object: FastAPI's own answer
     real = cache.replacing
 
