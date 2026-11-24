@@ -740,6 +740,9 @@ def copy_run(clip_run, data_dir, run_id: str, name: str):
 
 RUN_A, RUN_B, RUN_OLD = "2026-10-01_100000_A_00000000000000aa", "2026-10-01_100000_B_00000000000000bb", \
     "2026-09-01_100000_Old"
+# What a tiled search keeps of step 1 in its run folder (search.SHORE_FILE, ORIGINS_FILE, USED_FILE; the names
+# here, since this module never imports search): work state, never served
+STATE_FILES = ("shore.json", "terrain_sources.json", "data_used.json")
 
 
 @pytest.fixture
@@ -751,6 +754,8 @@ def run_people(tmp_path, clip_run, settings, account_settings, providers):
     for run_id, name in ((RUN_A, "A's run"), (RUN_B, "B's run"), (RUN_OLD, "Old run")):
         copy_run(clip_run, tmp_path, run_id, name)
     (tmp_path / "runs" / RUN_A / "progress.json").write_text("{}")
+    for name in STATE_FILES:  # a tiled search's state of step 1 in its run folder (search.py): never served
+        (tmp_path / "runs" / RUN_A / name).write_text("[]")
     (tmp_path / "runs" / RUN_A / "tiles").mkdir()
     (tmp_path / "runs" / RUN_A / "tiles" / "0.pkl.gz").write_bytes(b"x")
     (tmp_path / "jobs.sqlite").unlink(missing_ok=True)
@@ -789,7 +794,7 @@ def test_run_files_behind_access_control(run_people, tmp_path):
         assert admin.get(f"/runs/{RUN_A}/{name}").status_code == 200, name
         for who in ("b", "pending", "blocked", "anonymous"):
             assert run_people[who].get(f"/runs/{RUN_A}/{name}").status_code == 404, (who, name)
-    for name in ("run.json", "progress.json", "tiles/0.pkl.gz", "", "nothing.js"):
+    for name in ("run.json", "progress.json", "tiles/0.pkl.gz", "", "nothing.js", *STATE_FILES):
         assert a.get(f"/runs/{RUN_A}/{name}").status_code == 404, name
     assert b.get(f"/runs/{RUN_B}/map.html").status_code == 200 and a.get(f"/runs/{RUN_OLD}/map.html").status_code == 404
     assert admin.get(f"/runs/{RUN_OLD}/map.html").status_code == 200
@@ -864,6 +869,7 @@ def test_share_links(run_people, tmp_path):
     page = anonymous.get(f"/s/{token}/map.html").text
     assert '<script src="../runs.js">' in page and "../_viewer/viewer.js" in page
     for path in (f"/s/{token}/run.json", f"/s/{token}/progress.json", f"/s/{token}/tiles/0.pkl.gz",
+                 *(f"/s/{token}/{name}" for name in STATE_FILES),
                  f"/s/{token}/%2e%2e/{RUN_B}/map.html", f"/s/{token}%2f..%2f{RUN_B}/map.html",
                  f"/s/{RUN_A}/map.html", f"/s/{RUN_B}/lines.js", f"/s/{token[:-1]}/map.html", "/s/x/map.html",
                  f"/s/{token}/../../jobs.sqlite", "/s/%2e%2e/jobs.sqlite"):
