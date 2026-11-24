@@ -612,6 +612,9 @@ class Unreachable(RuntimeError):
 # connection and for no route to the host, so the two are one kind for both readers
 TIMED_OUT, REFUSED, NO_NAME = "timed out", "refused or no route", "name not found"
 CONNECT_KINDS = (TIMED_OUT, REFUSED, NO_NAME)
+# An Unreachable's whole message (unreachable). tests/regression.py reads it in a search's "Download failed: ..."
+# line as a provider that did not answer, and tools/area_download.py compares it between passes: reword it here only
+UNREACHABLE_TEXT = "{host} could not be connected to ({kind})"
 # The texts of curl's errors (GDAL passes them on: "CURL error: ...") that say no connection was made, and their
 # kind, the first that matches. A read timeout is "Operation timed out after ...", never these; an HTTP status, an
 # answer cut short or anything else matches none of them (tests/test_gdal_connect.py, a case each)
@@ -707,7 +710,7 @@ def unreachable(url: str, error: BaseException) -> Unreachable:
     kind = connect_kind(error) or REFUSED
     host = failed_host(error) or _host(url)
     logging.getLogger(__name__).debug("%s: %s", host, cache.clean_error(error))
-    return Unreachable(f"{host} could not be connected to ({kind})")
+    return Unreachable(UNREACHABLE_TEXT.format(host=host, kind=kind))
 
 
 _downloads = threading.local()  # .current: the UnreachableHosts of the download whose task this thread runs

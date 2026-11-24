@@ -133,7 +133,8 @@ FAILED_PREFIXES = (("Download failed: ", "a data provider"), ("Area: ", "Nominat
 # sources.readers.tilebases' words; one test each in tests/test_regression_harness.py). Not here, so DIFFERENT: a
 # 404 or another 4xx, a 500, an answer that is not the data, a refused certificate, a name that does not resolve,
 # our own queues ("is busy with the requests of other searches", "busy with the queries of another search") and
-# Overpass's day cap of our own (OverpassDayMax)
+# Overpass's day cap of our own (OverpassDayMax). One more sign is made from the code's own template: a download's
+# "<host> could not be connected to (timed out | refused or no route)" (_unreachable_pattern)
 NO_ANSWER = (
     r"\bHTTP (?:response code: )?(?:429|502|503|504)\b",  # net._get's "HTTP 503: ...", GDAL's curl
     r"\b(?:429|502|503|504) (?:Client|Server) Error\b",  # requests' raise_for_status (Nominatim, Overpass)
@@ -443,7 +444,7 @@ def no_answer_sign(text: str) -> bool:
         return False
     if any(re.search(words, text) for words in NOT_NO_ANSWER):
         return False
-    return any(re.search(sign, text) for sign in NO_ANSWER)
+    return any(re.search(sign, text) for sign in NO_ANSWER + (_unreachable_pattern(),))
 
 
 def _parenthesised(text: str, start: int) -> str:
@@ -459,26 +460,28 @@ def _parenthesised(text: str, start: int) -> str:
     return ""
 
 
-_DAY_CAP: List[str] = []  # the pattern of osm.OverpassDayMax's text, made once
+def _from_template(template: str, **fields: str) -> str:
+    """The pattern of a text made from a format template of the code (never a copy of its words): each {field}
+    replaced by its pattern, the rest literal."""
+    pattern = re.escape(template)
+    for name, field in fields.items():
+        pattern = pattern.replace(re.escape("{" + name + "}"), field)
+    return pattern
 
 
 def _day_cap_pattern() -> str:
-    """osm.OverpassDayMax's text up to its first colon, its number generalised: taken from osm itself (its
-    _count_query raising it in a temporary folder with a cap of 0), never copied."""
-    if not _DAY_CAP:
-        import osm
-        folder, saved, text = tempfile.mkdtemp(prefix="findaline-daycap-"), osm.overpass_day_max, ""
-        try:
-            osm.overpass_day_max = lambda: 0
-            osm._count_query(folder)
-        except osm.OverpassDayMax as error:
-            text = str(error)
-        finally:
-            osm.overpass_day_max = saved
-            shutil.rmtree(folder, ignore_errors=True)
-        head = text.split(":")[0]
-        _DAY_CAP.append(re.escape(head).replace("0", r"\d+", 1) if head else r"(?!)")
-    return _DAY_CAP[0]
+    """How osm.OverpassDayMax's text starts, any number of queries (osm.DAY_MAX_TEXT, osm's own template)."""
+    import osm
+    return _from_template(osm.DAY_MAX_TEXT, limit=r"\d+")
+
+
+def _unreachable_pattern() -> str:
+    """sources.net.Unreachable's message (net.UNREACHABLE_TEXT, net's own template) for a host that could not be
+    connected to in time or was refused; a name that was not found is no sign here (a wrong address in our own code
+    looks the same: DIFFERENT)."""
+    from sources import net  # at the first use, after main has set the data server's variable
+    kinds = "|".join(re.escape(kind) for kind in (net.TIMED_OUT, net.REFUSED))
+    return _from_template(net.UNREACHABLE_TEXT, host=r"\S+", kind=f"(?:{kinds})")
 
 
 def warning_cause(error: str) -> bool:

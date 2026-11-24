@@ -54,6 +54,9 @@ OVERPASS_WAIT_S = 600  # how long a query waits for the one of another process (
 # regular use to stay below 100 queries a day, summed over all users of an application; 75, the user's choice
 # (2026-11-01), stays below it with a margin. Cached theme tiles and tiles built from the extracts never count.
 OVERPASS_DAY_MAX = 75
+# How OverpassDayMax's text starts (tests/regression.py tells the cap, a search that did not ask, from an Overpass
+# that did not answer by it: reword it here only)
+DAY_MAX_TEXT = "the {limit} Overpass queries of today (UTC) are used up"
 # After a 429 (too many requests) or a 406 (refused) the server is left alone at least this long
 # (the wiki: wait before trying again), or as long as its Retry-After asks, up to OVERPASS_PAUSE_MAX_S
 OVERPASS_PAUSE_S = 30
@@ -237,7 +240,7 @@ def _count_query(cache_dir: str):
             db.execute("DELETE FROM days WHERE day < ?", (day,))
             row = db.execute("SELECT queries FROM days WHERE day = ?", (day,)).fetchone()
             if (row[0] if row else 0) >= limit:
-                raise OverpassDayMax(f"the {limit} Overpass queries of today (UTC) are used up "
+                raise OverpassDayMax(f"{DAY_MAX_TEXT.format(limit=limit)} "
                                      "(FINDALINE_OVERPASS_DAY_MAX): try again tomorrow, or download the "
                                      "OpenStreetMap extract of the country (findaline.py osm download)",
                                      "overpass_day_max", max=limit)

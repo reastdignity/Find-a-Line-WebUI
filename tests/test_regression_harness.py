@@ -508,6 +508,38 @@ def test_unanswered_data_server(kind):
     assert regression.unanswered(f"Download failed: Could not download Test tile 0_0: {failed}\n")
 
 
+@pytest.mark.parametrize("kind, sign", [("timed out", True), ("refused or no route", True), ("name not found", False)])
+def test_unanswered_host_not_connected_to(kind, sign):
+    """sources.net.Unreachable's own message as a search prints it ("Download failed: <host> could not be connected
+    to (<kind>)"): a provider that did not answer, but for a name that was not found (a wrong address in our own code
+    looks the same: DIFFERENT). The text comes from net's template, so a reword there keeps this test honest."""
+    from sources import net
+    assert kind in net.CONNECT_KINDS
+    text = f"Download failed: {net.UNREACHABLE_TEXT.format(host='files.example', kind=kind)}\n"
+    assert bool(regression.unanswered(text)) is sign, text
+
+
+def test_unanswered_the_message_of_a_refused_host():
+    """The message net.unreachable really makes of a refused connection (both readers raise it through it)."""
+    import requests
+    from sources import net
+    url = f"http://127.0.0.1:{_closed_port()}/x.tif"
+    with pytest.raises(requests.ConnectionError) as error:
+        requests.get(url, timeout=10)
+    failed = net.unreachable(url, error.value)
+    assert str(failed) == net.UNREACHABLE_TEXT.format(host="127.0.0.1", kind=net.REFUSED)
+    assert regression.unanswered(f"Download failed: {failed}\n"), str(failed)
+
+
+def test_the_day_cap_pattern_is_osms_own_text():
+    """The cap's pattern comes from osm's template, any number, and matches nothing else."""
+    import osm
+    pattern = regression._day_cap_pattern()
+    assert regression.re.match(pattern, osm.DAY_MAX_TEXT.format(limit=75) + " (FINDALINE_OVERPASS_DAY_MAX): ...")
+    assert not regression.re.match(pattern, "the Overpass queries of today (UTC) are used up")
+    assert not regression.re.match(pattern, "Expecting value: line 1 column 1 (char 0)")
+
+
 @pytest.mark.parametrize("text", [
     "Download failed: Could not download Test tile 0_0: HTTP 404: gone\n",
     "Download failed: Could not download Test tile 0_0: the answer is not a TIFF\n",
