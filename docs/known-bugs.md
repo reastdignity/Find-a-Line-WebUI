@@ -513,12 +513,14 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   themselves (`[phone-None]` 220 and 904 s, `[full-edges]` 702 and 186 s), so the CPU is a lead and no more. One
   red job: an observation, not a cause. The next red and green lines say whether every slow job is on that CPU
   (then: what the ring's page asks of Edge's software WebGL that the ten frames, a loop per pixel without a texture,
-  do not). **The next two lines, of the same day** (CI 45352195288, `main` 89c2f507): view3d on AMD EPYC 9V74
-  (834 and 837 ms, passed in 8 min), and a second slow ring job, this one on the AMD EPYC 7763 itself (977 and
-  980 ms; `[full-None]` over its 1 500 s, `[phone-None]` 530 s, the job stopped at 60 min). So the lead is gone:
-  on the EPYC 7763 two ring jobs passed and one stalled (and two view3d jobs passed, which do not run the ring's
-  tests), all with the same ten-frame time. Neither the CPU's name nor the line's frame time tells a slow job from a
-  fast one; in both slow jobs `[full-None]` ran into its 1 500 s.
+  do not). **The next four lines, of the same day** (CI 45352195288 on `main` 89c2f507, CI 45363081779): view3d
+  passed on AMD EPYC 9V74 (834 and 837 ms, 8 min) and on the Xeon 8573C (1 136 and 1 199 ms, 13 min); the ring
+  stalled on the AMD EPYC 7763 itself (977 and 980 ms; `[full-None]` over its 1 500 s, `[phone-None]` 530 s, stopped
+  at 60 min) and once more on the Xeon 8573C (1 147 and 1 146 ms; `[full-None]` and `[full-edges]` over 1 500 s,
+  `[phone-None]` 467 s). So of the five ring jobs with the line, both on the Xeon stalled and one of the three on
+  the EPYC 7763 (with the ten-frame time of the two that passed): a stall comes on either CPU, so the name does not
+  decide it, and five jobs are too few to say that it weighs. The frame time tells nothing. In all three slow jobs
+  `[full-None]` ran into its 1 500 s.
 - **Four tests failed once under round 5's loaded full runs on this PC and pass alone** (none in item 5's path; the
   first two passed 3 of 3 alone on the stack and on `main` a86b86e8): `test_web::test_basic_form_sea_cliffs_fills_the_limit`
   (twice; the limit's box and the map view's read before it differ by about 400 m north to south);
