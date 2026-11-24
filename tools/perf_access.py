@@ -990,11 +990,17 @@ def empty_working_set() -> Optional[Dict]:
     if os.name != "nt":
         return None
     import ctypes
+    from ctypes import wintypes
     proc = psutil.Process()
     before = memory_now(proc)
-    handle = ctypes.windll.kernel32.GetCurrentProcess()
-    done = bool(ctypes.windll.psapi.EmptyWorkingSet(handle))
-    return {"done": done, "before": before, "after": memory_now(proc)}
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # the pseudo-handle of this process is (HANDLE)-1: typed, or ctypes passes a 32-bit int and the call fails
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.K32EmptyWorkingSet.argtypes = [wintypes.HANDLE]
+    kernel32.K32EmptyWorkingSet.restype = wintypes.BOOL
+    done = bool(kernel32.K32EmptyWorkingSet(kernel32.GetCurrentProcess()))
+    return {"done": done, "error": 0 if done else ctypes.get_last_error(), "before": before,
+            "after": memory_now(proc)}
 
 
 def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block_px: Optional[int],
@@ -1007,6 +1013,8 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
     gc.collect()
     if empty_start:
         out["emptied"] = empty_working_set()
+        if out["emptied"] is not None and not out["emptied"]["done"]:
+            raise RuntimeError(f"EmptyWorkingSet failed (error {out['emptied']['error']})")
     out["start"] = memory_now(proc)
     out["cg_start"] = cgroup_sample()
     out["work_bytes_at_start"] = sum(work_files(s.work).values())  # step 1's grids (and earlier stages' outputs)

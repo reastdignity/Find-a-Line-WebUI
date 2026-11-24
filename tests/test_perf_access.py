@@ -205,6 +205,17 @@ def test_a_blocks_peaks_above_the_stage_and_the_level():
     assert rep["grid_wide"]["rss_b_per_grid_px"] == 0.2
 
 
+@pytest.mark.skipif(os.name != "nt", reason="EmptyWorkingSet is Windows'")
+def test_the_working_set_is_emptied():
+    """empty_working_set: the call succeeds and the working set drops (a page of a large array touched just before is
+    no longer resident)."""
+    big = np.ones(50 * 2 ** 20 // 8)  # 50 MiB touched
+    got = pa.empty_working_set()
+    assert got["done"], got
+    assert got["after"]["rss"] < got["before"]["rss"] - 40 * 2 ** 20
+    del big
+
+
 def test_the_constant_needed_on_hand_made_numbers():
     """constant_needed: the pass's peak per pixel of the grid, and the blocks' peak less the window bytes (the tree's,
     given) times the largest window, per pixel of the grid; the larger decides. Numbers chosen by hand: a grid of
