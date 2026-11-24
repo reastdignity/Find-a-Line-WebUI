@@ -154,21 +154,32 @@ class _TiffTags:
             self.handle = None
 
 
-def predicted(layer, tiles: Sequence) -> Dict:
+def predicted(layer, tiles: Sequence, cache_dir: Optional[str] = None) -> Optional[Dict]:
     """The bytes the files' internal tiles predict for the blocks (first file of each): summed per block
     and each tile once, from the files' headers (requests of their own: after the measurement), the tiles' sizes
     read with the GIL released (_TiffTags). A size GDAL could not read (it signalled an error: the bytes of its
     array not fetched) raises RuntimeError naming the file and the tile, never a 0 in the sum (the child process
-    fails, as when the measurement fails: no table); a tile without bytes or outside the file counts 0 as ever."""
+    fails, as when the measurement fails: no table); a tile without bytes or outside the file counts 0 as ever.
+    Each file is opened in its turn of its host's rate (net.rate_turn), retried net.OPEN_RETRIES times
+    (net.open_gdal) and, with cache_dir, read under a slot of its host (net.host_slot, held to the end). A layer read
+    through our own ranges, or one whose host takes one connection (net.single_connection), is not measured through
+    GDAL (its ranges in parallel): None, and a line saying why."""
+    import contextlib
     import numpy as np
     import cache
     import rasterio as rio
     from rasterio.windows import from_bounds
     from sources import net
+    first = next((r.files[0][1] for r in map(layer.index.request, tiles) if r.files), None)
+    if getattr(getattr(layer, "reader", None), "ranged", False) or net.single_connection(first):
+        why = "it is read through our own ranges" if getattr(layer.reader, "ranged", False) else \
+            "its host takes one connection (GDAL would ask its ranges on several)"
+        print(f"{layer.description}: the prediction is not measured through GDAL: {why}")
+        return None
     lib = gdal_library()
     per_block, union, tile_px = 0, {}, set()
-    with net._gdal_http():
-        opened, tags = {}, {}
+    with net._gdal_http(), contextlib.ExitStack() as slots:
+        opened, tags, held = {}, {}, set()
         try:
             for tile in tiles:
                 r = layer.index.request(tile)
@@ -176,7 +187,12 @@ def predicted(layer, tiles: Sequence) -> Dict:
                     continue
                 url = r.files[0][1]
                 if url not in opened:
-                    opened[url] = rio.open(net._remote(url))
+                    host = net.limits_host(url)
+                    if cache_dir and host and host not in held:
+                        slots.enter_context(net.host_slot(cache_dir, url))
+                        held.add(host)
+                    net.rate_turn(url)
+                    opened[url] = net.open_gdal(net._remote(url))
                     tags[url] = _TiffTags(lib, net._remote(url))
                 src = opened[url]
                 h, w = r.shape
@@ -266,8 +282,8 @@ def measure_layer(layer, grid, cache_dir: str, mode: Dict, lib=None, predict: bo
     own = {"bytes": 0, "gets": 0}
     app_get_range = ranges.get_range
 
-    def get_range(url, first, last):
-        data, size = app_get_range(url, first, last)
+    def get_range(url, first, last, *args):
+        data, size = app_get_range(url, first, last, *args)
         own["bytes"], own["gets"] = own["bytes"] + len(data), own["gets"] + 1
         return data, size
     ranges.get_range = get_range
@@ -282,11 +298,14 @@ def measure_layer(layer, grid, cache_dir: str, mode: Dict, lib=None, predict: bo
     network = downloaded(network_stats(lib))
     network["bytes"] += own["bytes"]
     network["gets"] += own["gets"]
+    from sources import net
+    url = layer.tile_url(tiles[0]) if tiles else None
     result = {"mode": slug(mode), "blocks": len(tiles), "seconds": seconds,
               "network": network, "peak_memory": peak_memory(),
-              "cache": cached(os.path.join(cache_dir, layer.folder))}
+              "cache": cached(os.path.join(cache_dir, layer.folder)),
+              "rate": net.HOST_RATES_OF.get(net.limits_host(url)) if url else None}  # its seconds wait for turns
     if predict:
-        result["predicted"] = predicted(layer, tiles)
+        result["predicted"] = predicted(layer, tiles, cache_dir)
     return result
 
 
@@ -323,6 +342,10 @@ def table(results: List[Dict]) -> str:
                      f"{r['network']['gets']} | {r['network']['heads']} | {r['cache']['bytes'] / 1e6:.1f} | "
                      f"{r['network']['bytes'] / max(r['cache']['bytes'], 1):.2f} | {r['seconds']:.1f} | "
                      f"{r['peak_memory'] / 2 ** 20:.0f} | {pred} |")
+    for source in dict.fromkeys(r["source"] for r in results if r.get("rate")):
+        rate = next(r["rate"] for r in results if r["source"] == source and r.get("rate"))
+        lines.append(f"\n{source}: its host has a rate of {rate} requests a minute (sources.net.HOST_RATES_OF): "
+                     f"its seconds include the waits for its turns.")
     return "\n".join(lines)
 
 

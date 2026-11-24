@@ -23,6 +23,12 @@ What each module holds: docs/code-map/sources.md (`osm.py`, `coast.py`, `osmextr
   part of a region in `GEOFABRIK_OF_SOURCE` (rio_de_janeiro → sudeste, the French overseas): `osm.catalogue_extracts`
   then lists that extract, which the VPS downloads (`deploy/vps.sh` `osm_data`, `OSM_EXTRACTS_SKIP`;
   `tests/test_osm.py`). Check the name in Geofabrik's index.
+- The texts `tests/regression.py` reads: `coast.py`'s coastline sources (`SOURCE_*`, stored as each entry's
+  `coastline` in `tests/regression.json`) and `FALLBACK_WARNING`, `osm.DAY_MAX_TEXT`, `net.UNREACHABLE_TEXT`. It
+  tells a changed result from an unverified one by them: a reword of a source text stores the baselines' `coastline`
+  again in the same commit (`test_every_stored_coastline_is_a_named_text` fails until then).
+- `osm update` of an extract rebuilds the theme tiles built from it: the regression entries that take an area from
+  them (`--area coast`: R16, R18, R83, Malta) run on the real cache afterwards, and are re-baselined if OSM changed.
 
 ## Pitfalls
 

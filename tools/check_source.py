@@ -36,6 +36,7 @@ source) and a work folder there, deleted at the end.
 """
 
 import argparse
+import contextlib
 import gc
 import io
 import json
@@ -197,26 +198,34 @@ def _gdal_path(url: str) -> str:
     return f"/vsizip/{path}" if url.lower().endswith(".zip") or ".zip/" in url.lower() else path
 
 
-def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.nearest) -> np.ndarray:
+def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.nearest,
+                 cache_dir: Optional[str] = None) -> np.ndarray:
     """A source file's values on the pixels of a cached tile (nearest: the same pixels when the
     tile is on the file's own grid; average for a layer that averages its files' pixels, as its
     Download does), NaN without data. A read GDAL could not complete although it
     returned (src.net.gdal_errors: what it could not fetch comes back as nodata or zeros) raises
     RuntimeError with GDAL's error, never a false difference. GDAL's settings as
-    src.net._gdal_http's (retries of requests without an answer, the blocks read in this thread)
-    but for the extensions: the sources here include zips and ASCII grids."""
+    src.net._gdal_http's (retries of requests without an answer, the open's fewer: net.open_gdal, the connect
+    timeout, a one-connection host's ranges one after another: net.single_connection, the blocks read in this
+    thread) but for the extensions: the sources here include zips and ASCII grids. With cache_dir the read holds a
+    slot of the host (net.host_slot) as the layers' reads do."""
     env = rio.Env(GDAL_HTTP_USERAGENT=cache.http_headers()["User-Agent"], GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
-                  GDAL_HTTP_TIMEOUT="120", GDAL_HTTP_MAX_RETRY="3", GDAL_HTTP_RETRY_DELAY="2",
+                  GDAL_HTTP_TIMEOUT="120", GDAL_HTTP_MAX_RETRY=str(src.net.RETRIES), GDAL_HTTP_RETRY_DELAY="2",
+                  GDAL_HTTP_CONNECTTIMEOUT=str(src.net.CONNECT_TIMEOUT_S),
+                  GDAL_HTTP_MULTIRANGE="SERIAL" if src.net.single_connection(url) else "YES",
                   GDAL_HTTP_RETRY_CODES=src.net.GDAL_RETRY_CODES, GDAL_NUM_THREADS="1")
-    src.net.rate_turn(url)  # the file's read counts as one request where its host has a rate (net.HOST_RATES_OF)
+    slot = src.net.host_slot(cache_dir, url) if cache_dir else contextlib.nullcontext()
     try:
-        with env, src.net.gdal_errors() as errors, rio.open(_gdal_path(url)) as source:
-            # ASCII grids name no CRS, Caribbean Netherlands' AHN files only a local one (the layer forces its own)
-            local = source.crs is None or windows._local(source.crs)
-            kwargs = {"src_crs": profile["crs"]} if local else {}
-            with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
-                           height=profile["height"], resampling=resampling, **kwargs) as vrt:
-                values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+        with slot, env, src.net.gdal_errors() as errors:
+            src.net.rate_turn(url)  # the file's read counts as one request where its host has a rate (HOST_RATES_OF)
+            with src.net.open_gdal(_gdal_path(url)) as source:
+                # ASCII grids name no CRS, Caribbean Netherlands' AHN files only a local one (the layer forces its
+                # own)
+                local = source.crs is None or windows._local(source.crs)
+                kwargs = {"src_crs": profile["crs"]} if local else {}
+                with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
+                               height=profile["height"], resampling=resampling, **kwargs) as vrt:
+                    values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
         if errors:
             raise RuntimeError("not read completely: " + "; ".join(dict.fromkeys(errors)))
     except (RuntimeError, rio.errors.RasterioError):
@@ -227,13 +236,16 @@ def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.ne
     return values
 
 
-def _read_ranged(url: str, profile: Dict, resampling: Resampling = Resampling.nearest) -> np.ndarray:
+def _read_ranged(url: str, profile: Dict, resampling: Resampling = Resampling.nearest,
+                 cache_dir: Optional[str] = None) -> np.ndarray:
     """A source file of a layer that reads its files through our own range requests (Windows(ranged=True):
     Estonia's PHP download address, which GDAL's /vsicurl/ does not take for a .tif) on the pixels of a cached tile,
     through ranges.open_remote (the first bytes a TIFF's) and a WarpedVRT; NaN without data. Raises RuntimeError
-    when a range could not be read whole."""
+    when a range could not be read whole. With cache_dir under a slot of the host (net.host_slot); every range takes
+    its turn (ranges.get_range)."""
     from sources.readers import ranges
-    with src.net.gdal_errors() as errors, ranges.open_remote(url, tiff_only=True) as (source, file):
+    slot = src.net.host_slot(cache_dir, url) if cache_dir else contextlib.nullcontext()
+    with slot, src.net.gdal_errors() as errors, ranges.open_remote(url, tiff_only=True) as (source, file):
         with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
                        height=profile["height"], resampling=resampling) as vrt:
             values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
@@ -486,9 +498,9 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
                 elif isinstance(layer, src.InegiSheets):
                     source = _read_grid(layer, url, tile, profile)
                 elif getattr(getattr(layer, "reader", None), "ranged", False) and url.startswith("http"):
-                    source = _read_ranged(url, profile, resampling)
+                    source = _read_ranged(url, profile, resampling, cache_dir)
                 else:
-                    source = _read_source(url, profile, resampling)
+                    source = _read_source(url, profile, resampling, cache_dir)
                 geoid = getattr(layer, "geoid", None)
                 if geoid is not None:  # heights above the ellipsoid: the layer caches them above its geoid
                     source -= geoid.undulation(profile["crs"], profile["transform"],

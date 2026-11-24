@@ -44,6 +44,11 @@ it may make itself. The mechanics of branches, tags and the test lock are in [wo
     the shared lane or `--heavy`, never `--first` or `--exclusive`. A full pytest runs without `ESRI_API_KEY` in
     its environment (never printed); more than 30 skips means the viewer tests did not run; `--basetemp` is short
     (`C:\fal\<name>`) and removed at the end. Searches use `--no-plot --yes` and are never piped into `head`.
+  - Regression runs verify on the real cache (`tests/regression.py ... --cache <main checkout>/cache`); a download
+    is tested with `--cold` on a scratch cache and only the touched source's entries; a cold run of a whole set only
+    on the user's word. `unverified` and `skipped` are not passes: the report names each with its reason. An outside
+    service that did not answer is tried again at most once a day, never in a loop, and every real request to a
+    provider is counted in the report (docs/regression-tests.md, "Which cache, and what to report").
   - The user's `runs/`, the cache and the app on port 8765 are read-only. Scratch data goes in a folder of the
     agent's own (`C:\fal\<task>-<agent>`) with the cache linked by a junction, removed at the end with
     `cmd /c rmdir`, never through the link. A junction never lies under a pytest `--basetemp`: the basetemp is

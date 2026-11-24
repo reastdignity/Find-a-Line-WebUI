@@ -1,10 +1,14 @@
 """The counts of the requests to outside services (servicecounts.py; docs/monitoring.md F11): the
 outcomes, the totals in jobs.sqlite (Jobs.add_service_requests, migration 14), the tiles of the
 elevation layers (F18: Jobs.add_layer_downloads, migration 15), nothing counted
-unless the web worker turns the counting on (the command line, tests/regression.py), and the
+unless the web worker turns the counting on or a command-line search names a file
+(FINDALINE_SERVICE_COUNTS: counted_into, its summary; tests/regression.py), and the
 hooks of the code that asks outside services, against the local HTTP server (tests/http_server.py)."""
 
+import json
 import os
+import re
+import runpy
 import sqlite3
 import sys
 
@@ -51,7 +55,8 @@ def test_outcomes():
 
 
 def test_nothing_counted_unless_enabled(tmp_path):
-    """The command line never enables the counting: record() keeps nothing, flush() writes nothing."""
+    """Off by default (the command line without FINDALINE_SERVICE_COUNTS): record() keeps nothing, flush() writes
+    nothing."""
     assert not sc.enabled()
     sc.record("https://example.org/a", "ok", 10, 1.0)
     assert sc.take() == []
@@ -275,3 +280,168 @@ def test_tiles_of_the_layers(tmp_path):
         sc.disable()
     assert sc.role_of("water mask") == "water mask" and sc.role_of("gap fill (Copernicus DEM)") == "gap fill"
     assert sc.role_of("fake") == "other"
+
+
+# The command line's counts into a file (FINDALINE_SERVICE_COUNTS: counted_into, summary)
+
+
+def _read(path) -> dict:
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_summary_per_host():
+    """Requests, bytes and failed attempts (outcome not ok or not_found) per host, the tiles summed over the layers
+    and roles, an IP address written as ADDRESS_HOST, the reads mark only where GDAL read files."""
+    rows = [("a.example", "ok", 3, 300, 1.0), ("a.example", "not_found", 1, 10, 0.1), ("a.example", "http_5xx", 2, 5, 0),
+            ("b.example", "timeout", 1, 0, 60.0), ("10.1.2.3", "ok", 1, 7, 0), ("::1", "connection", 2, 0, 0)]
+    tiles = [("x/a", "terrain", 2, 5, 0, 0.0, 0, 0.0, 0.0), ("x/b", "gap fill", 1, 0, 0, 0.0, 0, 0.0, 0.0)]
+    assert sc.summary(rows, tiles, {"b.example"}) == {
+        "hosts": {"a.example": {"requests": 6, "bytes": 315, "failed": 2},
+                  "b.example": {"requests": 1, "bytes": 0, "failed": 1, "reads": True},
+                  sc.ADDRESS_HOST: {"requests": 3, "bytes": 7, "failed": 2}},
+        "tiles": {"downloaded": 3, "cached": 5}}
+    assert sc.summary([], []) == {"hosts": {}, "tiles": {"downloaded": 0, "cached": 0}}
+    assert sc.written_host("sheets.example.org") == "sheets.example.org" and sc.written_host("[::1]") == sc.ADDRESS_HOST
+
+
+def test_counted_into_a_file(http_server, monkeypatch, tmp_path):
+    """The web worker's counting, reused: every attempt of our own requests with its bytes (a 500 asked three times:
+    failed), the files of a block read through GDAL counted as one request each without bytes and marked as reads,
+    the tiles; written when the body ends, also by a stop with a message (a failed search's counts matter most); the
+    file holds no URL, path or address. Nothing counted after it."""
+    import rasterio as rio
+
+    from sources import net
+    from sources.readers.windows import _read_block
+    monkeypatch.setattr(net, "_sleep", lambda attempt: None)
+    http_server.add("/bad", b"busy", "text/plain", status=500)
+    http_server.add("/tile.tif", b"x" * 1000, "image/tiff")
+    path = tmp_path / "counts.json"
+    with pytest.raises(SystemExit, match="stopped"):
+        with sc.counted_into(str(path)):
+            assert sc.enabled()
+            assert net._get(http_server.url("/tile.tif")).content == b"x" * 1000
+            with pytest.raises(RuntimeError):
+                net._get(http_server.url("/bad"))
+            sc.tiles("test/clip", "terrain", downloaded=2, cached=1)
+            raise SystemExit("stopped")
+    assert not sc.enabled() and sc.take() == []
+    assert _read(path) == {"hosts": {sc.ADDRESS_HOST: {"requests": 1 + net.RETRIES, "bytes": 1000 + 4 * net.RETRIES,
+                                                       "failed": net.RETRIES}},
+                           "tiles": {"downloaded": 2, "cached": 1}}
+    with open(CLIP, "rb") as f:
+        http_server.add("/clip.tif", f.read(), "image/tiff")
+    with rio.open(CLIP) as clip:
+        crs, transform = clip.crs.to_string(), clip.transform
+    with sc.counted_into(str(path)):
+        _read_block([("clip", http_server.url("/clip.tif"), 2020), ("local", CLIP, 2018)], crs, transform, (10, 10),
+                    str(tmp_path / "block.tif"), "test")
+    text = path.read_text(encoding="utf-8")
+    assert json.loads(text) == {"hosts": {sc.ADDRESS_HOST: {"requests": 1, "bytes": 0, "failed": 0, "reads": True}},
+                                "tiles": {"downloaded": 0, "cached": 0}}
+    assert not re.search(r"127\.0\.0\.1|http|clip|tif|[/\\]", text)
+
+
+def test_a_crash_writes_its_counts_too(http_server, tmp_path):
+    http_server.add("/a.json", b"{}", "application/json")
+    path = tmp_path / "counts.json"
+    with pytest.raises(ZeroDivisionError):
+        with sc.counted_into(str(path)):
+            sc.get(http_server.url("/a.json"))
+            1 / 0
+    assert _read(path)["hosts"] == {sc.ADDRESS_HOST: {"requests": 1, "bytes": 2, "failed": 0}}
+
+
+def test_no_file_no_counting(http_server, tmp_path):
+    """Without a file nothing is counted; with the web worker's counting on, its writer gets the rows as ever and
+    no file is written (never mixed)."""
+    http_server.add("/a.json", b"{}", "application/json")
+    with sc.counted_into(None):
+        assert not sc.enabled()
+        sc.get(http_server.url("/a.json"))
+    assert sc.take() == []
+    rows = []
+    sc.enable(rows.extend, interval=False)
+    path = tmp_path / "counts.json"
+    with sc.counted_into(str(path)):
+        sc.get(http_server.url("/a.json"))
+    assert sc.enabled() and not path.exists()
+    sc.flush()
+    assert [r[:4] for r in rows] == [("127.0.0.1", "ok", 1, 2)]
+
+
+def test_a_file_that_cannot_be_written_is_a_warning(tmp_path, capsys):
+    folder = tmp_path / "counts.json"
+    folder.mkdir()  # a folder where the file would be
+    with sc.counted_into(str(folder)):
+        sc.record("https://a.example/", "ok", 1)
+    assert capsys.readouterr().out.startswith("WARNING: the service counts were not written")
+
+
+@pytest.mark.parametrize("ending", ["SearchError", "RuntimeError"])
+def test_a_command_line_search_counts_into_the_file(ending, http_server, monkeypatch, tmp_path):
+    """findaline.py's search (its __main__, the search stubbed after one request): with FINDALINE_SERVICE_COUNTS the
+    requests go into that file, also for a search that ends with its message or crashes; without it nothing is
+    counted and no file is written."""
+    import progress
+    import search
+    http_server.add("/index.json", b"[1, 2]", "application/json")
+    seen = []
+
+    def plan(*args, **kwargs):
+        seen.append(sc.enabled())
+        sc.get(http_server.url("/index.json"))
+        raise search.SearchError("Download failed: test") if ending == "SearchError" else RuntimeError("crash")
+
+    monkeypatch.setattr(search, "plan_search", plan)
+    monkeypatch.setattr(progress, "utf8_output", lambda: None)
+    path = tmp_path / "counts.json"
+    data = tmp_path / "data"
+    argv = ["findaline.py", "--lat", "50.1559508", "--lon", "19.7562722", "--no-plot", "--yes", "--data-dir", str(data)]
+    script = os.path.join(os.path.dirname(HERE), "findaline.py")
+    for env in (str(path), None):
+        if env:
+            monkeypatch.setenv(sc.COUNTS_FILE_ENV, env)
+        else:
+            monkeypatch.delenv(sc.COUNTS_FILE_ENV)
+        monkeypatch.setattr(sys, "argv", argv)
+        with pytest.raises(SystemExit if ending == "SearchError" else RuntimeError):
+            runpy.run_path(script, run_name="__main__")
+        if env:
+            assert _read(path)["hosts"] == {sc.ADDRESS_HOST: {"requests": 1, "bytes": 6, "failed": 0}}
+            path.unlink()
+    assert seen == [True, False] and not path.exists() and not sc.enabled()
+
+
+def test_the_reads_mark_is_the_readers_own_word():
+    """A host is marked "reads" only where the reader said so (`request(url, read=True)`), never by what a request
+    happened to note: a request that noted no answer and no bytes (osmextract's urllib answers; one cut off by
+    Ctrl+C) is a plain request."""
+    with sc.counting() as found:
+        with sc.request("https://gdal.example/a.tif", read=True):
+            pass
+        with sc.request("https://plain.example/state.txt"):  # nothing noted, no bytes, no error
+            pass
+        with pytest.raises(KeyboardInterrupt):
+            with sc.request("https://stopped.example/x"):
+                raise KeyboardInterrupt
+    assert found["hosts"]["gdal.example"] == {"requests": 1, "bytes": 0, "failed": 0, "reads": True}
+    assert "reads" not in found["hosts"]["plain.example"] and "reads" not in found["hosts"]["stopped.example"]
+
+
+def test_only_gdals_reader_marks_its_requests_as_reads():
+    """In the code, sources/readers/windows.py alone passes read=True (a file read through GDAL: one request
+    counted, its own HTTP requests and bytes unseen)."""
+    root = os.path.dirname(HERE)
+    marked = []
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in (".git", ".venv", "node_modules", "tests", "cache", "runs", "work",
+                                                ".claude", "viewer", "local")]
+        for name in files:
+            if name.endswith(".py") and name != "servicecounts.py":
+                with open(os.path.join(folder, name), encoding="utf-8") as f:
+                    text = f.read()
+                if re.search(r"servicecounts\.request\([^)]*read=True", text):
+                    marked.append(os.path.relpath(os.path.join(folder, name), root).replace(os.sep, "/"))
+    assert marked == ["sources/readers/windows.py"], marked

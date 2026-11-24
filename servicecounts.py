@@ -6,10 +6,23 @@ Each request (every attempt, so retries show) is counted in the memory of its pr
 and outcome, with its bytes and seconds; `flush` adds the counts to the table
 `service_requests` of jobs.sqlite (Jobs.add_service_requests, one write transaction), from which
 the web process's metrics read them (metrics.py). Only where the web worker turns the counting
-on (`enable`, in a job's phase process and the quick lane, as osm.BEFORE_REQUEST): the command
-line and tests/regression.py count nothing. The worker flushes at the end of every phase and
-quick task, and a thread every FLUSH_SECONDS during a phase; counts of a process killed
-meanwhile are lost (they are statistics).
+on (`enable`, in a job's phase process and the quick lane, as osm.BEFORE_REQUEST). The worker
+flushes at the end of every phase and quick task, and a thread every FLUSH_SECONDS during a
+phase; counts of a process killed meanwhile are lost (they are statistics).
+
+The command line counts into a file instead, only when COUNTS_FILE_ENV names one (findaline.py's
+search, `counted_into`; tests/regression.py sets it for each entry's search and counts R17 in its
+own process with `counting`): the same counting, its rows never flushed but summed at the end of
+the search, failed or not, into one JSON object (`summary`: per host the requests, bytes and
+failed attempts, and the elevation layers' tiles downloaded and found cached). Never with the
+web worker's counting on (never mixed with jobs.sqlite's totals); without the variable nothing
+is counted and no file written. A search of the command line runs in one process (threads), so
+all its requests are seen. The file holds host names only (an IP address is written as
+ADDRESS_HOST). A host whose count holds files read through GDAL (sources/readers/windows.py, one
+request per file read, no bytes: GDAL's own HTTP requests are not seen) is marked `"reads":
+true`: the reader says so itself (`request(url, read=True)`; inferring it from a request whose
+answer was never noted mismarked osmextract's urllib answers, the code review of 2026-11-24). A
+host with both kinds of request carries the mark over their sum.
 
 The host is the URL's (fixed by the catalogue and the OSM services, so a few dozen at most); a
 local path (a mirror, the tests' files) is not counted. Outcomes (OUTCOMES): the class of the
@@ -26,9 +39,12 @@ the cache. `flush` adds them to the table `layer_downloads` (Jobs.add_layer_down
 """
 
 import contextlib
+import ipaddress
+import json
+import os
 import threading
 import time
-from typing import Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Set, Tuple
 from urllib.parse import urlsplit
 
 import requests
@@ -37,6 +53,9 @@ OUTCOMES = ("ok", "not_found", "http_4xx", "http_5xx", "timeout", "connection", 
 ROLES = ("terrain", "surface", "water mask", "gap fill", "other")  # of a layer's tiles (download_layers' labels)
 FLUSH_SECONDS = 60.0
 TileRow = Tuple[str, str, int, int, float, float, int, float, float]
+COUNTS_FILE_ENV = "FINDALINE_SERVICE_COUNTS"  # the file a command-line search writes its counts to (counted_into)
+ADDRESS_HOST = "ip-address"  # how summary() names a host given as an IP address (never the address itself)
+UNFAILED = ("ok", "not_found")  # the outcomes summary() does not count as failed
 
 _lock = threading.Lock()
 _counts: Dict[Tuple[str, str], List[float]] = {}  # (host, outcome) -> [requests, bytes, seconds]
@@ -46,6 +65,7 @@ _tiles: Dict[Tuple[str, str], List[float]] = {}
 _tile_writer: Optional[Callable[[List[TileRow]], None]] = None
 _timer: Optional[threading.Thread] = None
 _stop = threading.Event()
+_reads: Optional[Set[str]] = None  # the hosts of GDAL's file reads, kept only while `counting` (None otherwise)
 
 
 def host_of(url: Optional[str]) -> Optional[str]:
@@ -81,8 +101,9 @@ def enabled() -> bool:
     return _writer is not None
 
 
-def record(url: Optional[str], outcome: str, size: int = 0, seconds: float = 0.0):
-    """Count one request to the host of `url` (nothing while the counting is off or for a local path)."""
+def record(url: Optional[str], outcome: str, size: int = 0, seconds: float = 0.0, read: bool = False):
+    """Count one request to the host of `url` (nothing while the counting is off or for a local path); `read`: a
+    file read through GDAL (kept apart only while `counting`)."""
     if _writer is None:
         return
     host = host_of(url)
@@ -95,6 +116,8 @@ def record(url: Optional[str], outcome: str, size: int = 0, seconds: float = 0.0
         found[0] += 1
         found[1] += int(size)
         found[2] += float(seconds)
+        if read and _reads is not None:
+            _reads.add(host)
 
 
 def role_of(label: str) -> str:
@@ -136,9 +159,11 @@ class Counted:
 
 
 @contextlib.contextmanager
-def request(url: Optional[str]) -> Iterator[Counted]:
+def request(url: Optional[str], read: bool = False) -> Iterator[Counted]:
     """Count the request made in the body: its seconds (until the body ends), its outcome (what the
-    caller set, else the status it noted, else the exception that left the body: `ok` without one)."""
+    caller set, else the status it noted, else the exception that left the body: `ok` without one).
+    read: a file read through GDAL, whose own HTTP requests and bytes are not seen (the "reads" mark of
+    `summary`; sources/readers/windows.py alone passes it)."""
     counted, start, error = Counted(), time.monotonic(), None
     try:
         yield counted
@@ -154,7 +179,7 @@ def request(url: Optional[str]) -> Iterator[Counted]:
                 outcome = outcome_of_error(error)
             else:
                 outcome = "ok"
-        record(url, outcome, counted.bytes, time.monotonic() - start)
+        record(url, outcome, counted.bytes, time.monotonic() - start, read)
 
 
 def call(url: Optional[str], send: Callable[[], requests.Response], read: bool = True) -> requests.Response:
@@ -244,9 +269,89 @@ def enable(writer: Callable[[List[Tuple[str, str, int, int, float]]], None], int
 
 def disable():
     """Stop counting (the counts not flushed are dropped) and the flushing thread (tests)."""
-    global _writer, _tile_writer, _timer
+    global _writer, _tile_writer, _timer, _reads
     _writer = _tile_writer = None
     _stop.set()
     _timer = None
+    _reads = None
     take()
     take_tiles()
+
+
+def written_host(host: str) -> str:
+    """The host as summary() writes it: a name as it is, an IP address as ADDRESS_HOST (no address of this network
+    in a file)."""
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return host
+    return ADDRESS_HOST
+
+
+def summary(rows: List[Tuple[str, str, int, int, float]], tile_rows: List[TileRow],
+            reads: Set[str] = frozenset()) -> dict:
+    """The counts of take() and take_tiles() summed for a file: {"hosts": {host: {"requests", "bytes", "failed"
+    (the attempts whose outcome is not in UNFAILED), "reads": true when some are GDAL's file reads (`reads`)}},
+    "tiles": {"downloaded", "cached"} over every layer and role}. Host names only (written_host)."""
+    hosts: Dict[str, dict] = {}
+    for host, outcome, n, size, _ in rows:
+        found = hosts.setdefault(written_host(host), {"requests": 0, "bytes": 0, "failed": 0})
+        found["requests"] += int(n)
+        found["bytes"] += int(size)
+        found["failed"] += int(n) if outcome not in UNFAILED else 0
+        if host in reads:
+            found["reads"] = True
+    return {"hosts": hosts, "tiles": {"downloaded": sum(int(r[2]) for r in tile_rows),
+                                      "cached": sum(int(r[3]) for r in tile_rows)}}
+
+
+@contextlib.contextmanager
+def counting() -> Iterator[dict]:
+    """Count the requests and tiles of this process during the body into the dict it yields, filled at the body's
+    end (also when it raises) with their summary(). Not while the counting is on already (the web worker's: the dict
+    stays empty, never mixed with its totals). The rows are taken, never flushed to a writer."""
+    global _reads
+    found: dict = {}
+    if enabled():
+        yield found
+        return
+    enable(lambda rows: None, interval=False, tile_writer=lambda rows: None)
+    _reads = set()
+    try:
+        yield found
+    finally:
+        with _lock:
+            reads = set(_reads or ())
+        rows, tile_rows = take(), take_tiles()
+        disable()
+        found.update(summary(rows, tile_rows, reads))
+
+
+def write_summary(path: str, found: dict):
+    """Write a summary() to `path` as one JSON object (through a temporary file: a reader never sees half); an error
+    is one warning line, never a failure of the search."""
+    try:
+        part = f"{path}.{os.getpid()}.part"
+        with open(part, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(found, f, ensure_ascii=False, separators=(",", ":"))
+            f.write("\n")
+        os.replace(part, path)
+    except OSError as e:
+        print(f"WARNING: the service counts were not written ({type(e).__name__}: {e.strerror or e})")
+
+
+@contextlib.contextmanager
+def counted_into(path: Optional[str]) -> Iterator[None]:
+    """With a file (COUNTS_FILE_ENV of a command-line search): count the body's requests and tiles (`counting`) and
+    write their summary to it when the body ends, well or badly (a failed search's counts matter most); none while
+    the web worker's counting is on. Without one: nothing counted, no file."""
+    if not path:
+        yield
+        return
+    found: dict = {}
+    try:
+        with counting() as found:
+            yield
+    finally:
+        if found:
+            write_summary(path, found)

@@ -15,7 +15,7 @@ import settings
 from grid import Grid
 from progress import progress
 
-from .net import _part, host_slot, tile_lock
+from .net import UnreachableHosts, _part, host_slot, tile_lock
 from .credit import Credit
 
 DOWNLOAD_THREADS = 8  # tiles of one download (all its layers) at a time; each connection is slow
@@ -302,7 +302,8 @@ class Layer:
                              if_due: bool = False, role: str = "other") -> int:
         """Download a tile under its lock (tile_lock) and a slot of its host (host_slot); with
         if_due only if it is still due then (another search may have just downloaded it). Counted
-        for the monitoring (servicecounts.tiles, as `role`) where the web worker turned that on."""
+        (servicecounts.tiles, as `role`) where the counting is on: the web worker's, for the monitoring, or a
+        command-line search's into its counts file."""
         path = self.tile_path(cache_dir, tile)
         asked = time.monotonic()
         with tile_lock(cache_dir, path):
@@ -408,8 +409,10 @@ def download_layers(layers: Sequence[Tuple], grid: Grid, cache_dir: str,
     file once over its tiles (ComposedLayer._download_group): the same cached files with a fraction of the
     bytes and requests.
 
-    The first task to fail stops the others. With on_error it gets (the layer, the task's tiles, the error) instead
-    and the others go on (tools/area_download.py: weeks of tiles); what it raises stops them, after the layers'
+    The first task to fail stops the others; a host that could not be connected to (net.Unreachable) fails the
+    tasks of its tiles at once, without a request (net.UnreachableHosts), so they end with the same error. With on_error
+    it gets (the layer, the task's tiles, the error) instead and the others go on (tools/area_download.py: weeks
+    of tiles); what it raises stops them, after the layers'
     `downloaded` (the older surveys of the tiles that did come are pruned: a pass stopped at its 50th failure in a
     row has downloaded thousands) and is then raised from here.
 
@@ -449,13 +452,16 @@ def download_layers(layers: Sequence[Tuple], grid: Grid, cache_dir: str,
         progress.download.start(f"{', '.join(labels)} tiles", len(todo), unit="tile")
         received = 0
         pool = ThreadPoolExecutor(max_workers=DOWNLOAD_THREADS)
+        download = UnreachableHosts()  # a host not connected to fails its other tiles at once
         try:
             futures = {}
             for layer, tiles, kind in _tasks(todo, group_m):
                 if kind == "group":
-                    future = pool.submit(layer._download_group, tiles, cache_dir, update, roles[id(layer)])
+                    future = pool.submit(download.run, layer._download_group, tiles, cache_dir, update,
+                                         roles[id(layer)])
                 else:  # a tile, or a square of a serial layer's: one after another
-                    future = pool.submit(_download_each, layer, tiles, cache_dir, update, roles[id(layer)])
+                    future = pool.submit(download.run, _download_each, layer, tiles, cache_dir, update,
+                                         roles[id(layer)])
                 futures[future] = (layer, tiles)
             for future in as_completed(futures):
                 layer, tiles = futures[future]

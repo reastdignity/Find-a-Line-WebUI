@@ -58,8 +58,25 @@ def test_declarations():
     assert fo.countries == ("fo",) and fo.crs == "EPSG:5316" and fo.nmpt is None and fo.fallbacks == ["copernicus"]
     assert fo.grid_origin == faroe.FO_ORIGIN and fo.default_resolution == 2.0 and fo.neighbours == ()
     assert fo.nmt.folder == "faroe/dsm-2015-2m/20241112" and not fo.nmt.reader.force_crs
-    for host, slots in (("service.pdok.nl", 4), ("basisdata.nl", 2), ("cdn.foroyakort.fo", 2)):
+    for host, slots in (("service.pdok.nl", 4), ("basisdata.nl", 1), ("cdn.foroyakort.fo", 2)):
         assert src.net.HOST_SLOTS_OF[host] == slots
+    # basisdata.nl (blocked a development network's address on 2026-11-15): one connection, 54 requests a minute,
+    # every one in its turn: the islands' layers read through our own ranges (the user's decision of 2026-11-24)
+    assert _declared_rates()["basisdata.nl"] == 54
+    for sid in ISLANDS:
+        for layer in (src.SOURCES[sid].nmt, src.SOURCES[sid].nmpt):
+            assert layer.reader.ranged and layer.reader.force_crs and src.net.single_connection(layer.tile_url(
+                layer.tiles(gd.Grid(left=layer.index.extent[0], top=layer.index.extent[3], res=2.0, height=10,
+                                    width=10, crs=layer.crs))[0]))
+
+
+def _declared_rates():
+    """net.HOST_RATES_OF as sources/net.py declares it (conftest.py empties it for this module)."""
+    import ast
+    with open(src.net.__file__, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    return next(ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.AnnAssign)
+                and getattr(node.target, "id", None) == "HOST_RATES_OF")
 
 
 def test_printed_texts_in_cp1250():
@@ -305,3 +322,133 @@ def test_check_source_reads_a_local_cs_file(tmp_path):
     assert values.shape == (300, 200)
     assert np.array_equal(np.isnan(values), np.isnan(expected))
     assert np.allclose(values[~np.isnan(values)], expected[~np.isnan(expected)])
+
+
+@pytest.fixture
+def islands_like(http_server, tmp_path):
+    """A file made like the islands' (float32, 0.5 m, 256 px tiles, DEFLATE, overviews, nodata 3.4e38, only a
+    LOCAL_CS, forced to Sint Eustatius' CRS), its tiles about as big as lidar's (centimetres of noise), on the
+    server; its layer through our ranges or GDAL's (layer(where, ranged))."""
+    left, top = 499000.0, 1938000.0
+    band = (np.add.outer(np.arange(2600) * 0.013, np.arange(2700) * 0.021) + 100.0).astype(np.float32)
+    band += np.sin(np.arange(2700) / 9.0).astype(np.float32)
+    band += np.random.default_rng(1).normal(0, 0.03, band.shape).astype(np.float32)
+    band[:150, :400] = np.nan  # "the sea"
+    path = tmp_path / "M_STATIA2023.TIF"
+    _write(path, rio.crs.CRS.from_wkt(LOCAL_CS), left, top, band)
+    with rio.open(path, "r+") as dst:
+        dst.build_overviews([2, 4, 8])
+    http_server.add("/bq/M_STATIA2023.TIF", path.read_bytes(), "image/tiff")
+
+    def layer(where, ranged):
+        return FileBlocks("AHN test", "test/bq", "EPSG:10745", 0.5, 1000, where,
+                          extent=(left, top - 1300.0, left + 1350.0, top), year=2023, force_crs=True, ranged=ranged)
+    return http_server.url("/bq/M_STATIA2023.TIF"), path, layer
+
+
+BQ_BLOCKS = ((499, 1937), (500, 1937), (499, 1936), (500, 1936))
+
+
+def test_ranged_blocks_as_gdal_reads_them(islands_like, http_server, tmp_path, monkeypatch):
+    """The islands-like file gives the same blocks through our own ranges in strips (windows._ranged_values, since
+    2026-11-24), through our own ranges as GDAL reads a window (the reader before it), through GDAL's /vsicurl/ and
+    as a local read: a block on the file's tiles over its sea (no data), one off them (2000 px is not a multiple of
+    256) at the file's east edge, one at its south edge, one at its corner. The strips ask a request per run of
+    tiles: at most the open, 2 runs per strip of 512 rows and one plain read a block, never more than before, and
+    for the whole block under half of what GDAL's plain reads of 64 KB asked (10 against 44)."""
+    from sources.readers import windows
+    url, path, layer = islands_like
+    strips = windows._ranged_values
+    blocks, asked = {}, {}
+    for name, where, ranged in (("ranged", url, True), ("before", url, True), ("gdal", url, False),
+                                ("local", str(path), False)):
+        monkeypatch.setattr(windows, "_ranged_values", strips if name != "before" else (
+            lambda src, file, crs, transform, shape, warp=None: windows._values_on(src, crs, transform, shape, warp)))
+        found = layer(where, ranged)
+        for tile in BQ_BLOCKS:
+            out = str(tmp_path / f"{name}-{tile[0]}-{tile[1]}.tif")
+            before = len(http_server.requests("/bq/"))
+            found.reader.fetch(found.index.request(tile), out)
+            asked[name, tile] = len(http_server.requests("/bq/")) - before
+            with rio.open(out) as block:
+                blocks[name, tile] = block.read(1), block.tags(), block.transform, block.crs
+    for (name, tile), (values, tags, transform, crs) in blocks.items():
+        values0, tags0, transform0, crs0 = blocks["local", tile]
+        assert np.array_equal(values, values0, equal_nan=True), (name, tile)
+        assert (transform, crs) == (transform0, crs0) and (name == "local" or tags == blocks["gdal", tile][1])
+    assert np.isnan(blocks["ranged", (499, 1937)][0][:150, :400]).all()
+    counts = {k: v for k, v in asked.items() if k[0] in ("ranged", "before")}
+    for tile in BQ_BLOCKS:  # the smaller windows at the edges GDAL asks in one multi-range call either way
+        assert asked["ranged", tile] <= min(1 + 2 * 4 + 1, asked["before", tile]), counts
+    assert 2 * asked["ranged", BQ_BLOCKS[0]] < asked["before", BQ_BLOCKS[0]], counts  # the whole 2000 x 2000 px
+
+
+def test_ranged_block_failures(islands_like, http_server, tmp_path, monkeypatch):
+    """Through the strips: every request takes its turn and is counted (servicecounts), a range that never comes
+    whole fails the block (never a block of what came, nothing written), and a connection lost in the middle comes
+    out as net.Unreachable with its own message."""
+    from sources import net
+    from sources.readers import ranges
+    url, path, layer = islands_like
+    turns, counted = [], []
+    monkeypatch.setattr(net, "rate_turn", lambda u, share=1.0: turns.append(u))
+    monkeypatch.setattr(net, "_sleep", lambda attempt: None)
+    count = ranges.servicecounts.request
+    monkeypatch.setattr(ranges.servicecounts, "request", lambda u: (counted.append(u), count(u))[1])
+    found = layer(url, True)
+    request = found.index.request((499, 1937))
+    before = len(http_server.requests("/bq/"))
+    found.reader.fetch(request, str(tmp_path / "block.tif"))
+    sent = len(http_server.requests("/bq/")) - before
+    assert turns == counted == [url] * sent and sent > 1
+    http_server.add("/cut/M_STATIA2023.TIF", path.read_bytes(), "image/tiff")
+    http_server.fault("/cut/M_STATIA2023.TIF", "truncate", lambda n, r: int(r.split("=")[1].split("-")[0]) > 0)
+    cut = layer(http_server.url("/cut/M_STATIA2023.TIF"), True)
+    with pytest.raises(RuntimeError, match="completely"):
+        cut.reader.fetch(cut.index.request((499, 1937)), str(tmp_path / "cut.tif"))
+    assert not os.path.exists(tmp_path / "cut.tif")
+    get_range, calls = ranges.get_range, []
+
+    def lost(u, first, last, *args):
+        calls.append(first)
+        if len(calls) > 1:  # the open's range came, then the host went away
+            raise net.unreachable(u, ConnectionRefusedError(10061, "refused"))
+        return get_range(u, first, last, *args)
+    monkeypatch.setattr(ranges, "get_range", lost)
+    with pytest.raises(net.Unreachable, match=r"^127\.0\.0\.1 could not be connected to \(refused or no route\)$"):
+        found.reader.fetch(request, str(tmp_path / "lost.tif"))
+    assert not os.path.exists(tmp_path / "lost.tif")
+
+
+def test_one_connection_hosts_are_read_by_our_own_ranges():
+    """No layer of the catalogue reads a host of one connection (net.single_connection) through GDAL's /vsicurl/
+    windows: GDAL keeps an idle connection per download thread (the code review of 2026-11-23), so such a host must
+    be read through our own ranges (Windows(ranged=True)), one session of one connection. The layers' file
+    addresses are taken at their source's sample point, offline (a FileBlocks' fixed files), and from every
+    address in the layer's attributes."""
+    import re
+    from sources.readers.windows import Windows
+
+    def addresses(obj, depth=0):
+        found = []
+        for value in (vars(obj).values() if hasattr(obj, "__dict__") and depth < 3 else ()):
+            if isinstance(value, str) and re.match(r"https?://", value):
+                found.append(value)
+            elif hasattr(value, "__dict__") and not callable(value):
+                found += addresses(value, depth + 1)
+        return found
+    checked = 0
+    for source in src.SOURCES.values():
+        for layer in (source.nmt, source.nmpt):
+            reader = getattr(layer, "reader", None)
+            if not isinstance(reader, Windows) or reader.ranged:
+                continue
+            urls = addresses(layer)
+            if isinstance(layer, FileBlocks) and source.sample:
+                (x,), (y,) = transform("EPSG:4326", layer.crs, [source.sample[1]], [source.sample[0]])
+                res = layer.native_res
+                tiles = layer.tiles(gd.Grid(left=x, top=y, res=res, height=4, width=4, crs=layer.crs))
+                urls += [url for tile in tiles[:1] for _, url, _ in layer.index.request(tile).files]
+            assert not any(src.net.single_connection(url) for url in urls), (source.id, layer.description)
+            checked += 1
+    assert checked > 10

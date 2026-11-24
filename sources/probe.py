@@ -323,9 +323,11 @@ def _window(cache_dir: str, layer: FileBlocks, tile, centre: bool = False) -> st
             raise RuntimeError(f"no data in a window of {name}")
         return f"window {100 * share:.0f}% with data"
     try:
-        with host_slot(cache_dir, url), _gdal_http(), net.gdal_errors() as errors:
+        # One connection's host asks its ranges one after another (net.single_connection), the open retried
+        # net.OPEN_RETRIES times, its reads RETRIES (net.open_gdal)
+        with host_slot(cache_dir, url), _gdal_http(net.single_connection(url)), net.gdal_errors() as errors:
             net.rate_turn(url)  # the window read counts as one request (net.HOST_RATES_OF)
-            with rio.open(_remote(url)) as remote:
+            with net.open_gdal(_remote(url)) as remote:
                 if _wrong_crs(remote, request.crs, force_crs, warp):
                     raise RuntimeError(f"{name} is in {remote.crs.to_string()}, not {request.crs}")
                 values = _values_on(remote, request.crs, transform, (WINDOW_PX, WINDOW_PX), warp)
