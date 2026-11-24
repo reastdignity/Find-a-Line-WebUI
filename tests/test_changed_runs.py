@@ -325,8 +325,9 @@ def test_a_record_of_another_shape_is_not_known(tmp_path):
 
 
 def test_a_run_json_that_cannot_be_read_is_named(tmp_path, monkeypatch):
-    """F1: a run.json that is no JSON, or no object, is named as not checked (never left out, never an error);
-    a run whose judging raises an error nobody foresaw too; the other runs are told as ever."""
+    """F1, N5: a run.json that is no JSON, or no object, is named as not checked (never left out, never an
+    error); a run whose judging raises an error nobody foresaw is named with the error's class (a fault of the code
+    is not blamed on the file); the other runs are told as ever."""
     names = ["poland/nmt/a.tif", "poland/nmt/b.tif"]
     data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
     _run(data, "good", {"data": [_entry(cache_dir, names)], "identity": VERSIONS})
@@ -345,7 +346,7 @@ def test_a_run_json_that_cannot_be_read_is_named(tmp_path, monkeypatch):
     monkeypatch.setattr(update, "_exact", failing)
     lines = [c.line() for c in update.changed_runs(os.path.join(data, "cache"), os.path.join(data, "runs"))]
     assert lines == ["broken: its run.json cannot be read (not checked)", "good: 1 of 2 files changed",
-                     "late: its run.json cannot be read (not checked)",
+                     "late: not checked (KeyError)",
                      "list: its run.json cannot be read (not checked)"]
 
 
@@ -389,7 +390,8 @@ def test_a_relative_slope_file_is_not_checked(tmp_path, monkeypatch):
 
 def test_an_immutable_read_that_fails_is_read_again(tmp_path, monkeypatch):
     """F2: an immutable read that fails (here a first connection whose query raises, as a checkpoint tearing the
-    read would) is read once more read-only, whether or not a -wal is there now; a second failure is raised."""
+    read would) is read once more read-only, whether or not a -wal is there now (that read leaves SQLite's -wal and
+    -shm: N2); a second failure is raised."""
     names = ["poland/nmt/a.tif", "poland/nmt/b.tif"]
     data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
     _run(data, "r", {"data": [_entry(cache_dir, names)], "identity": VERSIONS})
@@ -407,14 +409,18 @@ def test_an_immutable_read_that_fails_is_read_again(tmp_path, monkeypatch):
         modes.append(mode)
         return Torn() if len(modes) <= fail[0] else real(db_path, mode, timeout)
     monkeypatch.setattr(update, "_read_only", read_only)
-    assert _changes(data)["r"].changed == 1 and modes == [None, "mode=ro"]
+    assert _changes(data)["r"].changed == 1 and modes == ["immutable=1", "mode=ro"]
+    index = os.path.join(cache_dir, "poland", "index.sqlite")  # N2: the read-only retry left SQLite's side files
+    assert os.path.exists(index + "-wal") and os.path.exists(index + "-shm")
+    os.remove(index + "-wal")
+    os.remove(index + "-shm")
     modes[:], fail[0] = [], 2
     try:
         _changes(data)
         raise AssertionError("a second failure is raised")
     except sqlite3.DatabaseError:
         pass
-    assert modes == [None, "mode=ro"]
+    assert modes == ["immutable=1", "mode=ro"]
 
 
 def test_nominatim_answers_that_cannot_be_read(tmp_path, monkeypatch):
@@ -592,3 +598,95 @@ def test_status_prints_a_line_per_run(tmp_path, capsys):
             "  before: 1 of 2 files changed (approximate: a run made before the data record)\n"
             "  changed: 1 of 2 files changed, 1 not known\n") in out
     assert out.rstrip().endswith("(it is downloaded again when needed).")
+
+
+def _raw_run(data, name, text):
+    """A run.json written as the text given (a hand-made or damaged file)."""
+    os.makedirs(os.path.join(data, "runs", name))
+    with open(os.path.join(data, "runs", name, "run.json"), "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def test_text_that_is_no_valid_text_and_deep_nesting(tmp_path):
+    """N1: a path or a Nominatim query holding a lone surrogate (JSON's "\\ud800": it cannot be encoded for SQLite)
+    is not known for that item and never reaches the index or nominatim.sqlite; a run.json nested deeper than the
+    parser goes cannot be read. The other runs are told as ever."""
+    names = ["poland/nmt/a.tif", "poland/nmt/b.tif"]
+    data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
+    _nominatim(cache_dir, {("search", "Gozo"): "{}"})
+    _run(data, "good", {"data": [_entry(cache_dir, names)], "identity": VERSIONS})
+    entry = json.dumps(_entry(cache_dir, names)).replace("poland/nmt/b.tif", "poland/nmt/\\ud800.tif")
+    area = ('{"identity": {"paths": ["osm/themes/cliff/\\ud800.geojson"], "sha256": ["' + "1" * 64 + '"], '
+            '"nominatim": [{"table": "search", "query": "Go\\ud800zo", "sha256": "' + "1" * 64 + '"}, '
+            '{"table": "search", "query": "Gozo", "sha256": "' + _text_sha("{}") + '"}]}}')
+    _raw_run(data, "surrogate", '{"created": "' + CREATED + '", "identity": {"v": 1}, "data": [' + entry +
+             '], "area": ' + area + ', "params": {"slope_file": "C:/\\ud800.tif"}}')
+    _raw_run(data, "deep", "[" * 100_000 + "]" * 100_000)
+    os.remove(os.path.join(cache_dir, names[0]))
+    lines = [c.line() for c in update.changed_runs(os.path.join(data, "cache"), os.path.join(data, "runs"))]
+    assert lines == ["deep: its run.json cannot be read (not checked)", "good: 1 of 2 files changed",
+                     "surrogate: 1 of 2 files changed, 1 not known"]
+
+
+def test_a_fault_in_collecting_a_runs_files_names_that_run(tmp_path, monkeypatch):
+    """The review's point 3: the guard around _wanted. An error collecting one run's files (a fault of the code,
+    stubbed here) names that run with the error's class; the other runs are collected and told."""
+    names = ["poland/nmt/a.tif", "poland/nmt/b.tif"]
+    data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
+    _run(data, "good", {"data": [_entry(cache_dir, names)], "identity": VERSIONS})
+    _run(data, "odd", {"data": [_entry(cache_dir, names)], "identity": {**VERSIONS, "mixed": True}})
+    os.remove(os.path.join(cache_dir, names[0]))
+    real = update._wanted
+
+    def wanted(meta):
+        if meta["identity"].get("mixed"):
+            raise TypeError("a fault")
+        return real(meta)
+    monkeypatch.setattr(update, "_wanted", wanted)
+    lines = [c.line() for c in update.changed_runs(os.path.join(data, "cache"), os.path.join(data, "runs"))]
+    assert lines == ["good: 1 of 2 files changed", "odd: not checked (TypeError)"]
+
+
+def test_a_locked_nominatim_file_is_opened_once(tmp_path, monkeypatch):
+    """N3: nominatim.sqlite is opened once, read-only, with NOMINATIM_TIMEOUT as SQLite's wait: a read that fails
+    (a writer's lock) is not tried again, so a locked file costs one wait."""
+    names = ["poland/nmt/a.tif"]
+    data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
+    _nominatim(cache_dir, {("search", "Gozo"): "{}"})
+    asked = {"nominatim": [{"table": "search", "query": "Gozo", "sha256": _text_sha("{}")}]}
+    _run(data, "place", {"data": [_entry(cache_dir, names)], "area": {"identity": asked}, "identity": VERSIONS})
+    opened, real = [], sqlite3.connect
+
+    class Locked:
+        def execute(self, *args):
+            raise sqlite3.OperationalError("database is locked")
+
+        def close(self):
+            pass
+
+    def connect(target, *args, **kwargs):
+        if "/osm/nominatim.sqlite?" not in target:
+            return real(target, *args, **kwargs)
+        opened.append((target.rsplit("?", 1)[1], kwargs.get("timeout")))
+        return Locked()
+    monkeypatch.setattr(update.sqlite3, "connect", connect)
+    assert _changes(data)["place"].line() == "place: area: the place name answers could not be read"
+    assert opened == [("mode=ro", update.NOMINATIM_TIMEOUT)] and update.NOMINATIM_TIMEOUT == 5
+
+
+def test_a_data_folder_with_brackets(tmp_path):
+    """N6: a runs folder whose path holds "[" and "]" lists its runs (the folder's name is no glob pattern)."""
+    data, cache_dir = _cache(tmp_path / "x[1]", {"poland/nmt/a.tif": b"a"})
+    _run(data, "r", {"data": [_entry(cache_dir, ["poland/nmt/a.tif"])], "identity": VERSIONS})
+    os.remove(os.path.join(cache_dir, "poland/nmt/a.tif"))
+    assert [c.line() for c in update.changed_runs(cache_dir, os.path.join(data, "runs"))] == ["r: 1 of 1 file changed"]
+
+
+def test_a_backslash_on_linux_is_a_letter(monkeypatch):
+    """N7: _uri turns a backslash into "/" only where it is the separator (Windows); on Linux it is a letter of a
+    name, percent-encoded."""
+    monkeypatch.setattr(update.os.path, "abspath", lambda p: p)
+    monkeypatch.setattr(update.os, "sep", "/")
+    assert update._uri("/srv/a\\b/index.sqlite", "mode=ro") == "file:///srv/a%5Cb/index.sqlite?mode=ro"
+    monkeypatch.setattr(update.os, "sep", "\\")
+    assert update._uri("C:\\srv\\a\\index.sqlite", "mode=ro") == "file:///C:/srv/a/index.sqlite?mode=ro"
