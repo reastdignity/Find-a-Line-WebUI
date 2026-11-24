@@ -6,6 +6,9 @@ An area gives the box the working grid has to cover, a boolean mask on that grid
 and its shape for the maps and the orthophoto cache.
 - Circle: a centre and a radius (--lat/--lon or --northing/--easting, --radius).
 - Polygon: any shape in WGS84 (search areas from files, OSM or drawn in the web app).
+An area built from OpenStreetMap (coast, cliffs, osm:<name>, --within osm:<name>) carries the record of what it was
+built from (`identity`: the theme tiles with their checksums, the Nominatim answers), gathered where they are read
+(Inputs) and written into run.json's `area` block by describe().
 """
 
 import math
@@ -116,7 +119,38 @@ class Polygon(Area):
         return self.geometry
 
     def describe(self) -> Dict:
-        return {"type": "polygon", "spec": getattr(self, "spec", None), "geometry": mapping(self.geometry)}
+        described = {"type": "polygon", "spec": getattr(self, "spec", None), "geometry": mapping(self.geometry)}
+        if getattr(self, "identity", None):  # built from OpenStreetMap: what it was built from (Inputs)
+            described["identity"] = self.identity
+        return described
+
+
+class Inputs:
+    """The OpenStreetMap data an area is built from, noted where it is read (region, _near, the box of from_spec):
+    the theme tiles (osm.theme_files of the box osm.theme reads) and the stored Nominatim answers. Each area builds
+    its own, so an area kept and used again carries its own record."""
+
+    def __init__(self):
+        self.tiles, self.answers = set(), {}
+
+    def theme(self, cache_dir: str, theme: str, west: float, south: float, east: float, north: float):
+        import osm
+        self.tiles.update(osm.theme_files(cache_dir, theme, west, south, east, north))
+
+    def nominatim(self, cache_dir: str, name: str, whole: bool):
+        import osm
+        key = osm.search_key(name, whole)
+        self.answers[("search", key)] = osm.stored_answer(cache_dir, "search", key)
+
+    def identity(self, cache_dir: str) -> Optional[Dict]:
+        """The area's `identity` (run.json's `area` block): {"paths", "sha256", "nominatim"}, the tiles sorted with
+        their stored checksums, the answers sorted by table and query; None when nothing of OSM was read."""
+        if not self.tiles and not self.answers:
+            return None
+        import cache
+        paths = sorted(self.tiles)
+        return {"paths": paths, "sha256": cache.stored_checksums(cache_dir, paths),
+                "nominatim": [self.answers[k] for k in sorted(self.answers)]}
 
 
 def _metric(geometry) -> str:
@@ -137,14 +171,17 @@ def box_bounds(text: str) -> Bounds:
     return south, west, north, east
 
 
-def region(text: str, cache_dir: str, max_km2: Optional[float] = None, whole: bool = False):
+def region(text: str, cache_dir: str, max_km2: Optional[float] = None, whole: bool = False,
+           inputs: Optional[Inputs] = None):
     """A WGS84 polygon from "osm:<name>" (Nominatim) or "S,W,N,E" (a box in degrees); with
     max_km2, refused when its bounding box is larger (a box before any request); whole: a
-    large outline as it is (osm.search)."""
+    large outline as it is (osm.search); inputs: notes the stored answer used."""
     from shapely.geometry import box, shape
     import osm
     if text.startswith("osm:"):
         found = osm.search(text[4:].strip(), cache_dir, whole)
+        if inputs is not None:
+            inputs.nominatim(cache_dir, text[4:].strip(), whole)
         geometry = found and shape(found["geojson"])
         if not geometry or geometry.geom_type not in ("Polygon", "MultiPolygon"):
             raise UserError(f"{text}: no area of that name in OpenStreetMap", "osm_not_found", name=text[4:].strip())
@@ -188,9 +225,10 @@ def _read_file(path: str) -> list:
     return geometries
 
 
-def _near(theme: str, limit, reach: float, buffer: float, cache_dir: str):
+def _near(theme: str, limit, reach: float, buffer: float, cache_dir: str, inputs: Optional[Inputs] = None):
     """Land and sea within `buffer` of the parts of an OSM theme within `reach` metres of
-    `limit` (WGS84), not clipped to it; and the notes about parts a little further away.
+    `limit` (WGS84), not clipped to it; and the notes about parts a little further away
+    (inputs: notes the theme tiles read).
 
     A named area (osm:Gozo) is the land of an island: clipping the band to it would cut
     off its sea side, the edges of its cliffs and the islets off its coast. The parts
@@ -201,7 +239,10 @@ def _near(theme: str, limit, reach: float, buffer: float, cache_dir: str):
     crs = _metric(limit)
     zone = project(limit, "EPSG:4326", crs)
     near_zone, far_zone = zone.buffer(reach), zone.buffer(2 * reach)
-    features = osm.theme(theme, *project(far_zone, crs, "EPSG:4326").bounds, cache_dir)
+    far_box = project(far_zone, crs, "EPSG:4326").bounds
+    features = osm.theme(theme, *far_box, cache_dir)
+    if inputs is not None:
+        inputs.theme(cache_dir, theme, *far_box)
     near, beyond = [], []
     for feature in features:
         geometry = project(feature["geometry"], "EPSG:4326", crs)
@@ -315,13 +356,15 @@ def from_geometry(value, buffer: float, within: str, cache_dir: str,
     check_geometry): polygons as they are, points and lines grown by `buffer`, clipped to
     the box or OSM area `within` if given (at most max_region_km2, see region), as for a
     file of --area."""
-    limit = region(within, cache_dir, max_region_km2) if within else None
+    inputs = Inputs()
+    limit = region(within, cache_dir, max_region_km2, inputs=inputs) if within else None
     geometry = from_shapes(geometry_shapes(value), buffer, limit, DRAWN)
     if geometry.is_empty:
         raise UserError(f"{DRAWN}: the area is empty", "area_empty")
     area = Polygon(geometry)
     area.spec = {"area": DRAWN, "buffer": buffer, "within": within}
     area.notes = []
+    area.identity = inputs.identity(cache_dir)  # within osm:<name>: its answer; else none
     return area
 
 
@@ -341,19 +384,21 @@ def from_spec(spec: str, buffer: float, within: str, cache_dir: str, reach: floa
     """
     import os
     import osm
-    limit = region(within, cache_dir, max_region_km2) if within else None
+    inputs = Inputs()
+    limit = region(within, cache_dir, max_region_km2, inputs=inputs) if within else None
     notes = []
     if spec in ("coast", "cliffs"):
         if limit is None:
             raise UserError(f"--area {spec} needs --within (osm:<name> or S,W,N,E)", "within_missing")
         theme = "coastline" if spec == "coast" else "cliff"
         if within.startswith("osm:"):
-            geometry, notes = _near(theme, limit, reach, buffer, cache_dir)
+            geometry, notes = _near(theme, limit, reach, buffer, cache_dir, inputs)
         else:
             features = osm.theme(theme, *limit.bounds, cache_dir)
+            inputs.theme(cache_dir, theme, *limit.bounds)
             geometry = _buffered([f["geometry"] for f in features], buffer, limit)
     elif spec.startswith("osm:"):
-        geometry = region(spec, cache_dir, max_region_km2, whole)
+        geometry = region(spec, cache_dir, max_region_km2, whole, inputs)
         if limit is not None:
             geometry = geometry.intersection(limit)
     elif os.path.exists(spec):
@@ -365,6 +410,7 @@ def from_spec(spec: str, buffer: float, within: str, cache_dir: str, reach: floa
     area = Polygon(geometry)
     area.spec = {"area": spec, "buffer": buffer, "within": within}
     area.notes = notes
+    area.identity = inputs.identity(cache_dir)  # what of OSM it was built from; None for a file without osm:
     return area
 
 

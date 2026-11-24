@@ -43,7 +43,8 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 - Credits per owner: a layer whose files have owners of different licences (`Layer.credits_by_pixels`,
   `used_entries`: Tuscany) records one entry per owner whose files wrote a pixel (`build_mosaic(wrote=)`), each with
   its own name and credit; every writer of `used_data` goes through `prepare_layer`, and `fill_gaps` drops all of a
-  filler's entries when it filled nothing (`_forget_entries`). A per-sheet index that is not an `IndexedTiles`
+  filler's entries when it filled nothing (`_forget_entries`). An entry with `paths` gets `identity.sha256` from
+  `cache.touch(checksums=)` (new builders too). A per-sheet index that is not an `IndexedTiles`
   (INEGI's JSON per sheet) is skipped by `update.py` and by record_answers' generic test (`tests/test_parts.py`
   `ANSWER_CASES` leave out "sheets" and "projects" cases): each brings its own update path and test.
 - The USA's 1 m DEM: TNM answers plus the bucket's files they lack (`tnmbucket.py`), merged on read
@@ -79,7 +80,7 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   page with HTTP 206 and the page's own Content-Range (Estonia's): check the TIFF magic (`ranges.NotTiff`,
   `Download(tiff_only=True)`), never cache it.
 - **Telling surveys apart**: two services resample differently, so compare their difference with the difference of the
-  candidate source files (difference of differences); a residual around 0 shows which survey each serves (used for
+  candidate source files; a residual around 0 shows which survey each serves (used for
   KRON86 vs EVRF2007).
 - **WCS services differ**: axis labels (`x/y` vs `E/N`), multipart responses (coverage part may be `image/*` or
   `application/*`), formats (some GeoTIFFs are whole metres; ASCII grids keep centimetres), server limits (~2000×2000
@@ -90,9 +91,8 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 - **Patched names** (`_get`, `_sleep` of `sources.net`, `country_code` of `sources.choose`, `DOWNLOAD_THREADS` of
   `sources.layer`): call and patch them through their module (`net._get(...)`,
   `monkeypatch.setattr(src.net, "_get", ...)`), never import them by name; the package does not re-export them, so a
-  patch of `sources` itself fails (`tests/test_catalogue.py` checks both). Some tests load `progress` again, so a test
-  listens to the bars through the object the code holds (`search.progress`), never through a fresh import of the
-  module.
+  patch of `sources` itself fails (`tests/test_catalogue.py` checks both). Some tests load `progress` again: a test
+  listens to the bars through the code's object, `search.progress`, never a new import.
 - **Usage limits of the providers** (the audit of 2026-11-01: docs/roadmap.md, "Audit of the services"): hosts whose
   provider publishes a request rate are in `sources.net.HOST_RATES_OF` (requests per minute, about 10 % below the
   terms, each quoting them: swisstopo's data.geo.admin.ch 36 and WMTS 1080, the Environment Agency 180);
@@ -112,7 +112,7 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   key values, also URL-encoded) and the public site's texts `jobs.Redact`. An orthophoto that needs a key cannot be
   used yet: the browser asks the WMS of a run's head itself (Denmark's, Finland's). Datafordeler (Denmark): WCS
   1.0.0 only, `apikey` in the query, 401 for every request without a valid key (GetCapabilities too), a key works only
-  from the IPs on its IT-system's allowlist and lasts 2 years.
+  from its IT-system's allowlisted IPs and lasts 2 years.
 - **GDAL remote reads can fail silently**: a range answer cut short becomes nodata or zeros without an exception (GDAL
   3.12's /vsicurl/ keeps the short answer for the process, libtiff caches the unreadable strile offset as 0, GTiff
   fills the block as sparse; rasterio only logs it). Read remote rasters inside `_gdal_http()` (`GDAL_NUM_THREADS=1`:
@@ -131,7 +131,7 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   GDAL's `ChunkAndWarpMulti`, one joinable thread per chunk, and `CPLCreateJoinableThread`'s race (OSGeo/gdal#15452,
   fixed on GDAL's master by #15451, in no 3.12 or 3.13 release) frees a thread's record twice when the thread ends
   before `CreateThread` returned: exit code 3221226356 (0xC0000374), no traceback, a worker's log stops mid-tile
-  (the measurements: docs/data-sources.md, section 5). Never pass `num_threads > 1` to `reproject`: `num_threads=1`
+  (docs/data-sources.md, section 5). Never pass `num_threads > 1` to `reproject`: `num_threads=1`
   with the warp option `NUM_THREADS=N` keeps the kernel's N threads (`mosaic.WARP_KWARGS`). `faulthandler` prints
   `Windows fatal exception: code 0xc0000374` and each thread's Python stack, never a C stack; the country workers
   have it on (`country._worker_env`); re-measured when a release carries #15451: docs/roadmap.md, "To check".

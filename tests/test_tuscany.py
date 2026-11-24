@@ -710,8 +710,11 @@ def test_cached_files_without_the_index(http_server, tmp_path, no_sleep):
     grid = make_grid((S35[0] + 1050, S35[1] + 100, S35[0] + 1250, S35[1] + 200), 1.0, "EPSG:3003")
     layer._use(cache_dir)
     assert [os.path.normpath(p) for p in layer.files(grid, cache_dir)] == [os.path.normpath(a), os.path.normpath(b)]
+    cache.record(cache_dir, a, "ok")  # one of them with an index row and its checksum, the other adopted
     entries = layer.used_entries(grid, cache_dir)
     assert [e["credit"]["licence"] for e in entries] == ["CC BY 4.0", "CC BY-SA 3.0 IT"]
+    stored = cache.info(cache_dir, a)["sha256"]  # each owner's entry: its own paths' checksums, parallel to them
+    assert [e["identity"] for e in entries] == [{"sha256": [stored]}, {"sha256": [None]}] and len(stored) == 64
     with rio.open(b, "r+") as tile:
         tile.update_tags(**{rd.OWNER_TAG: ""})
     assert owner_of(b) == "MATTM"

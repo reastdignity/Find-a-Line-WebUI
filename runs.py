@@ -142,10 +142,26 @@ def _is_file(area) -> bool:
     return isinstance(area, str) and area not in ("coast", "cliffs", "drawn area") and not area.startswith("osm:")
 
 
+IDENTITY = "identity"  # run.json's record of the data a run read (its data entries, its area, its top level)
+
+
+def without_identity(value):
+    """A copy of a run's record (any JSON value) without every key named IDENTITY at any depth: the one exit of the
+    record of the data read (checksums, editions, files' times and sizes, library versions), which never leaves the
+    machine: public_meta (lines.geojson, the export), _listed (runs.js, the public site's too), the country
+    layer's credits (country._credits: a tile's record keeps it). Everything else as it was, in its order."""
+    if isinstance(value, dict):
+        return {k: without_identity(v) for k, v in value.items() if k != IDENTITY}
+    if isinstance(value, list):
+        return [without_identity(v) for v in value]
+    return value
+
+
 def public_meta(meta: Dict) -> Dict:
     """The part of run.json that goes into lines.geojson, a file meant to be passed on:
-    without the list of cache files each data layer used, and without server paths."""
-    meta = without_paths(meta)
+    without the list of cache files each data layer used, the record of the data read (without_identity) and
+    server paths."""
+    meta = without_paths(without_identity(meta))
     if "data" not in meta:
         return meta
     return {**meta, "data": [{k: v for k, v in entry.items() if k != "paths"} for entry in meta["data"]]}
@@ -521,9 +537,10 @@ def _bbox(run: Dict) -> Optional[List[float]]:
 
 def _listed(run: Dict) -> Dict:
     """A run as runs.js lists it: without the data files, their credits, the area outline and its
-    terrain, its shore and where its terrain came from (all in the run's head: its store), with its box."""
-    listed = {k: v for k, v in without_paths(run).items()
-              if k not in ("data", "area", "attribution", "terrain", "shore", "terrain_sources")}
+    terrain, its shore and where its terrain came from (all in the run's head: its store), without the record of the
+    data read (without_identity), with its box."""
+    listed = without_identity({k: v for k, v in without_paths(run).items()  # the area's outline never walked
+                               if k not in ("data", "area", "attribution", "terrain", "shore", "terrain_sources")})
     listed["bbox"] = _bbox(run)
     return listed
 
