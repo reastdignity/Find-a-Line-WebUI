@@ -172,7 +172,7 @@ Scripts from the 2026-10-25 research lived in the session scratchpad; the comman
 - `findaline.py sources check <id>` (and `--deep`): the probe asks its index and files at the sample point; run it for all sources now and then, services change their addresses.
 - A regression test in a characteristic place (cliffs, coast, border), with the coverage and `empty_tiles` values stored; a pytest against a fake server for new download code (see `tests/test_sources.py`). The entry's data goes into the real cache before the merge and its baseline is stored from a run there (docs/regression-tests.md, "Which cache, and what to report"): an entry whose data lives only in a scratch cache cannot run once its provider is away.
 - Attribution in the map (`OrthoService.attribution`, the source's `note`) and in README's "Data" section; the licence in the roadmap's licence list.
-- Update policy (cache.py `TTL_DAYS`): versioned releases never, "live" services after their interval, sheet indexes after 180 days.
+- Update policy (cache.py `TTL_DAYS`): versioned releases never, "live" services after their interval, sheet indexes after 180 days (the USA's 1 m DEM after 28; its answers are also asked again at the start of an area download row and before a country cube's first tile: `sources/renewal.py`).
 - `cache status` and `cache update <folder>` on a scratch data folder with the index rows aged by hand (`checked_at` in `cache/<top>/index.sqlite`, with a time zone, e.g. `2024-01-01T00:00:00+00:00`).
 - New download code that uses GDAL's network access: read one window inside the Docker image too (HTTPS certificates of the slim image), and a job through the web app's queue.
 - The whole regression set: the other countries' checksums must not change.

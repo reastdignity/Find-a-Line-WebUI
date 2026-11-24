@@ -946,6 +946,9 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     scheduler = Scheduler(jobs, limits=limits, warm_up=warm_up)  # warm_up: numba's (jobs.warm_up_wanted)
     users = ac.Accounts(data_dir, accounts) if public else None
     audit = Audit(data_dir) if public else None  # the local app keeps no audit log
+    for approved in (users.approved_at_start if users else []):  # FINDALINE_SIGNUP=open approved them (accounts.py):
+        # logged at once, before anything else of the start can fail and leave them unlogged
+        audit.log("user_status", None, str(approved), {"status": "approved", "was": "pending", "signup": "open"})
     quick_answers = dict.fromkeys(QUICK_RESULTS, 0)  # waits for the quick lane by result, since the start
     quick_lock = threading.Lock()
     route_counts = RouteCounts()  # requests per route, since the start (metrics.py)
@@ -1115,7 +1118,8 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         if found and found[0].approved:
             return APP_HTML.format(token=found[1], user=html.escape(json.dumps(found[0].public())),
                                    contact=html.escape(public.contact), keys=key_meta(esri_key))
-        return signin_page(accounts.providers, *(found or (None, None)), demos=runs_of(None), total=everyone())
+        return signin_page(accounts.providers, *(found or (None, None)), demos=runs_of(None), total=everyone(),
+                           signup=accounts.signup)
 
     @app.get("/coverage", response_class=HTMLResponse)
     def coverage():
@@ -1173,7 +1177,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             return HTMLResponse(signin_page(accounts.providers, note=messages.text("page.signin.closed")), 403)
         except (OAuthError, JoseError, ValueError, KeyError, httpx2.HTTPError) as e:  # the ID token's checks: JoseError
             request.session.clear()
-            return HTMLResponse(signin_page(accounts.providers,
+            return HTMLResponse(signin_page(accounts.providers, signup=accounts.signup,
                                             note=messages.text("page.signin.failed", error=type(e).__name__)), 400)
         next_path = ac.local_path(request.session.get("next"))
         request.session.clear()
@@ -2654,18 +2658,21 @@ def area_total(total: Optional[Tuple[float, int]]) -> str:
 
 
 def signin_page(providers: List[str], user=None, csrf: Optional[str] = None, note: str = "",
-                demos: Optional[List[Dict]] = None, total: Optional[Tuple[float, int]] = None) -> str:
+                demos: Optional[List[Dict]] = None, total: Optional[Tuple[float, int]] = None,
+                signup: str = "approval") -> str:
     """The page of the public site for a visitor not signed in, or whose account is not approved
     (pending or blocked): sign-in links, or the account's state and signing out; the demo runs
-    (their maps, read-only); `total`: (km², searches) of everyone (area_total). No script, and
-    nothing that changes state but signing out."""
+    (their maps, read-only); `total`: (km², searches) of everyone (area_total); `signup`
+    (FINDALINE_SIGNUP) picks the note under the sign-in links: with `open` it does not say a new
+    account waits for an administrator. No script, and nothing that changes state but signing out."""
     e, t = html.escape, page_text
     card = [f"<p class='p-error' role='alert'>{e(note)}</p>"] if note else []
     if user is None:
         card.append(f"<h2 class='u-h'>{t('page.signin.title')}</h2><div class='p-providers'>" + "".join(
             f"<a class='p-provider p-{p}' href='/login/{p}'>{PROVIDER_SVG.get(p, '')}"
             f"{t('page.signin.with', provider=ac.NAMES[p])}</a>" for p in providers) + "</div>")
-        card.append(f"<p class='u-small'>{t('page.signin.note')}</p>")
+        note_key = "page.signin.note_open" if signup == "open" else "page.signin.note"
+        card.append(f"<p class='u-small'>{t(note_key)}</p>")
     else:
         state = "page.signin.pending" if user.status == "pending" else "page.signin.blocked"
         card.append(f"<p>{t(state, name=f'<b>{e(user.name)}</b>', provider=e(ac.NAMES.get(user.provider, user.provider)))}"

@@ -2613,5 +2613,30 @@
     },
     "notes": "added 2026-11-15: the centre on the steepest 200 m cells of a 1 m slope map (pixels over 70 degrees) of the rampart west of wave 0's point (-21.1303, 55.4539); its first trial there (radius 500 m, lines 20-300 m) gave 105 559 lines in 598 spots, too many for a pinned entry; most lines cross forest on the rampart's ledges (the MNS marks them over trees)",
     "seconds": 3.4
+  },
+  "R94": {
+    "place": "Above South Dry Creek, the Wasatch Front, Utah, USA: USGS's bucket holds 1 m files of this 10 km tile (zone 12, x43 y449) that the TNM index does not list (UT_StatewideNCentral_2020_A20, UT_Wasatch_L4_2013 with a name without a zone); the list of the unlisted files (shipped with the code) puts them into the index's answers",
+    "args": "--lat 40.5446 --lon -111.7794",
+    "sets": [
+      "us"
+    ],
+    "expected": {
+      "anchors": 389872,
+      "open": 1512,
+      "checked": 679,
+      "lines": 2,
+      "spots": 2,
+      "csv_sha256": "22ab7a1763c1c115bc47b7ef71caaea80aa2edf9aeacdddac2160e695c6da4e4",
+      "length_km": 0.564,
+      "clearance_min": 0.25,
+      "clearance_mean": 0.68,
+      "clearance_max": 1.11,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "USGS 3DEP (1 m DEM)"
+    },
+    "notes": "added 2026-11-22 (wave A of the USA's OPR task: gate 0's spot); before the list, on an empty cache: 5 of 12 blocks without data, terrain 11.9 % 1 m DEM and 88.1 % 1/3 arc-second DEM, 270 360 anchors, 514 open, 0 lines; with it every block has data and run.json's source_files name both unlisted files",
+    "seconds": 27.0
   }
 }

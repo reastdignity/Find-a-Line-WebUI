@@ -279,6 +279,47 @@ Measured in batch 6 (2026-11-15/16): a 400 m search in Shizuoka's west reads 25 
 tile not cached yet lists for about 20 s; a 600 m search in Hong Kong reads 24 sheets, 137 MB, in over 6 minutes
 (0.36 MB/s). The providers publish whole sheet ZIPs only; nothing is changed.
 
+## A block's order can change while its name stays (two cases left open by the key rule)
+
+A block's name holds what decides the order of its files only where a list file ties another on its year
+(`versions.block_key`, wave A of the USA, part A-2, fix round 3). Two changes of order keep the name, so a cached
+block stays composed in the order of before until its set of files or newest year changes:
+- (1) A file of the list of unlisted files whose year changes, in any way that leaves it untied before and after:
+  inside the list (a year taken from the project's listed siblings once they are listed), or when the index starts
+  to list it with another year (a project whose folders name no year takes its publication year: 49 of the 1,410
+  files of the shipped list of 2026-11-22 are of that kind, `counts.year_from_siblings`). The scene: files A of 2020,
+  B of 2016 and U of 2018 from the list; the index lists U with 2015: the order changes (U after B) and the name
+  does not (the third code review ran `block_key`: `d276e9a7` both ways; also when U's new year ties B, as no file
+  is marked once U is listed). Two grids can see U from the list and from the index at the same time under one
+  name; whichever composes first stays.
+- (2) Older than wave A and on every layer: a listed file whose date the index changes while its name stays (a
+  project published again): it can swap two files of one year, and where the year comes from the publication date
+  (no year in the folders) it can move past files of other years.
+Cost: the overlap pixels of the files in such blocks, until the block is read again. Not changed.
+
+## Two views of one square name its block differently, and a reader can find its block pruned
+
+Two processes whose views of one square differ (answers of different ages over a newly published file, or one
+tile's answer lacking a file the other's holds while the list carries it, wave A part A-2) compose its block under
+two names; each pass prunes the other's name. A reader between its download and its mosaic can then find its block
+gone (`Layer.files` drops a path that no longer exists): the hole is filled from the fall-back for that run (the
+third code review: a B-only reader's mosaic NaN in 1296 of 1296 pixels before the fall-back), and a country tile
+counted then keeps it in the cube. It needs two processes in that window (two searches, or country workers whose
+tiles share blocks). Without such a reader the two names only flip, one block read per flip. It ends once the
+lacking tile is asked (a renewal over it, `cache update` after 28 days, or the settling of the carried files after
+the next listing). Older than this branch in kind (answers of different ages); the carried files add a trigger.
+Not changed (a possible remedy: `prune` sparing a block of another name younger than a few minutes).
+
+## An IfSAR block's key can depend on the grid
+
+`ComposedBlocks._blocks` clips each file to the grid's bounds before it finds the blocks a file covers, and Alaska's
+IfSAR files are listed with the API's box projected (a little larger than the cell, not a whole number of blocks):
+a narrow grid and a wide one can then give the same 1 km square different sets of files, so different keys (the
+second code review of wave A part A-2, 2026-11-23, ran `_blocks` directly: narrow grid `6dcd4ce2 [A]`, wide grid
+`02775184 [C, A]`). What it costs: the square's block cached twice under two names (one per grid width), each read
+once. The 1 m DEM is not affected (its extents are the names' 10 km
+squares, which the 1 km blocks divide). Older than wave A; not changed.
+
 ## Line volume, the store and the access mark: known and left (2026-11-16)
 
 Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the access mark), none fixed:

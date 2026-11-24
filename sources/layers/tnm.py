@@ -9,9 +9,10 @@ import rasterio as rio
 import rasterio.warp
 from rasterio.warp import transform_bounds
 
+import cache
 from grid import Grid
 
-from ..indexes.cached import CachedIndex
+from ..indexes.cached import CachedIndex, merge_items
 from ..indexes.listings import TnmProducts
 from ..indexes.versions import ComposedBlocks
 from ..readers.windows import Windows
@@ -20,10 +21,10 @@ from .indexed import IndexedTiles
 TNM_API = "https://tnmaccess.nationalmap.gov/api/v1/products"
 
 
-def _survey_year(url: str, published: str) -> int:
-    """The year of a 3DEP project from its folders (e.g. CA_YosemiteNP_2019_D19 or
-    AK_IFSAR_2010/AK_IFSAR-Cell23_2010): a year in the name, else the fiscal year of a work
-    unit suffix (UT_WestEast_B22), else the year of publication."""
+def folder_year(url: str) -> Optional[int]:
+    """The year a 3DEP project's folders name (e.g. CA_YosemiteNP_2019_D19 or AK_IFSAR_2010/AK_IFSAR-Cell23_2010):
+    a year in the name, else the fiscal year of a work unit suffix (UT_WestEast_B22); None when they name none
+    (ND_Lidar_Phase10)."""
     folders = url.split("/Projects/", 1)[-1].rsplit("/", 2)[0] if "/Projects/" in url else ""
     years = re.findall(r"(?<!\d)((?:19|20)\d\d)(?!\d)", folders)
     if years:
@@ -31,7 +32,41 @@ def _survey_year(url: str, published: str) -> int:
     suffix = re.findall(r"_[A-Z](\d\d)(?=/|$)", folders)
     if suffix:
         return 2000 + max(int(y) for y in suffix)
+    return None
+
+
+def _survey_year(url: str, published: str) -> int:
+    """The year of a 3DEP project: the year its folders name (folder_year), else the year of publication."""
+    year = folder_year(url)
+    if year is not None:
+        return year
     return int(published[:4]) if published[:4].isdigit() else 0
+
+
+class UnlistedIndex(CachedIndex):
+    """The cached answers of the TNM index for the 1 m DEM with the files of USGS's bucket the index does not list
+    (sources/layers/tnmbucket.py) merged in when an answer is read: a tile's files are its cached answer plus the
+    unlisted files whose 10 km square reaches the tile and whose name the answer does not hold. The cached answer
+    stays what the index said (never rewritten), so an answer cached before the list gains its files at once and a
+    block over one gets another key (it is read again, the older file pruned). Every reader of the files goes
+    through answers(): ComposedBlocks.query, update_tile and has_data_near. The list is read once per process and
+    data folder (the cached one, else the copy shipped with the code)."""
+
+    has_list = True  # sources/renewal.py makes the list (tnmbucket.make_unlisted) before it asks the answers again
+    bucket: Optional[str] = None  # the bucket the list is made from: tnmbucket.BUCKET (a test: its stand-in)
+    regions: Optional[list] = None  # the boxes the index is listed over: tnmbucket.REGIONS
+
+    def answers(self, cache_dir: str, lat: float, lon: float, update: Optional[str] = None) -> List[Dict]:
+        return merge_items(super().answers(cache_dir, lat, lon, update), self.extra(cache_dir, lat, lon))
+
+    def extra(self, cache_dir: str, lat: float, lon: float) -> List[Dict]:
+        from .tnmbucket import unlisted_in_tile  # imported here: the web process never reads the list
+        return unlisted_in_tile(cache_dir, self.top, lat, lon)
+
+    def check_gone(self, url: str) -> Optional[bool]:
+        """A file a fresh answer dropped, checked at its URL (CachedIndex._fetch): gone, there, or not known."""
+        from .tnmbucket import file_gone
+        return file_gone(url)
 
 
 class TnmBlocks(IndexedTiles):
@@ -50,13 +85,20 @@ class TnmBlocks(IndexedTiles):
     again (update.py, or a search after the answer was renewed) and the older file deleted.
     """
     index_crs = "EPSG:4326"
+    index_class = CachedIndex  # the 1 m DEM's: UnlistedIndex
+    # A download row's start and a country run's first tile ask its index again (sources/renewal.py): USGS
+    # publishes new projects, and a cached answer is otherwise asked again only by `cache update`
+    renews = True
 
     def __init__(self, description: str, dataset: str, prefix: str, folder: str, native_res: float,
                  block_m: float, bytes_per_tile: float, api: str = TNM_API):
         super().__init__(description, api, prefix, folder, native_res, bytes_per_tile)
         self.dataset, self.block_m = dataset, block_m
-        self.index = CachedIndex(description, TnmProducts(api, dataset, self._item),
-                                 ComposedBlocks(folder, block_m, native_res), prefix, folder.split("/")[0])
+        self.index = self.index_class(description, TnmProducts(api, dataset, self._item),
+                                      ComposedBlocks(folder, block_m, native_res), prefix, folder.split("/")[0])
+        # An answer that lacks files the cached one held is asked once more before it replaces it (a renewal asks
+        # every answer of an area on each start: a short or empty answer must not delete good blocks)
+        self.index.confirms_drops = self.renews
         self.reader = Windows(description)
 
     def _item(self, product: Dict) -> Optional[Dict]:
@@ -96,26 +138,58 @@ def _utm_zone_of(box: Dict, extent: List[float]) -> Optional[int]:
     return None
 
 
+# The x and y of a 1 m tile in its file name (in 10 km: the left edge, the top edge), and the zone of the names
+# that give one (USGS_1M_<zone>_x..y..; USGS_one_meter_x..y.. and USGS_1m_x..y.. give none)
+TILE_XY = re.compile(r"_x(\d+)y(\d+)_", re.I)
+TILE_ZONE = re.compile(r"USGS_1M_(\d+)_", re.I)
+
+
+def tile_extent(name: str) -> Optional[List[int]]:
+    """The extent (in its UTM zone, metres) of a 1 m tile from its file name; None for a name without x..y.."""
+    xy = TILE_XY.search(name)
+    if not xy:
+        return None
+    x, y = int(xy.group(1)), int(xy.group(2))
+    return [x * 10000, (y - 1) * 10000, (x + 1) * 10000, y * 10000]
+
+
+def tile_item(url: str, zone: int, published: str, year: Optional[int] = None) -> Dict:
+    """A file of the 1 m DEM as cached ({name, url, crs, extent, year, published}), its zone known: the item of a TNM
+    answer (Usgs1mBlocks._item) and of a file of the bucket the index does not list (tnmbucket). year: the survey
+    year when it is known otherwise (an unlisted file of a project whose folders name none), else _survey_year."""
+    name = url.rsplit("/", 1)[-1]
+    return {"name": name[:-4], "url": url, "crs": f"EPSG:{26900 + zone}", "extent": tile_extent(name),
+            "year": _survey_year(url, published) if year is None else year, "published": published}
+
+
+def usgs_1m_item(product: Dict) -> Optional[Dict]:
+    """A product of the TNM index's 1 m DEM as cached, or None if it is not used (not a .tif, no x..y.. in its name,
+    no zone found)."""
+    url = product.get("downloadURL") or ""
+    name = url.rsplit("/", 1)[-1]
+    extent = tile_extent(name)
+    if not name.lower().endswith(".tif") or extent is None:
+        return None
+    zone = TILE_ZONE.match(name)
+    zone = int(zone.group(1)) if zone else _utm_zone_of(product.get("boundingBox") or {}, extent)
+    if zone is None:
+        return None
+    return tile_item(url, zone, product.get("publicationDate") or "")
+
+
 class Usgs1mBlocks(TnmBlocks):
     """3DEP's standard 1 m DEM: 10 km tiles, USGS_1M_<zone>_x<E / 10 km>y<N of the top / 10 km>_
     <project>.tif, in NAD83 / UTM of their zone (a tile crossing two zones is delivered in
-    both), with 6 pixels of overlap around; older names give no zone (USGS_one_meter_x..y..)."""
+    both), with 6 pixels of overlap around; older names give no zone (USGS_one_meter_x..y..).
+    The files of USGS's bucket that the TNM index does not list are merged into its answers
+    (UnlistedIndex, sources/layers/tnmbucket.py). `cache update` asks its answers again after
+    28 days (update_ttl_days; the public site's weekly timer), a search's --update stale after
+    the sheet index's 180 as before."""
+    index_class = UnlistedIndex
+    update_ttl_days = cache.TTL_DAYS["usgs-1m-index"]
 
     def _item(self, product: Dict) -> Optional[Dict]:
-        url = product.get("downloadURL") or ""
-        name = url.rsplit("/", 1)[-1]
-        xy = re.search(r"_x(\d+)y(\d+)_", name, re.I)
-        if not name.lower().endswith(".tif") or not xy:
-            return None
-        x, y = int(xy.group(1)), int(xy.group(2))
-        extent = [x * 10000, (y - 1) * 10000, (x + 1) * 10000, y * 10000]
-        zone = re.match(r"USGS_1M_(\d+)_", name, re.I)
-        zone = int(zone.group(1)) if zone else _utm_zone_of(product.get("boundingBox") or {}, extent)
-        if zone is None:
-            return None
-        published = product.get("publicationDate") or ""
-        return {"name": name[:-4], "url": url, "crs": f"EPSG:{26900 + zone}", "extent": extent,
-                "year": _survey_year(url, published), "published": published}
+        return usgs_1m_item(product)
 
 
 class IfsarBlocks(TnmBlocks):
