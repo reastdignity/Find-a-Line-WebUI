@@ -269,9 +269,11 @@ had replaced the survey of 2022 (re-baselined on the survey of 2026).
   nearly every try (55 skips of 68 runs seen in November). Its differences of 2026-10-27 and 2026-11-01 were OSM
   edits made after the extract; the three since the extract's update of 2026-11-07 were never traced to features.
   It now prints the ids that differ and writes `differences.json`. The extract was updated on 2026-11-24 (data of
-  2026-11-23, 221 cliffs) and the run after it was skipped (502): to run once by name, at most once a day, until
-  Overpass answers; then either its counts are stored again (OSM edits) or the two readers differ (a fault). The
-  user's decision of 2026-11-23: after that run it leaves `--all` (`"by_name": true`).
+  2026-11-23, 221 cliffs) and the run after it was skipped (502). It is out of `--all` since 2026-11-24
+  (`"by_name": true`; the user's decision of that day, before the diagnosis: 12 Overpass queries and a standing skip
+  in every full run), so it runs only by name or with `--set network`. Still owed: one run by name, at most once a
+  day, until Overpass answers; then either its counts are stored again (OSM edits) or the two readers differ (a
+  fault). Its stored counts (93 coastline features, 217 cliffs) are those of the extract before the update.
 
 ## Searches in Shizuoka and Hong Kong download a lot
 

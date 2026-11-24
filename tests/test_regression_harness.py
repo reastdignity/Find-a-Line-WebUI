@@ -15,6 +15,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -1203,8 +1204,21 @@ def test_entries_run_by_name_only(harness, capsys):
         assert "R5: ok" in out and "by name only" not in out, argv
 
 
-def test_no_entry_is_run_by_name_only_yet():
-    assert not [t for t, test in regression.load().items() if test.get("by_name")]
+def test_r17_is_the_entry_run_by_name_only():
+    """R17 compares a dated extract with live Overpass (12 queries a run): out of --all by the user's decision of
+    2026-11-24, run by name or with --set network after a change of osm.py or osmextract.py."""
+    tests = regression.load()
+    assert [t for t, test in tests.items() if test.get("by_name")] == ["R17"]
+
+    def selected(ids=(), sets=(), every=False):
+        return regression.select(tests, SimpleNamespace(ids=list(ids), set=list(sets), all=every, write_doc=False,
+                                                        update=False))
+
+    ids, by_name = selected(every=True)
+    assert "R17" not in ids and by_name == ["R17"] and len(ids) == len(tests) - 1
+    assert "R17" not in selected()[0]  # the quick set
+    for chosen in (selected(ids=["R17"]), selected(sets=["network"]), selected(ids=["R17"], every=True)):
+        assert "R17" in chosen[0] and chosen[1] == []
 
 
 # H10: requests and bytes per host, the test lock's token

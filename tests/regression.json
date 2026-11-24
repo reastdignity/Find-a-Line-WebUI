@@ -466,6 +466,7 @@
     "sets": [
       "network"
     ],
+    "by_name": true,
     "expected": {
       "coastline": 93,
       "cliff": 217,

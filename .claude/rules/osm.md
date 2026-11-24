@@ -27,6 +27,9 @@ What each module holds: docs/code-map/sources.md (`osm.py`, `coast.py`, `osmextr
   `coastline` in `tests/regression.json`) and `FALLBACK_WARNING`, `osm.DAY_MAX_TEXT`, `net.UNREACHABLE_TEXT`. It
   tells a changed result from an unverified one by them: a reword of a source text stores the baselines' `coastline`
   again in the same commit (`test_every_stored_coastline_is_a_named_text` fails until then).
+- R17 (the Malta extract's coastline and cliff tiles against Overpass's) is left out of `--all` (`"by_name": true`):
+  after a change of `osm.py`'s theme tiles or `osmextract.py` run it by name, at most once a day while Overpass does
+  not answer (12 queries a run), and report it as not checked until it has run.
 - `osm update` of an extract rebuilds the theme tiles built from it: the regression entries that take an area from
   them (`--area coast`: R16, R18, R83, Malta) run on the real cache afterwards, and are re-baselined if OSM changed.
 
