@@ -106,7 +106,7 @@ def get_range(url: str, first: int, last: int, attempts: int = net.RETRIES) -> T
             if attempt < attempts - 1:  # no pause after the last attempt
                 net._sleep(attempt + 3 if slow_down else attempt)
     if net.connect_failed(last_error):
-        raise net.Unreachable(cache.clean_error(last_error))
+        raise net.unreachable(url, last_error)
     raise RuntimeError(cache.clean_error(last_error))
 
 

@@ -601,46 +601,81 @@ def single_connection(url: Optional[str]) -> bool:
 
 
 class Unreachable(RuntimeError):
-    """A read that failed for good because no connection to the host could be made (a connect timeout, a refused
-    connection, no route, a name not found), after its own retries: connect_failed said so on a positive sign.
-    Inside a download the host's other blocks then fail at once with the same message (UnreachableHosts)."""
+    """A read that failed for good because no connection to the host could be made, after its own retries
+    (connect_kind said so on a positive sign). Its message is ours, the same from every reader and every time
+    (unreachable): "<host> could not be connected to (<kind>)", the kind one of CONNECT_KINDS; the library's text
+    goes to the debug log only. Inside a download the host's other blocks then fail at once with the same message
+    (UnreachableHosts)."""
 
 
-# The texts of curl's errors (GDAL passes them on: "CURL error: ...") that say no connection was made. A read
-# timeout is "Operation timed out after ...", never these; an HTTP status, an answer cut short or anything else
-# matches none of them (tests/test_gdal_connect.py, a case each)
+# The kinds of an Unreachable's message. curl (GDAL's reads) says "Could not connect to server" both for a refused
+# connection and for no route to the host, so the two are one kind for both readers
+TIMED_OUT, REFUSED, NO_NAME = "timed out", "refused or no route", "name not found"
+CONNECT_KINDS = (TIMED_OUT, REFUSED, NO_NAME)
+# The texts of curl's errors (GDAL passes them on: "CURL error: ...") that say no connection was made, and their
+# kind, the first that matches. A read timeout is "Operation timed out after ...", never these; an HTTP status, an
+# answer cut short or anything else matches none of them (tests/test_gdal_connect.py, a case each)
 GDAL_CONNECT_FAILURES = (
-    r"Connection timed out after \d+ milli",  # CURLOPT_CONNECTTIMEOUT ran out (GDAL_HTTP_CONNECTTIMEOUT)
-    r"Failed to connect to \S+ port \d+",     # refused, no route, the system's own connect timeout
-    r"Could(?:n't| not) connect to server",
-    r"Could(?:n't| not) resolve (?:host|proxy)",  # the name not found
+    (r"Could(?:n't| not) resolve (?:host|proxy)", NO_NAME),
+    (r"Connection timed out after \d+ milli", TIMED_OUT),  # CURLOPT_CONNECTTIMEOUT ran out (GDAL_HTTP_CONNECTTIMEOUT)
+    (r"Failed to connect to \S+ port \d+.*timed out", TIMED_OUT),  # the system's own connect timeout
+    (r"Failed to connect to \S+ port \d+", REFUSED),
+    (r"Could(?:n't| not) connect to server", REFUSED),
 )
+# The system's errors of a connection that timed out (ETIMEDOUT, WSAETIMEDOUT) and of one refused or without a route
+# (ECONNREFUSED, ENETUNREACH, EHOSTUNREACH and Windows' WSAE- numbers) under requests' NewConnectionError
+_TIMED_OUT_ERRNOS = {110, 60, 10060}
+_REFUSED_ERRNOS = {111, 61, 10061, 101, 51, 10051, 113, 65, 10065}
 
 
-def connect_failed(error: Optional[BaseException]) -> bool:
-    """Whether an error says, on a positive sign, that no connection to the host could be made: requests'
-    ConnectTimeout, or a ConnectionError caused by urllib3's NewConnectionError (refused, no route, the name not
-    found: NameResolutionError is one) or ConnectTimeoutError; for GDAL's errors (RasterioIOError, or our
-    RuntimeError carrying its text) one of GDAL_CONNECT_FAILURES. A read timeout, a connection reset or closed by
-    the server, an HTTP status, a short answer: no."""
+def connect_kind(error: Optional[BaseException]) -> Optional[str]:
+    """The kind (CONNECT_KINDS) of an error that says, on a positive sign, that no connection to the host could be
+    made, else None: requests' ConnectTimeout or urllib3's ConnectTimeoutError (timed out), NameResolutionError (name
+    not found), NewConnectionError (refused or no route; timed out when the system's error says so); for GDAL's
+    errors (RasterioIOError, or our RuntimeError carrying its text) GDAL_CONNECT_FAILURES. An Unreachable keeps its
+    kind. A read timeout, a connection reset or closed by the server, an HTTP status, a short answer: None."""
     import urllib3.exceptions as u3
     seen = set()
     while error is not None and id(error) not in seen:
         seen.add(id(error))
-        if isinstance(error, (Unreachable, requests.exceptions.ConnectTimeout, u3.NewConnectionError,
-                              u3.ConnectTimeoutError)):
-            return True
+        if isinstance(error, Unreachable):
+            return next((k for k in CONNECT_KINDS if str(error).endswith(f"({k})")), REFUSED)
+        if isinstance(error, u3.NameResolutionError):
+            return NO_NAME
+        if isinstance(error, (requests.exceptions.ConnectTimeout, u3.ConnectTimeoutError)) and \
+                not isinstance(error, u3.NewConnectionError):
+            return TIMED_OUT
+        if isinstance(error, u3.NewConnectionError):
+            cause = error.__cause__ or error.__context__
+            number = getattr(cause, "winerror", None) or getattr(cause, "errno", None)
+            timed_out = number in _TIMED_OUT_ERRNOS or isinstance(cause, TimeoutError)
+            return TIMED_OUT if timed_out else REFUSED
         if isinstance(error, u3.MaxRetryError):
             error = error.reason
         elif isinstance(error, requests.exceptions.ConnectionError):
             error = error.args[0] if error.args and isinstance(error.args[0], BaseException) else None
         elif isinstance(error, (requests.RequestException, u3.HTTPError)):
-            return False
+            return None
         elif isinstance(error, (rio.errors.RasterioIOError, RuntimeError)):
-            return any(re.search(p, str(error)) for p in GDAL_CONNECT_FAILURES)
+            return next((kind for pattern, kind in GDAL_CONNECT_FAILURES if re.search(pattern, str(error))), None)
         else:
-            return False
-    return False
+            return None
+    return None
+
+
+def connect_failed(error: Optional[BaseException]) -> bool:
+    """Whether an error says, on a positive sign, that no connection to the host could be made (connect_kind)."""
+    return connect_kind(error) is not None
+
+
+def unreachable(url: str, error: BaseException) -> Unreachable:
+    """The Unreachable of a read of url that could not connect (connect_kind of error, which must say so): our own
+    message, "<host> could not be connected to (<kind>)", the same from both readers and for every failure of that
+    kind (no object address, no port, no duration: tools/area_download.py and the regression harness compare it);
+    the library's text logged at debug level."""
+    kind = connect_kind(error) or REFUSED
+    logging.getLogger(__name__).debug("%s: %s", _host(url), cache.clean_error(error))
+    return Unreachable(f"{_host(url)} could not be connected to ({kind})")
 
 
 _downloads = threading.local()  # .current: the UnreachableHosts of the download whose task this thread runs

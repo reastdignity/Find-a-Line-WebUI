@@ -372,6 +372,31 @@ def test_estonia_ranged_group(ee_served, http_server):
         assert np.array_equal(values[np.isfinite(values)], expected[np.isfinite(expected)])
 
 
+def test_estonia_ranged_block_in_strips(ee_served, http_server, tmp_path, monkeypatch):
+    """A block of the catalogue's DTM read in strips with prefetch (windows._ranged_values, since 2026-11-24) gives
+    the values of the reader before it (GDAL's reads through our ranges), of GDAL's /vsicurl/ reading the same bytes
+    at a .tif address (all written as cached tiles); two blocks of the sheet, one with its nodata corner."""
+    from sources.readers import windows
+    layer = src.SOURCES["estonia"].nmt
+    http_server.add("/ee/64442.tif", (tmp_path / "64442.tif").read_bytes(), "image/tiff")
+    strips = windows._ranged_values
+    for tile, expected in (((516, 5235), ee_served[:1250, :1250]), ((517, 5235), ee_served[:1250, 1250:2500])):
+        request = layer.index.request(tile)
+        found = {}
+        for name in ("strips", "before", "gdal"):
+            monkeypatch.setattr(windows, "_ranged_values", strips if name != "before" else (
+                lambda s, f, crs, t, shape, warp=None: windows._values_on(s, crs, t, shape, warp)))
+            files = [("64442", http_server.url("/ee/64442.tif"), 0)] if name == "gdal" else request.files
+            out = str(tmp_path / f"{name}.tif")
+            windows._read_block(files, request.crs, request.transform, request.shape, out, "test",
+                                ranged=name != "gdal")
+            with rio.open(out) as block:
+                found[name] = block.read(1)
+        for name, values in found.items():
+            assert np.array_equal(values, found["gdal"], equal_nan=True), (tile, name)
+        assert np.array_equal(np.isnan(found["strips"]), np.isnan(expected))
+
+
 def test_estonia_error_page_as_206_never_cached(http_server, tmp_path, monkeypatch):
     """The address's error page with HTTP 206 and its own Content-Range: not a TIFF, an error naming the page's text,
     nothing written; also through the group read and the probe's window."""

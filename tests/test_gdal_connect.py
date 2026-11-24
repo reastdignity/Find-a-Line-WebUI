@@ -11,6 +11,7 @@ The slow server is a socket server of this module on 127.0.0.1 (tests/http_serve
 
 import contextlib
 import os
+import re
 import socket
 import sys
 import threading
@@ -39,6 +40,8 @@ CRS = "EPSG:2180"
 CONNECT_S = 1  # the connect timeout of these tests (the app's: net.CONNECT_TIMEOUT_S)
 PAUSE_S = 1.5  # each answer of the slow server: half its body, this pause, the rest (longer than CONNECT_S)
 DEAD = "http://192.0.2.1/never/M_DEAD2023.TIF"
+# net.Unreachable's message: the host and its kind, nothing that varies (the regression harness matches it)
+MESSAGE = r"^(\S+) could not be connected to \((timed out|refused or no route|name not found)\)$"
 
 
 def test_the_settings():
@@ -79,7 +82,7 @@ def test_an_address_that_never_answers(short, tmp_path):
     (a RuntimeError "Could not read ...", what the readers raise). Where it timed out, it waited for them."""
     rasterio.cache.invalidate(DEAD)
     start = time.monotonic()
-    with pytest.raises(net.Unreachable, match="Could not read dead") as error:
+    with pytest.raises(net.Unreachable, match=r"^192\.0\.2\.1 could not be connected to ") as error:
         windows._read_block([("dead", DEAD, 2023)], CRS, Affine(0.5, 0, 0, 0, -0.5, 0), (20, 20),
                             str(tmp_path / "dead.tif"), "dead")
     seconds = time.monotonic() - start
@@ -269,7 +272,7 @@ def test_a_download_stops_asking_a_dead_host(short, tmp_path, monkeypatch):
         errors = _download(layer, grid, str(tmp_path / f"cache{k}"))
         seconds = time.monotonic() - start
         assert len(errors) == 8 and all(isinstance(e, net.Unreachable) for e in errors)
-        assert len({str(e) for e in errors}) == 1 and "Could not read AHN dead" in str(errors[0])
+        assert len({str(e) for e in errors}) == 1 and re.match(MESSAGE, str(errors[0])).group(1) == "192.0.2.1"
         assert attempts == [DEAD] * (net.OPEN_RETRIES + 1), attempts
         assert seconds <= 1.5 * one + 0.5, (seconds, one)
 
@@ -351,3 +354,71 @@ def test_a_slow_answer_is_read_whole(short, slow_server, tmp_path):
     with rio.open(tmp_path / "remote.tif") as a, rio.open(tmp_path / "local.tif") as b:
         assert np.array_equal(a.read(1), b.read(1), equal_nan=True)
     assert answers and min(answers) > CONNECT_S
+
+
+@pytest.mark.parametrize("error, kind", [
+    (requests.exceptions.ConnectTimeout("connect timeout"), net.TIMED_OUT),
+    (_pool_error(urllib3.exceptions.ConnectTimeoutError(None, "connect timeout")), net.TIMED_OUT),
+    (_pool_error(urllib3.exceptions.NameResolutionError("x.invalid", None, OSError("not found"))), net.NO_NAME),
+    (_pool_error(urllib3.exceptions.NewConnectionError(None, "refused")), net.REFUSED),
+    (rio.errors.RasterioIOError("CURL error: Connection timed out after 5012 milliseconds"), net.TIMED_OUT),
+    (rio.errors.RasterioIOError("CURL error: Failed to connect to h port 80 after 2 ms: Could not connect to server"),
+     net.REFUSED),
+    (rio.errors.RasterioIOError("CURL error: Could not resolve host: basisdata.invalid"), net.NO_NAME),
+    (requests.exceptions.ReadTimeout("read timeout"), None),
+])
+def test_connect_kinds(error, kind):
+    """The kind of a failed connection, one of net.CONNECT_KINDS, from requests' errors and curl's texts alike."""
+    assert net.connect_kind(error) == kind
+
+
+def _caused(error, cause):
+    error.__cause__ = cause
+    return error
+
+
+@pytest.mark.parametrize("cause, kind", [
+    (ConnectionRefusedError(10061, "refused"), net.REFUSED),
+    (OSError(101, "Network is unreachable"), net.REFUSED),
+    (TimeoutError(110, "timed out"), net.TIMED_OUT),
+])
+def test_connect_kind_from_the_system_error(cause, kind):
+    """A NewConnectionError's kind by the system's error under it: refused or no route, or timed out."""
+    error = _caused(urllib3.exceptions.NewConnectionError(None, "Failed to establish a new connection"), cause)
+    assert net.connect_kind(_pool_error(error)) == kind
+
+
+def test_both_readers_say_the_same(short, tmp_path):
+    """A closed local port read through GDAL and through our own ranges, twice: net.Unreachable with one message,
+    the host and the kind (refused, or timed out where the system's refusal takes longer than CONNECT_S), equal
+    every time and from both readers."""
+    url = f"http://127.0.0.1:{_closed_port()}/x/M_TEST2023.TIF"
+    messages = []
+    for ranged in (False, True, True):
+        rasterio.cache.invalidate(url)
+        with pytest.raises(net.Unreachable) as error:
+            windows._read_block([("x", url, 2023)], CRS, Affine(0.5, 0, 0, 0, -0.5, 0), (20, 20),
+                                str(tmp_path / "x.tif"), "x", ranged=ranged)
+        messages.append(str(error.value))
+    assert len(set(messages)) == 1 and re.match(MESSAGE, messages[0]).group(1) == "127.0.0.1", messages
+
+
+def test_a_dead_host_and_a_live_one_in_one_download(short, http_server, small_file, tmp_path, monkeypatch):
+    """One download (with on_error, as tools/area_download.py) of a dead host's 8 blocks and a live host's 6:
+    on_error once per task of the dead host, each with the same error; connection attempts for one of its tasks
+    only; the live host's blocks all downloaded."""
+    monkeypatch.setattr(net, "HOST_SLOTS_OF", dict(net.HOST_SLOTS_OF, **{"192.0.2.1": 1}))
+    attempts = []
+    monkeypatch.setattr(net, "rate_turn", lambda url, share=1.0: attempts.append(url))
+    http_server.add("/live/S_TEST2023.TIF", small_file.read_bytes(), "image/tiff")
+    dead, grid = _dead_layer(DEAD)
+    live = FileBlocks("AHN live", "test/live/1", CRS, 0.5, 100, http_server.url("/live/S_TEST2023.TIF"),
+                      extent=(2000.0, 3700.0, 2300.0, 4000.0), ranged=True)
+    cache_dir = str(tmp_path / "cache")
+    calls = []
+    src.download_layers([(dead, "terrain"), (live, "surface")], grid, cache_dir,
+                        on_error=lambda layer, tiles, e: calls.append((layer, len(tiles), e)), reencode_cached=False)
+    assert len(calls) == 8 and all(layer is dead and n == 1 for layer, n, _ in calls)
+    assert len({str(e) for _, _, e in calls}) == 1 and all(isinstance(e, net.Unreachable) for _, _, e in calls)
+    assert attempts.count(DEAD) == net.OPEN_RETRIES + 1
+    assert sum(os.path.exists(live.tile_path(cache_dir, tile)) for tile in live.tiles(grid)) == 6  # 2 beyond the file
