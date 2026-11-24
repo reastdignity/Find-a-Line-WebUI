@@ -151,7 +151,7 @@ so a window closed at such a moment ended with a traceback too. `AreaRow.show` n
 when the row has no cells (`test_a_row_without_its_cells_takes_a_state_quietly`; on a row never mounted the tool as
 it was raises NoMatches, the new one returns).
 
-## Two searches saved at once on Windows: one can fail reading the other's run.json
+## Two searches saved at once on Windows: one could fail reading the other's run.json (mended 2026-11-24)
 
 `tests/test_web.py::test_two_jobs_computing_at_once` failed once on CI's Windows runner (run 45285547602,
 2026-11-23): one of its two jobs ended "failed" with `PermissionError: [Errno 13] Permission denied:
@@ -168,8 +168,21 @@ refusal at the median and 29 ms at the longest; the writer was never refused. Wi
 1 184 and 1 263 opens refused, and 1 697 and 1 621 of the writer's 3 000 moves. What holds the new file for those
 milliseconds is not established (the move's own handle, opened for deleting, which Python's `open` does not share;
 or a scanner opening a new file; the PC was loaded by other sessions' runs). `list_runs` is also what the web's
-lists of runs call (`web.py`), without the lock. Not mended: a change of `runs.py` waits for the user's word. A red
-`test_two_jobs_computing_at_once` on Windows with this error is this.
+lists of runs call (`web.py`), without the lock.
+
+**Mended for the listing** (the user's choice of 2026-11-24, the option worded "A short wait in runs.list_runs after
+a refused read"): `runs.list_runs`
+opens a refused run.json again after each of `runs.READ_PAUSES` (seven pauses, 1.58 s in all, over fifty times the
+longest hold measured; then the error as before). On Windows only: on every other system there are no pauses and a
+refusal is raised at once, as before. Shown through `list_runs` itself while another process saved 3 000 new runs
+with `cache.replacing`: the code as it was (`main` b248ddb5) raised PermissionError in 1 774 of the 3 000 rounds;
+the mended code in none, having waited in 1 711 of them, once each (10 ms).
+`tests/test_units.py::test_a_listing_waits_for_a_run_json_windows_refuses` makes the refusal with a fake `open`. Not
+covered: the other readers of a run.json (`runs.run_state`, the web's export checks and its bounds check of a
+profile or a 3D view, `web.profile_problem`, which takes a file it cannot open for a run without profiles; the quick
+lane's tasks, `linestore.export`, `findaline.py`, `update.py`), which read runs saved earlier. A red
+`test_two_jobs_computing_at_once` on Windows with this error after 2026-11-24 is new: the hold then outlasted the
+pauses, or it came at another reader.
 
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
@@ -511,7 +524,14 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   themselves (`[phone-None]` 220 and 904 s, `[full-edges]` 702 and 186 s), so the CPU is a lead and no more. One
   red job: an observation, not a cause. The next red and green lines say whether every slow job is on that CPU
   (then: what the ring's page asks of Edge's software WebGL that the ten frames, a loop per pixel without a texture,
-  do not).
+  do not). **The next four lines, of the same day** (CI 45352195288 on `main` 89c2f507, CI 45363081779): view3d
+  passed on AMD EPYC 9V74 (834 and 837 ms, 8 min) and on the Xeon 8573C (1 136 and 1 199 ms, 13 min); the ring
+  stalled on the AMD EPYC 7763 itself (977 and 980 ms; `[full-None]` over its 1 500 s, `[phone-None]` 530 s, stopped
+  at 60 min) and once more on the Xeon 8573C (1 147 and 1 146 ms; `[full-None]` and `[full-edges]` over 1 500 s,
+  `[phone-None]` 467 s). So of the five ring jobs with the line, both on the Xeon stalled and one of the three on
+  the EPYC 7763 (with the ten-frame time of the two that passed): a stall comes on either CPU, so the name does not
+  decide it, and five jobs are too few to say that it weighs. The frame time tells nothing. In all three slow jobs
+  `[full-None]` ran into its 1 500 s.
 - **Four tests failed once under round 5's loaded full runs on this PC and pass alone** (none in item 5's path; the
   first two passed 3 of 3 alone on the stack and on `main` a86b86e8): `test_web::test_basic_form_sea_cliffs_fills_the_limit`
   (twice; the limit's box and the map view's read before it differ by about 400 m north to south);

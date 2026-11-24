@@ -2841,6 +2841,47 @@ def test_shared_run_files_one_process_at_a_time(tmp_path):
     assert (runs_dir / "_viewer" / "viewer.js").exists() and not (runs_dir / "index.html").exists()  # store wave 4
 
 
+def test_a_listing_waits_for_a_run_json_windows_refuses(tmp_path, monkeypatch):
+    """runs.list_runs opens a run.json again while Windows refuses it (PermissionError): the file is held for a
+    moment after another process moved it to its name, and a search that listed the runs at that moment (two compute
+    slots, test_two_jobs_computing_at_once on CI's Windows runner) ended as failed. After the last pause the error
+    is raised; another error, and a refusal on a system without the pauses (every one but Windows), at once."""
+    import json
+
+    import runs
+    pauses = getattr(runs, "READ_PAUSES", ())  # the system's own, checked at the end
+    runs_dir = tmp_path / "runs"
+    for second, name in enumerate(("one", "two")):
+        (runs_dir / name).mkdir(parents=True)
+        (runs_dir / name / "run.json").write_text(
+            json.dumps({"id": name, "created": f"2026-11-24T10:00:0{second}+00:00"}), encoding="utf-8")
+    refused = []  # the errors the next opens of a run.json meet
+
+    def opened(path, *args, **more):
+        if os.path.basename(path) == "run.json" and refused:
+            raise refused.pop(0)(13, "Permission denied", str(path))
+        return open(path, *args, **more)
+
+    monkeypatch.setattr(runs, "open", opened, raising=False)  # the name as runs.py sees it: no other module's open
+    monkeypatch.setattr(runs, "READ_PAUSES", (0.0, 0.001, 0.002), raising=False)
+    refused[:] = [PermissionError] * 3
+    assert [r["id"] for r in runs.list_runs(str(runs_dir))] == ["two", "one"] and refused == []  # then read
+    refused[:] = [PermissionError] * 9
+    with pytest.raises(PermissionError):
+        runs.list_runs(str(runs_dir))
+    assert len(refused) == 5  # once and after each of the three pauses
+    refused[:] = [FileNotFoundError, PermissionError]
+    with pytest.raises(FileNotFoundError):
+        runs.list_runs(str(runs_dir))
+    assert refused == [PermissionError]  # another error: not tried again
+    monkeypatch.setattr(runs, "READ_PAUSES", ())  # as on every system but Windows
+    refused[:] = [PermissionError] * 2
+    with pytest.raises(PermissionError):
+        runs.list_runs(str(runs_dir))
+    assert len(refused) == 1  # a refusal there: at once
+    assert bool(pauses) == (os.name == "nt") and sum(pauses) < 5  # a listing never waits long (the runs lock)
+
+
 def test_labels_topics_and_presets():
     """Every field the web may set has a label, a unit and a hint in the message catalogue
     (locales/en.json), and every choice of a choice field a label; every such field belongs to one
