@@ -2913,11 +2913,15 @@ def test_cache_status_waits_for_a_run_json_windows_refuses(tmp_path, monkeypatch
     changes = update.changed_runs(cache_dir, str(runs_dir))
     assert [(c.name, c.changed, c.files, c.approximate) for c in changes] == [("one", 1, 1, True), ("two", 1, 1, True)]
     assert refused == []  # all three met, then read
+    refused[:] = [PermissionError] * 4  # the first run's read: once and after each of the three pauses, then given up
+    changes = update.changed_runs(cache_dir, str(runs_dir))
+    assert [(c.name, c.unreadable, c.changed) for c in changes] == [("one", True, 0), ("two", False, 1)]
+    assert changes[0].line() == "one: its run.json cannot be read (not checked)"
+    assert refused == []  # none left for the second run: it is read and counted beside the one that is named
     refused[:] = [PermissionError] * 9
     changes = update.changed_runs(cache_dir, str(runs_dir))
     assert [(c.name, c.unreadable) for c in changes] == [("one", True), ("two", True)]
-    assert changes[0].line() == "one: its run.json cannot be read (not checked)"
-    assert len(refused) == 1  # each run: once and after each of the three pauses, then given up
+    assert len(refused) == 1  # each run: four tries, no more
 
 
 def test_labels_topics_and_presets():

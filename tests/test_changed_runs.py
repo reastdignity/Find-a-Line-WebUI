@@ -352,22 +352,53 @@ def test_a_run_json_that_cannot_be_read_is_named(tmp_path, monkeypatch):
 
 def test_a_run_removed_while_the_runs_are_listed_is_no_run(tmp_path, monkeypatch):
     """A run folder taken away between the listing of the folder and the read of its run.json (a run being removed:
-    runs.park_run moves it aside) is no run any more: left out without a line (the command used to end with the
-    FileNotFoundError); the other runs are told as ever."""
+    runs.park_run moves it aside, here for real) is no run any more: left out without a line (the command used to
+    end with the FileNotFoundError); the other runs are told as ever."""
     names = ["poland/nmt/a.tif", "poland/nmt/b.tif"]
     data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
     for name in ("gone", "stays"):
         _run(data, name, {"data": [_entry(cache_dir, names)], "identity": VERSIONS})
     os.remove(os.path.join(cache_dir, names[0]))
+    runs_dir = os.path.join(data, "runs")
     read = update.rn.read_meta
 
     def parked(path):
         if os.path.basename(os.path.dirname(path)) == "gone":
-            raise FileNotFoundError(2, "No such file or directory", path)
+            assert update.rn.park_run(runs_dir, "gone")  # the first step of its removal, after the listing
         return read(path)
     monkeypatch.setattr(update.rn, "read_meta", parked)
-    lines = [c.line() for c in update.changed_runs(os.path.join(data, "cache"), os.path.join(data, "runs"))]
+    lines = [c.line() for c in update.changed_runs(os.path.join(data, "cache"), runs_dir)]
     assert lines == ["stays: 1 of 2 files changed"]
+    assert not os.path.lexists(os.path.join(runs_dir, "gone"))
+
+
+@pytest.mark.parametrize("lost", ["the run.json", "the runs folder"])
+def test_a_run_json_not_found_while_its_run_may_exist_is_named(tmp_path, monkeypatch, lost):
+    """Only a run whose folder is gone is left out. A run.json that is missing while its folder is there, and one
+    that is "not found" because the runs folder itself cannot be reached (Windows reports a lost network drive so:
+    every run read after the drop), is a run.json that cannot be read: the run is named as not checked, so a drive
+    that drops never reads as "nothing changed"."""
+    names = ["poland/nmt/a.tif", "poland/nmt/b.tif"]
+    data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
+    for name in ("first", "second"):
+        _run(data, name, {"data": [_entry(cache_dir, names)], "identity": VERSIONS})
+    os.remove(os.path.join(cache_dir, names[0]))
+    runs_dir = os.path.join(data, "runs")
+    read = update.rn.read_meta
+
+    def taken(path):
+        if lost == "the run.json" and os.path.basename(os.path.dirname(path)) == "first":
+            os.remove(path)
+        elif lost == "the runs folder" and os.path.isdir(runs_dir):
+            os.rename(runs_dir, runs_dir + "-lost")
+        return read(path)
+    monkeypatch.setattr(update.rn, "read_meta", taken)
+    lines = [c.line() for c in update.changed_runs(os.path.join(data, "cache"), runs_dir)]
+    not_checked = "{}: its run.json cannot be read (not checked)".format
+    if lost == "the run.json":
+        assert lines == [not_checked("first"), "second: 1 of 2 files changed"]
+    else:
+        assert lines == [not_checked("first"), not_checked("second")]
 
 
 def test_more_files_than_one_query_and_rows_not_ok(tmp_path):

@@ -387,7 +387,7 @@ class RunChange:
     unknown: int = 0           # no checksum on one side (a file adopted by hand): neither changed nor the same
     approximate: bool = False  # a run made before the data record: today's rule by fetch times (_approximate)
     notes: List[str] = field(default_factory=list)
-    unreadable: bool = False   # its run.json cannot be read or is no object: named, never left out
+    unreadable: bool = False   # its run.json cannot be read or is no object: named (what is left out: _read_runs)
     error: Optional[str] = None  # the class of an error judging it raised (a fault of the code): named too
 
     def listed(self) -> bool:
@@ -707,7 +707,10 @@ def _read_runs(runs_dir: str) -> List[Tuple[str, Optional[Dict]]]:
     folder's own name is no pattern ("[" and "]" in a data folder's path). Every run of the folder is read, also one
     a search saves at this moment: through runs.read_meta, which waits out Windows' refusal of a file that has just
     appeared (the command used to end with the PermissionError); one still refused after the last pause cannot be
-    read, like any other."""
+    read, like any other. One run is left out: a run whose folder is gone since the folder was listed (a run being
+    removed: runs.park_run renames it) is no run any more. A run.json that is missing while its folder is there, or
+    while the runs folder itself cannot be reached (Windows reports a lost drive as "not found" too), cannot be read:
+    the run is named, not left out."""
     found = []
     for path in sorted(glob.glob(os.path.join(glob.escape(runs_dir), "*", "run.json"))):
         name = os.path.basename(os.path.dirname(path))
@@ -716,7 +719,9 @@ def _read_runs(runs_dir: str) -> List[Tuple[str, Optional[Dict]]]:
         try:
             meta = rn.read_meta(path)
         except FileNotFoundError:
-            continue  # gone since the folder was listed (a run being removed: runs.park_run): no run any more
+            if os.path.isdir(runs_dir) and not os.path.lexists(os.path.dirname(path)):
+                continue  # its folder is gone since the listing (a run being removed): no run any more
+            meta = None
         except (OSError, ValueError, RecursionError):
             meta = None
         found.append((name, meta if isinstance(meta, dict) else None))
@@ -727,7 +732,8 @@ def changed_runs(cache_dir: str, runs_dir: str) -> List[RunChange]:
     """The saved runs computed on data that has changed since, in the order of their folders (RunChange.listed).
     Exact for a run with the data record (_exact: the checksums the search noted against the index's now); a run
     made before it by fetch times, marked approximate (_approximate); a run whose run.json cannot be read named as
-    not checked, never left out, and one whose judging raised (a fault of the code) named with the error's class.
+    not checked, never left out (only a run whose folder is gone since the listing is no run: _read_runs), and one
+    whose judging raised (a fault of the code) named with the error's class.
     Reads only: every index and Nominatim's answers with one read-only connection per file for all the runs
     (_index_rows), no folder, index or table is made (the files SQLite itself can leave: _read_only)."""
     runs, paths, asked, failed = [], [], [], {}
