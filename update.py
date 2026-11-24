@@ -42,7 +42,6 @@ than its interval (stale); --all checks everything that can change.
 import argparse
 import glob
 import hashlib
-import json
 import os
 import sqlite3
 import urllib.parse
@@ -59,6 +58,7 @@ import coast
 import orthophoto
 import osm
 import osmextract
+import runs as rn
 import settings
 import sources as src
 from progress import progress
@@ -704,15 +704,17 @@ def _wanted(meta: Dict) -> Tuple[List[str], List[Tuple[str, str]]]:
 def _read_runs(runs_dir: str) -> List[Tuple[str, Optional[Dict]]]:
     """(folder, run.json as an object, or None when it cannot be read, is nested too deep for the parser or is no
     object), in the folders' order; folders starting with "_" or "." are no runs (runs.list_runs' rule). The runs
-    folder's own name is no pattern ("[" and "]" in a data folder's path)."""
+    folder's own name is no pattern ("[" and "]" in a data folder's path). Every run of the folder is read, also one
+    a search saves at this moment: through runs.read_meta, which waits out Windows' refusal of a file that has just
+    appeared (the command used to end with the PermissionError); one still refused after the last pause cannot be
+    read, like any other."""
     found = []
     for path in sorted(glob.glob(os.path.join(glob.escape(runs_dir), "*", "run.json"))):
         name = os.path.basename(os.path.dirname(path))
         if name.startswith((".", "_")):
             continue
         try:
-            with open(path, encoding="utf-8") as f:
-                meta = json.load(f)
+            meta = rn.read_meta(path)
         except (OSError, ValueError, RecursionError):
             meta = None
         found.append((name, meta if isinstance(meta, dict) else None))

@@ -177,12 +177,33 @@ longest hold measured; then the error as before). On Windows only: on every othe
 refusal is raised at once, as before. Shown through `list_runs` itself while another process saved 3 000 new runs
 with `cache.replacing`: the code as it was (`main` b248ddb5) raised PermissionError in 1 774 of the 3 000 rounds;
 the mended code in none, having waited in 1 711 of them, once each (10 ms).
-`tests/test_units.py::test_a_listing_waits_for_a_run_json_windows_refuses` makes the refusal with a fake `open`. Not
-covered: the other readers of a run.json (`runs.run_state`, the web's export checks and its bounds check of a
-profile or a 3D view, `web.profile_problem`, which takes a file it cannot open for a run without profiles; the quick
-lane's tasks, `linestore.export`, `findaline.py`, `update.py`), which read runs saved earlier. A red
-`test_two_jobs_computing_at_once` on Windows with this error after 2026-11-24 is new: the hold then outlasted the
-pauses, or it came at another reader.
+`tests/test_units.py::test_a_listing_waits_for_a_run_json_windows_refuses` makes the refusal with a fake `open`.
+
+**Mended for `cache status` too** (the user's choice of 2026-11-24, the option worded "Mend `cache status` as
+well"). Until then this entry said of every other reader of a run.json that it reads runs saved earlier. That was
+wrong for the two that go through the runs folder, as the listing does. `update.changed_runs` (its one caller
+`update.status`, the command `findaline.py cache status`) opened each run.json it found, and a refusal ended the
+command with the PermissionError. Shown through `changed_runs` itself while another process saved 3 000 new runs
+with `cache.replacing`: the code as it was (`main` 47d46aa4) raised PermissionError in 1 091 of the 3 000 rounds;
+the mended code in none in two runs, having waited in 755 and in 892 of them, once each (10 ms). It reads through
+the listing's waiting read now (`runs.read_meta`: the same pauses, on Windows only);
+`tests/test_units.py::test_cache_status_waits_for_a_run_json_windows_refuses` makes the refusal with a fake `open`.
+Since the data record (the same day) a run.json still refused after the last pause no longer ends the command: that
+run is named as not checked ("its run.json cannot be read") and the other runs are listed.
+`runs.run_state` (the command `findaline.py runs remove-old`) needed no mending: it takes a run.json it cannot open
+for a run to skip ("cannot read now"), never for an old one.
+
+Not covered: the readers that are handed a run. They are the web's `has_store` and `take_export` (an export),
+`web.profile_problem` (the public site's bounds check of a profile or a 3D view, which takes a file it cannot open
+for a run without profiles), the quick lane's tasks (a profile, a 3D view's terrain, a reach, an export with
+`linestore.export`) and the commands `findaline.py export` and `view`. Why they should be safe is read from the
+code, not measured: a page or a command names the run to them after it learned of it, from a listing that read its
+run.json or from the end of its search, which should be later than the milliseconds measured. That rests on a saved
+run's run.json being written once (`runs.save_results`): whatever replaces the run.json of a saved run puts each of
+them where the listing was. Measured in one process: an open made after the move had returned was never refused
+(3 000 new files and 3 000 moves onto one file: none); an open by another thread of the writer's process while the
+move is under way was not measured. A red `test_two_jobs_computing_at_once` on Windows with this error after
+2026-11-24 is new: the hold then outlasted the pauses, or it came at another reader.
 
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
