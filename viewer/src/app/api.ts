@@ -109,6 +109,7 @@ export interface RunListed {
   shared: boolean;   // has a share link (the public site)
   own: boolean;      // the user's own run (else a demo run of someone else)
   demo: boolean;     // a demo run: its map is open to everyone (the public site)
+  bytes: number | null;  // its size as stored (run.json's store.bytes: its store's two files); null: saved without it
 }
 
 /** The admin tab (the public site): users, every run, the server. */

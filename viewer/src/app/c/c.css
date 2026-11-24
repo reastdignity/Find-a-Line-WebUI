@@ -102,6 +102,8 @@
 .ui a.c-card-open:hover .c-card-name { color: var(--accent); }
 .ui .c-card-name { font-weight: 600; font-size: var(--fs-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .c-card-meta { overflow-wrap: anywhere; }
+/* a finished run's two fixed lines under its name: the counts, then the time and the size */
+.ui .c-card-meta2 { display: block; }
 .ui .c-card-panel { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--r-2); background: var(--surface-2); }
 /* a card's panel (Share, Delete…, Remove…) under its body; scrolled into view with room to spare (above the phones'
    bottom bar: the page's scroll-padding-bottom) */

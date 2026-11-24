@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Button, Chip, Chips, IconButton, Panel, Progress, StatusChip } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { LinkField, Popover } from "../../result/view";
+import { count } from "../../result/view/common";
 import { forgetRun, forgetRunList } from "../../result/load";
 import { RenameForm } from "../../result/view/RunRename";
 import { canReport, openReport } from "../../report";
@@ -18,6 +19,7 @@ import { Thumb, ThumbCredit, type ThumbSource } from "./Thumb";
 import { Trip } from "./Trip";
 import { SearchedCard } from "./Searched";
 import { timeOf, when } from "../../time";
+import { sizeText } from "../../size";
 
 export interface RunsState {
   runs: RunListed[] | null;
@@ -55,12 +57,15 @@ export function cardsOf(jobs: JobView[], runs: RunListed[], publicSite: boolean)
 
 /** "27 Oct 2026, 10:41" from an ISO time (as written, no time zone arithmetic). */
 
-/** "1 spot", "12 lines": a count with its plural form from the catalogue. */
-const spots = (n: number) => t("ui.result.spots", {count: n, n});
-const lines = (n: number) => t("ui.result.lines", {count: n, n});
+/** "1 spot", "1 162 480 lines": a count with its plural form from the catalogue, its thousands grouped as in the
+ *  result view (common.tsx count). */
+const spots = (n: number) => t("ui.result.spots", {count: n, n: count(n)});
+const lines = (n: number) => t("ui.result.lines", {count: n, n: count(n)});
 
+/** `counts`: a finished run's card, whose `meta` is its counts: the card writes them as a line of their own, over
+ *  the line of the time and the size. */
 type CardState = {status: "running" | "waiting" | "done" | "failed" | "cancelled" | "shared"; chip: string;
-                  meta: string; fraction: number | null; step: string; unfinished: boolean};
+                  meta: string; fraction: number | null; step: string; unfinished: boolean; counts?: boolean};
 
 function stateOf(card: Card): CardState {
   const {job, run} = card;
@@ -82,7 +87,7 @@ function stateOf(card: Card): CardState {
   if (run) {
     return {status: run.shared ? "shared" : "done", chip: t(run.shared ? "ui.kit.status.shared" : "ui.kit.status.done"),
             unfinished: false, meta: `${spots(run.summary.spots)} · ${lines(run.summary.lines)}`,
-            fraction: null, step: ""};
+            fraction: null, step: "", counts: true};
   }
   return {status: "done", chip: t("ui.kit.status.done"), meta: t(job?.run_id ? "ui.card.saved" : "ui.card.finished"),
           fraction: null, step: "", unfinished: false};
@@ -191,9 +196,14 @@ function SearchCard({card, runs, jobs, publicSite, highlight, usage, onGone}:
       <Icon name="bin" />{t("ui.card.remove")}</button>,
   ].filter(Boolean);
 
+  // Under the name a finished run has two fixed lines: its counts, then the time and its size as stored (none for
+  // a run saved without the number); any other card one line as before
   const body = <>
     <span class="c-card-name">{name}</span>
-    <span class="u-small c-card-meta">{[st.meta, !st.unfinished && when(card.created)].filter(Boolean).join(" · ")}</span>
+    {st.counts && run ? <>
+      <span class="u-small c-card-meta c-card-meta2">{st.meta}</span>
+      <span class="u-small c-card-meta c-card-meta2">{[when(card.created), sizeText(run.bytes)].filter(Boolean).join(" · ")}</span>
+    </> : <span class="u-small c-card-meta">{[st.meta, !st.unfinished && when(card.created)].filter(Boolean).join(" · ")}</span>}
   </>;
   return <article ref={ref} class={`c-card${highlight ? " c-card-new" : ""}`} data-job={job?.id} data-run={run?.id}
                   data-status={st.status}>

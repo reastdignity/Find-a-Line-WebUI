@@ -8,18 +8,20 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import { t } from "../../i18n";
 import { Button, Progress } from "../../ui/components";
+import { downloadSizes } from "../../size";
 import type { LoadProgress } from "../load";
 
-const mb = (bytes: number) => (bytes / 2 ** 20).toFixed(1);
-
-/** The words of a phase of loading a run (null: not started). */
+/** The words of a phase of loading a run (null: not started). While downloading: the bytes got and the total in the
+ *  total's unit and cut as Home's card cuts the run's size (size.ts: a MB is 10^6 bytes), so the line ends at the
+ *  card's number; a total not known: the bytes got with their own unit. */
 export function loadingText(p: LoadProgress | null): string {
   if (!p) return t("ui.result.loading_start");
   if (p.phase === "parse") return t("ui.result.loading_parse");
   if (p.phase === "groups") return t("ui.result.loading_groups");
   if (p.done === undefined) return t("ui.result.loading_start");  // a script: no bytes known
-  return p.total ? t("ui.result.loading_download", {done: mb(p.done), total: mb(p.total)})
-    : t("ui.result.loading_download_unknown", {done: mb(p.done)});
+  const sizes = downloadSizes(p.done, p.total || null);
+  return p.total ? t("ui.result.loading_download", {done: sizes.done, total: sizes.total, unit: sizes.unit})
+    : t("ui.result.loading_download_unknown", {done: sizes.done, unit: sizes.unit});
 }
 
 export function RunLoading({progress, error, onRetry, more, children}:
