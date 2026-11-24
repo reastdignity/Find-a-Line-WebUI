@@ -81,10 +81,12 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   Maarten "nl" (their ISO 3166-2 codes only at zoom 8-10): those sources are chosen by bbox, and a new "fr" or "nl"
   source must keep its boxes off the others' islands. IGN's overseas RGE ALTI layers differ in alignment (Guadeloupe,
   Martinique, SPM: centres on whole metres; Guiana and the mainland: edges); check with a GetMap at half the resolution
-  (2 x 2 blocks). The AHN's Caribbean files name only a LOCAL_CS (`force_crs`); basisdata.nl went silent for this PC
-  after parallel reads at 4 connections. TINITALY's WCS and GA's 5 m WCS answer 0 without a nodata tag where they
-  hold nothing (`zero_is_nodata`); GA's covers about 3 % of Australia: `auto` picks `australia` only where its static
-  cells mask has data (`tools/au_coverage.py`, refreshed by hand). Sardinia's WFS keeps footprints in EPSG:3003: ask
+  (2 x 2 blocks). The AHN's Caribbean files name only a LOCAL_CS (`force_crs`); basisdata.nl blocked this network's
+  address after parallel reads at 4 connections (a block, confirmed 2026-11-23): 1 connection per data folder and
+  54 requests a minute (`net.py`), every request in its turn (the islands read through our own ranges, `ranged`)
+  until Het Waterschapshuis answers the mail (drafted, not sent). TINITALY's WCS and GA's 5 m WCS
+  answer 0 without a nodata tag where they hold nothing (`zero_is_nodata`); GA's covers about 3 % of Australia:
+  `auto` picks `australia` only where its static cells mask has data (`tools/au_coverage.py`, refreshed by hand). Sardinia's WFS keeps footprints in EPSG:3003: ask
   with SRSNAME 32632. Italian regional sources fall back on `tinitaly`, so a run it fills alone is CC BY. Queensland
   (CC BY-SA) is never a neighbour of a source filled by FABDEM. IDE Uruguay's sheets each have an origin off whole
   metres (`check_source`'s alignment WARN is expected).

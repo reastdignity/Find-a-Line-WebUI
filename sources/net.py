@@ -10,7 +10,7 @@ import re
 import tempfile
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 import rasterio as rio
@@ -24,7 +24,11 @@ import servicecounts
 # of the web worker download at once), through lock files in cache/locks/hosts (host_slot);
 # HOST_SLOTS_OF holds the hosts that need another number: connections at once. A slot is held
 # for a whole tile; a block of a FileBlocks/TnmBlocks layer is one slot however many range
-# requests GDAL makes for it (merged, several ranges per request: GDAL_HTTP_MULTIRANGE).
+# requests GDAL makes for it. Those GDAL asks in parallel (GDAL_HTTP_MULTIRANGE=YES: "each range will
+# be requested in parallel, using HTTP/2 multiplexing or several HTTP connections", GDAL 3.12's
+# configuration options): up to 8 connections at once inside one block's read (measured on the test
+# server, 2026-11-23), and it keeps a connection per thread, so a host of one slot is read through our own
+# ranges (single_connection). Slots are counted per data folder: two data folders, two connections.
 HOST_SLOTS = 8
 # GDAL's cache of the ranges it downloaded (CPL_VSIL_CURL_CACHE_SIZE, 16 MB by default), in each
 # process: the layers that read their windows range by range (Windows(serial=True), GDAL_HTTP_MULTIRANGE
@@ -135,10 +139,13 @@ HOST_SLOTS_OF: Dict[str, int] = {
     "service.pdok.nl": 4,
     # Het Waterschapshuis' basisdata.nl (Caribbean Netherlands' whole-island AHN files, redirected to Hetzner's
     # fsn1.your-objectstorage.com): no published limits (the dataroom page https://www.beeldmateriaal.nl/
-    # dataroom-caribisch-nederland and https://www.ahn.nl/dataroom, read 2026-11-15). It stopped answering this
-    # PC's connections on 2026-11-15 after about 18 parallel window reads per island at 4 connections (an outage or
-    # a block, unknown): two at once
-    "basisdata.nl": 2,
+    # dataroom-caribisch-nederland and https://www.ahn.nl/dataroom, read 2026-11-15). It blocked a development
+    # network's address on 2026-11-15 after about 18 parallel window reads per island at 4 connections (confirmed a
+    # block, not an outage, on 2026-11-23: the same address refused, other networks served). One connection per data
+    # folder (and HOST_RATES_OF), the user's decisions of 2026-11-23 and 24, until Het Waterschapshuis answers (a
+    # mail asks for its limits): the islands' layers read through our own ranges, one session of one connection
+    # (session(url)), every request in its turn
+    "basisdata.nl": 1,
     # Umhvørvisstovan's file server (the Faroe Islands' DSM): its terms (https://www.foroyakort.fo/um-foeroyakort/
     # terms-and-conditions-in-english, June 2019, read 2026-11-15) give no numbers and do "not guarantee the
     # continued provision of data": courtesy, two at once
@@ -233,9 +240,13 @@ RETRIES = 3
 # Requests per minute to a host, for the hosts whose provider publishes a limit (rate_turn): one
 # request admitted every 60/n s, shared by every process of the machine (or container). What
 # counts as a request is one we make: an attempt of _get, a page of a STAC search, an orthophoto
-# tile, a request of the probe; a window or block read through GDAL counts as one (its range
-# requests are GDAL's, merged and retried inside GDAL where nothing can wait between them; none
-# of these hosts is read that way now). The values stay about 10 % below the published ones.
+# tile, a request of the probe, a range of our own (ranges.get_range: the islands' files); a window
+# or block read through GDAL counts as one, one turn per attempt of a file's read (windows._read_block,
+# the probe's _window, the tools'): its range requests are GDAL's (a HEAD and about 16-18 ranges for a
+# block of 2000 x 2000 px), retried inside GDAL where nothing can wait between them, so the turns space
+# the blocks, not GDAL's requests: a host whose every request must wait is read through our own ranges
+# (basisdata.nl: Windows(ranged=True)). The values stay about 10 % below the published ones, or name
+# the promise or decision they keep.
 HOST_RATES_OF: Dict[str, int] = {
     # FSDI, "Fair use" limits of the federal geoservices (https://www.geo.admin.ch/de/allgemeine-
     # nutzungsbedingungen-bgdi, read 2026-11-01; the German page binds): "API Rest Services
@@ -258,6 +269,12 @@ HOST_RATES_OF: Dict[str, int] = {
     # of 2026-11-15 promises, "at most one request per second" (less 10 %), until DAERA answers (no limits published:
     # the items, the services and OpenDataNI's pages, read 2026-11-15)
     "tiles-eu1.arcgis.com": 54,
+    # Not a published limit: Het Waterschapshuis' basisdata.nl (Caribbean Netherlands' AHN files, read through our
+    # own ranges: every range request in its turn) at one request a second less 10 %, as DAERA's tiles: the user's
+    # decisions of 2026-11-23 and 24, after the host blocked a development network's address on 2026-11-15 (about 18
+    # parallel window reads per island at 4 connections; confirmed a block on 2026-11-23), until Het Waterschapshuis
+    # answers (the mail is drafted, not sent; no limits published: the dataroom pages, read 2026-11-15)
+    "basisdata.nl": 54,
     # The project's own data server (sources/readers/tilebases.py MIRROR_URL): 20 requests a second per address
     # (burst 40) by its limits (docs/mirror-hosting/spec.md A.5); half of it, 600 a minute (C.6)
     "mirror.findaline.lukawski.org": 600,
@@ -273,12 +290,31 @@ _rate_lock = threading.Lock()
 
 
 _sessions = threading.local()
+_shared: Dict[str, requests.Session] = {}  # limits host -> the one session of a host of one connection (session)
+_shared_lock = threading.Lock()
 
 
-def session() -> requests.Session:
+def session(url: Optional[str] = None) -> requests.Session:
     """The requests.Session of this thread: its connections stay open for the thread's next
     requests (keep-alive, no new TLS handshake per request). One per thread, as requests'
-    sessions are not meant to be shared between threads; dropped with its thread."""
+    sessions are not meant to be shared between threads; dropped with its thread.
+
+    For a url of a host of one connection (single_connection: basisdata.nl) one session of the process instead,
+    whose pools keep one connection each and make a thread wait while another uses it (pool_maxsize 1,
+    pool_block): a session per download thread kept one idle connection to the host per thread (2-3 of them with
+    4 threads, the code review of 2026-11-23). A redirect it follows (basisdata.nl's 307 to its object storage)
+    goes through the same session: one connection to each of the two hosts. Its users hold the host's slot, so
+    the session is used by one thread at a time."""
+    if url is not None and single_connection(url):
+        key = limits_host(url)
+        with _shared_lock:
+            found = _shared.get(key)
+            if found is None:
+                found = _shared[key] = requests.Session()
+                adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=1, pool_block=True)
+                found.mount("http://", adapter)
+                found.mount("https://", adapter)
+        return found
     found = getattr(_sessions, "session", None)
     if found is None:
         found = _sessions.session = requests.Session()
@@ -518,11 +554,17 @@ def host_slot(cache_dir: str, url: Optional[str]):
     not a busy host), so the file locks are tried by at most that many of them and LOCK_WAIT_S is
     spent waiting for other processes only. Polled at random, the 8 download threads of Slovenia's
     pass for ARSO's 2 slots let a thread lose for an hour to its own siblings ("busy with the
-    downloads of other searches", 2026-11-13)."""
+    downloads of other searches", 2026-11-13).
+
+    Inside a download (UnreachableHosts.run) a host that could not be connected to (Unreachable raised through its
+    slot) fails the download's other slots of it at once, before any request (UnreachableHosts)."""
     host = _host(url)
     if not host:
         yield
         return
+    download = getattr(_downloads, "current", None)
+    if download is not None:
+        download.check(host)
     folder = _locks(cache_dir, "hosts")
     slots = list(range(HOST_SLOTS_OF.get(limits_host(url), HOST_SLOTS)))
     key = (folder, host, len(slots))
@@ -533,9 +575,176 @@ def host_slot(cache_dir: str, url: Optional[str]):
                            f"(waited {QUEUE_WAIT_S // 60} min); try again later")
     try:
         with _file_slot(folder, host, slots):
-            yield
+            if download is not None:
+                download.check(host)  # failed while this one waited for the slot
+            try:
+                yield
+            except Unreachable as e:
+                if download is not None:
+                    download.dead(host, e)
+                raise
     finally:
         queue.release()
+
+
+def single_connection(url: Optional[str]) -> bool:
+    """Whether the host of url takes one connection at a time (one slot in HOST_SLOTS_OF; slots are counted per
+    data folder). Such a host must be read through our own ranges (Windows(ranged=True): every request in its turn,
+    one session of one connection: session(url)); tests/test_rates.py fails for a layer read through GDAL's
+    /vsicurl/ windows from it. Should one be read so all the same, GDAL asks its ranges one after another
+    (_gdal_http(serial=True)) instead of on several connections at once inside one read; that still leaves one idle
+    keep-alive connection per download thread (GDAL keeps a connection cache per thread: 2-3 open with 4 threads,
+    the code review of 2026-11-23), so it is not one connection. GDAL_HTTP_MAX_TOTAL_CONNECTIONS (GDAL 3.11+) would
+    cap them, but GDAL reads it when it makes its pool of connections at the first read, not at every read, so it
+    cannot be set per host (measured on the test server, 2026-11-23)."""
+    return _host(url) is not None and HOST_SLOTS_OF.get(limits_host(url), HOST_SLOTS) == 1
+
+
+class Unreachable(RuntimeError):
+    """A read that failed for good because no connection to the host could be made, after its own retries
+    (connect_kind said so on a positive sign). Its message is ours, the same from every reader and every time
+    (unreachable): "<host> could not be connected to (<kind>)", the kind one of CONNECT_KINDS; the library's text
+    goes to the debug log only. Inside a download the host's other blocks then fail at once with the same message
+    (UnreachableHosts)."""
+
+
+# The kinds of an Unreachable's message. curl (GDAL's reads) says "Could not connect to server" both for a refused
+# connection and for no route to the host, so the two are one kind for both readers
+TIMED_OUT, REFUSED, NO_NAME = "timed out", "refused or no route", "name not found"
+CONNECT_KINDS = (TIMED_OUT, REFUSED, NO_NAME)
+# The texts of curl's errors (GDAL passes them on: "CURL error: ...") that say no connection was made, and their
+# kind, the first that matches. A read timeout is "Operation timed out after ...", never these; an HTTP status, an
+# answer cut short or anything else matches none of them (tests/test_gdal_connect.py, a case each)
+GDAL_CONNECT_FAILURES = (
+    (r"Could(?:n't| not) resolve (?:host|proxy)", NO_NAME),
+    (r"Connection timed out after \d+ milli", TIMED_OUT),  # CURLOPT_CONNECTTIMEOUT ran out (GDAL_HTTP_CONNECTTIMEOUT)
+    (r"Failed to connect to \S+ port \d+.*timed out", TIMED_OUT),  # the system's own connect timeout
+    (r"Failed to connect to \S+ port \d+", REFUSED),
+    (r"Could(?:n't| not) connect to server", REFUSED),
+)
+# The system's errors of a connection that timed out (ETIMEDOUT, WSAETIMEDOUT) and of one refused or without a route
+# (ECONNREFUSED, ENETUNREACH, EHOSTUNREACH and Windows' WSAE- numbers) under requests' NewConnectionError
+_TIMED_OUT_ERRNOS = {110, 60, 10060}
+_REFUSED_ERRNOS = {111, 61, 10061, 101, 51, 10051, 113, 65, 10065}
+
+
+def connect_kind(error: Optional[BaseException]) -> Optional[str]:
+    """The kind (CONNECT_KINDS) of an error that says, on a positive sign, that no connection to the host could be
+    made, else None: requests' ConnectTimeout or urllib3's ConnectTimeoutError (timed out), NameResolutionError (name
+    not found), NewConnectionError (refused or no route; timed out when the system's error says so); for GDAL's
+    errors (RasterioIOError, or our RuntimeError carrying its text) GDAL_CONNECT_FAILURES. An Unreachable keeps its
+    kind. A read timeout, a connection reset or closed by the server, an HTTP status, a short answer: None."""
+    import urllib3.exceptions as u3
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, Unreachable):
+            return next((k for k in CONNECT_KINDS if str(error).endswith(f"({k})")), REFUSED)
+        if isinstance(error, u3.NameResolutionError):
+            return NO_NAME
+        if isinstance(error, (requests.exceptions.ConnectTimeout, u3.ConnectTimeoutError)) and \
+                not isinstance(error, u3.NewConnectionError):
+            return TIMED_OUT
+        if isinstance(error, u3.NewConnectionError):
+            cause = error.__cause__ or error.__context__
+            number = getattr(cause, "winerror", None) or getattr(cause, "errno", None)
+            timed_out = number in _TIMED_OUT_ERRNOS or isinstance(cause, TimeoutError)
+            return TIMED_OUT if timed_out else REFUSED
+        if isinstance(error, u3.MaxRetryError):
+            error = error.reason
+        elif isinstance(error, requests.exceptions.ConnectionError):
+            error = error.args[0] if error.args and isinstance(error.args[0], BaseException) else None
+        elif isinstance(error, (requests.RequestException, u3.HTTPError)):
+            return None
+        elif isinstance(error, rio.errors.RasterioIOError):
+            return next((kind for pattern, kind in GDAL_CONNECT_FAILURES if re.search(pattern, curl)), None) \
+                if (curl := _curl_error(str(error))) else None
+        else:  # our own RuntimeError (a status, a server's body, an answer cut short): never
+            return None
+    return None
+
+
+def _curl_error(text: str) -> Optional[str]:
+    """The text of curl's own error in a GDAL error ("CURL error: ..."), where GDAL reports that the request got no
+    answer; None for anything else (an HTTP status, a server's body: "HTTP response code: 502", whose body may well
+    say "Failed to connect to backend port 8080", the code review of 2026-11-24)."""
+    match = re.match(r"\s*CURL error: (.*)", text, re.S)
+    return match.group(1) if match else None
+
+
+def failed_host(error: Optional[BaseException]) -> Optional[str]:
+    """The host an error says it could not connect to, when it says it: requests' (urllib3's pool of the host that
+    failed: a redirect's target too) or curl's "Failed to connect to <host> port" / "resolve host: <host>"; None
+    otherwise (curl's "Connection timed out after ..." names none)."""
+    import urllib3.exceptions as u3
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, u3.MaxRetryError):
+            return getattr(getattr(error, "pool", None), "host", None) or _host(getattr(error, "url", None))
+        if isinstance(error, requests.exceptions.RequestException):
+            error = error.args[0] if error.args and isinstance(error.args[0], BaseException) else None
+        elif isinstance(error, rio.errors.RasterioIOError):
+            match = re.search(r"(?:Failed to connect to|resolve host:?) \[?([\w.:-]+?)\]?(?: port \d+|$|\s)",
+                              _curl_error(str(error)) or "")
+            return match.group(1) if match else None
+        else:
+            return None
+    return None
+
+
+def connect_failed(error: Optional[BaseException]) -> bool:
+    """Whether an error says, on a positive sign, that no connection to the host could be made (connect_kind)."""
+    return connect_kind(error) is not None
+
+
+def unreachable(url: str, error: BaseException) -> Unreachable:
+    """The Unreachable of a read of url that could not connect (connect_kind of error, which must say so): our own
+    message, "<host> could not be connected to (<kind>)", the same from both readers and for every failure of that
+    kind (no object address, no port, no duration: tools/area_download.py and the regression harness compare it);
+    the host the error names (failed_host: a redirect's target that did not answer), else url's; the library's text
+    logged at debug level."""
+    kind = connect_kind(error) or REFUSED
+    host = failed_host(error) or _host(url)
+    logging.getLogger(__name__).debug("%s: %s", host, cache.clean_error(error))
+    return Unreachable(f"{host} could not be connected to ({kind})")
+
+
+_downloads = threading.local()  # .current: the UnreachableHosts of the download whose task this thread runs
+
+
+class UnreachableHosts:
+    """One download's memory of the hosts it could not connect to: a block of such a host fails at once with the
+    same error (host_slot, before any request), so a dead host costs one failed open, not one per block (8 tasks
+    of download_layers' pool each waited for its own). Only Unreachable trips it: an HTTP status, a read timeout,
+    a short answer never do. In memory, for this download only: the next one tries the host again; nothing on disk,
+    nothing between processes. A host is marked by the address its slot was taken for (the block's first file, the
+    one a redirect starts from), whichever file or redirect target failed: a block whose files lie on two hosts would
+    mark the first file's host (no catalogue layer has such blocks)."""
+
+    def __init__(self):
+        self.failed: Dict[str, Unreachable] = {}
+        self.lock = threading.Lock()
+
+    def run(self, call: Callable, *args):
+        """call(*args) as a task of this download (in a thread of its pool)."""
+        outer = getattr(_downloads, "current", None)
+        _downloads.current = self
+        try:
+            return call(*args)
+        finally:
+            _downloads.current = outer
+
+    def dead(self, host: str, error: Unreachable):
+        with self.lock:
+            self.failed.setdefault(host, error)
+
+    def check(self, host: str):
+        """Unreachable with the first error of host, when it failed in this download."""
+        with self.lock:
+            error = self.failed.get(host)
+        if error is not None:
+            raise Unreachable(str(error))
 
 
 @contextlib.contextmanager
@@ -602,11 +811,27 @@ def _remote(url: str) -> str:
 # out"; not "Connection was aborted" of Windows). GDAL matches a status as a substring of the
 # list, so no other status may be a part of it (0 is part of none of the others here).
 GDAL_RETRY_CODES = "0,429,500,502,503,504"
+# The longest wait for a connection of our remote reads: GDAL's (GDAL_HTTP_CONNECTTIMEOUT, "Maximum delay for
+# connection to be established before being aborted", GDAL 3.12's networking options; curl's
+# CURLOPT_CONNECTTIMEOUT: name resolution and the protocol handshakes, "no impact once libcurl has connected",
+# 300 s by default) and our own range requests' (ranges.get_range: requests' connect timeout, apart from its read
+# timeout). A slow server that answers keeps the read timeout of 120 s (Hong Kong's 0.36 MB/s). Without it each
+# attempt waited for the system's own connect timeout: one failed open 201 s on Windows (21 s an attempt).
+CONNECT_TIMEOUT_S = 5
+# Retries of opening a remote file (open_gdal; ranges.RangeFile's first request: OPEN_RETRIES + 1 attempts), the
+# user's decision of 2026-11-24; the reads after it keep GDAL_HTTP_MAX_RETRY = RETRIES. A host that never answers
+# then costs one failed open of 2 x (2 x 5 s + GDAL's first retry pause of 2 s) = 24 s computed, 24.1 s measured
+# with these settings (TEST-NET 192.0.2.1, 2026-11-24): GDAL asks the file's size twice when it opens a file (two
+# GetFileSize), each with its attempts; with 3 retries it was 73 s (pauses of about 2, 4.5 and 10 s). Through our own
+# ranges (the islands') 2 x 5 s and one pause of ours: 11.3 s measured. A download of 8 blocks of such a host fails
+# the 7 others at once (UnreachableHosts): 11.6 s measured through our ranges, 24.2 s through GDAL
+OPEN_RETRIES = 1
 
 
 def _gdal_http(serial: bool = False) -> rio.Env:
     """GDAL's settings for reading windows of remote files: our User-Agent, no directory
-    listing, retries of failed requests (GDAL_RETRY_CODES), neighbouring blocks in one request
+    listing, retries of failed requests (GDAL_RETRY_CODES; opening a file: open_gdal), a connection given up after
+    CONNECT_TIMEOUT_S (a slow read is not cut: GDAL_HTTP_TIMEOUT), neighbouring blocks in one request
     (serial: the ranges of a window one after another, each through GDAL's cache of ranges,
     RANGE_CACHE_BYTES, so neighbouring blocks read in a row fetch a shared tile once).
     Blocks are read in the calling thread (GDAL_NUM_THREADS=1, whatever the environment says):
@@ -617,8 +842,30 @@ def _gdal_http(serial: bool = False) -> rio.Env:
     return rio.Env(GDAL_HTTP_USERAGENT=cache.http_headers()["User-Agent"],
                    GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif,.tiff",
                    GDAL_HTTP_MAX_RETRY=str(RETRIES), GDAL_HTTP_RETRY_DELAY="2", GDAL_HTTP_TIMEOUT="120",
-                   GDAL_HTTP_RETRY_CODES=GDAL_RETRY_CODES, GDAL_NUM_THREADS="1",
-                   GDAL_HTTP_MULTIRANGE="SERIAL" if serial else "YES", GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES")
+                   GDAL_HTTP_CONNECTTIMEOUT=str(CONNECT_TIMEOUT_S), GDAL_HTTP_RETRY_CODES=GDAL_RETRY_CODES,
+                   GDAL_NUM_THREADS="1", GDAL_HTTP_MULTIRANGE="SERIAL" if serial else "YES",
+                   GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES")
+
+
+def gdal_open() -> rio.Env:
+    """GDAL's settings for the first open of a remote file (open_gdal), inside _gdal_http's (or a tool's own):
+    OPEN_RETRIES retries instead of RETRIES. GDAL keeps the retries a file was opened with for that file's reads,
+    so a dataset opened inside it is never read (open_gdal opens it again)."""
+    return rio.Env(GDAL_HTTP_MAX_RETRY=str(OPEN_RETRIES))
+
+
+def open_gdal(path: str, **kwargs):
+    """rio.open(path) for a read, a remote file (/vsicurl/) opened twice: first inside gdal_open, so a host that
+    never answers costs one open about 24 s (OPEN_RETRIES' comment), and closed; then again with the caller's
+    settings, whose RETRIES its reads keep (GDAL keeps a file's retries from its open: a dataset opened at one retry
+    read its ranges at one retry, the code review of 2026-11-24). The second open sends no request: GDAL's cache of
+    the file's size and ranges answers it (tests/test_gdal_connect.py counts it). Every GDAL open of a remote file
+    for reading goes through here: windows._read_file, the probe's _window, tools/check_source.py,
+    tools/obstacle_study.py, tools/perf_window_reads.py."""
+    if "/vsicurl/" in path:
+        with gdal_open():
+            rio.open(path, **kwargs).close()
+    return rio.open(path, **kwargs)
 
 
 # GDAL's errors as rasterio logs them: an error (CE_Failure) that did not make the call fail is

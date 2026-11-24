@@ -42,12 +42,6 @@ Found at gate 2 of line volume round 6. The shipped mitigation: the rows positio
 for new requests (some servers answer it with the whole file or an error). Batch 5's new kinds avoid it (`sheet`:
 bytes 0-7; `zipfile`: the first KB without a Range). Found 2026-11-15 by agents AU and IT; not changed.
 
-## A GDAL read of a host that never answers blocks for over 10 minutes
-
-When basisdata.nl stopped answering TCP (2026-11-15), `tools/check_source.py` on a Caribbean Netherlands source
-waited more than 10 min (GDAL's connect timeout times its retries) before failing; the probe gave up at its 120 s.
-A shorter connect timeout for `/vsicurl/` in `net._gdal_http` would bound it. Found by agent NL.
-
 ## `tests/regression.py --update` cannot add a new entry without "expected", nor one without lines
 
 A new entry in `tests/regression.json` without an `"expected"` object crashes `--update` with a `KeyError`

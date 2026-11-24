@@ -1355,9 +1355,12 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     from their cell, whole-file downloads resampled per sheet): R73 Arequita (109 lines; Quebrada de los Cuervos gives
     none at 2.5 m).
 - **Open from wave 1**:
-  - basisdata.nl (Caribbean Netherlands' files) stopped answering this PC on 2026-11-15 after about 18 parallel
-    window reads per island at 4 connections (now 2): the islands' `check_source`, probe and R70's re-run wait (the
-    sources stay in main, the user's choice); mail 31 to Het Waterschapshuis drafted.
+  - basisdata.nl (Caribbean Netherlands' files) blocked this network's address on 2026-11-15 after about 18
+    parallel window reads per island at 4 connections (a block, confirmed 2026-11-23; the public site's server is
+    not blocked): the host is at 1 connection per data folder and 54 requests a minute, every range request in
+    its turn through our own range reader (the user's decisions of 2026-11-23 and 24; untried against the real host
+    from here); the islands' `check_source`, probe and R70's re-run wait (the sources stay in main, the user's
+    choice); mail 31 to Het Waterschapshuis drafted, waiting to be sent.
   - The six-neighbour cap of the country cube (`countcube.PARTNERS`) kept TINITALY from Austria and France and the
     Netherlands from Lower Saxony: their border strips fill from 30 m data. Raising it changes the cube's format: a
     task of its own later (the user, 2026-11-15).

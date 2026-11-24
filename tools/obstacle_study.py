@@ -323,12 +323,16 @@ def _scan_footprint(src, grid: Dict, transform, shape: Tuple[int, int]):
     windows._scan_directories(src, window)
 
 
-def on_grid(urls: List[str], grid: Dict, resampling) -> Optional[np.ndarray]:
+def on_grid(urls: List[str], grid: Dict, resampling, cache_dir: Optional[str] = None) -> Optional[np.ndarray]:
     """Remote rasters warped onto the grid's pixels (float32, NaN where none has data); None
     when none of them exists. Inside sources.net's GDAL settings, a read during which GDAL
     signalled an error is made again (net.gdal_errors: values it could not fetch come back as
-    zeros), as sources/readers/windows.py does. No HTTP request is made holding the GIL
-    (_scan_footprint before each warp)."""
+    zeros), as sources/readers/windows.py does: every attempt in its turn of the host's rate (net.rate_turn), the
+    open retried net.OPEN_RETRIES times and its reads RETRIES (net.open_gdal), a one-connection host's ranges one after another
+    (net.single_connection) and, with cache_dir, under a slot of the host (net.host_slot) as the layers' reads.
+    No HTTP request is made holding the GIL (_scan_footprint before each warp)."""
+    import contextlib
+
     import rasterio as rio
     import rasterio.cache
     from affine import Affine
@@ -339,13 +343,15 @@ def on_grid(urls: List[str], grid: Dict, resampling) -> Optional[np.ndarray]:
     shape = (grid["height"], grid["width"])
     transform = Affine(grid["res"], 0, grid["left"], 0, -grid["res"], grid["top"])
     out, found = np.full(shape, np.nan, dtype=np.float32), False
-    with net._gdal_http():
-        for url in urls:
+    for url in urls:
+        slot = net.host_slot(cache_dir, url) if cache_dir else contextlib.nullcontext()
+        with slot, net._gdal_http(net.single_connection(url)):
             for attempt in range(net.RETRIES):
                 part = np.full(shape, np.nan, dtype=np.float32)
+                net.rate_turn(url)
                 try:
                     with net.gdal_errors() as errors:
-                        with rio.open(net._remote(url)) as src:
+                        with net.open_gdal(net._remote(url)) as src:
                             _scan_footprint(src, grid, transform, shape)
                             reproject(rio.band(src, 1), part, src_transform=src.transform, src_crs=src.crs,
                                       src_nodata=src.nodata, dst_transform=transform, dst_crs=grid["crs"],
@@ -366,7 +372,7 @@ def on_grid(urls: List[str], grid: Dict, resampling) -> Optional[np.ndarray]:
     return out if found else None
 
 
-def outside_layers(index) -> Callable:
+def outside_layers(index, cache_dir: Optional[str] = None) -> Callable:
     """The layers of a call's grid: (CHMv2 in metres by its maximum per pixel, WorldCover's
     class), kept in the call's folder (chmv2.npy, worldcover.npy: a missing layer is an empty
     file) so pictures and a second analysis read them from there."""
@@ -379,7 +385,7 @@ def outside_layers(index) -> Callable:
                                        ("worldcover", lambda: worldcover_urls(grid), Resampling.nearest)):
             path = os.path.join(call, f"{name}.npy")
             if not os.path.exists(path):
-                values = on_grid(urls(), grid, resampling)
+                values = on_grid(urls(), grid, resampling, cache_dir)
                 np.save(path, values if values is not None else np.zeros(0, dtype=np.float32))
             values = np.load(path)
             found.append(values if values.size else None)
@@ -1347,14 +1353,14 @@ def analyse(folder: str, samples: int = 6, outside: bool = True, chip_rule: str 
     <folder>/data); without them the study is what it was before the judges."""
     calls = sorted(glob.glob(os.path.join(folder, "capture", "call-*")), key=lambda p: int(p.rsplit("-", 1)[1]))
     layers = None
+    cache_dir = os.path.join(os.path.abspath(data_dir or os.path.join(folder, "data")), "cache")
     if outside:
         try:
             index = chm_index(os.path.dirname(os.path.abspath(folder)))
         except Exception as e:  # WorldCover alone still tells built-up and bare rock
             print(f"CHMv2's index not read ({cache.clean_error(e)}): without CHMv2", file=sys.stderr)
             index = None
-        layers = outside_layers(index)
-    cache_dir = os.path.join(os.path.abspath(data_dir or os.path.join(folder, "data")), "cache")
+        layers = outside_layers(index, cache_dir)  # their reads hold their hosts' slots in the data folder's cache
     judge = judge_layers(cache_dir) if judges else None
     results, candidates = [], {}
     for call in calls:
