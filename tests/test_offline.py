@@ -523,6 +523,173 @@ def test_terrain_of_a_resumed_area(tmp_path, monkeypatch):
     assert terrain() is None
 
 
+def _resume_scene(tmp_path, monkeypatch, scene: str):
+    """The SearchParams of a tiled search on the tests' own data, its inputs (area, rasters) shared by every data
+    folder of the test: "clip" the clip of Żabi Koń without water or gaps; "water" the scene of
+    test_area_in_tiles_with_water_and_gaps (the sea, a lake, gaps a fallback fills, a surface model) with --access."""
+    from params import SearchParams
+    for key, v in OFFLINE_ENV.items():
+        monkeypatch.setenv(key, v)
+    if scene == "clip":
+        square = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],
+                                                      [19.7522, 50.1580], [19.7522, 50.1546]]]}
+        path = tmp_path / "square.geojson"
+        path.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": square}))
+        # groups of 80 m: one joins lines of two tiles and needs its profile at the tile edge (profile_of_line, which
+        # finds the terrain file in the record of the data used)
+        return SearchParams(elevation_file=os.path.join(DATA, "zabi_kon_nmt.tif"), area=str(path), max_length=150,
+                            tile_size=150, group_distance=80, water="off", fill_gaps="off", no_html=True)
+    import sources as src
+    from scipy import ndimage
+    with rio.open(os.path.join(DATA, "zabi_kon_nmt.tif")) as s:
+        terrain, left, top = s.read(1), s.bounds.left, s.bounds.top
+    with rio.open(os.path.join(DATA, "zabi_kon_nmpt.tif")) as s:
+        surface = s.read(1)
+    fallback = (ndimage.uniform_filter(terrain, 5) + 1.5).astype(np.float32)
+    size = terrain.shape[0]
+    terrain[:, :80] = surface[:, :80] = np.nan  # the sea in the west, without data
+    terrain[200:260, 300:360] = surface[200:260, 300:360] = np.nan  # a lake
+    terrain[400:430, 150:190] = surface[400:430, 150:190] = np.nan  # gaps on land
+    surface[100:140, 400:440] = np.nan  # a gap of the surface model only
+    write_raster(tmp_path / "nmt.tif", terrain, left, top)
+    write_raster(tmp_path / "nmpt.tif", surface, left, top)
+    water = np.zeros((size, size), np.uint8)
+    water[:, :85] = src.OCEAN
+    water[195:265, 295:365] = src.LAKE
+    _water_and_fallback(tmp_path, monkeypatch, water, fallback, left, top)
+    mask = src.WATER_MASK  # credited as the real one is: the run's credits come from step 1's record
+    plain = mask.used
+    monkeypatch.setattr(mask, "used", lambda grid, cache_dir: {**plain(grid, cache_dir),
+                                                               "credit": src.WATER_MASK_CREDIT.as_dict()})
+    area = _square(tmp_path / "square.geojson", left + 40, top - size + 60, left + size - 60, top - 40)
+    return SearchParams(elevation_file=str(tmp_path / "nmt.tif"), surface_file=str(tmp_path / "nmpt.tif"), area=area,
+                        max_length=150, water="fill", fill_gaps="on", coastline="copernicus", ortho="never",
+                        tile_size=150, access=True, no_html=True)
+
+
+class _StepCount:
+    """search_lines' step 1 (prepare_data with strips) and the profiles at tile edges (profile_of_line), counted."""
+
+    def __init__(self, monkeypatch):
+        import search
+        self.steps = self.profiles = 0
+        prepare, profile = search.prepare_data, search.profile_of_line
+
+        def counted_prepare(plan, *args, **kwargs):
+            self.steps += bool(kwargs.get("strips"))
+            return prepare(plan, *args, **kwargs)
+
+        def counted_profile(*args, **kwargs):
+            self.profiles += 1
+            return profile(*args, **kwargs)
+        monkeypatch.setattr(search, "prepare_data", counted_prepare)
+        monkeypatch.setattr(search, "profile_of_line", counted_profile)
+
+
+def _tiled_search(params, folder, save: bool = True):
+    """search_lines of the tiled search in the data folder `folder` (planned again: a new session), its run saved
+    (the run's folder returned) or not (the run's folder of the tiles returned)."""
+    import search
+    paths = search.Paths(str(folder), str(folder / "work"))
+    os.makedirs(paths.work, exist_ok=True)
+    plan = search.plan_search(params, paths, lambda kind, text: None)
+    assert plan.tiles
+    lines, run = search.search_lines(plan)
+    return search.save_run(plan, lines, run).run["path"] if save else run["path"]
+
+
+def _same_run(one: str, resumed: str):
+    """A run saved by a resumed search is the run of the same search saved in one go: run.json key by key but its id
+    and its time (the run's own) and the store's sha256 (of its head, which holds the two), ATTRIBUTION.txt, the
+    store's head (what the map reads) but the same two, the CSV export, the profiles."""
+    read = lambda folder, name: open(os.path.join(folder, name), encoding="utf-8").read()  # noqa: E731
+    metas = [json.loads(read(folder, "run.json")) for folder in (one, resumed)]
+    assert metas[0]["data"]  # step 1's record of the data used
+    stores = [{k: v for k, v in meta.pop("store").items() if k != "sha256"} for meta in metas]
+    assert {k for k in set(metas[0]) | set(metas[1]) if metas[0].get(k) != metas[1].get(k)} <= {"id", "created"}
+    assert stores[0] == stores[1]
+    attributions = [read(folder, "ATTRIBUTION.txt") for folder in (one, resumed)]
+    assert all(meta["created"] in text for meta, text in zip(metas, attributions))  # the run's time
+    assert attributions[0].replace(metas[0]["created"], "") == attributions[1].replace(metas[1]["created"], "")
+    heads = [_head(folder) for folder in (one, resumed)]
+    for head in heads:
+        del head["run"]["id"], head["run"]["created"]
+    assert heads[0] == heads[1]
+    assert clip_runs.export_text(one) == clip_runs.export_text(resumed)
+    assert _store_lines(one) == _store_lines(resumed)
+    return metas[0]
+
+
+@pytest.mark.parametrize("scene, ending", [("clip", "stopped"), ("water", "save failed")])
+def test_resumed_area_keeps_step_one(tmp_path, monkeypatch, scene, ending):
+    """A tiled search that computed every tile and was not saved (stopped, or its save failed) and is then resumed
+    saves the run of the same search saved in one go (_same_run): its record of the data used and their credits too,
+    read back from the run's folder (search.USED_FILE) without step 1, with the shore and the terrain's origins."""
+    import runs as rn
+    import search
+    params = _resume_scene(tmp_path, monkeypatch, scene)
+    one = _tiled_search(params, tmp_path / "one")
+    if ending == "stopped":
+        _tiled_search(params, tmp_path / "resumed", save=False)
+    else:
+        real = rn.save_results
+        monkeypatch.setattr(rn, "save_results", lambda *args, **kwargs: (_ for _ in ()).throw(OSError(28, "disk full")))
+        with pytest.raises(search.SearchError) as error:
+            _tiled_search(params, tmp_path / "resumed")
+        assert error.value.code == "run_not_saved"
+        monkeypatch.setattr(rn, "save_results", real)
+    count = _StepCount(monkeypatch)
+    meta = _same_run(one, _tiled_search(params, tmp_path / "resumed"))
+    assert count.steps == 0  # every tile done: the record comes from the run's folder
+    assert count.profiles == (scene == "clip")  # a profile at a tile edge, which reads the record (the terrain file)
+    if scene == "water":  # what step 1 gives this scene: the shore, the fallback's share, the water mask's credit
+        assert meta["shore"] and meta["terrain_sources"]["fallback_share"] > 0 and meta["attribution"]
+        assert [entry["layer"] for entry in meta["data"]][-1] == "Fallback terrain"
+
+
+@pytest.mark.parametrize("state", ["missing", "cut short"])
+def test_resumed_area_of_before(tmp_path, monkeypatch, state):
+    """A run begun before its record of the data used was kept (no search.USED_FILE), or whose file was cut short,
+    resumed with every tile done: step 1 runs once more for its record, and the run is that of one go."""
+    import search
+    params = _resume_scene(tmp_path, monkeypatch, "clip")
+    one = _tiled_search(params, tmp_path / "one")
+    folder = _tiled_search(params, tmp_path / "resumed", save=False)
+    used = os.path.join(folder, search.USED_FILE)
+    assert json.load(open(used, encoding="utf-8"))
+    if state == "missing":
+        os.remove(used)
+    else:
+        open(used, "w", encoding="utf-8").write('[{"layer": "Terr')
+    count = _StepCount(monkeypatch)
+    _same_run(one, _tiled_search(params, tmp_path / "resumed"))
+    assert count.steps == 1
+
+
+def test_resumed_area_with_tiles_left(tmp_path, monkeypatch):
+    """A resumed search with a tile left runs step 1 again, and its record of the data used is that session's: the
+    file of before (search.USED_FILE) is written again."""
+    import search
+    params = _resume_scene(tmp_path, monkeypatch, "clip")
+    one = _tiled_search(params, tmp_path / "one")
+    folder = _tiled_search(params, tmp_path / "resumed", save=False)
+    used = os.path.join(folder, search.USED_FILE)
+    record = json.load(open(used, encoding="utf-8"))
+    open(used, "w", encoding="utf-8").write('[{"layer": "stale"}]')
+    os.remove(sorted(glob.glob(os.path.join(folder, "tiles", search.TILE_FILE.format("*"))))[-1])
+    count = _StepCount(monkeypatch)
+    _same_run(one, _tiled_search(params, tmp_path / "resumed"))
+    assert count.steps == 1 and json.load(open(used, encoding="utf-8")) == record
+
+
+def test_state_files_not_served():
+    """A tiled search's state files in its run's folder (the shore, the terrain's origins, the record of the data
+    used: cache file names) are none of the files the public site serves of a run (web.RUN_FILES)."""
+    import search
+    import web
+    assert not {search.SHORE_FILE, search.ORIGINS_FILE, search.USED_FILE} & set(web.RUN_FILES)
+
+
 def test_two_points(tmp_path):
     """Two --point searches in one call: one run each, with its own name and data record."""
     env = {**os.environ, **OFFLINE_ENV}
