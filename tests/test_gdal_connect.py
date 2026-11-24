@@ -253,18 +253,24 @@ def test_requests_connect_failures(error, expected):
     assert net.connect_failed(error) is expected
 
 
-def _closed_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+@pytest.fixture
+def refusing_port():
+    """A local port that refuses every connection for the whole test: bound, never listening, and held, so the
+    system gives it to no other process meanwhile. A port only found free was taken by another worker's test server
+    between the tries of a read in a parallel run (2026-11-24: that server's answer instead of a refusal)."""
+    with socket.socket() as holder:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):  # Windows: no second bind of the port, SO_REUSEADDR or not
+            holder.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        holder.bind(("127.0.0.1", 0))
+        yield holder.getsockname()[1]
 
 
-def test_a_refused_connection_trips(monkeypatch):
+def test_a_refused_connection_trips(monkeypatch, refusing_port):
     """A real refused connection (a closed local port), through GDAL and through our own range requests: the errors
     say no connection was made (connect_failed)."""
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
     monkeypatch.setattr(net, "_sleep", lambda attempt: None)
-    url = f"http://127.0.0.1:{_closed_port()}/x/M_TEST2023.TIF"
+    url = f"http://127.0.0.1:{refusing_port}/x/M_TEST2023.TIF"
     with net._gdal_http(), rio.Env(GDAL_HTTP_MAX_RETRY="0"), pytest.raises(rio.errors.RasterioIOError) as error:
         rio.open(net._remote(url))
     assert net.connect_failed(error.value), str(error.value)
@@ -424,11 +430,11 @@ def test_connect_kind_from_the_system_error(cause, kind):
     assert net.connect_kind(_pool_error(error)) == kind
 
 
-def test_both_readers_say_the_same(short, tmp_path):
+def test_both_readers_say_the_same(short, tmp_path, refusing_port):
     """A closed local port read through GDAL and through our own ranges, twice: net.Unreachable with one message,
     the host and the kind (refused, or timed out where the system's refusal takes longer than CONNECT_S), equal
     every time and from both readers."""
-    url = f"http://127.0.0.1:{_closed_port()}/x/M_TEST2023.TIF"
+    url = f"http://127.0.0.1:{refusing_port}/x/M_TEST2023.TIF"
     messages = []
     for ranged in (False, True, True):
         rasterio.cache.invalidate(url)
@@ -484,10 +490,10 @@ def test_the_host_curl_names(text, host):
     assert net.failed_host(rio.errors.RasterioIOError(text)) == host
 
 
-def test_a_dead_redirect_target(short, http_server, tmp_path, monkeypatch):
+def test_a_dead_redirect_target(short, http_server, tmp_path, monkeypatch, refusing_port):
     """The front answers 307 and its target does not answer: the message names the target (requests' error tells
     it), and the download still marks the front's other blocks, which send nothing."""
-    target = f"http://localhost:{_closed_port()}/t/M_DEAD2023.TIF"
+    target = f"http://localhost:{refusing_port}/t/M_DEAD2023.TIF"
     http_server.route("/front/", lambda r: Answer(307, b"", {"Location": target, "Content-Type": "text/plain"}))
     front = http_server.url("/front/M_DEAD2023.TIF")
     with pytest.raises(net.Unreachable, match=MESSAGE) as error:

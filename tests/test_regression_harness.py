@@ -4,6 +4,7 @@ the coastline source stored with a baseline (H1), the outcomes ok, unverified an
 real one by hard links (H6), the run log (H7), R17's list of differences (H8), entries run by name only (H9) and the
 requests per host and the test lock's token in the run log (H10)."""
 
+import contextlib
 import http.server
 import importlib.util
 import json
@@ -374,10 +375,16 @@ def _serve(status: int):
     return server, f"http://127.0.0.1:{server.server_port}"
 
 
-def _closed_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+@contextlib.contextmanager
+def _refusing_port():
+    """A local port that refuses every connection while the block runs: bound, never listening, and held, so the
+    system gives it to no other process meanwhile. A port only found free was taken by another worker's test server
+    between GDAL's tries of a read in a parallel run (2026-11-24: that server's 400 instead of a refusal)."""
+    with socket.socket() as holder:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):  # Windows: no second bind of the port, SO_REUSEADDR or not
+            holder.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        holder.bind(("127.0.0.1", 0))
+        yield holder.getsockname()[1]
 
 
 def _download_failed(error: Exception) -> str:
@@ -449,8 +456,8 @@ def test_unanswered_status_of_raise_for_status():
 
 def test_unanswered_connection_refused():
     import requests
-    with pytest.raises(requests.ConnectionError) as error:
-        requests.get(f"http://127.0.0.1:{_closed_port()}/x", timeout=10)
+    with _refusing_port() as port, pytest.raises(requests.ConnectionError) as error:
+        requests.get(f"http://127.0.0.1:{port}/x", timeout=10)
     text = _download_failed(error.value)
     assert regression.unanswered(text), text
 
@@ -483,14 +490,15 @@ def test_unanswered_gdal_remote_read(status):
     refuses the connection (curl's words) or answers 503."""
     import rasterio
     from sources import net
-    server, url = _serve(503) if status else (None, f"http://127.0.0.1:{_closed_port()}")
-    try:
-        with net._gdal_http(), pytest.raises(rasterio.errors.RasterioIOError) as error:
-            rasterio.open(f"/vsicurl/{url}/x.tif")
-    finally:
-        if server:
-            server.shutdown()
-            server.server_close()
+    with contextlib.ExitStack() as stack:  # the refusing port is held over every try of the read
+        server, url = _serve(503) if status else (None, f"http://127.0.0.1:{stack.enter_context(_refusing_port())}")
+        try:
+            with net._gdal_http(), pytest.raises(rasterio.errors.RasterioIOError) as error:
+                rasterio.open(f"/vsicurl/{url}/x.tif")
+        finally:
+            if server:
+                server.shutdown()
+                server.server_close()
     text = f"Download failed: Could not read Test block 1_2: {error.value}\n"
     assert regression.unanswered(text), text
 
@@ -524,8 +532,8 @@ def test_unanswered_the_message_of_a_refused_host():
     """The message net.unreachable really makes of a refused connection (both readers raise it through it)."""
     import requests
     from sources import net
-    url = f"http://127.0.0.1:{_closed_port()}/x.tif"
-    with pytest.raises(requests.ConnectionError) as error:
+    with _refusing_port() as port, pytest.raises(requests.ConnectionError) as error:
+        url = f"http://127.0.0.1:{port}/x.tif"
         requests.get(url, timeout=10)
     failed = net.unreachable(url, error.value)
     assert str(failed) == net.UNREACHABLE_TEXT.format(host="127.0.0.1", kind=net.REFUSED)
