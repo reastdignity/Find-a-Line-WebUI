@@ -32,7 +32,9 @@ What each part holds: docs/code-map/web.md (`metrics.py`, `servicecounts.py`), d
   summaries (`_sum`/`_count`, no quantiles). Label values come from small fixed sets: a new label value from the
   database (an error code, a country) must never carry a user id, IP address, title, place name or path. A new request
   to an outside service in the worker goes through `servicecounts` (`get`, `request` or `call`), or F11 does not see
-  it; its host comes from the catalogue or the OSM services, never from user input.
+  it; its host comes from the catalogue or the OSM services, never from user input. The command line counts the
+  same way into a file (`servicecounts.counted_into`, `FINDALINE_SERVICE_COUNTS`: `tests/regression.py`'s run log):
+  host names only, an IP address as `ip-address`; a file read through GDAL says so itself (`request(url, read=True)`).
 - The labels F18 and F19 read from the search's texts: `servicecounts.ROLES` are the labels `download_layers` and
   `prepare_layer` get ("terrain", "surface", "water mask", "gap fill (<source>)": `role_of`), and `jobs.StepClock`
   parses `search._step`'s "Step <n>/" in the progress bars' `step` and the stage "orthophoto tiles" of

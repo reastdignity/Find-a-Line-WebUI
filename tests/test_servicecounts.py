@@ -414,12 +414,27 @@ def test_a_command_line_search_counts_into_the_file(ending, http_server, monkeyp
     assert seen == [True, False] and not path.exists() and not sc.enabled()
 
 
-def test_every_request_but_gdals_notes_its_answer():
-    """The reads mark rests on this: every `servicecounts.request` of the code notes its answer (Counted.got) right
-    after sending, but the file reads of sources/readers/windows.py, which GDAL makes (counted in `request` as a
-    request whose answer was never noted and that ended without a requests error)."""
+def test_the_reads_mark_is_the_readers_own_word():
+    """A host is marked "reads" only where the reader said so (`request(url, read=True)`), never by what a request
+    happened to note: a request that noted no answer and no bytes (osmextract's urllib answers; one cut off by
+    Ctrl+C) is a plain request."""
+    with sc.counting() as found:
+        with sc.request("https://gdal.example/a.tif", read=True):
+            pass
+        with sc.request("https://plain.example/state.txt"):  # nothing noted, no bytes, no error
+            pass
+        with pytest.raises(KeyboardInterrupt):
+            with sc.request("https://stopped.example/x"):
+                raise KeyboardInterrupt
+    assert found["hosts"]["gdal.example"] == {"requests": 1, "bytes": 0, "failed": 0, "reads": True}
+    assert "reads" not in found["hosts"]["plain.example"] and "reads" not in found["hosts"]["stopped.example"]
+
+
+def test_only_gdals_reader_marks_its_requests_as_reads():
+    """In the code, sources/readers/windows.py alone passes read=True (a file read through GDAL: one request
+    counted, its own HTTP requests and bytes unseen)."""
     root = os.path.dirname(HERE)
-    sites = []
+    marked = []
     for folder, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in (".git", ".venv", "node_modules", "tests", "cache", "runs", "work",
                                                 ".claude", "viewer", "local")]
@@ -427,9 +442,6 @@ def test_every_request_but_gdals_notes_its_answer():
             if name.endswith(".py") and name != "servicecounts.py":
                 with open(os.path.join(folder, name), encoding="utf-8") as f:
                     text = f.read()
-                for match in re.finditer(r"servicecounts\.request\(", text):
-                    body = "\n".join(text[match.end():].splitlines()[:5])
-                    sites.append((os.path.relpath(os.path.join(folder, name), root).replace(os.sep, "/"),
-                                  ".got(" in body))
-    assert len(sites) >= 20
-    assert sorted(path for path, noted in sites if not noted) == ["sources/readers/windows.py"], sites
+                if re.search(r"servicecounts\.request\([^)]*read=True", text):
+                    marked.append(os.path.relpath(os.path.join(folder, name), root).replace(os.sep, "/"))
+    assert marked == ["sources/readers/windows.py"], marked

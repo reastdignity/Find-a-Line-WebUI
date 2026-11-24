@@ -327,7 +327,7 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
                 # (net.rate_turn; the caller holds the host's slot) and counted (servicecounts; GDAL's own
                 # HTTP requests, their bytes and its retries are not seen)
                 net.rate_turn(url)
-                with servicecounts.request(url) as counted:
+                with servicecounts.request(url, read=True) as counted:
                     try:
                         values = _read_file(url, crs, transform, shape, name, what, force_crs, warp)
                         read += 1

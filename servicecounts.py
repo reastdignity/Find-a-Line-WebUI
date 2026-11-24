@@ -20,8 +20,9 @@ is counted and no file written. A search of the command line runs in one process
 all its requests are seen. The file holds host names only (an IP address is written as
 ADDRESS_HOST). A host whose count holds files read through GDAL (sources/readers/windows.py, one
 request per file read, no bytes: GDAL's own HTTP requests are not seen) is marked `"reads":
-true`; known in `request` as a request whose answer the caller never noted (`Counted.got`, which
-every other request path calls) and that ended without a requests error.
+true`: the reader says so itself (`request(url, read=True)`; inferring it from a request whose
+answer was never noted mismarked osmextract's urllib answers, the code review of 2026-11-24). A
+host with both kinds of request carries the mark over their sum.
 
 The host is the URL's (fixed by the catalogue and the OSM services, so a few dozen at most); a
 local path (a mirror, the tests' files) is not counted. Outcomes (OUTCOMES): the class of the
@@ -158,9 +159,11 @@ class Counted:
 
 
 @contextlib.contextmanager
-def request(url: Optional[str]) -> Iterator[Counted]:
+def request(url: Optional[str], read: bool = False) -> Iterator[Counted]:
     """Count the request made in the body: its seconds (until the body ends), its outcome (what the
-    caller set, else the status it noted, else the exception that left the body: `ok` without one)."""
+    caller set, else the status it noted, else the exception that left the body: `ok` without one).
+    read: a file read through GDAL, whose own HTTP requests and bytes are not seen (the "reads" mark of
+    `summary`; sources/readers/windows.py alone passes it)."""
     counted, start, error = Counted(), time.monotonic(), None
     try:
         yield counted
@@ -176,8 +179,6 @@ def request(url: Optional[str]) -> Iterator[Counted]:
                 outcome = outcome_of_error(error)
             else:
                 outcome = "ok"
-        # No answer noted (Counted.got), no bytes and no requests error: a file read by GDAL (windows._read_block)
-        read = counted.status is None and not counted.bytes and not isinstance(error, requests.RequestException)
         record(url, outcome, counted.bytes, time.monotonic() - start, read)
 
 

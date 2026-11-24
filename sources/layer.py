@@ -302,7 +302,8 @@ class Layer:
                              if_due: bool = False, role: str = "other") -> int:
         """Download a tile under its lock (tile_lock) and a slot of its host (host_slot); with
         if_due only if it is still due then (another search may have just downloaded it). Counted
-        for the monitoring (servicecounts.tiles, as `role`) where the web worker turned that on."""
+        (servicecounts.tiles, as `role`) where the counting is on: the web worker's, for the monitoring, or a
+        command-line search's into its counts file."""
         path = self.tile_path(cache_dir, tile)
         asked = time.monotonic()
         with tile_lock(cache_dir, path):
