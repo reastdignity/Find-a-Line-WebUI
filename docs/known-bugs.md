@@ -168,12 +168,14 @@ listing runs under `cache.runs_lock`; the other slot's `runs.save_results` write
 at the moment it appears; the failed job's own run was saved by then (`write_index` comes after it in `save_run`).
 If so, it is the app's, on Windows with two compute slots, not the test's. Shown on this PC (2026-11-24) with
 `cache.replacing` in one process and `list_runs`' two steps (`os.path.isfile`, then `open`) in another that waits
-for the file: over 3 000 new files the open was refused 2 425 times, the writer never, and every file was read on a
-later try (the refusal lasts a moment); with one file replaced in place, 1 184 opens and 1 697 of the writer's
-3 000 moves. The likely mechanism (not shown): the move still holds its handle on the file,
-opened for deleting, for a moment after the new name is seen, and Python's `open` does not share a file with such a
-handle. `list_runs` is also what the web's lists of runs call (`web.py`), without the lock. Not mended: a change of
-`runs.py` waits for the user's word. A red `test_two_jobs_computing_at_once` on Windows with this error is this.
+for the file, two runs of 3 000 new files each: the open was refused 2 425 times in the first; in the second, which
+also counted the files, 3 337 times at 1 816 of the files, each of them read on a later try, 7 ms after its first
+refusal at the median and 29 ms at the longest; the writer was never refused. With one file replaced in place:
+1 184 and 1 263 opens refused, and 1 697 and 1 621 of the writer's 3 000 moves. What holds the new file for those
+milliseconds is not established (the move's own handle, opened for deleting, which Python's `open` does not share;
+or a scanner opening a new file; the PC was loaded by other sessions' runs). `list_runs` is also what the web's
+lists of runs call (`web.py`), without the lock. Not mended: a change of `runs.py` waits for the user's word. A red
+`test_two_jobs_computing_at_once` on Windows with this error is this.
 
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
