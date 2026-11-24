@@ -121,6 +121,7 @@ CASES = [
     ("during the read, before its file is read", 1, None, NEW, "not known"),
     ("during the read, after its file was read", 0, None, OLD, "not known"),
     ("between the read and the note after it", 1, None, OLD, "not known"),
+    ("within the note after the read (after its checksum, before its stat)", 1, None, OLD, "not known"),
     ("after the note after the read", 1, OLD, OLD, "differs"),
 ]
 
@@ -147,8 +148,11 @@ def test_a_file_replaced_at_each_moment(tmp_path, monkeypatch, moment, tile, rec
         _reading(monkeypatch, read, after_all=replace)
     else:
         _reading(monkeypatch, read)
-    if moment.startswith("after the note"):
+    if moment.startswith("within the note after"):
         _after(monkeypatch, "touch", replace)
+    if moment.startswith("after the note"):
+        window = src.mosaic.read_window
+        monkeypatch.setattr(src.mosaic, "read_window", lambda *a: [window(*a), replace()][0])
     [entry] = _prepare(layer, cache_dir, str(tmp_path))
     relative = cache.relative(cache_dir, path)
     sums = dict(zip(entry["paths"], entry["identity"]["sha256"]))
@@ -162,24 +166,64 @@ def test_a_file_replaced_at_each_moment(tmp_path, monkeypatch, moment, tile, rec
     assert list(entry) == ["layer", "folder", "files", "fetched", "paths", "identity"] and entry["files"] == 2
 
 
-def test_the_limit_left_a_row_written_after_both_notes(tmp_path, monkeypatch):
-    """What the two notes cannot see (docs/known-bugs.md, "The data record"): a writer moves the new file in first
-    and writes its row after (cache.record hashes the file, waits for the index's lock), so a read that falls
-    between the two, with both notes before the row, is recorded with the old checksum although the new bytes were
-    read. Compared with the index now (`cache status`) it reads "differs"; compared with a stored record made
-    before the replacement (the regression harness's) it reads "same" although other bytes were read."""
+def _two_tiles(tmp_path):
     cache_dir = str(tmp_path / "cache")
     layer = Tiles()
     for t in range(2):
         _write(cache_dir, layer.tile_path(cache_dir, t), OLD + bytes([t]))
-    path = layer.tile_path(cache_dir, 1)
+    return cache_dir, layer, layer.tile_path(cache_dir, 1)
+
+
+def test_a_file_moved_in_before_its_row_is_written(tmp_path, monkeypatch):
+    """A writer moves the new file in first and writes its row after (cache.record hashes the file, waits for the
+    index's lock). A read inside that gap, with both notes before the row, saw the same stored checksum twice: the
+    file's identity on disk (another inode and time) tells the two notes apart, so it is not known."""
+    cache_dir, layer, path = _two_tiles(tmp_path)
     read = {}
     _reading(monkeypatch, read, before_file=lambda k: k == 1 and _write(cache_dir, path, NEW, row=False))
+    _after(monkeypatch, "touch", lambda: cache.record(cache_dir, path))
+    [entry] = _prepare(layer, cache_dir, str(tmp_path))
+    assert read["1.bin"] == _sha(NEW) and entry["identity"]["sha256"] == [_sha(OLD + bytes([0])), None]
+
+
+def test_the_same_content_moved_in_during_the_read(tmp_path, monkeypatch):
+    """A file fetched again with the same bytes while the layer is read (an update of a tile that did not change):
+    the same checksum in both notes, another file on disk: not known (the rule does not hash files)."""
+    cache_dir, layer, path = _two_tiles(tmp_path)
+    _reading(monkeypatch, {}, before_file=lambda k: k == 1 and _write(cache_dir, path, OLD + bytes([1])))
+    [entry] = _prepare(layer, cache_dir, str(tmp_path))
+    assert entry["identity"]["sha256"] == [_sha(OLD + bytes([0])), None]
+
+
+def test_left_a_file_moved_in_before_the_first_note_its_row_after_the_second(tmp_path, monkeypatch):
+    """What the two notes cannot see (docs/known-bugs.md, "The data record"): a file moved in before the note before
+    the read, its row written after the note after it (a writer's gap longer than the layer's whole read). Both
+    notes hold the old checksum and the new file: the old checksum is recorded although the new bytes were read.
+    Compared with the index now (`cache status`) it reads "differs"; compared with a stored record made before the
+    replacement (the regression harness's) "same"."""
+    cache_dir, layer, path = _two_tiles(tmp_path)
+    read = {}
+    layer.after_files = lambda: _write(cache_dir, path, NEW, row=False)
+    _reading(monkeypatch, read)
     _after(monkeypatch, "touch", lambda: cache.record(cache_dir, path))
     [entry] = _prepare(layer, cache_dir, str(tmp_path))
     recorded = entry["identity"]["sha256"][1]
     assert read["1.bin"] == _sha(NEW) and recorded == _sha(OLD + bytes([1]))
     assert _later(cache_dir, cache.relative(cache_dir, path), recorded) == "differs"
+
+
+def test_left_a_writer_killed_between_its_move_and_its_row(tmp_path, monkeypatch):
+    """What the two notes cannot see: a writer killed after it moved the new file in and before its row (a cancelled
+    download, a stopped `cache update`) leaves the new bytes under the old row for good: every later read's notes
+    agree on the old checksum, and a comparison with the index says "same"."""
+    cache_dir, layer, path = _two_tiles(tmp_path)
+    _write(cache_dir, path, NEW, row=False)  # killed here
+    read = {}
+    _reading(monkeypatch, read)
+    [entry] = _prepare(layer, cache_dir, str(tmp_path))
+    recorded = entry["identity"]["sha256"][1]
+    assert read["1.bin"] == _sha(NEW) and recorded == _sha(OLD + bytes([1]))
+    assert _later(cache_dir, cache.relative(cache_dir, path), recorded) == "same"
 
 
 def test_a_quiet_cache_keeps_every_checksum(tmp_path, monkeypatch):
@@ -212,17 +256,26 @@ def test_every_entry_of_a_layer(tmp_path, monkeypatch):
     assert [e["layer"] for e in entries] == ["Window, 0.bin", "Window, 1.bin", "Window, 2.bin"]
 
 
-def test_read_window_leaves_the_rest():
+def test_read_window_leaves_the_rest(tmp_path):
     """read_window changes only the checksums of entries with paths: no key added, none moved, an entry of a local
-    file (`file`, its own `identity`) and one without a record as they were."""
-    entries = [{"layer": "a", "paths": ["x/1", "x/2", "x/3"], "identity": {"sha256": ["1" * 64, "2" * 64, None]},
-                "credit": {}},
+    file (`file`, its own `identity`) and one without a record as they were. A path keeps its checksum only with the
+    same checksum and the same file on disk in both notes: not with another checksum, none, a file gone, a file
+    whose identity on disk was not noted."""
+    cache_dir = str(tmp_path)
+    for name in ("1", "2", "3", "4", "5"):
+        _write(cache_dir, os.path.join(cache_dir, "x", name), name.encode(), row=False)
+    disk = {f"x/{n}": src.mosaic._on_disk(os.path.join(cache_dir, "x", n)) for n in "12345"}
+    os.remove(os.path.join(cache_dir, "x", "5"))
+    entries = [{"layer": "a", "paths": ["x/1", "x/2", "x/3", "x/5", "x/6"],
+                "identity": {"sha256": ["1" * 64, "2" * 64, None, "5" * 64, "6" * 64]}, "credit": {}},
                {"layer": "file", "file": "/elsewhere/dem.tif", "identity": {"size": 1, "modified": "t"}},
                {"layer": "old", "paths": ["x/4"]}]
-    out = src.mosaic.read_window(entries, {"x/1": "1" * 64, "x/2": "9" * 64, "x/3": None, "x/4": "4" * 64})
+    before = {"x/1": ("1" * 64, disk["x/1"]), "x/2": ("9" * 64, disk["x/2"]), "x/3": (None, disk["x/3"]),
+              "x/4": ("4" * 64, disk["x/4"]), "x/5": ("5" * 64, disk["x/5"]), "x/6": ("6" * 64, None)}
+    out = src.mosaic.read_window(entries, before, cache_dir)
     assert out is entries
-    assert entries == [{"layer": "a", "paths": ["x/1", "x/2", "x/3"], "identity": {"sha256": ["1" * 64, None, None]},
-                        "credit": {}},
+    assert entries == [{"layer": "a", "paths": ["x/1", "x/2", "x/3", "x/5", "x/6"],
+                        "identity": {"sha256": ["1" * 64, None, None, None, None]}, "credit": {}},
                        {"layer": "file", "file": "/elsewhere/dem.tif", "identity": {"size": 1, "modified": "t"}},
                        {"layer": "old", "paths": ["x/4"]}]
     assert list(entries[0]) == ["layer", "paths", "identity", "credit"]
@@ -288,15 +341,27 @@ def _queries(monkeypatch):
     return connections, statements
 
 
+def _index_files(folder: str) -> dict:
+    """The bytes of every file of an index's folder (index.sqlite and any -wal or -shm), by name."""
+    return {name: open(os.path.join(folder, name), "rb").read() for name in sorted(os.listdir(folder))
+            if name.startswith("index.sqlite")}
+
+
 def test_the_index_queries_of_preparing_a_layer(tmp_path, monkeypatch):
     """The cost of the note before the read, pinned: one connection to the index of the layer's folder and one
     SELECT of the stored checksum per file, beside the line about tiles without data (cache.states) and the note
-    after the read (cache.touch), and nothing written by it."""
+    after the read (cache.touch). On an index as a search finds it (WAL, with its table) the note changes no byte of
+    the index's files."""
     cache_dir = str(tmp_path / "cache")
     layer = Tiles(5)
     for t in range(5):
         _write(cache_dir, layer.tile_path(cache_dir, t), OLD + bytes([t]))
     _reading(monkeypatch, {})
+    files = [layer.tile_path(cache_dir, t) for t in range(5)]
+    index = _index_files(os.path.join(cache_dir, "win"))
+    assert list(index) == ["index.sqlite"]  # every connection closed: the WAL checkpointed into it
+    src.mosaic.noted_before(cache_dir, files)
+    assert _index_files(os.path.join(cache_dir, "win")) == index
     connections, statements = _queries(monkeypatch)
     _prepare(layer, cache_dir, str(tmp_path), quiet=False)
     assert connections == ["win", "win", "win"]  # states, the note before the read, touch
@@ -304,7 +369,44 @@ def test_the_index_queries_of_preparing_a_layer(tmp_path, monkeypatch):
     assert len(selects) == 5
     connections.clear()
     statements.clear()
-    src.mosaic.noted_before(cache_dir, [layer.tile_path(cache_dir, t) for t in range(5)])
-    assert connections == ["win"]
-    assert not [s for s in statements if s.split()[0].upper() in ("INSERT", "UPDATE", "DELETE", "REPLACE")]
-    assert [s for s in statements if s.startswith("SELECT")] == selects
+    src.mosaic.noted_before(cache_dir, files)
+    assert connections == ["win"] and [s for s in statements if s.startswith("SELECT")] == selects
+
+
+def test_a_fallback_prepared_twice_keeps_a_null(tmp_path, monkeypatch):
+    """The real path of a layer prepared twice in a run: fill_gaps with a fallback without a surface model prepares
+    its terrain for the terrain and again for the surface (two entries of one key). A file replaced while the first
+    read took it is not known there and whole in the second read: the run's merged record (search._merged_data)
+    keeps it not known; the other file keeps its checksum. (_fill is stubbed to fill a pixel: which pixels it fills
+    is not this test's.)"""
+    import types
+
+    import search
+    from grid import make_grid
+    cache_dir, layer, path = _two_tiles(tmp_path)
+    grid = make_grid((500000.0, 300000.0, 500010.0, 300010.0), 1.0, "EPSG:2180")
+    work = tmp_path / "work"
+    work.mkdir()
+    for name in ("nmt.npy", "nmpt.npy"):
+        np.save(work / name, np.full((grid.height, grid.width), np.nan, np.float32))
+    calls = []
+
+    def build(files, grid, out_path, label, **kwargs):
+        calls.append(out_path)
+        for k, file in enumerate(files):
+            if len(calls) == 1 and k == 1:
+                _write(cache_dir, path, NEW)  # replaced while the terrain's read takes it
+            with open(file, "rb"):
+                pass
+        np.save(out_path, np.ones((grid.height, grid.width), np.float32))
+    monkeypatch.setattr(src.mosaic, "build_mosaic", build)
+    monkeypatch.setattr(src.filling, "_fill", lambda *a, **k: 1)
+    fallback = types.SimpleNamespace(nmt=layer, nmpt=None, name="fallback")
+    src.used_data.clear()
+    src.filling.fill_gaps(str(work / "nmt.npy"), str(work / "nmpt.npy"), grid, fallback, cache_dir,
+                          str(work / "filled.npy"))
+    assert len(calls) == 2 and [e["identity"]["sha256"] for e in src.used_data] == \
+        [[_sha(OLD + bytes([0])), None], [_sha(OLD + bytes([0])), _sha(NEW)]]
+    [merged] = search._merged_data()
+    src.used_data.clear()
+    assert merged["identity"]["sha256"] == [_sha(OLD + bytes([0])), None]

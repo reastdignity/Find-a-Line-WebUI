@@ -299,18 +299,24 @@ again to get a run that names its data and credits.
 
 A run records what data it read (run.json's `identity` keys: docs/code-map/search.md), and the regression
 harness, `cache status` and `tools/record_check.py` compare by it. Known and left:
-- **Content replaced while a search reads it.** Since 2026-11-24 a layer's files (and the water mask's) are noted
-  before the mosaic reads them and after (`mosaic.noted_before`, `cache.touch`), and a file whose two notes are not
-  the same known checksum is not known (`mosaic.read_window`). Left: a writer moves the new file in first and
-  writes its row after (it hashes the file, waits for the index's lock), so a read inside that gap with both notes
-  before the row keeps the old checksum: `cache status` then calls the file changed, the regression harness (its
-  stored record holds the old one too) "same data" (on Windows a file cannot be replaced while the read holds it
-  open). The OSM tiles of the coastline and
-  of an area are noted once, after their read (`coast.identity` after the sea mask, `area.Inputs.identity` after the
-  area's shape): a tile replaced in between is recorded as read; closing it needs the first note inside
-  `osm.theme`, after a tile's fetch and before its read. A Nominatim answer is noted in the function that read it
-  (`area.region`), right after. A tiled search's merge keeps a checksum one tile knew where another tile's was not
-  known (`search._merged_data`).
+- **Content replaced while a search reads it.** Closed since 2026-11-24 for a layer's files and the water mask's:
+  each file is noted before the mosaic reads it and after (`mosaic.noted_before`, `cache.touch`), each note its
+  stored checksum and its identity on disk (`os.stat`'s inode, time in ns, size), and a file whose two notes differ
+  is not known (`mosaic.read_window`); a layer prepared twice in a run (a fallback's terrain for the terrain and the
+  surface) never covers such a null (`search._merged_data`). Left (every writer moves the new file in first and
+  writes its row after, hashing the file and waiting for the index's lock):
+  - a file moved in before the note before the read whose row lands after the note after it (a writer's gap longer
+    than the layer's whole read): the old checksum is recorded although the new bytes were read, `cache status`
+    calls the file changed, the regression harness (its stored record holds the old one too) "same data";
+  - a writer killed between its move and its row (a cancelled download, a stopped `cache update`): the new bytes
+    stay under the old row for good, and every later run, `cache status` and the harness say "same".
+
+  The OSM tiles of the coastline and of an area and the world file's edition are noted once, after their read: the
+  coastline's tiles are read by `osm.theme` in `coast.sea_mask` and noted by `coast.identity` in step 1 after the
+  sea mask, an area's by `osm.theme` in `area._near` or `from_spec` and noted by `area.Inputs.identity` once the
+  area is built, the world file's edition asked again (`coast.world_file`) after the sea mask read it; a file
+  replaced in between is recorded as read. A Nominatim answer is noted in the function that read it
+  (`area.region`, right after `osm.search`).
 - **A real change read as "re-encoded" by `cache status`**, in narrow cases: other content stamped in the same
   second as the entry's newest fetch, a writer's fetch time taken before it waited for the index's lock, a clock set
   back. The run is still listed; only the word is wrong.

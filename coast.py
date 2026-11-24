@@ -165,8 +165,8 @@ def world_newer(cache_dir: str) -> bool:
 
 def identity(grid: Grid, cache_dir: str, source: str) -> Optional[Dict]:
     """The record of the coastline a run's sea mask was made from (its data entry's `identity`), derived after the
-    mask from the grid's box and the cache's index (never a hook on a read: theme answers are memoized and read in
-    threads): the world file's edition (its folder's name under osm/water-polygons/), or the OSM coastline tiles of
+    mask from the grid's box and the cache's index (never a hook on a read: a hook inside osm.theme would serve every
+    caller of the themes, areas, cliffs and land cover too): the world file's edition (its folder's name under osm/water-polygons/), or the OSM coastline tiles of
     the grid's box (osm.theme_files, as _osm_coastline reads them) with their stored checksums; None for any other
     source (the Copernicus mask is the water mask's own entry; no sea in the area)."""
     if source == SOURCE_WORLD:

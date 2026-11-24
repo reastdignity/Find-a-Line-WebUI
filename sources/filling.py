@@ -93,7 +93,7 @@ def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[
         wbm = build_mosaic(files, grid, out_path, "water mask", categorical=True, rows=rows)
     else:
         wbm = _constant_mosaic(out_path, grid, value, len(files), "water mask", rows)
-    used_data.extend(read_window([WATER_MASK.used(grid, cache_dir)], before))
+    used_data.extend(read_window([WATER_MASK.used(grid, cache_dir)], before, cache_dir))
     tiles = WATER_MASK.tiles(grid)
     for tile, state in zip(tiles, cache.states(cache_dir, [WATER_MASK.tile_path(cache_dir, t) for t in tiles])):
         if state == "missing":
