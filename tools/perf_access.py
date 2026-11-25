@@ -40,7 +40,11 @@ Commands:
   out. "full" (an --order entry of its own) is block_grid without `needed`, every block, not split and not to be
   read for seconds: rule (b), "rule_b", compares it with the grid at once at every pixel (--keep-full keeps its
   grid). --every-block: the "blocks" stages without the area (every block computed, measured and split as any
-  blocks stage: the constant's reading, gate 2), and with a grid at once rule (b) from the same run.
+  blocks stage: the constant's reading, gate 2), and with a grid at once rule (b) from the same run. "fixed" (with
+  --empty-start, before the blocks): the tool's fixed term, a stage that does nothing of the grid's size (the
+  made-up warm-up's access_grid) after an emptied start, its peak working set less private above its start: the
+  process's own pages faulting back (code review G1b-1); taken off an emptied blocks stage's file pages at the last
+  block ("ws_less_private_last_block_less_fixed_b_per_grid_px").
   The columns since the masks are bits (wave 2b, access._Mask: read and written by file calls, never mapped): the
   masks' pages are no longer in the process's working set, so "WS" (the working set above the stage's start, the
   rule's measure) and "WS less private" (the file pages) no longer hold them: they lie in the system's file cache,
@@ -372,6 +376,9 @@ def summarise(samples: Sequence[Sequence], listings, events: Sequence[Tuple[floa
                 row["cg_peak"] = c[i["cg_current"]]
                 row["cg_split_at_peak"] = {"anon": c[i["cg_anon"]], "file": c[i["cg_file"]],
                                            "file_mapped": c[i["cg_mapped"]], "file_dirty": c[i["cg_dirty"]]}
+            files = [s[i["cg_file"]] for s in cgs if s[i["cg_file"]] is not None]
+            if files:  # the cgroup's file pages (the cache: wave 2b's masks are there) at their own peak
+                row["cg_file_peak"] = max(row.get("cg_file_peak") or 0, max(files))
     for row in out.values():
         row["s_raw"] = row["s"]  # the event times' own difference, unrounded (sums of parts are judged on these)
         row["s"] = round(row["s"], 3)
@@ -383,6 +390,8 @@ def summarise(samples: Sequence[Sequence], listings, events: Sequence[Tuple[floa
             row["peak_ws_less_private_above_start"] = _above(row.pop("peak_ws_less_private"), start_fp)
         if "cg_peak" in row:
             row["cg_peak_above_start"] = _above(row["cg_peak"], (cg_base or {}).get("current"))
+        if "cg_file_peak" in row:
+            row["cg_file_peak_above_start"] = _above(row["cg_file_peak"], (cg_base or {}).get("file"))
     return out
 
 
@@ -1214,6 +1223,11 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
         sidecar_events.mark(f"once {k}: save")
         np.save(path, grid)
         del grid
+    elif kind == "fixed":  # the tool's fixed term (code review G1b-1): after an emptied start, a stage that does
+        sidecar_events.mark(f"fixed {k}")  # nothing of the grid's size: the made-up warm-up's access_grid, so the
+        warm_up()  # process's own pages (interpreter, numpy, numba's kernels) fault back; its peak working set less
+        t1 = time.time()  # private above the start is the term an emptied start's file pages hold beside the grid's
+        path = None
     elif kind == "full":  # rule (b): every block, no `needed`, not split (its seconds not to be read)
         sidecar_events.mark(f"full {k}")
         path = os.path.join(s.work, f"full-{k}.npy")
@@ -1298,6 +1312,10 @@ def stage_report(stage: Dict, parts: Dict[str, Dict], pixels: int) -> Dict:
     if whole and whole.get("cg_peak") is not None:
         out.update(cg_peak=whole["cg_peak"], cg_peak_above_start=whole["cg_peak_above_start"],
                    cg_split_at_peak=whole["cg_split_at_peak"])
+    files = [r["cg_file_peak_above_start"] for r in parts.values() if r.get("cg_file_peak_above_start") is not None]
+    if files:  # the cache above the stage's start at its highest (gate 2's line 7), per pixel of the grid
+        out["cg_file_peak_above_start"] = max(files)
+        out["cg_file_b_per_grid_px"] = per_px(max(files), pixels)
     if stage["stage"] == "blocks":
         g = merge(parts, "grid-wide")
         if g:
@@ -1469,9 +1487,9 @@ def run_stages(args) -> Dict:
     if args.block_px:
         out["rule"]["block_px_given"] = args.block_px
     block_px = args.block_px or out["rule"]["block_px"]
-    unknown = [x for x in out["order"] if x not in ("once", "blocks", "full")]
+    unknown = [x for x in out["order"] if x not in ("once", "blocks", "full", "fixed")]
     if unknown:
-        raise SystemExit(f"--order: once, blocks or full, not {unknown}")
+        raise SystemExit(f"--order: once, blocks, full or fixed, not {unknown}")
     if any(x in ("blocks", "full") for x in out["order"]) and not block_px:
         out["note"] = "the rule makes the grid at once (or leaves the mark out): no blocks without --block-px"
         out["order"] = [x for x in out["order"] if x not in ("blocks", "full")]
@@ -1556,6 +1574,18 @@ def run_stages(args) -> Dict:
             rep["rule_b"] = dict(compare_grids(once_grid, np.load(st["path"], mmap_mode="r")), rule="b")
     del once_grid, area
     gc.collect()
+    # the tool's fixed term ("fixed": after an emptied start, the process's own pages faulting back) taken off the
+    # blocks stages' file pages at the last block, when both are in the run and the blocks' start was emptied too
+    fixed = [r for r in out["stages"] if r["stage"] == "fixed"]
+    if fixed:
+        term = max((p.get("peak_ws_less_private_above_start") or 0 for p in fixed[0]["parts"].values()), default=0)
+        fixed[0]["fixed_term_bytes"] = term
+        for rep in out["stages"]:
+            rows = [r for r in rep.get("blocks_list") or [] if r.get("ws_less_private_above_start") is not None]
+            if rep["stage"] == "blocks" and rep.get("emptied") and rows:
+                rep["fixed_term_bytes"] = term
+                rep["ws_less_private_last_block_less_fixed_b_per_grid_px"] = per_px(
+                    rows[-1]["ws_less_private_above_start"] - term, s.pixels)
     out["cg_events"] = cgroup_events()
     out["cg_final"] = cgroup_sample()
     out["work"] = s.work

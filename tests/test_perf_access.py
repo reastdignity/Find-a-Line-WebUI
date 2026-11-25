@@ -187,8 +187,9 @@ def test_parts_from_samples():
     samples = [sample(0.5, 150, 120), sample(1.2, 300, 140, disk=7, cg=1000), sample(1.8, 200, 180, cg=900)]
     listings = [(0.1, {"a.npy": 3}), (1.1, {"a.npy": 3, "b.npy": 4})]
     parts = pa.summarise(samples, listings, [(0.0, "a"), (1.0, "b"), (1.95, "c")], 2.0, {"rss": 100, "private": 100},
-                         {"current": 400})
+                         {"current": 400, "file": 15})
     a, b, c = parts["a"], parts["b"], parts["c"]
+    assert b["cg_file_peak"] == 20 and b["cg_file_peak_above_start"] == 5  # the cache above the start
     assert a["peak_rss_above_start"] == 50 and a["peak_private_above_start"] == 20 and a["samples"] == 1
     assert a["max_gap_s"] == 0.5 and a["files_at_peak"] == {"a.npy": 3}
     assert b["peak_rss_above_start"] == 200 and b["peak_private_above_start"] == 80 and b["samples"] == 2
@@ -531,6 +532,22 @@ def test_every_block_and_the_kept_grids(tmp_path, made_up_search):
     if takes_needed:  # by rule (b) the pixels left out differ
         assert pa.main(["compare", "--out", str(out_dir), "--name", "cx", "--files", str(every),
                         str(area)])["differ"] == a["left_out_px"]
+
+
+def test_the_fixed_term_taken_off_an_emptied_start(tmp_path, made_up_search):
+    """--empty-start --order fixed,blocks: the fixed term (the process's own pages after an emptied start) read by a
+    stage that does nothing of the grid's size, and taken off the blocks' file pages at the last block (Windows: the
+    working set can be emptied; elsewhere the stage is there and nothing is taken off)."""
+    got = pa.main(["stages", "--out", str(tmp_path / "out"), "--name", "f", "--order", "fixed,blocks", "--block-px",
+                   "60", "--empty-start", *made_up_search])
+    fixed, blocks = got["stages"]
+    assert fixed["stage"] == "fixed" and fixed["fixed_term_bytes"] >= 0
+    if os.name == "nt":
+        assert blocks["emptied"]["done"] and blocks["fixed_term_bytes"] == fixed["fixed_term_bytes"]
+        rows = [r for r in blocks["blocks_list"] if r.get("ws_less_private_above_start") is not None]
+        if rows:  # a block sampled at all
+            assert blocks["ws_less_private_last_block_less_fixed_b_per_grid_px"] == pa.per_px(
+                rows[-1]["ws_less_private_above_start"] - fixed["fixed_term_bytes"], got["plan"]["grid_px"])
 
 
 def test_the_rules_constants_for_one_run_only(tmp_path, made_up_search):
