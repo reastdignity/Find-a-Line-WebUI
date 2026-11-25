@@ -525,8 +525,10 @@ class _Regions:
         self._backward()
 
     def _label(self, s: int):
+        """A strip's labels, int64: the pieces' count (bincount) and every lookup by label take them without a cast
+        (about twice as fast as int32 ones); 8 B per pixel of a strip, two strips held."""
         r0, r1 = self.strips[s]
-        return ndimage.label(self.mask.rows(r0, r1), structure=_EIGHT)
+        return ndimage.label(self.mask.rows(r0, r1), structure=_EIGHT, output=np.int64)
 
     def _forward(self, judge, heights, settled, on_strip):
         w, last = self.mask.shape[1], len(self.strips) - 1
@@ -737,11 +739,14 @@ _REC = 8  # a record's int32: the piece, its box in the strip (first row, last +
 # of its first pixel (in its box's first row), its verdict, 1
 
 
+_REC_BAND = 16  # rows of a strip read at a time for its records' boxes
+
+
 def _records_of(lab: np.ndarray, final: np.ndarray, want: np.ndarray, pixels: np.ndarray) -> np.ndarray:
     """The records (_REC) of a strip's pieces marked in `want` (by label): their verdicts (final[label]; below 0:
     pending) and boxes. A piece of more than a sixteenth of the strip's pixels gets the strip's whole width and its
     rows from its first pixel down (one search for that pixel; at most 16 such pieces); the others their own box,
-    found from their own pixels."""
+    found from their own pixels, the strip read in bands of _REC_BAND rows (no index of all their pixels held)."""
     h, w = lab.shape
     large = np.zeros(len(want), bool)
     large[1:] = pixels > max(1, lab.size // 16)
@@ -749,20 +754,26 @@ def _records_of(lab: np.ndarray, final: np.ndarray, want: np.ndarray, pixels: np
     small = want & ~large
     rows = []
     if small.any():
-        rr, cc = np.nonzero(small[lab])  # in raster order: a label's first index is its first pixel
-        ll = lab[rr, cc]
-        p, first = np.unique(ll, return_index=True)
+        p = np.flatnonzero(small)
+        slot = np.full(len(want), -1, np.int64)
+        slot[p] = np.arange(len(p))
+        first = np.full(len(p), lab.size, np.int64)  # the first pixel's index in the strip (raster order)
+        bottom, left, right = np.full(len(p), -1, np.int64), np.full(len(p), w, np.int64), np.full(len(p), -1, np.int64)
+        for a in range(0, h, _REC_BAND):
+            k = slot[lab[a:a + _REC_BAND]]
+            rr, cc = np.nonzero(k >= 0)
+            if not len(rr):
+                continue
+            k = k[rr, cc]
+            rr += a
+            np.minimum.at(first, k, rr * w + cc)
+            np.maximum.at(bottom, k, rr)
+            np.minimum.at(left, k, cc)
+            np.maximum.at(right, k, cc)
+        top, col = np.divmod(first, w)
         out = np.zeros((len(p), _REC), np.int32)
-        out[:, 0], out[:, 1], out[:, 5], out[:, 6], out[:, 7] = p, rr[first], cc[first], final[p], final[p] < 0
-        end = np.zeros(int(p.max()) + 1, np.int64)
-        np.maximum.at(end, ll, rr)
-        out[:, 2] = end[p] + 1
-        left = np.full(int(p.max()) + 1, w, np.int64)
-        np.minimum.at(left, ll, cc)
-        out[:, 3] = left[p]
-        end[:] = 0
-        np.maximum.at(end, ll, cc)
-        out[:, 4] = end[p] + 1
+        out[:, 0], out[:, 1], out[:, 2], out[:, 3], out[:, 4] = p, top, bottom + 1, left, right + 1
+        out[:, 5], out[:, 6], out[:, 7] = col, final[p], final[p] < 0
         rows.append(out)
     for p in np.flatnonzero(large).tolist():
         r, c = divmod(int(np.argmax(lab.ravel() == p)), w)
