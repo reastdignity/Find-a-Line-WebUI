@@ -365,7 +365,7 @@ class CartotecaVersions(Versions):
         """The cached surveys over the grid, best first (when the index cannot be reached)."""
         g_left, g_bottom, g_right, g_top = transform_bounds(grid.crs, CARTOTECA_CRS, *grid.bounds)
         sheets = []
-        for path in glob.glob(os.path.join(cache_dir, self.folder, "*", "*.tif")):
+        for path in glob.glob(os.path.join(glob.escape(cache_dir), self.folder, "*", "*.tif")):
             sheet = self._cached_sheet(path)
             if sheet is None:
                 continue
@@ -388,6 +388,6 @@ class CartotecaVersions(Versions):
 
     def cached_sheets(self, cache_dir: str) -> List[LidarSheet]:
         """Every cached survey of this model (names, points and extents unknown)."""
-        paths = glob.glob(os.path.join(cache_dir, self.folder, "*", "*.tif"))
+        paths = glob.glob(os.path.join(glob.escape(cache_dir), self.folder, "*", "*.tif"))
         found = (self._cached_sheet(p, extent=False) for p in paths)
         return [s for s in found if s is not None]

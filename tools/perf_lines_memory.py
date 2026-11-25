@@ -254,7 +254,7 @@ def measure_tiles(args):
     if not args.legacy:
         joining = _Marks()
         tables = []
-        for path in sorted(glob.glob(os.path.join(args.tiles, "*.table.pkl.gz"))):
+        for path in sorted(glob.glob(os.path.join(glob.escape(args.tiles), "*.table.pkl.gz"))):
             with gzip.open(path, "rb") as f:
                 table = _Unpickler(f).load()
             tables.append(sh.LineTable(table.columns, table.profiles))
@@ -271,7 +271,7 @@ def measure_tiles(args):
         print(f"{len(joined)} lines joined: " + ", ".join(f"{k} {v:.0f}" for k, v in join.items()) + " bytes per line")
         del joined
     tables = []
-    for path in sorted(glob.glob(os.path.join(args.tiles, "*.table.pkl.gz"))):
+    for path in sorted(glob.glob(os.path.join(glob.escape(args.tiles), "*.table.pkl.gz"))):
         with gzip.open(path, "rb") as f:
             table = _Unpickler(f).load()
         if "a1" not in table.columns:  # written since search._lines drops the pixels

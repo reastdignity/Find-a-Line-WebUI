@@ -231,7 +231,7 @@ def measure(output: str, run_dir: str) -> dict:
     for layer, n in re.findall(r"^(.+): (\d+) of \d+ tiles without data", output, re.M):
         empty[layer] = max(empty.get(layer, 0), int(n))
     found["empty_tiles"] = sum(empty.values())
-    folders = [os.path.dirname(p) for p in glob.glob(os.path.join(run_dir, "*", "run.json"))]
+    folders = [os.path.dirname(p) for p in glob.glob(os.path.join(glob.escape(run_dir), "*", "run.json"))]
     table = None
     if folders:
         started = time.time()
@@ -303,7 +303,7 @@ def check_map(run_dir: str, found: dict) -> list:
     (every line of a circle whose run.json says "profiles": "all", else one per spot): problems as text."""
     import pyarrow as pa
     import linestore
-    folders = [os.path.dirname(p) for p in glob.glob(os.path.join(run_dir, "*", "run.json"))]
+    folders = [os.path.dirname(p) for p in glob.glob(os.path.join(glob.escape(run_dir), "*", "run.json"))]
     if not folders:
         return []
     folder = folders[0]
@@ -331,7 +331,7 @@ def check_profiles(run_dir: str, work: str, count: int) -> list:
     import helpers
     import linestore
     import search
-    folder = os.path.dirname(glob.glob(os.path.join(run_dir, "*", "run.json"))[0])
+    folder = os.path.dirname(glob.glob(os.path.join(glob.escape(run_dir), "*", "run.json"))[0])
     with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
     lines, _ = linestore.read(folder)
@@ -358,7 +358,7 @@ def check_browser(run_dir: str, work: str, found: dict) -> list:
     browser = next((b for b in BROWSERS if os.path.exists(b) or shutil.which(b)), None)
     if browser is None:
         return ["no headless browser found (Edge or Chrome)"]
-    maps = glob.glob(os.path.join(run_dir, "*", "map.html"))
+    maps = glob.glob(os.path.join(glob.escape(run_dir), "*", "map.html"))
     if not maps:
         return ["the run has no map.html"]
     folder = os.path.dirname(maps[0])
@@ -585,7 +585,7 @@ def run_osm(test: dict, work: str, cache_dir: str) -> dict:
         os.makedirs(os.path.join(folder, "osm"), exist_ok=True)
     index = os.path.join(cache_dir, "osm", "geofabrik-index.json")
     country = next((os.path.basename(os.path.dirname(os.path.dirname(p))) for p in
-                    glob.glob(os.path.join(cache_dir, "*", "osm-extract", f"{region}.osm.pbf"))), None)
+                    glob.glob(os.path.join(glob.escape(cache_dir), "*", "osm-extract", f"{region}.osm.pbf"))), None)
     if country is None or not os.path.exists(index):
         return {"skipped": f"the {region} extract is not downloaded (findaline.py osm download {region})"}
     shutil.copy(index, os.path.join(from_extract, "osm", "geofabrik-index.json"))
@@ -854,7 +854,7 @@ def record_of(meta: dict) -> dict:
 def read_record(run_dir: str) -> Optional[dict]:
     """The data record of the search whose runs are in run_dir (record_of its run.json), or None when the search
     made no run.json (a failed search) or it cannot be read."""
-    found = glob.glob(os.path.join(run_dir, "*", "run.json"))
+    found = glob.glob(os.path.join(glob.escape(run_dir), "*", "run.json"))
     if not found:
         return None
     try:

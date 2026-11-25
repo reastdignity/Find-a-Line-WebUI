@@ -1351,7 +1351,7 @@ def analyse(folder: str, samples: int = 6, outside: bool = True, chip_rule: str 
     chip_rule) and their contact sheets (sheets/). judges: OSM's land cover and the orthophoto
     (judge_layers) from the cache of data_dir, the data folder the capture ran with (default
     <folder>/data); without them the study is what it was before the judges."""
-    calls = sorted(glob.glob(os.path.join(folder, "capture", "call-*")), key=lambda p: int(p.rsplit("-", 1)[1]))
+    calls = sorted(glob.glob(os.path.join(glob.escape(folder), "capture", "call-*")), key=lambda p: int(p.rsplit("-", 1)[1]))
     layers = None
     cache_dir = os.path.join(os.path.abspath(data_dir or os.path.join(folder, "data")), "cache")
     if outside:
@@ -1393,7 +1393,7 @@ def pictures(folder: str, candidates: Dict, samples: int, rule: str = "A1", cach
     out = os.path.join(folder, chips_dir(rule))
     shutil.rmtree(out, ignore_errors=True)
     sheets = os.path.join(folder, "sheets")
-    for old in glob.glob(os.path.join(sheets, f"{_safe(rule)}-*.png")):
+    for old in glob.glob(os.path.join(glob.escape(sheets), f"{_safe(rule)}-*.png")):
         os.remove(old)
     cache_dir = cache_dir or os.path.join(folder, "data", "cache")
     rng = np.random.default_rng(0)
@@ -1886,7 +1886,7 @@ def judges_report(studies: List[Dict]) -> List[str]:
 def report(out: str) -> str:
     """<out>/study.md: the places side by side and the sums over them."""
     studies = []
-    for path in sorted(glob.glob(os.path.join(out, "*", "study.json"))):
+    for path in sorted(glob.glob(os.path.join(glob.escape(out), "*", "study.json"))):
         with open(path, encoding="utf-8") as f:
             studies.append(json.load(f))
     head = ["place", "source", "res", "lines", "ideal"] + list(REPORT_RULES)
@@ -1980,7 +1980,7 @@ def run(args) -> int:
     env = {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8"}
     for name, options in places:
         folder = os.path.join(out, name)
-        if args.again or not glob.glob(os.path.join(folder, "capture", "call-*", "lines.npz")):
+        if args.again or not glob.glob(os.path.join(glob.escape(folder), "capture", "call-*", "lines.npz")):
             _unlink(os.path.join(folder, "data", "cache"))  # the link only, never the real cache behind it
             shutil.rmtree(folder, ignore_errors=True)
             data = os.path.join(folder, "data")

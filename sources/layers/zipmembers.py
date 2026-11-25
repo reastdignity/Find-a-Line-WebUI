@@ -69,7 +69,7 @@ class ZipMemberTiles(MetalinkTiles):
             try:
                 current = self._current(tile)
                 if current is None or (current.url, current.offset) == (tile.url, tile.offset):
-                    answers = glob.glob(os.path.join(cache_dir, self.listing.top, "sheet-index", self.prefix,
+                    answers = glob.glob(os.path.join(glob.escape(cache_dir), self.listing.top, "sheet-index", self.prefix,
                                                      "*.json"))
                     try:
                         cache.forget(cache_dir, answers)

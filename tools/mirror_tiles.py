@@ -637,7 +637,7 @@ def placed_path(spec: Placed, inputs: Optional[str]) -> Optional[str]:
     """The file placed for spec in inputs (None while there is none); ValueError for two candidates."""
     if inputs is None:
         raise ValueError(f"{spec.pattern}: a placed input needs --inputs")
-    found = sorted(p for p in glob.glob(os.path.join(inputs, _any_case(spec.pattern)), recursive=True)
+    found = sorted(p for p in glob.glob(os.path.join(glob.escape(inputs), _any_case(spec.pattern)), recursive=True)
                    if os.path.isfile(p) and _is_input_name(p))
     if len(found) > 1:
         raise ValueError(f"{spec.pattern}: {len(found)} files match in {inputs}, one expected: {found[:5]}")
