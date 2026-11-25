@@ -512,25 +512,45 @@ export function renamedRun(id: string, name: string) {
 }
 
 let runList: Promise<RunInfo[]> | null = null;
+let listResets = 0;  // how often the list was forgotten: a request sent before the last reset is an old one
+let listKept: RunInfo[] | null = null;  // the list loadRunList last answered with, since the last reset
 
 /** Forget the list of runs: its next reader loads it again (loadRunList). For the page that knows the list
  *  changed: a search saved its run, a run was renamed or deleted (AppC, Home). Both copies go, the loaded one and
- *  the script's own window.FINDALINE_RUNS (storeOf reads that one first). */
+ *  the script's own window.FINDALINE_RUNS (storeOf reads that one first). A request for the list still on its
+ *  way is then an old one: its answer is dropped when it comes (loadRunList). */
 export function forgetRunList() {
   runList = null;
+  listKept = null;
+  listResets++;
   if (typeof window !== "undefined") delete window.FINDALINE_RUNS;
 }
 
 /** The runs the user may open as the maps list them (`/runs/runs.js`: window.FINDALINE_RUNS, with their
  * boxes for "other runs nearby"), loaded once until forgetRunList; empty when it cannot be loaded. Its
- * FINDALINE_APP (the public site's flags) is set as for a map. */
+ * FINDALINE_APP (the public site's flags) is set as for a map. An answer that comes after the list was forgotten
+ * (the script was asked for before a rename or a delete and holds the list of before) is not kept: its script
+ * has written window.FINDALINE_RUNS by then, which is put back as the reset or a newer answer left it, and those
+ * who asked get the list as it is read now. */
 export function loadRunList(src = "/runs/runs.js"): Promise<RunInfo[]> {
   if (runList) return runList;
+  const asked = listResets;
   runList = new Promise<RunInfo[]>((resolve) => {
     const script = document.createElement("script");
     script.src = src;
-    script.onload = () => { script.remove(); resolve(window.FINDALINE_RUNS || []); };
-    script.onerror = () => { script.remove(); runList = null; resolve([]); };
+    script.onload = () => {
+      script.remove();
+      if (asked === listResets) return resolve(listKept = window.FINDALINE_RUNS || []);
+      if (listKept) window.FINDALINE_RUNS = listKept;
+      else delete window.FINDALINE_RUNS;
+      resolve(loadRunList(src));
+    };
+    script.onerror = () => {
+      script.remove();
+      if (asked !== listResets) return resolve(loadRunList(src));
+      runList = null;
+      resolve([]);
+    };
     document.head.appendChild(script);
   });
   return runList;
