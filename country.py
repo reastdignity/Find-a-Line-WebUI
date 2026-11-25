@@ -2128,7 +2128,7 @@ def profile(country_id: str, data_dir: str) -> int:
     country = Country.from_config(read_state(folder)["config"])
     gib = 2 ** 30
     for band in country.bands:
-        paths = sorted(glob.glob(os.path.join(folder, "tiles", band.name, "*.npz")))
+        paths = sorted(glob.glob(os.path.join(glob.escape(folder), "tiles", band.name, "*.npz")))
         if not paths:
             continue
         metas = [_tile_meta(p) for p in paths]
@@ -2163,7 +2163,7 @@ def profile(country_id: str, data_dir: str) -> int:
         print(f"  file reads of a tile (MB, through the system's cache) {_quantiles([m['io']['read'] / 1e6 for m in profiled])}; "
               f"writes {_quantiles([m['io']['write'] / 1e6 for m in profiled])}; what reaches the disks: the "
               "last run's timeline below (these see no memory-mapped grid)")
-    timelines = sorted(glob.glob(os.path.join(folder, "logs", "samples-*.csv")))
+    timelines = sorted(glob.glob(os.path.join(glob.escape(folder), "logs", "samples-*.csv")))
     if timelines:
         _profile_timeline(timelines[-1])
     return 0

@@ -499,7 +499,7 @@ class PackageVersions(Versions):
         newest of its place)."""
         tiles = []
         bounds: Dict[str, Tuple[float, float, float, float]] = {}
-        for path in glob.glob(os.path.join(cache_dir, self.folder, "epsg*", "*", "*.tif")):
+        for path in glob.glob(os.path.join(glob.escape(cache_dir), self.folder, "epsg*", "*", "*.tif")):
             tile = self._of(path)
             if tile is None or path != self.path(cache_dir, tile):
                 continue
@@ -543,7 +543,7 @@ def package_years(paths: Sequence[str]) -> Set[int]:
 def forget_answers(cache_dir: str, top: str, prefix: str) -> None:
     """Forget the cached 0.25° answers of a layer (a package's members moved: they are made again from its
     directory read anew)."""
-    answers = glob.glob(os.path.join(cache_dir, top, "sheet-index", prefix, "*.json"))
+    answers = glob.glob(os.path.join(glob.escape(cache_dir), top, "sheet-index", prefix, "*.json"))
     try:
         cache.forget(cache_dir, answers)
     except OSError:  # another process forgot them now

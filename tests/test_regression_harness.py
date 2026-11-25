@@ -2306,3 +2306,76 @@ def test_a_write_that_is_no_utf8_never_costs_the_run(harness, capsys, monkeypatc
     code, out, tests = harness("R1", "--update", capsys=capsys)
     assert code == 3 and "could not be written (UnicodeEncodeError" in out and "nothing of this run is stored" in out
     assert tests["R1"]["expected"] == _expected() and _log_line(harness.data_file.parent)["exit"] == 3
+
+
+# --- a work folder whose path holds "[" and "]" (user-inputs E3) -------------------------------------------------
+
+class _Stop(Exception):
+    """Raised by a stub where a helper would go on to a search, an app or a link: the listing before it is tested."""
+
+
+def _bracket_run(tmp_path, meta=None):
+    """A runs folder under a folder named x[1] holding one run (its run.json, and map.html), as a search leaves it."""
+    runs = tmp_path / "x[1]" / "runs"
+    folder = runs / "2026-11-25_x"
+    folder.mkdir(parents=True)
+    (folder / "run.json").write_text(json.dumps(meta or {"params": {}, "summary": {}}), encoding="utf-8")
+    (folder / "map.html").write_text("<html><body></body></html>", encoding="utf-8")
+    return str(runs), str(folder)
+
+
+def test_measure_and_check_map_find_the_run_in_a_folder_with_brackets(tmp_path):
+    """measure and check_map list the run's run.json: its missing store is reported (nothing found: no report)."""
+    runs, _ = _bracket_run(tmp_path)
+    assert regression.measure("", runs)["store_problems"] == ["the run has no store (lines.arrow)"]
+    assert regression.check_map(runs, {"lines": 3, "spots": 1}) == [
+        "lines.arrow has None lines, the export 3",
+        "profiles.arrow has None profiles, expected 1 (area, profiles of the spots)"]
+
+
+def test_check_profiles_finds_the_run_in_a_folder_with_brackets(tmp_path, monkeypatch):
+    import linestore
+    runs, folder = _bracket_run(tmp_path)
+    read = []
+    monkeypatch.setattr(linestore, "read", lambda f: read.append(f) or (SimpleNamespace(profiles={}), None))
+    assert regression.check_profiles(runs, str(tmp_path / "work"), 3) == [] and read == [folder]
+
+
+def test_check_browser_finds_the_map_in_a_folder_with_brackets(tmp_path, monkeypatch):
+    """check_browser lists the run's map.html and writes its page with the check (the app's start stubbed)."""
+    runs, folder = _bracket_run(tmp_path)
+    monkeypatch.setattr(regression, "BROWSERS", [sys.executable])
+
+    def popen(*args, **kwargs):
+        raise _Stop
+
+    monkeypatch.setattr(regression.subprocess, "Popen", popen)
+    with pytest.raises(_Stop):
+        regression.check_browser(runs, str(tmp_path / "work"), {})
+    assert os.path.exists(os.path.join(folder, "zz_check.html"))
+
+
+def test_run_osm_finds_the_extract_in_a_cache_with_brackets(tmp_path, monkeypatch):
+    """run_osm lists the region's downloaded extract and links its country's folder (the link stubbed)."""
+    cache_dir = tmp_path / "x[1]" / "cache"
+    (cache_dir / "osm").mkdir(parents=True)
+    (cache_dir / "osm" / "geofabrik-index.json").write_text("{}", encoding="utf-8")
+    (cache_dir / "poland" / "osm-extract").mkdir(parents=True)
+    (cache_dir / "poland" / "osm-extract" / "malopolskie.osm.pbf").write_bytes(b"")
+    linked = []
+
+    def link(target, path):
+        linked.append(target)
+        raise _Stop
+
+    monkeypatch.setattr(regression, "link", link)
+    with pytest.raises(_Stop):
+        regression.run_osm({"region": "malopolskie", "bbox": [19.0, 49.0, 20.0, 50.0], "themes": []},
+                           str(tmp_path / "work"), str(cache_dir))
+    assert linked == [str(cache_dir / "poland")]
+
+
+def test_read_record_in_a_folder_with_brackets(tmp_path):
+    meta = _meta(coastline={"edition": "2026-10-23"})
+    runs, _ = _bracket_run(tmp_path, meta)
+    assert regression.read_record(runs) == regression.record_of(meta)

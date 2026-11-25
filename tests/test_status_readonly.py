@@ -270,6 +270,16 @@ def test_cache_status_prints_what_it_printed(tmp_path, monkeypatch, capsys):
     assert "world water polygons" not in capsys.readouterr().out
 
 
+def test_cache_status_prints_the_same_in_a_data_folder_with_brackets(tmp_path, monkeypatch, capsys):
+    """E3: in a data folder whose path holds "[" and "]" the text is the same, the OSM extracts too
+    (osmextract.extracts)."""
+    data, cache_dir = canned(tmp_path / "x[1]")
+    _tripwire(monkeypatch)
+    assert _status(data) == 0
+    out = re.sub(r"made \d{4}-\d\d-\d\d \(", "made <day> (", capsys.readouterr().out.replace(cache_dir, "<cache>"))
+    assert out == PRINTED
+
+
 def _world_only(root):
     """A data folder whose cache holds only the world file, put there by hand (no index)."""
     data = os.path.join(str(root), "data")

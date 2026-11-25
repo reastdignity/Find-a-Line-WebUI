@@ -315,7 +315,7 @@ class ZipSheetTiles(ComposedLayer):
         cache_dir = self.index.cache_dir
         if cache_dir:
             cache.record(cache_dir, path, "ok", url)
-        for other in glob.glob(os.path.join(os.path.dirname(path), f"{tile.sheet:03d}_*.tif")):
+        for other in glob.glob(os.path.join(glob.escape(os.path.dirname(path)), f"{tile.sheet:03d}_*.tif")):
             if os.path.normcase(other) != os.path.normcase(path):
                 try:
                     os.remove(other)
@@ -331,7 +331,7 @@ class ZipSheetTiles(ComposedLayer):
         m = self.index.margin
         for sheet, (a, b, c, d) in sorted(self.index.sheets.items()):
             if a - m < right and c + m > left and b - m < top and d + m > bottom:
-                versions = glob.glob(os.path.join(cache_dir, self.folder, f"{sheet:03d}_*.tif"))
+                versions = glob.glob(os.path.join(glob.escape(cache_dir), self.folder, f"{sheet:03d}_*.tif"))
                 if versions:
                     found.append(max(versions, key=lambda p: (os.path.getmtime(p), p)))
         return found

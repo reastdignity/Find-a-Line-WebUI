@@ -159,7 +159,7 @@ class GeoJsonTiles(MetalinkTiles):
         with self._stale_lock:
             now = time.monotonic()
             if self._reread_at is None or now - self._reread_at >= STALE_REREAD_SECONDS:
-                answers = glob.glob(os.path.join(cache_dir, self.listing.top, "sheet-index", self.prefix, "*.json"))
+                answers = glob.glob(os.path.join(glob.escape(cache_dir), self.listing.top, "sheet-index", self.prefix, "*.json"))
                 try:
                     self.listing.forget(cache_dir)
                     cache.forget(cache_dir, answers)

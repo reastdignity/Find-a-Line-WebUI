@@ -72,7 +72,7 @@ def gdal_library() -> ctypes.CDLL:
     import rasterio
     package = os.path.dirname(rasterio.__file__)
     for pattern in ("rasterio.libs/gdal*.dll", "rasterio.libs/libgdal*.so*", "rasterio/.dylibs/libgdal*.dylib"):
-        found = glob.glob(os.path.join(os.path.dirname(package), pattern))
+        found = glob.glob(os.path.join(glob.escape(os.path.dirname(package)), pattern))
         if found:
             lib = ctypes.CDLL(found[0])
             lib.VSINetworkStatsGetAsSerializedJSON.restype = ctypes.c_void_p
