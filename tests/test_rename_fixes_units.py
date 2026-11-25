@@ -1,7 +1,8 @@
 """Units of the rename's fix round (line volume's round 7, the code review's F2 to F4), run under Node:
 RunRename.tsx answeredName (the name a rename's answer gives, or none for an answer that is no rename) and
 renameFailure (a failed rename's line, and whether the name itself was refused: only then is the field marked
-invalid), with FAILED_TEXT (the key of the line of a failure that came with no words of its own).
+invalid), with FAILED_TEXT (the key of the line of a failure that came with no words of its own: ui.rename.failed,
+the user's text T22 of 2026-11-25).
 
 Needs Node and `npm install` in viewer/; skipped without them."""
 
@@ -24,8 +25,9 @@ pytestmark = pytest.mark.skipif(
 
 with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as _f:
     WORDS = json.load(_f)
-# The key FAILED_TEXT names, as RunRename.tsx writes it (a stand-in today: the words are read through the key, never
-# pinned, so the test follows the key the constant will name)
+# The line of a failure that came with no words of its own: the user's text T22 (2026-11-25, answer 1), under its key
+FAILED_KEY_WANTED, FAILED = "ui.rename.failed", "The run was not renamed. Try again in a moment."
+# The key FAILED_TEXT names, as RunRename.tsx writes it
 with open(os.path.join(VIEWER, "src", "result", "view", "RunRename.tsx"), encoding="utf-8") as _f:
     _failed = re.search(r'^export const FAILED_TEXT = "([^"]+)";', _f.read(), re.M)
 FAILED_KEY = _failed.group(1) if _failed else None  # None: a checkout without the constant
@@ -79,12 +81,13 @@ def run_units(bundle, tmp_path) -> dict:
 
 
 def test_failed_text_names_a_text_of_the_catalogue(bundle, tmp_path):
-    """FAILED_TEXT, as the bundle exports it, is the key RunRename.tsx writes, and that key has a text in the
-    catalogue: the words a failure without words of its own shows."""
+    """FAILED_TEXT, as the bundle exports it, is the key RunRename.tsx writes: ui.rename.failed, whose text in the
+    catalogue is the user's T22 "The run was not renamed. Try again in a moment." (the words a failure without words
+    of its own shows), not "in use"'s."""
     out = run_units(bundle, tmp_path)
     assert FAILED_KEY is not None, "RunRename.tsx exports no FAILED_TEXT"
-    assert out["constant"] == FAILED_KEY, (out["constant"], FAILED_KEY)
-    assert isinstance(WORDS.get(FAILED_KEY), str) and WORDS[FAILED_KEY].strip(), FAILED_KEY
+    assert out["constant"] == FAILED_KEY == FAILED_KEY_WANTED, (out["constant"], FAILED_KEY)
+    assert WORDS.get(FAILED_KEY) == FAILED != WORDS["ui.rename.in_use"], WORDS.get(FAILED_KEY)
 
 
 def test_answered_name(bundle, tmp_path):
@@ -100,12 +103,13 @@ def test_rename_failure(bundle, tmp_path):
     """renameFailure: a 409 shows the catalogue's "in use", the name not refused; a 400 coded run_name shows its own
     words and is the one refusal of the name; a 400 with another code or none shows its words, the name not
     refused; a 500 with words shows them; an error answer with no words (a 502 page that is no JSON and has no
-    reason phrase) and no error at all (an answer that is no rename) show FAILED_TEXT's words; a network failure
-    (a TypeError) shows its own message. Only the 400 coded run_name says refused."""
+    reason phrase) and no error at all (an answer that is no rename) show FAILED_TEXT's words, "The run was not
+    renamed. Try again in a moment."; a network failure (a TypeError) shows its own message. Only the 400 coded
+    run_name says refused."""
     out = run_units(bundle, tmp_path)["failures"]
     assert FAILED_KEY is not None, "RunRename.tsx exports no FAILED_TEXT"
     in_use, failed = WORDS["ui.rename.in_use"], WORDS[FAILED_KEY]
-    assert in_use == "The run is in use. Try again in a moment."
+    assert in_use == "The run is in use. Try again in a moment." and failed == FAILED, (in_use, failed)
     assert out["inUse"] == {"line": in_use, "refused": False}, out["inUse"]
     assert out["refused"] == {"line": "The server's words for the name", "refused": True}, out["refused"]
     assert out["otherCode"] == {"line": "Another refusal", "refused": False}, out["otherCode"]
