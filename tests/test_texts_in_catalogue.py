@@ -193,21 +193,20 @@ def test_footer_unchanged():
 # from the project's data server" of the mirror's task (its words approved by the user on 2026-11-15, U13:
 # docs/mirror-hosting/spec.md, section 7; web.py differs from main's only by that row), and line volume round 7's two
 # sentences (renaming a run, approved by the user on 2026-11-23): the Runs entry's "or the name you give" and the
-# audit log's "runs renamed (not their names) and deleted"; and round 7's home-screen lines in the head
-# (runs.HOME_SCREEN_HEAD, no word: each page with those four lines taken out gave the digest of before)
+# audit log's "runs renamed (not their names) and deleted"
 PRIVACY = {
-    ("admin@example.org", None, False): "eb38e402cbe20d7238c8fb3474122ed12fbdc4b553990c74bbd20ee192946a4b",
-    ("admin@example.org", None, True): "8a865cd2e90f511805be10e97589f71774c541cfc0b483c871c8a75b0b168694",
-    ("admin@example.org", 30, False): "ca7a180043d2347be71c4ef0379ff5079fd9db9e8f517f3e8fb7cb580f1cc469",
-    ("admin@example.org", 30, True): "b8d86a15eac477503de51e6c4dc73c86e6e273ff988b309ed2b7e24cac881c53",
-    ("admin@example.org", 7.5, False): "3388a4752b0d5075fb82d018a18bed33c3abf7a4155d316e81da0c95d37be5d7",
-    ("admin@example.org", 7.5, True): "38585642bb65bc3832f1aa2a3f69113f946b37972d6169ef882d44c9d424f47f",
-    ("<Ann & Bob>", None, False): "220ecfc782ce624a1b7d91bf7ec787420c4525309e101e763e50854f8dd898a8",
-    ("<Ann & Bob>", None, True): "287879f5a6edf9741d5483b9b3ef9c02c6266be26cd372ae75e467fea179a9d8",
-    ("<Ann & Bob>", 30, False): "e8efd54047bbd949d0ac86a28a817658344dcc81a95f6b9088866925a7eddf9a",
-    ("<Ann & Bob>", 30, True): "6ca99b3678800d4ab8ed35047e8a3c39e67e7f6e1a2a29f1961f02adb39cd778",
-    ("<Ann & Bob>", 7.5, False): "283083081381e2f15d6469c4f66c662f907619a46bc52595ff7edcedaa59c3b6",
-    ("<Ann & Bob>", 7.5, True): "80e9e7ff26ac87a586c92ec8b317331d87456948955427b6c0547c374a11a929",
+    ("admin@example.org", None, False): "69becc15a3a6048c0943398c477886f13f90b0bcef09c1ad2d3b8568e0b6d050",
+    ("admin@example.org", None, True): "9059c936ef53abb1f873e5aab4aa090246361bd87a2ac8976e9d729a194a2b2a",
+    ("admin@example.org", 30, False): "39c2b938c887c8a5e17eb32591b92c56b6aba8fb480169bdb2a89b9c594503cd",
+    ("admin@example.org", 30, True): "45dad8ad125fd51d16cdb7ccae1221968667568b15f538d2ec7de5724bbe6d7a",
+    ("admin@example.org", 7.5, False): "1740b92f4d32f6527fbfada8e9d4132bf31f583fc65d77d968b4b8d50e342bc6",
+    ("admin@example.org", 7.5, True): "7b867960294a90a1bc14d6e8fdf99eaa4f11d2dba109b4db61a2499627072294",
+    ("<Ann & Bob>", None, False): "581830f46bc280a0686bbdcf41914ba4151c4a2110109620c87cd3b82ca46bef",
+    ("<Ann & Bob>", None, True): "a7a94c92e0e39926478d8ab3943ce57cc1be30220307f6033b46e9835164e490",
+    ("<Ann & Bob>", 30, False): "f348426cbb344e63680e77c6efecf35619c6878a5260c38742a62c8df3d69f1f",
+    ("<Ann & Bob>", 30, True): "49fa20e1adb692edc974f41a97131d72a8b922323699a60eefe0beef2c229d4a",
+    ("<Ann & Bob>", 7.5, False): "433601a390e68209660eac1ec18d3ea079d8511f6cc6fa42af9125042cff4168",
+    ("<Ann & Bob>", 7.5, True): "0fc8e69086c26082f9b646042079048cb9ad70f62f0d4e741b3a1087440f0eb0",
 }
 
 
@@ -215,10 +214,14 @@ PRIVACY = {
 def test_privacy_page_byte_for_byte(variant):
     """The privacy page renders byte for byte as pinned above (main at db84edbc, G5's link, the data server's row), in every variant (contact, how long events are
     kept, the 3D view's ring). Its words are the user's: a change of them, or of a fact it states (a retention, a
-    cookie, a stored field), needs the user's yes on the exact sentences first; then the digests here change with it."""
+    cookie, a stored field), needs the user's yes on the exact sentences first; then the digests here change with it.
+    The head's home-screen lines (runs.HOME_SCREEN_HEAD: no word, pinned literally by tests/test_home_screen.py and
+    the sign-in and map pages' pins) are taken out once first, so a change of their colours never moves these."""
     import hashlib
     contact, days, ring = variant
     page = web.privacy_page(contact, days, ring=ring)
+    assert page.count(web.HOME_SCREEN_HEAD + "\n") == 1
+    page = page.replace(web.HOME_SCREEN_HEAD + "\n", "", 1)
     assert hashlib.sha256(page.encode("utf-8")).hexdigest() == PRIVACY[variant], (
         "the privacy page changed: its words are the user's to approve; change it only with the user's yes on the "
         "exact sentences, then update PRIVACY")
