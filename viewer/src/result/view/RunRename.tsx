@@ -28,6 +28,29 @@ export function nothingToSave(typed: string, name: string): boolean {
 
 let forms = 0;  // ids of the forms' fields (the refusal's line describes its field)
 
+/** The line of a failed rename that came with no words of its own (an error page that is not JSON and has no
+ *  reason phrase: a proxy's 502 over HTTP/2) or with an answer that is no rename (a 200 without the stored name).
+ *  A STAND-IN: the key of T9 ("in use") until the user's text for this case is approved (T22, asked of the user
+ *  on 2026-11-25); then this constant names that text's key and nothing else changes. */
+export const FAILED_TEXT = "ui.rename.in_use";
+
+/** The name a rename's answer gives (web.py rename_run: {"ok": true, "name": "<as stored>"}), or null for an
+ *  answer that is no rename: a 200 whose body is not that (a proxy's or a portal's page, which `call` reads as
+ *  {}), without a name that is a text with a character in it. */
+export function answeredName(answer: unknown): string | null {
+  const name = (answer as {name?: unknown} | null)?.name;
+  return typeof name === "string" && name !== "" ? name : null;
+}
+
+/** What a failed rename shows: its line and whether the name itself was refused (only then is the field marked
+ *  invalid: the server's 400 "run_name"; a run in use, a lost network or a server error say nothing about the
+ *  name). 409: "in use"; else the request's error text, and FAILED_TEXT's words where it has none. */
+export function renameFailure(e: unknown): {line: string; refused: boolean} {
+  const api = e instanceof ApiError ? e : null;
+  const line = api?.status === 409 ? t("ui.rename.in_use") : (e instanceof Error && e.message) || t(FAILED_TEXT);
+  return {line, refused: api?.status === 400 && api.info?.code === "run_name"};
+}
+
 export interface RenameFormProps {
   /** The run and its name now. */
   id: string;
@@ -47,12 +70,14 @@ export interface RenameFormProps {
  *  it opens, Enter saves; Save is off while the field is empty or unchanged. While the request waits the field
  *  cannot be changed and both buttons are off (a sent rename cannot be taken back), and Esc does nothing. A
  *  refusal's line stands under the buttons, the typed name stays and the focus is back in the field: the server's
- *  words for a refused name (400, error.run_name), "in use" for 409, and for any other failure the request's
- *  error text, as the card's other panels show one. */
+ *  words for a refused name (400, error.run_name: only then is the field marked invalid), "in use" for 409, and
+ *  for any other failure the request's error text, as the card's other panels show one; a failure never leaves
+ *  the form at rest without a line (renameFailure), and an answer that is no rename is a failure (answeredName). */
 export function RenameForm({id, name, onRenamed, onClose, onWaiting, onLine}: RenameFormProps) {
   const [value, setValue] = useState(name);
   const [wait, setWait] = useState(false);
   const [error, setError] = useState("");
+  const [refused, setRefused] = useState(false);  // the name itself was refused (not: in use, no network, a 500)
   const field = useRef<HTMLInputElement>(null);
   const fieldId = useRef("c-rename-" + (++forms)).current;
   const live = useRef(true);
@@ -79,22 +104,27 @@ export function RenameForm({id, name, onRenamed, onClose, onWaiting, onLine}: Re
     waiting(true);
     setError("");
     field.current?.focus({preventScroll: true});  // the pressed button goes off: the focus stays in the form
-    api.renameRun(id, value).then((answer) => {
-      renamedRun(id, answer.name);
-      if (live.current) waiting(false);
-      onRenamed(answer.name);  // also when the form is no longer drawn: the run has its new name
-    }, (e) => {
+    const failed = (e: unknown) => {
       if (!live.current) return;
+      const failure = renameFailure(e);
       waiting(false);
-      setError(e instanceof ApiError && e.status === 409 ? t("ui.rename.in_use") : e.message);
-    });
+      setRefused(failure.refused);
+      setError(failure.line);
+    };
+    api.renameRun(id, value).then((answer) => {
+      const stored = answeredName(answer);
+      if (stored === null) return failed(null);  // a 200 that is no rename: nothing is renamed on the page
+      renamedRun(id, stored);
+      if (live.current) waiting(false);
+      onRenamed(stored);  // also when the form is no longer drawn: the run has its new name
+    }, failed);
   };
   const keys = (e: KeyboardEvent) => {
     if (e.key === "Escape" && wait) { e.preventDefault(); e.stopPropagation(); }
   };
   return <form class="c-rename" noValidate onSubmit={save} onKeyDown={keys}>
     <input class="u-input c-panel-first" ref={field} id={fieldId} aria-label={t("ui.rename.name")} value={value}
-           readOnly={wait} aria-invalid={error ? true : undefined} aria-describedby={error ? fieldId + "-error" : undefined}
+           readOnly={wait} aria-invalid={error && refused ? true : undefined} aria-describedby={error ? fieldId + "-error" : undefined}
            autocomplete="off" spellcheck={false}
            onInput={(e) => { setValue(e.currentTarget.value); setError(""); }} />
     <div class="u-row">
