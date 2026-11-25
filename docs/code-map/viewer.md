@@ -107,7 +107,7 @@ link, get `STORE_PROBE`: the store's files asked for directly; docs/line-volume/
 its NaN; the columns views of the downloaded bytes, int64/uint64 ones copied into doubles; a higher `format` than
 `STORE_FORMAT` refused as `NewerStore`, `ui.result.newer_store`; a file not fetched (a 404: a run without a store)
 or not readable is `StoreFailed`, `ui.result.store_failed`; a null body `TooLarge`, `ui.result.too_large`;
-`failureOf` the failed page's sentence and whether a new try can help: not for the first two), the name the list of
+`failureOf` the failed page's sentence and whether a new try can help: not for `NewerStore` or `TooLarge`), the name the list of
 runs gives over the store's head (`fromServer` with `listedOf`: a rename changes run.json's name, never the head's;
 `renamedRun` puts a new name into a loaded run, and with `forgetRunList` the list is read again by its next reader,
 Compare among them: a search's end, a rename and a delete on the page call it),
@@ -280,7 +280,7 @@ line's first line; `useOwnRun` the run as the user's list has it when it is thei
 request for Share and Rename; Compare says why a run cannot be shown, `CAUSE_TEXT`, its box `u-off`, kept in the Tab
 order with `aria-disabled` while it holds the focus, and makes its rows anew only once the list was read again:
 line volume's round 7); the run's name in the desktop header's Title with the Rename button after it for its owner
-(round 7: `RunRename.tsx` `RunRename`, the kit's popover with `RenameForm`: `storedForm` and `nothingToSave` judge
+(round 7: `RunRename.tsx` `RunRename`, the view's `Popover` (`common.tsx`) with `RenameForm`: `storedForm` and `nothingToSave` judge
 a name as the server would store it, `answeredName` takes the server's, `renameFailure` a failure's line: "in use" for
 a 409, else the request's own words, else `FAILED_TEXT`, "The run was not renamed. Try again in a moment."); the profile's card over the desktop map (`ProfileCard`: the selected line's until
 `model.closeProfile`, or the measured line's; it stands on the credits' line, `--v-card-bottom`; its height goes to the

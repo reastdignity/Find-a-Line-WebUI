@@ -65,8 +65,8 @@ def test_step5_of_older_checkouts(tmp_path, monkeypatch):
     assert files == sorted(linestore.FILES)
     back, head = linestore.read(str(tmp_path / "wave2"), profiles=False)
     assert "spot" not in back.columns and "sectors" not in head and len(back) == len(lines)
+    import old_scripts  # the test's own writers (they import linestore): before linestore is taken away
     monkeypatch.setitem(sys.modules, "linestore", None)  # a checkout before the store: import linestore fails
-    import old_scripts
 
     def save_map(lines, area, run_path, runs_dir, run, crs):  # mapping.save_map of such a checkout: the scripts too
         head = mp.map_head(area, os.path.join(run_path, "map.html"), run, crs)

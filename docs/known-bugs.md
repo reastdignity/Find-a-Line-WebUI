@@ -225,8 +225,8 @@ every 0.5 ms read a refused replacement after 13 to 15 ms at the median and 204 
 3 000 moves): a replacement is held longer than a new file (29 ms above), so the 1.58 s of pauses are about 8 times
 the longest replacement measured. `tests/test_run_readers_wait.py` makes the refusal with a fake `open`.
 What it costs: a run.json that can never be opened (a permission denied, not a folder of that name, which `isfile`
-turns away first) answers 1.58 s later than before with the same answer, on Windows only (`/api/reach` checks twice,
-about 3.2 s; in the quick lane, one task at a time, the next task waits as long).
+turns away first) answers 1.58 s later than before with the same answer, on Windows only (`/api/reach` stops at its
+first check, so 1.58 s too; in the quick lane, one task at a time, the next task waits as long).
 Not covered:
 - **A run.json absent for a moment** (the user's answer 9 of 2026-11-25: "Known limit", the option worded "Write it
   into the known bugs with the measurement. Nothing more is built."). In 2 of those twelve probe runs, one from a thread and one from a
@@ -861,7 +861,7 @@ Found in round 7's reviews and checks (renaming a run, the size on Home, the scr
 - **Home's Share and Delete panels show an empty line** for a failure without words (a gateway's error with no text);
   the rename's form shows "The run was not renamed. Try again in a moment." there (the user's answer 1).
 - **`Popover` adds its Esc listener after the paint** (`common.tsx`): an Esc right after the box opens can do nothing
-  (a test saw it once in four runs).
+  (a test saw it once in four runs: the worker's count, not re-run, `local/line-volume-7-2026-11-23/PG/report.md`).
 - **A card's menu low on a phone** (the mock-up's point 25 a): the page scrolls so that the whole menu stands above the
   bottom bar, and the point the menu's button was pressed at then lies on a menu item: a second press there (a double
   tap, or a press meant to close the menu) presses that item ("Delete…" only opens its question; "Open the result"
@@ -875,8 +875,8 @@ Found in round 7's reviews and checks (renaming a run, the size on Home, the scr
 **The size on Home and the loading line** (`viewer/src/size.ts`)
 - **A total under 5 000 bytes reads "0.00 of 0.00 MB"** while it loads (two decimals below 50 000 bytes: the user's
   answer 3, "Two decimals"). Left as built (the planner's decision of 2026-11-25): no run's store is that small (the
-  smallest `linestore.write` makes, no lines and an empty head, is 9 092 bytes, and a search without lines saves no
-  run); only an answer that is no store could be (a portal's or a proxy's page of 200 under 5 000 bytes), until its
+  smallest `linestore.write` makes, no lines and an empty head, is 9 092 bytes, measured again on 2026-11-25:
+  lines.arrow 5 922, profiles.arrow 3 170; and a search without lines saves no run); only an answer that is no store could be (a portal's or a proxy's page of 200 under 5 000 bytes), until its
   read fails as "could not be loaded" (read from the code, not tried).
 - **Home's card rounds exact halves both ways** (`toFixed` of a double, older than the round's two-decimal line):
   150 000 bytes read "0.1 MB", 250 000 "0.3 MB", 350 000 "0.3 MB", 850 000 "0.8 MB". From 999.95 GB a size reads
@@ -918,8 +918,9 @@ each a roadmap line in docs/roadmap.md, "Line volume round 7: open")
   chosen one (its `body`'s background follows the system, `coverage/page/page.css`, while `.ui.cov` follows the
   chosen theme). Older than the round.
 - **Until the bundle runs, the bars show the system's ground**: on the coverage page one paint came before its script
-  in 3 of 7 tries (only the body, in the system's colours); nothing can set the lines earlier without an inline
-  script or a server change.
+  in 3 of 7 tries (only the body, in the system's colours; the worker's count, not re-run,
+  `local/line-volume-7-2026-11-23/TH/report.md`); nothing can set the lines earlier without an inline script or a
+  server change.
 
 ## The UI measuring tools: known and left (2026-11-17)
 

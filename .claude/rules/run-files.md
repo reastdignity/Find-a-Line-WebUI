@@ -73,9 +73,9 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   `has_lines`: `lines.arrow`. The head is `mapping.map_head`'s. Its media type
   `linestore.MEDIA_TYPE` = `web.py`'s `mimetypes` entry.
 - A run.json moved to its name, new or replacing one, is refused on Windows for a moment (docs/known-bugs.md,
-  "Two searches saved at once on Windows"): every product reader of a saved run's run.json reads it through
-  `runs.read_meta` (`list_runs`, `update.changed_runs`, the readers handed a run: `test_run_readers_wait.py`), off
-  the web's event loop (it waits), or takes an OSError for "not now" (`run_state`).
+  "Two searches saved at once on Windows"): every product reader but the local app's static `/runs` reads it through
+  `runs.read_meta` (`list_runs`, `update.changed_runs`, those handed a run: `test_run_readers_wait.py`), off the
+  event loop (it waits), or takes an OSError for "not now" (`run_state`).
 - The page's reader of the store (`result/load.ts` `readStore`, `storedProfiles`, `STORE_FORMAT`; `types.ts`
   `storedColumns`, `NULL_WHEN_MISSING`: null for clrN, prom, drop as data.js had them, NaN for the others) and
   `linestore.COLUMNS`/`profiles_table`/`FORMAT`: a new column, type, null rule or format goes into both

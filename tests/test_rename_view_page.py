@@ -22,7 +22,7 @@ pytest.importorskip("httpx2")
 
 from test_public import RUN_A, RUN_B, account_settings  # noqa: E402,F401
 from test_rename_home_page import (FORM, NAME_A, NAME_B, REFUSED, SHARE_TOKEN, WORDS, Browser, card,  # noqa: E402,F401
-                                   kit_icon, open_home, open_rename, rename_site, the_held)
+                                   kit_icon, line_before_typing, open_home, open_rename, rename_site, the_held)
 from test_shell_c import copy_clip  # noqa: E402
 from test_shell_c_view_map import DESKTOP, PHONE, view_clip  # noqa: E402,F401
 from test_shell_c_view_map import WAIT as PAGE_WAIT  # noqa: E402
@@ -241,9 +241,9 @@ def test_the_view_waits_and_shows_refusals(rename_site):
         press_map(page)
         page.evaluate(FRAMES)
         after_press = page.evaluate(COUNT, BOX)
-        the_held(page, held).fulfill(status=409, content_type="application/json",
-                                     body=json.dumps({"detail": "the run is in use: try again in a moment"}))
-        page.wait_for_selector(f"{BOX} .c-rename [role=alert]")
+        with line_before_typing(page, ".c-run-title"):
+            the_held(page, held).fulfill(status=409, content_type="application/json",
+                                         body=json.dumps({"detail": "the run is in use: try again in a moment"}))
         in_use = page.evaluate(FORM, ".c-run-title")
         in_use_place = page.evaluate(LINE_UNDER, ".c-run-title")
         page.unroute(f"**/api/runs/{RUN_A}")

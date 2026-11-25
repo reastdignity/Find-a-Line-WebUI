@@ -114,9 +114,9 @@ tests that start Edge).
   `base_url`.
 - **The web worker** runs each phase in a `spawn` process; its stdout becomes `info` events, and
   `progress.TEXT_INTERVAL` is set to infinity there (progress goes as events). A `spawn` process makes its own
-  streams, in the Windows code page when they are redirected (a local app's output in a pipe or file): the quick
-  lane's "sea 0.31 km²" raised a `UnicodeEncodeError` (a `ValueError`: a 400) in every 3D view of a run with water
-  filling. The worker's
+  streams, in the Windows code page when redirected (a local app's output in a pipe or file): the quick
+  lane's "sea 0.31 km²" raised a `UnicodeEncodeError` (a `ValueError`: a 400) in every 3D view and profile of a run
+  with water filling. The worker's
   process targets call `progress.utf8_output()` as `findaline.py` does, and `run_quick` and `run_phase` answer a
   `UnicodeError` as an internal error (`tests/test_web.py::test_quick_lane_output_in_utf8`, with
   `PYTHONIOENCODING=cp1250` on every OS). Every script that prints does the same in its `if __name__ == "__main__":`

@@ -272,8 +272,8 @@ card's menu on a phone, the page scrolled), `c-card-rename`, `c-card-rename-refu
 ring after a real Shift+Tab and Tab: a step `key:<key>` presses a key through Playwright's keyboard, then the settled
 wait; only this state has key steps) and `c-view-compare-causes` (three runs Compare cannot show, the owner's header:
 a job stub); the page family "run-wait" (`RUN_WAITS`, drawn once the box shows a failure's sentence or a bar of a
-known amount): `map-failed`, `map-failed-shared`, `map-too-large`, `c-run-failed` (a store the server answers with 404
-or as too large), `c-run-loading`, `c-run-loading-gb` (a store that keeps loading, of a total in MB or GB). They set,
+known amount): `map-failed`, `map-failed-shared`, `map-too-large`, `c-run-failed` (the app's view of a run whose
+store the server answers with 404), `c-run-loading`, `c-run-loading-gb` (a store that keeps loading, of a total in MB or GB). They set,
 share, delete or store nothing; only the two `-refused` states send a name, one the server refuses
 (`tests/test_ui_shots_round7.py`).
 

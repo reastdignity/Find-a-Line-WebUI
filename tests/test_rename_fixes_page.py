@@ -25,7 +25,7 @@ pytest.importorskip("httpx2")
 from test_compare_causes_page import NAME_C, RUN_C, add_run, open_compare  # noqa: E402
 from test_public import RUN_A, RUN_B, account_settings  # noqa: E402,F401
 from test_rename_home_page import (FORM, NAME, NAME_A, NAME_B, REFUSED, REPO, WORDS, Browser, card,  # noqa: E402,F401
-                                   open_home, open_menu, open_rename, rename_site, the_held)
+                                   line_before_typing, open_home, open_menu, open_rename, rename_site, the_held)
 from test_rename_view_page import BOX, BUTTON, TEXT, TITLE, open_box, renamed, settled, view_of  # noqa: E402
 from test_shell_c_view_map import DESKTOP, view_clip  # noqa: E402,F401
 from test_shell_c_view_map import WAIT as PAGE_WAIT  # noqa: E402
@@ -302,8 +302,8 @@ def test_only_a_refused_name_marks_the_field(rename_site):
             page.wait_for_selector(alert, state="detached")
             page.keyboard.press("Enter")
             page.wait_for_function(READ_ONLY, arg=card(RUN_A))
-            answer(the_held(page, held))
-            page.wait_for_selector(alert)
+            with line_before_typing(page, card(RUN_A)):  # the next fill types after this line
+                answer(the_held(page, held))
             seen[name] = page.evaluate(FORM, card(RUN_A))
         page.unroute(f"**/api/runs/{RUN_A}")
         field.fill("Tab\there")
