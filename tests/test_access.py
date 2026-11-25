@@ -726,6 +726,95 @@ def test_a_strip_full_of_pending_pieces_stays_in_its_memory(tmp_path):
     assert peak < 44 * 4_000_000, peak / 4e6
 
 
+def test_the_tables_file_at_its_worst_with_records(tmp_path, monkeypatch):
+    """The regions' scratch file at strips of 64 rows (the least a strip has) with records really present, the code
+    review's shape: single pixels inside the strips (a piece every 4 pixels) and vertical pairs over every seam in
+    alternate columns, every region an open question and the questions of more than one strip recorded as the flat
+    lakes record them: under 2 B per pixel of the grid (pieces 1 B, records at most 1/2 B, classes carried in 1/32 B)."""
+    monkeypatch.setattr(access, "STRIP_PX", 1)
+    h, w = 64 * 6, 400
+    mask = np.zeros((h, w), bool)
+    for r0 in range(0, h, 64):
+        mask[r0 + 2:r0 + 61:2, ::2] = True  # single pixels, clear of the seams
+    for seam in range(64, h, 64):
+        mask[seam - 1:seam + 1, ::2] = True  # a pair over every seam, every other column
+    m = _mask_file(tmp_path, mask)
+
+    def leave(regions, s, labels, final):  # as _flat_lakes_rows: questions of one strip answered, the others recorded
+        q, more = regions.questions, np.zeros(len(final), bool)
+        asked = final >= access.ASK
+        for code in np.unique(final[asked]).tolist():
+            j = code - access.ASK
+            if not (q["first"][j] == s == q["last"][j]):
+                more |= final == code
+        return more
+
+    regions = access._Regions(m, str(tmp_path / "regions.bin"), lambda p, lo, hi: np.full(len(p), access.ASK),
+                              on_strip=leave)
+    records = sum(len(regions.records(s)) for s in range(len(regions.strips)))
+    size = os.path.getsize(tmp_path / "regions.bin")
+    regions.remove()
+    m.remove()
+    assert records >= 2 * (h // 64 - 1) * (w // 2)  # both pieces of every pair
+    assert size / mask.size < 2, size / mask.size
+
+
+def _isolated_with_heights(tmp_path):
+    """The code review's worst strip for memory: isolated pixels (a piece every 4 pixels) with heights, the open
+    ground's way (written in the sweep, settled by a size), three strips of 4 Mpx (111 x 36 000)."""
+    h, w = 111 * 3, 36_000
+    mask = np.zeros((h, w), bool)
+    mask[::2, ::2] = True
+    heights = np.random.default_rng(1).random((h, w), dtype=np.float32)
+    m = _mask_file(tmp_path, mask)
+    del mask
+
+    def write(regions, s, labels, final):
+        r0, r1 = regions.strips[s]
+        m.write(r0, r1, ((final == access.KEEP) | (final < 0))[labels])
+
+    return m, heights, write
+
+
+def test_a_strips_memory_at_its_worst(tmp_path, monkeypatch):
+    """A strip's working memory on the code review's worst shapes stays under wave 1's worst (196 MB on a strip of
+    4 Mpx: 49 B per strip pixel), Python's traced peak: isolated pixels with heights, three strips of 4 Mpx, the
+    regions' work with its writes and visits; and one lake filling a strip of 4 Mpx (1000 x 4000 at 2 m), an open
+    question answered in the sweep from the strip's heights."""
+    import tracemalloc
+    monkeypatch.setattr(access, "STRIP_PX", 111 * 36_000)
+    m, heights, write = _isolated_with_heights(tmp_path)
+    tracemalloc.start()
+    try:
+        regions = access._Regions(m, str(tmp_path / "regions.bin"),
+                                  lambda p, lo, hi: np.where(p >= 3, access.KEEP, access.DROP),
+                                  heights=lambda r0, r1: heights[r0:r1], on_strip=write,
+                                  settled=lambda p: np.where(p >= 3, access.KEEP, -1))
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert len(regions.strips) == 3
+    regions.remove()
+    m.remove()
+    assert peak < 49 * 111 * 36_000, peak / (111 * 36_000)
+    monkeypatch.setattr(access, "STRIP_PX", 4_000_000)
+    rng = np.random.default_rng(2)
+    z = (50 + rng.random((1000, 4000)) * 0.1).astype(np.float32)
+    z[500, 100:140] = 50 + np.linspace(0, 0.6, 40)  # highest less lowest 0.7 m: an open question
+    wet = access._Mask(str(tmp_path / "wet.npy"), z.shape)
+    wet.write(0, z.shape[0], False)
+    tracemalloc.start()
+    try:
+        access._flat_lakes_rows(z, 2.0, str(tmp_path), wet)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert wet.rows(0, 1000)[400:600, 1000:3000].all()  # kept by the percentiles
+    wet.remove()
+    assert peak < 49 * z.size, peak / z.size
+    assert os.listdir(tmp_path) == []
+
+
 def test_a_closed_mask_lets_its_map_go(tmp_path):
     """_Mask.close: the map is let go (Windows renames a mapped file only once no view of it is left) and the next read
     maps the file again, read only, with what was written."""
@@ -1002,6 +1091,86 @@ def test_flat_lakes_on_the_seams(tmp_path, monkeypatch, gather_px):
     assert os.listdir(tmp_path) == []
     assert np.array_equal(got, want), int((got != want).sum())
     assert visited  # some questions were left to the gather or B
+
+
+def _plateaus(rows=64 * 5, cols=200):
+    """At 1 m: ground of 63 degrees with two level plateaus (0.6 degrees) over rows 10 to 252, so over the seams of
+    rows 63/64, 127/128 and 191/192 of strips of 64 rows: one of about 1.25 ha (kept as open ground), one of about
+    0.73 ha (dropped); neither reaches 1 ha within its first two strips, so its first strip's pieces are still pending
+    when that strip is written."""
+    z = 2.0 * np.arange(cols)[None, :] + np.zeros((rows, 1))
+    for c0, c1 in ((20, 74), (110, 142)):
+        z[10:252, c0:c1] = 500 + 0.01 * np.arange(10, 252)[:, None]
+    return z.astype(np.float32)
+
+
+def test_open_ground_over_two_seams_before_its_verdict(tmp_path, monkeypatch):
+    """The open ground of the grid in blocks (access._open_ground_rows, strips of 64 rows) = _open_ground of the grid
+    at once, pixel for pixel, where a region crosses two seams before its size is reached or it closes: kept once,
+    dropped once. Its first strip's pieces are written while still pending, so the sweep's write must keep them in the
+    mask until the visits drop them (a write of the known verdicts alone loses the kept one)."""
+    z = _plateaus()
+    res = 1.0
+    data = np.isfinite(z)
+    slope = np.where(data, access.slope_deg(z, res), 90.0)
+    want = access._open_ground(slope, np.zeros(z.shape, bool), data, res)
+    assert want[30, 40] and want[240, 40] and not want[30, 120] and not want[240, 120]
+    monkeypatch.setattr(access, "STRIP_PX", 1)
+    wet = access._Mask(str(tmp_path / "wet.npy"), z.shape)
+    wet.write(0, z.shape[0], False)
+    g = access._open_ground_rows(z, None, None, wet, res, str(tmp_path), "og", smoothed=False)
+    got = g.rows(0, z.shape[0])
+    g.remove()
+    wet.remove()
+    assert os.listdir(tmp_path) == []
+    assert np.array_equal(got, want), int((got != want).sum())
+
+
+def test_a_lake_kept_by_its_bounds_over_three_strips(tmp_path, monkeypatch):
+    """The flat lakes of the grid in blocks (access._flat_lakes_rows, strips of 64 rows) = flat_water at once where a
+    lake kept by its lowest and highest (no question) spans four strips: its first strip's pieces are still pending
+    when that strip is written, so they reach the water only by the last loop's writes of the records resolved
+    KEEP."""
+    rng = np.random.default_rng(6)
+    z = tilted(64 * 5, 200, res=2.0, grade=0.3)
+    _lake(z, (10, 252), (20, 120), "flat", rng)
+    z = z.astype(np.float32)
+    res = 2.0
+    want = access.flat_water(z, access.slope_deg(z, res), res)
+    assert want[30, 60] and want[240, 60]
+    monkeypatch.setattr(access, "STRIP_PX", 1)
+    wet = access._Mask(str(tmp_path / "wet.npy"), z.shape)
+    wet.write(0, z.shape[0], False)
+    access._flat_lakes_rows(z, res, str(tmp_path), wet)
+    got = wet.rows(0, z.shape[0])
+    wet.remove()
+    assert os.listdir(tmp_path) == []
+    assert np.array_equal(got, want), int((got != want).sum())
+
+
+def test_the_bits_file_of_a_large_question(tmp_path, monkeypatch):
+    """B's scratch file (access.BITS_FILE: a large open question's pixels, one bit each, between the selection's
+    passes) on a question over GATHER_PX spread over 44 strips: at most 1/8 B per pixel of the grid (and its .npy-less
+    header: none), there while B runs, gone afterwards."""
+    z = _wide_flat()
+    monkeypatch.setattr(access, "STRIP_PX", 1)
+    monkeypatch.setattr(access, "GATHER_PX", 5_000)
+    sizes, real_remove = [], access._remove
+
+    def remove(path):
+        if os.path.basename(path) == access.BITS_FILE and os.path.exists(path):
+            sizes.append(os.path.getsize(path))
+        real_remove(path)
+
+    monkeypatch.setattr(access, "_remove", remove)
+    wet = access._Mask(str(tmp_path / "wet.npy"), z.shape)
+    wet.write(0, z.shape[0], False)
+    access._flat_lakes_rows(z, 2.0, str(tmp_path), wet)
+    wet.remove()
+    assert len(sizes) == 2 and min(sizes) > 0, sizes  # the lake and the refused region, one at a time
+    assert max(sizes) <= z.size / 8 + 64 * 46, (sizes, z.size / 8)  # a window's last byte rounded up
+    assert sizes[0] >= LAKE_PX / 8  # the lake's windows hold its pixels
+    assert os.listdir(tmp_path) == []
 
 
 def test_speed_logged(record_property):
