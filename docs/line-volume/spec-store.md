@@ -16,8 +16,8 @@ cleared (1.9 "Built (round 5)"): the page reads a run from its store alone, and 
 `lines.js`; on the server on the user's word. Open: waves 6, 7, 8.
 **State on 2026-11-25 (round 7):** wave 8 (renaming a run) is built, section 5 "As built in round 7"; wave 6 was
 reduced by the user to the run's size on Home's card, section 4 "As built in round 7" (no brotli, no immutable
-cache); wave 7 (the ranges) was built on a branch, accepted, and not taken: section 3 "Not taken". Nothing of this
-part is open.
+cache); wave 7 (the ranges): its server half was built on a branch, accepted, and not taken: section 3 "Not
+taken". Nothing of this part is open.
 
 ## 1. One store of a run's lines, columns in the page, text files on request
 
@@ -586,10 +586,11 @@ With the store: loading BAH 0.18 s, MG5 0.35 s (part P5, the Arrow file) plus gr
 ### As built in round 7 (2026-11-23 to 2026-11-25)
 The user reduced this wave to its one visible part after asking what it gains ("Size on Home only"; "No, keep
 asking the server" for the immutable cache). Since the specification `data.js` was gone and nginx already gzipped the
-store at level 5 (BAH's 223 MB store sent as 98 MB), so brotli would have saved about 10 % of the bytes (this
-section's own figures: 32.4 against 36.0 MB) for a second copy on disk (35 to 45 % more a run, estimate) and a second
-way to send a file; and a reopen already costs one request answered "not changed" without data, which the immutable
-cache would save, with the server's access check.
+store at level 5 (about 2.3 times smaller, the comment in `deploy/nginx/findaline.conf` says), so brotli would have
+saved about 10 % of the bytes (this section's own figures, part P5's BAH store of 99.6 MB: 32.4 against 36.0 MB) for a
+second copy on disk (35 to 45 % more a run, estimate) and a second way to send a file; and a reopen already costs one
+request answered "not changed" without data (read in Starlette's code; not tried through the real nginx), which the
+immutable cache would save, with the server's access check.
 - **Built:** `/api/runs` gives each run `bytes`, run.json's `store.bytes` (the two store files as written; null for a
   run without a store block); Home's card shows it as stored (the user's "Size as stored") on the second of two fixed
   lines, "24 Nov 2026, 21:14 · 2.1 MB" (one decimal below 10 MB, whole MB to 999, then GB with one decimal; "under
@@ -629,8 +630,9 @@ cache would save, with the server's access check.
     "name": <as stored>}`, 400 `run_name`, 404 for another's run and in the local app, 409 "the run is in use" when a
     file cannot be replaced now; no rate limit; audit `run_rename` without the name.
   - **The name** (`runs.run_name`, a rule of its own, not `--name`'s): NFC, each run of whitespace one space, trimmed,
-    1 to 100 characters, at least one not a space, a mark or a format character; control and format characters
-    refused but the joiners ZWNJ and ZWJ, line and paragraph separators too; an empty name refused (the user's
+    1 to 100 characters, at least one not a space, a mark or a format character; every character of a "C" category
+    (control, format, surrogate, private use, unassigned) refused but the joiners ZWNJ and ZWJ, line and paragraph
+    separators too; an empty name refused (the user's
     "Refuse it"). The page sends the name as typed and shows the answered one; one text for every refusal (T6).
   - **What a rename changes** (`runs.rename_run`, under the runs lock, each file whole through `cache.replacing`):
     ATTRIBUTION.txt's first line, `map.html` (its `<title>` and the disk notice's heading, from today's template:

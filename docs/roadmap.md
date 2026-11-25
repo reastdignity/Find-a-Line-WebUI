@@ -348,10 +348,10 @@ started.
   `lines.arrow` 30 to 34 % larger after gzip 5 with the seven columns today's filters read, 51 to 57 % with all twelve
   (28 and 48 B a kept line raw), on every run with the square rule (every Basic search). The branch is kept under the
   tag `history/line-ranges` (never merged; `linestore.read` of chosen columns was taken out of it, A4).
-- **Brotli at saving: not built** (2d; the user: "Size on Home only"). nginx already gzips the store at level 5 (BAH's
-  223 MB store sent as 98 MB); the specification's own figures put brotli 5 about 10 % under gzip 6 (BAH 32.4 against
-  36.0 MB), against a second copy on disk (35 to 45 % more a run, estimate), a second way to send a file and its
-  compression at every saving.
+- **Brotli at saving: not built** (2d; the user: "Size on Home only"). nginx already gzips the store at level 5 (about
+  2.3 times smaller, its configuration's comment says); the specification's own figures put brotli 5 about 10 % under
+  gzip 6 (part P5's BAH store of 99.6 MB: 32.4 against 36.0 MB), against a second copy on disk (35 to 45 % more a
+  run, estimate), a second way to send a file and its compression at every saving.
 - **Run files cached as immutable: not built** (2d; the user: "No, keep asking the server"). A reopen already asks
   the server once and gets "not changed" without data when the browser kept its copy (read in Starlette's code; not
   tried through the real nginx); immutable would save that one request and skip the server's access check.
@@ -361,7 +361,7 @@ started.
   930 px the result view's header cuts the run's name (older, made worse by the Rename button), and with a coarse
   pointer it grows when the button comes (docs/known-bugs.md, "Line volume, round 7", with the measured widths). A
   mock-up first. A touch desktop's grid tried in round 7 was worse than today's layout from about 880 to 929 px and
-  at 768 px, and was not taken.
+  at 768 px (its review), and was not taken (the planner's decision of 2026-11-25).
 - **The three faults of the result view's filters** (the user's answer 8: "Known bugs + roadmap"; docs/known-bugs.md,
   "Line volume, round 7"): mark the pressed main chip while its editor is open (as More filters' chip turns `u-on`);
   draw a range's empty track inside the editor's grey box; open the editor in sight at a phone's half height (raise
