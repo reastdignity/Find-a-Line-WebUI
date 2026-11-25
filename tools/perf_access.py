@@ -89,7 +89,7 @@ PROC = "/proc"
 # _spread_large for B)
 HOOKS = ("_whole_metres_rows", "_flat_lakes_rows", "_region_areas", "_region_bounds", "_spread_flat",
          "_open_ground_rows", "_answers", "_Regions.__init__", "_Regions._backward", "_Regions.visit",
-         "_spread_large")
+         "_spread_large", "_Regions._label")
 GROUPS = {"access_flat.npy": "flat lakes", "access_og_g.npy": "open ground", "access_og2_g.npy": "smoothed open ground",
           "access_og.npy": "open ground", "access_og2.npy": "smoothed open ground"}
 # access._answers' parameters as the per-block hook mirrors them (another signature: the blocks are not split)
@@ -858,6 +858,7 @@ class Marks:
         self.readings: Dict[str, Dict] = {}  # label: this process's memory when the part starts (the blocks')
         self.large: List[Dict] = []
         self.counts: Dict[str, Dict] = {}
+        self.labels_dtypes = set()
         self.proc = psutil.Process()
 
     def mark(self, label: str, reading: bool = False):
@@ -884,6 +885,7 @@ class Marks:
         self.found = [n for n in HOOKS if callable(_lookup(access, n))]
         self.large = []  # B: per large region its pixels, strips, passes, the visits' windows, seconds
         self.counts = {}  # S: per pass its records, scratch bytes, visits' windows and pixels, questions
+        self.labels_dtypes = set()  # S: the dtypes of the strips' labels _Regions._label returned
         state = {"in_b": False}
 
         def wrap(name, enter=None, leave=None):
@@ -979,6 +981,15 @@ class Marks:
         wrap("_Regions._backward", enter=lambda a, k: f"grid-wide: {of_regions(a, k)}: regions: backward")
         wrap("_spread_large", enter=large_enter, leave=large_leave)
         wrap("_spread_flat", enter=spread_enter, leave=lambda a, k: "grid-wide: flat lakes: after: write")
+        owner, attr = _owner(access, "_Regions._label")
+        real_label = getattr(owner, attr, None) if owner is not None else None
+        if callable(real_label):
+            def hooked_label(regions, s):  # the labels' type as the regions really use it, observed per call
+                got = real_label(regions, s)
+                self.labels_dtypes.add(str(got[0].dtype))
+                return got
+            self.restore.append(("_Regions._label", real_label))
+            setattr(owner, attr, hooked_label)
         owner, attr = _owner(access, "_Regions.visit")
         real_visit = getattr(owner, attr, None) if owner is not None else None
         if callable(real_visit):
@@ -1147,6 +1158,7 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
         out["readings"] = dict(sidecar_events.readings)
         out["large_regions"] = list(sidecar_events.large)  # B: each large flat region's passes and seconds
         out["counts"] = dict(sidecar_events.counts)  # S: per pass its records, scratch bytes, visits, questions
+        out["labels_dtypes"] = sorted(sidecar_events.labels_dtypes)  # S: observed; [] on the base
         out["hooks"] = sidecar_events.found
         out["first_event"] = start
         gc.collect()

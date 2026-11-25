@@ -392,6 +392,7 @@ def made_up_search(tmp_path, monkeypatch):
 def test_stages_on_a_made_up_search(tmp_path, made_up_search):
     """stages: step 1, the grid in blocks of 60 pixels, at once, in blocks again: the keys of the JSON, the blocks'
     grids equal to the grid at once, nothing left of the pass, the work folder removed."""
+    import types
     out_dir = tmp_path / "out"
     out = pa.main(["stages", "--out", str(out_dir), "--name", "s", "--order", "blocks,once,blocks",
                    "--block-px", "60", *made_up_search])
@@ -427,7 +428,12 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
                         "grid-wide: open ground: regions: backward", "grid-wide: open ground: after: visits"} <= labels
                 c = st["counts"]["open ground"]
                 assert c["scratch_bytes"] > 0 and c["record_bytes"] == 32 * c["records"]
+                import access
+                assert st["labels_dtypes"] == [str(access._Regions._label(
+                    types.SimpleNamespace(strips=[(0, 4)], mask=types.SimpleNamespace(
+                        rows=lambda r0, r1: np.ones((4, 4), bool))), 0)[0].dtype)]  # as the tree labels a strip
             elif "_region_areas" in st["hooks"]:  # the base: the labels file, then the write; no S's counts
+                assert st["labels_dtypes"] == []
                 assert {"grid-wide: open ground: mask", "grid-wide: open ground: regions: labels",
                         "grid-wide: open ground: after: write"} <= labels, labels
                 assert not any(k.startswith("grid-wide: flat lakes: after: gather") for k in labels)
