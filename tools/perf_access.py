@@ -88,7 +88,7 @@ PROC = "/proc"
 # (until gate 0: _region_areas, _region_bounds and the label files; since wave 1 of 2026-11-24: _Regions' sweeps,
 # _spread_large for B)
 HOOKS = ("_whole_metres_rows", "_flat_lakes_rows", "_region_areas", "_region_bounds", "_spread_flat",
-         "_open_ground_rows", "_answers", "_Regions._forward", "_Regions._backward", "_Regions.codes",
+         "_open_ground_rows", "_answers", "_Regions.__init__", "_Regions._backward", "_Regions.visit",
          "_spread_large")
 GROUPS = {"access_flat.npy": "flat lakes", "access_og_g.npy": "open ground", "access_og2_g.npy": "smoothed open ground",
           "access_og.npy": "open ground", "access_og2.npy": "smoothed open ground"}
@@ -392,6 +392,22 @@ def merge(parts: Dict[str, Dict], prefix: str) -> Optional[Dict]:
         out.update(cg_peak=c["cg_peak"], cg_peak_above_start=c.get("cg_peak_above_start"),
                    cg_split_at_peak=c["cg_split_at_peak"])
     return out
+
+
+SCRATCH_FILES = ("access_regions.bin", "access_bits.bin")
+
+
+def file_peaks(listings, t0: float, t1: float, pixels: int) -> Dict:
+    """The largest size each scratch file of the pass (SCRATCH_FILES) reached during a stage, as the sidecar's
+    listings of the work folder saw it (a listing at every change, sampled every 20 ms: a file that lived under 20 ms
+    may be missed), in bytes and per pixel of the grid."""
+    out = {}
+    for t, files in listings:
+        if t0 <= t <= t1:
+            for name in SCRATCH_FILES:
+                if name in files:
+                    out[name] = max(out.get(name, 0), files[name])
+    return {name: {"bytes": b, "b_per_px": round(b / pixels, 4)} for name, b in out.items()}
 
 
 def per_px(value: Optional[int], pixels: Optional[int]) -> Optional[float]:
@@ -840,6 +856,7 @@ class Marks:
         self.found: List[str] = []
         self.readings: Dict[str, Dict] = {}  # label: this process's memory when the part starts (the blocks')
         self.large: List[Dict] = []
+        self.counts: Dict[str, Dict] = {}
         self.proc = psutil.Process()
 
     def mark(self, label: str, reading: bool = False):
@@ -849,14 +866,24 @@ class Marks:
 
     def hook(self, access):
         """Wrap the grid-wide pass's functions and the blocks' _answers: each only switches the label (no argument is
-        kept: a kept view of a memory-mapped mask would hold its file on Windows). Both trees: the code of gate 0
-        (_region_areas, _region_bounds: "labels", "bounds", "percentiles") and of wave 1 (_Regions' forward and
-        backward sweeps, the reading sweep that writes, "gather" and "B" of _spread_flat / _spread_large, with B's
-        sweeps counted by the region's codes read). Names are looked up; one missing is left out of "hooks"."""
+        kept: a kept view of a memory-mapped mask would hold its file on Windows). Two trees, one cut (wave 2a's
+        brief, fixed before any number): per pass (flat lakes, open ground, smoothed open ground)
+        - "mask": from the pass function's entry to the regions' start;
+        - "regions": the base's _region_areas ("regions: labels"; the lakes also _region_bounds, "regions: bounds"),
+          S's _Regions.__init__ (its forward sweep with the writes, "regions: forward", and its backward sweep,
+          "regions: backward");
+        - "after": from the regions' end to the pass function's exit (the base: the write, its flush and the
+          removals, the lakes' percentiles; S: the visits, the close, the removal, the lakes' gather in
+          _spread_flat with _spread_large apart as "after: B", and the last writes).
+        The rest of the pass as before: the whole-metre sample, the water's copy, "masks opened". On S also counted
+        per pass: the records and the regions' scratch file (at _Regions.__init__'s end), the visits' windows and the
+        pixels they label again, the questions answered in the sweep and those left (at _spread_flat), and B's
+        regions and passes (sources.filling._select's reads). Names are looked up; one missing is left out of
+        "hooks". (Wave 1's tree, e6d8489c, is no longer served by this cut.)"""
         self.found = [n for n in HOOKS if callable(_lookup(access, n))]
-        self.large = []  # B: per large region its pixels, strips, reads of a strip's codes, sweeps, seconds
-        swept = {"reads": None}
-        new_code = callable(getattr(access, "_Regions", None))
+        self.large = []  # B: per large region its pixels, strips, passes, the visits' windows, seconds
+        self.counts = {}  # S: per pass its records, scratch bytes, visits' windows and pixels, questions
+        state = {"in_b": False}
 
         def wrap(name, enter=None, leave=None):
             owner, attr = _owner(access, name)
@@ -882,6 +909,9 @@ class Marks:
         def group(a, k):
             return GROUPS.get(os.path.basename(str(a[0] if a else k.get("mask_path"))), "mask")
 
+        def of_mask(mask):  # a _Mask's pass: its file
+            return GROUPS.get(os.path.basename(str(getattr(mask, "path", ""))), "mask")
+
         def of_regions(a, k):  # a _Regions method's group: its mask's file
             return GROUPS.get(os.path.basename(str(getattr(getattr(a[0], "mask", None), "path", ""))), "mask")
 
@@ -889,45 +919,102 @@ class Marks:
             name = a[6] if len(a) > 6 else k.get("name")
             return "smoothed open ground" if name == "og2" else "open ground"
 
+        def count(g):
+            return self.counts.setdefault(g, {"records": 0, "record_bytes": 0, "scratch_bytes": 0, "visits": 0,
+                                              "visit_px": 0, "b_visits": 0, "b_visit_px": 0})
+
+        def regions_leave(a, k):  # S: the regions found; their records and scratch file counted
+            regions = a[0]
+            c = count(of_regions(a, k))
+            c["records"] += int(sum(m for _, m in getattr(regions, "_records", [])))
+            c["record_bytes"] = c["records"] * 4 * int(getattr(access, "_REC", 8))
+            try:
+                c["scratch_bytes"] = max(c["scratch_bytes"], os.path.getsize(regions.path))
+            except OSError:
+                pass
+            c["questions"] = len(regions.questions["pixels"])
+            return f"grid-wide: {of_regions(a, k)}: after: visits"
+
+        regions_cls = getattr(access, "_Regions", None)
+
+        def spread_enter(a, k):
+            # S: (regions, z, keep, done): the questions answered in the sweep and those left; the base's is
+            # (labels, z, regions, count, keep), its labels a map
+            if regions_cls is not None and isinstance(a[0] if a else None, regions_cls):
+                done = a[3]
+                c = count("flat lakes")
+                c["questions_in_sweep"], c["questions_left"] = int(done.sum()), int((~done).sum())
+                return "grid-wide: flat lakes: after: gather"
+            return "grid-wide: flat lakes: after: percentiles"
+
         def large_enter(a, k):
             regions, q = a[0], a[2] if len(a) > 2 else k["q"]
             qs = regions.questions
             self.large.append({"pixels": int(qs["pixels"][q]), "strips": int(qs["last"][q] - qs["first"][q] + 1),
-                               "t0": time.time()})
-            swept["reads"] = 0
-            return "grid-wide: flat lakes: B"
+                               "passes": 0, "visits": 0, "visit_px": 0, "t0": time.time()})
+            state["in_b"] = True
+            return "grid-wide: flat lakes: after: B"
 
         def large_leave(a, k):
             row = self.large[-1]
-            row["codes_reads"] = swept["reads"]
-            row["sweeps"] = round(swept["reads"] / row["strips"], 2)
             row["s"] = round(time.time() - row.pop("t0"), 3)
-            swept["reads"] = None
-            return "grid-wide: flat lakes: gather"
-
-        def codes_enter(a, k):
-            if swept["reads"] is not None:
-                swept["reads"] += 1
-            return None
+            state["in_b"] = False
+            return "grid-wide: flat lakes: after: gather"
 
         wrap("_whole_metres_rows", leave=lambda a, k: "grid-wide: water (copy, flush)")
         wrap("_flat_lakes_rows", enter=lambda a, k: "grid-wide: flat lakes: mask",
              leave=lambda a, k: "grid-wide: water (copy, flush)")
-        # gate 0's code
-        wrap("_region_areas", enter=lambda a, k: f"grid-wide: {group(a, k)}: labels",
-             leave=lambda a, k: f"grid-wide: {group(a, k)}: write")
-        wrap("_region_bounds", enter=lambda a, k: "grid-wide: flat lakes: bounds",
-             leave=lambda a, k: "grid-wide: flat lakes: write")
-        # wave 1's code
-        wrap("_Regions._forward", enter=lambda a, k: f"grid-wide: {of_regions(a, k)}: forward sweep")
-        wrap("_Regions._backward", enter=lambda a, k: f"grid-wide: {of_regions(a, k)}: backward sweep",
-             leave=lambda a, k: f"grid-wide: {of_regions(a, k)}: reading sweep (write)")
-        wrap("_Regions.codes", enter=codes_enter)
-        wrap("_spread_large", enter=large_enter, leave=large_leave)
-        wrap("_spread_flat", enter=lambda a, k: "grid-wide: flat lakes: " + ("gather" if new_code else "percentiles"),
-             leave=lambda a, k: "grid-wide: flat lakes: " + ("reading sweep (write)" if new_code else "write"))
         wrap("_open_ground_rows", enter=lambda a, k: f"grid-wide: {og(a, k)}: mask",
              leave=lambda a, k: "grid-wide: masks opened")
+        # the base (1c8c839f): the labels file and the bounds
+        wrap("_region_areas", enter=lambda a, k: f"grid-wide: {group(a, k)}: regions: labels",
+             leave=lambda a, k: (f"grid-wide: {group(a, k)}: regions: bounds" if group(a, k) == "flat lakes"
+                                 else f"grid-wide: {group(a, k)}: after: write"))
+        wrap("_region_bounds", enter=lambda a, k: "grid-wide: flat lakes: regions: bounds",
+             leave=lambda a, k: "grid-wide: flat lakes: after: write")
+        # S (wave 2a): _Regions.__init__ = the forward sweep with its writes, then the backward sweep
+        wrap("_Regions.__init__", enter=lambda a, k: f"grid-wide: {of_mask(a[1] if len(a) > 1 else k['mask'])}: "
+                                                     "regions: forward", leave=regions_leave)
+        wrap("_Regions._backward", enter=lambda a, k: f"grid-wide: {of_regions(a, k)}: regions: backward")
+        wrap("_spread_large", enter=large_enter, leave=large_leave)
+        wrap("_spread_flat", enter=spread_enter, leave=lambda a, k: "grid-wide: flat lakes: after: write")
+        owner, attr = _owner(access, "_Regions.visit")
+        real_visit = getattr(owner, attr, None) if owner is not None else None
+        if callable(real_visit):
+            def hooked_visit(regions, s, records):  # a generator: each window counted as it is handed on
+                g = GROUPS.get(os.path.basename(str(getattr(getattr(regions, "mask", None), "path", ""))), "mask")
+                c = count(g)
+                for item in real_visit(regions, s, records):
+                    px = (item[1] - item[0]) * (item[3] - item[2])
+                    if state["in_b"]:
+                        c["b_visits"] += 1
+                        c["b_visit_px"] += px
+                        self.large[-1]["visits"] += 1
+                        self.large[-1]["visit_px"] += px
+                    else:
+                        c["visits"] += 1
+                        c["visit_px"] += px
+                    yield item
+                    del item
+            self.restore.append(("_Regions.visit", real_visit))
+            setattr(owner, attr, hooked_visit)
+        try:  # B's passes: each read of the region's heights by the selection
+            from sources import filling
+        except ImportError:
+            filling = None
+        real_select = getattr(filling, "_select", None)
+        if callable(real_select) and callable(getattr(access, "_spread_large", None)):
+            def hooked_select(chunks, *a, **k):
+                if not state["in_b"]:
+                    return real_select(chunks, *a, **k)
+
+                def counted():
+                    self.large[-1]["passes"] += 1
+                    yield from chunks()
+                return real_select(counted, *a, **k)
+            self.restore.append(("_select", real_select))
+            filling._select = hooked_select
+            self._filling = filling
         real_answers = getattr(access, "_answers", None)
         if callable(real_answers):
             import inspect
@@ -950,6 +1037,9 @@ class Marks:
 
     def unhook(self, access):
         for name, real in reversed(self.restore):
+            if name == "_select":
+                self._filling._select = real
+                continue
             owner, attr = _owner(access, name)
             setattr(owner, attr, real)
         self.restore.clear()
@@ -1004,7 +1094,7 @@ def empty_working_set() -> Optional[Dict]:
 
 
 def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block_px: Optional[int],
-              empty_start: bool = False) -> Dict:
+              empty_start: bool = False, keep_grid: Optional[str] = None) -> Dict:
     """One stage of `stages` ("once" or "blocks"): its result and the grid's file. empty_start: the working set
     emptied just before the start reading (a start that holds none of the files the stage reads)."""
     z, water, res, filled = s.inputs()
@@ -1050,7 +1140,8 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
         out["whole_metres"] = bool(done["whole_metres"])
         out["windows"] = list(sidecar_events.windows)
         out["readings"] = dict(sidecar_events.readings)
-        out["large_regions"] = list(sidecar_events.large)  # B: each large flat region's sweeps and seconds
+        out["large_regions"] = list(sidecar_events.large)  # B: each large flat region's passes and seconds
+        out["counts"] = dict(sidecar_events.counts)  # S: per pass its records, scratch bytes, visits, questions
         out["hooks"] = sidecar_events.found
         out["first_event"] = start
         gc.collect()
@@ -1058,6 +1149,9 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
         renamed = os.path.join(s.work, f"blocks-{k}.npy")
         os.replace(path, renamed)
         path = renamed
+        if keep_grid and k == 1:  # after the stage's clock: the grid for a comparison with another tree's
+            shutil.copyfile(path, keep_grid)
+            out["kept_grid"] = keep_grid
     out["s"] = round(t1 - t0, 2)
     out["t0"], out["t1"] = t0, t1
     out["end"] = memory_now(proc)
@@ -1112,6 +1206,7 @@ def stage_report(stage: Dict, parts: Dict[str, Dict], pixels: int) -> Dict:
                 b["level_private_b_per_largest_window_px"] = per_px(b["peak_private_above_level"], largest)
         out["blocks_part"] = b
         out["needed"] = constant_needed(out, pixels, stage.get("window_bytes", 50))
+        out["pass_parts"] = pass_parts(parts, g["s"] if g else None)
         rows = [r for r in out["blocks_list"] if r.get("ws_less_private_b_per_grid_px") is not None]
         if rows:  # the file pages (WS less private) above the start: when the blocks begin and at the last block
             lv = (stage.get("readings") or {}).get("blocks: block 1")
@@ -1150,6 +1245,47 @@ def constant_needed(st: Dict, pixels: int, window_bytes: float = 50) -> Dict:
     if disks and st.get("work_bytes_at_start") is not None:
         out["mark_files_bytes"] = max(disks) - st["work_bytes_at_start"]
         out["mark_files_b_per_px"] = per_px(out["mark_files_bytes"], pixels)
+    return out
+
+
+PASSES = ("flat lakes", "open ground", "smoothed open ground")
+
+
+def pass_parts(parts: Dict[str, Dict], pass_s: Optional[float]) -> Dict:
+    """The grid-wide pass's seconds cut as wave 2a's brief fixes it, on either tree: per pass "mask", "regions" (with
+    its sub-parts: the base's labels and bounds, S's forward and backward sweep) and "after" (with S's B apart); the
+    rest (the whole-metre sample, the water's copy, "masks opened"); their sum against the pass; and "the span the
+    wide box's line judges": regions + after of the two open-ground passes."""
+    out, total = {}, 0.0
+    for g in PASSES:
+        row = {"mask": 0.0, "regions": 0.0, "after": 0.0, "sub": {}}
+        for label, r in parts.items():
+            for part in ("mask", "regions", "after"):
+                head = f"grid-wide: {g}: {part}"
+                if label == head or label.startswith(head + ":"):
+                    row[part] += r["s"]
+                    if label != head:
+                        row["sub"][label[len(head) + 2:]] = round(row["sub"].get(label[len(head) + 2:], 0) + r["s"], 3)
+        if any(row[p] for p in ("mask", "regions", "after")):
+            out[g] = {k: (round(v, 3) if not isinstance(v, dict) else v) for k, v in row.items()}
+            total += row["mask"] + row["regions"] + row["after"]
+    rest = {}
+    for name in ("whole-metre sample", "water (copy, flush)", "masks opened"):
+        r = parts.get(f"grid-wide: {name}")
+        if r:
+            rest[name] = round(r["s"], 3)
+            total += r["s"]
+    other = {label[11:]: round(r["s"], 3) for label, r in parts.items() if label.startswith("grid-wide: ")
+             and not any(label.startswith(f"grid-wide: {g}: ") for g in PASSES)
+             and label[11:] not in rest}
+    total += sum(other.values())
+    out["rest"] = rest
+    if other:
+        out["other"] = other  # a label of neither cut (a hook of another tree): shown, never dropped
+    out["sum_s"] = round(total, 3)
+    out["pass_s"] = pass_s
+    out["judged_span_s"] = round(sum(out[g]["regions"] + out[g]["after"] for g in ("open ground", "smoothed open ground")
+                                     if g in out), 3)
     return out
 
 
@@ -1237,7 +1373,7 @@ def run_stages(args) -> Dict:
         for kind in out["order"]:
             counts[kind] = counts.get(kind, 0) + 1
             first = len(marks.events)
-            st = run_stage(s, marks, kind, counts[kind], access, block_px, args.empty_start)
+            st = run_stage(s, marks, kind, counts[kind], access, block_px, args.empty_start, args.keep_grid)
             st["first_event"] = first
             raw.append((st, len(marks.events)))
             stages.append(st)
@@ -1254,7 +1390,9 @@ def run_stages(args) -> Dict:
             events = [(t, "blocks: flush and removal" if label == f"blocks: block {n + 1}" else label)
                       for t, label in events]
         parts = summarise(samples, listings, events, st["t1"], st["start"], st.get("cg_start"))
-        reports.append(stage_report(st, parts, s.pixels))
+        rep = stage_report(st, parts, s.pixels)
+        rep["file_peaks"] = file_peaks(listings, st["t0"], st["t1"], s.pixels)
+        reports.append(rep)
     out["step1"] = reports[0]
     out["step1"]["work_after"] = raw[0][0]["work_after"]
     out["stages"] = reports[1:]
@@ -1570,7 +1708,15 @@ def print_table(out: Dict):
                           f"the mark's files {n.get('mark_files_b_per_px')} B/px")
                 for r in st.get("large_regions") or []:
                     print(f"  B: a large flat region of {r['pixels'] / 1e6:.1f} Mpx over {r['strips']} strips: "
-                          f"{r['sweeps']} sweeps, {r['s']} s")
+                          f"{r.get('passes')} passes, {r.get('visits')} windows visited, {r['s']} s")
+                pp = st.get("pass_parts") or {}
+                for g in PASSES:
+                    if g in pp:
+                        print(f"  {g}: mask {pp[g]['mask']} s, regions {pp[g]['regions']} s, after {pp[g]['after']} s "
+                              f"{pp[g]['sub']}")
+                if pp:
+                    print(f"  the pass {pp['sum_s']} s in parts (rest {pp['rest']}); the judged span (regions + after "
+                          f"of the open ground's passes) {pp['judged_span_s']} s; scratch peaks {st.get('file_peaks')}")
                 c = st.get("compare_with_once")
                 print(f"  {st['blocks']} blocks of {st['block_px']} px, largest window {st['window_px'] / 1e6:.1f} "
                       f"Mpx; left in work: {st['left_in_work'] or 'nothing'}"
@@ -1619,6 +1765,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--memory", type=float, help="bytes that search.available_memory answers (before planning)")
     p.add_argument("--cores", type=int, help="run on this many cores and numba threads")
     p.add_argument("--keep-work", action="store_true", help="keep the work folder")
+    p.add_argument("--keep-grid", help="stages: copy the first blocks stage's finished access grid (.npy) here")
     p.add_argument("--keep-samples", action="store_true", help="stages: keep the sidecar's samples (<out>/samples)")
     p.add_argument("--order", default="once,blocks", help="stages: the stages after step 1, e.g. blocks,once,blocks")
     p.add_argument("--step1-only", action="store_true", help="stages: step 1 alone")

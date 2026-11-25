@@ -237,6 +237,30 @@ def test_the_constant_needed_on_hand_made_numbers():
     assert n["constant_needed"] == 4.5 and n["decided_by"] == "grid-wide pass"
 
 
+def test_the_pass_parts_on_hand_made_labels():
+    """pass_parts: per pass mask, regions (with its sub-parts) and after, the rest, their sum, and the judged span =
+    regions + after of the two open-ground passes; a label of neither cut is shown under "other"."""
+    def r(sec):
+        return {"s": sec}
+    parts = {"grid-wide: whole-metre sample": r(1.0), "grid-wide: water (copy, flush)": r(0.5),
+             "grid-wide: flat lakes: mask": r(2.0), "grid-wide: flat lakes: regions: forward": r(3.0),
+             "grid-wide: flat lakes: regions: backward": r(0.25), "grid-wide: flat lakes: after: B": r(1.5),
+             "grid-wide: open ground: mask": r(4.0), "grid-wide: open ground: regions: labels": r(2.0),
+             "grid-wide: open ground: after: write": r(1.0), "grid-wide: smoothed open ground: mask": r(6.0),
+             "grid-wide: smoothed open ground: regions: forward": r(1.25),
+             "grid-wide: smoothed open ground: after: visits": r(0.75), "grid-wide: masks opened": r(0.125),
+             "blocks: block 1": r(9.0)}
+    pp = pa.pass_parts(parts, 23.375)
+    assert pp["flat lakes"] == {"mask": 2.0, "regions": 3.25, "after": 1.5,
+                                "sub": {"forward": 3.0, "backward": 0.25, "B": 1.5}}
+    assert pp["open ground"]["regions"] == 2.0 and pp["open ground"]["after"] == 1.0
+    assert pp["rest"] == {"whole-metre sample": 1.0, "water (copy, flush)": 0.5, "masks opened": 0.125}
+    assert pp["sum_s"] == 23.375 == pp["pass_s"] and "other" not in pp
+    assert pp["judged_span_s"] == 2.0 + 1.0 + 1.25 + 0.75
+    parts["grid-wide: something new"] = r(1.0)
+    assert pa.pass_parts(parts, 24.375)["other"] == {"something new": 1.0}
+
+
 def test_the_blocks_hook_keeps_no_window_alive():
     """Marks.hook's _answers: the open ground's windows reach the measure without a reference of the hook, so the
     measure's own `del og` / `del og2` free them as in a call without the hook (a wrapper of *args kept them)."""
@@ -369,12 +393,20 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
             assert st["left_in_work"] == []
             assert st["grid_wide"]["s"] > 0 and st["blocks_part"]["largest_window_px"] == st["window_px"]
             assert "stage_rss_b_per_largest_window_px" in st["blocks_part"]
-            if "_Regions._forward" in st["hooks"]:  # wave 1's code: its sweeps are parts of their own
-                labels = set(st["parts"])
-                assert {"grid-wide: open ground: forward sweep", "grid-wide: open ground: backward sweep",
-                        "grid-wide: open ground: reading sweep (write)"} <= labels, labels
-            elif "_region_areas" in st["hooks"]:  # gate 0's code
-                assert "grid-wide: open ground: labels" in st["parts"]
+            labels = set(st["parts"])
+            if "_Regions.__init__" in st["hooks"]:  # S: the regions' forward and backward sweep, then the visits
+                assert {"grid-wide: open ground: mask", "grid-wide: open ground: regions: forward",
+                        "grid-wide: open ground: regions: backward", "grid-wide: open ground: after: visits"} <= labels
+                c = st["counts"]["open ground"]
+                assert c["scratch_bytes"] > 0 and c["record_bytes"] == 32 * c["records"]
+            elif "_region_areas" in st["hooks"]:  # the base: the labels file, then the write; no S's counts
+                assert {"grid-wide: open ground: mask", "grid-wide: open ground: regions: labels",
+                        "grid-wide: open ground: after: write"} <= labels, labels
+                assert not any(k.startswith("grid-wide: flat lakes: after: gather") for k in labels)
+                assert all("questions_in_sweep" not in c for c in st["counts"].values())
+            pp = st["pass_parts"]  # the cut sums to the pass, nothing left outside it
+            assert "other" not in pp and abs(pp["sum_s"] - st["grid_wide"]["s"]) < 1e-6
+            assert pp["judged_span_s"] == round(pp["open ground"]["regions"] + pp["open ground"]["after"], 3)
             n = st["needed"]
             assert n["constant_needed"] == max(v for v in (n["pass_ws_b_per_px"], n.get("blocks_beyond_50_b_per_px"))
                                                if v is not None)
