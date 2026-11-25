@@ -14,6 +14,10 @@ old runs were removed on the PC and on the server on the user's word (2026-11-18
 notes stand in 1.2, 1.3, 1.4, 1.8, 1.9, 1.10 and 2. Wave 4's second deploy followed in `main` once both hosts were
 cleared (1.9 "Built (round 5)"): the page reads a run from its store alone, and nothing writes or reads `data.js` or
 `lines.js`; on the server on the user's word. Open: waves 6, 7, 8.
+**State on 2026-11-25 (round 7):** wave 8 (renaming a run) is built, section 5 "As built in round 7"; wave 6 was
+reduced by the user to the run's size on Home's card, section 4 "As built in round 7" (no brotli, no immutable
+cache); wave 7 (the ranges) was built on a branch, accepted, and not taken: section 3 "Not taken". Nothing of this
+part is open.
 
 ## 1. One store of a run's lines, columns in the page, text files on request
 
@@ -507,6 +511,27 @@ Stored data: none (new columns in new runs only).
   than T4's 20 MB, estimate); the reducer's memory.
 - **Needs the user's word:** U1 decided (b); U2 at the details' mock-up; U3 taken as recommended (a).
 
+### Not taken (round 7, 2026-11-23)
+The user, after the measured gain and cost: "Drop the ranges". Filters test the kept line as before; G-03 b stands
+as the count (`stands_for`); U1 and U2 are closed as not built.
+- **What was built** (the branch kept under the tag `history/line-ranges`, never merged): the reducer's twelve values
+  (lo and hi of the six), carried as float32 and cast outward at a part's entry (lo down, hi up), `np.fmin`/`np.fmax`
+  (`minimum`/`maximum` would carry a NaN); a `"ranges"` mark in a tiled search's `progress.json`;
+  `tools/prune_study.py --ranges`. The page's half was not started (it would have passed a kept line by its own value
+  or its range: the stored mean height and A-frame values are rounded to 2 decimals, the reducer's are not). `linestore.read` of chosen columns was taken out of it and built
+  alone (round 7's A4).
+- **Acceptance, measured** (all six cases, as the user chose: BAH, GZp, MGp, KOB, BEL, DOL, rig C4, `--same-line-square
+  5`): found and kept equal parts P1's and P3a's counts; every lo and hi the outward float32 of its pair's least and
+  most stored value; no found line missed under 311 filters (300 random, P3a's 8 combined, 3 with the mean height);
+  named too many on P3a's worst filter 0.07 to 3.88 % of the kept lines; the exports of KOB and DOL equal byte for
+  byte and R65 unchanged.
+- **The bytes of `lines.arrow`** (gzip level 5, MB = 10^6 B): without ranges 1.42 to 5.95 MB on the six cases; with
+  the seven columns today's filters read 30 to 34 % more (28 B a kept line raw), with all twelve 51 to 57 % more (48 B
+  raw), on every run made with the square rule.
+- **What it would give** (`docs/roadmap.md`, "Line volume round 7: open", measured on four cases): with a strict
+  "Clearance at least" 16 to 62 % more spots shown than the kept line's own test, "A-frame at most" without the zone up
+  to 40 % at middle limits, the other filters 0 to 17 %; and rows whose own value contradicts the filter.
+
 ## 4. What is sent
 
 ### 4.1 Decision
@@ -558,6 +583,24 @@ With the store: loading BAH 0.18 s, MG5 0.35 s (part P5, the Arrow file) plus gr
   entry refused for its size (a 200 again, no harm); br's CPU at saving (BAH 1.6 s, part P5).
 - **Needs the user's word:** U12 decided (brotli, by pyarrow's own codec); U7, U8 taken as recommended.
 
+### As built in round 7 (2026-11-23 to 2026-11-25)
+The user reduced this wave to its one visible part after asking what it gains ("Size on Home only"; "No, keep
+asking the server" for the immutable cache). Since the specification `data.js` was gone and nginx already gzipped the
+store at level 5 (BAH's 223 MB store sent as 98 MB), so brotli would have saved about 10 % of the bytes (this
+section's own figures: 32.4 against 36.0 MB) for a second copy on disk (35 to 45 % more a run, estimate) and a second
+way to send a file; and a reopen already costs one request answered "not changed" without data, which the immutable
+cache would save, with the server's access check.
+- **Built:** `/api/runs` gives each run `bytes`, run.json's `store.bytes` (the two store files as written; null for a
+  run without a store block); Home's card shows it as stored (the user's "Size as stored") on the second of two fixed
+  lines, "24 Nov 2026, 21:14 · 2.1 MB" (one decimal below 10 MB, whole MB to 999, then GB with one decimal; "under
+  0.1 MB" below 50 000 bytes; no size on the example tile), on the public site and locally; the loading line counts
+  in 10^6 bytes with the card's cut ("41 of 247 MB"; two decimals for a total under 50 000 bytes, the user's answer 3
+  of 2026-11-25); `viewer/src/size.ts`; DESIGN.md row 22.
+- **Not built:** brotli and its `.br` copies, `X-Findaline-Bytes`, the versioned addresses and "immutable", any change
+  to nginx or the deploy; the size on a share link (a share link opens the map at once: there is no page before it);
+  the warning before a heavy run (U8; A1, left out by the user); a size as sent (the bytes really downloaded are
+  known nowhere: nginx compresses on the way).
+
 ## 5. Renaming a run (short)
 - **Decision:** the user, on mock-up 1's open point 10 (2026-11-13): "ok, add option to rename a run". Not found in
   parts E3 or E5 (searched for "renam" and "name").
@@ -576,6 +619,34 @@ With the store: loading BAH 0.18 s, MG5 0.35 s (part P5, the Arrow file) plus gr
 - **Files, pairs, tests, wave:** `web.py`, `runs.py`, `mapping.py` (title), Home's card menu, `locales/en.json`
   ("Rename"); `web-app.md`'s audit pair; a small mock-up first. Tests: round trip (list, page, title, credits),
   another user's run 404, bounds, id and links unchanged. Wave 8, low.
+- **As built in round 7** (2026-11-23 to 2026-11-25; where it differs from the lines above, this holds):
+  - **Where:** the public site only, no command (the user's "Public site only", "No, the page only"). Home's card
+    menu ("Rename…" after "Share…", the pencil) opens a panel under the card; on a desktop the result view's header
+    has the pencil after the run's name for its owner, opening a box with the field, Save and Cancel; a phone renames
+    through Home (the user's answers of 2026-11-23 on the mock-up MU-1, and its 28 points "(a)" of 2026-11-24).
+    Today's result page (`?view=today`, and runs the view cannot show) has no button.
+  - **The route:** `POST /api/runs/{run}` (not PATCH: folders and rigs rename by POST), `own_run`; 200 `{"ok": true,
+    "name": <as stored>}`, 400 `run_name`, 404 for another's run and in the local app, 409 "the run is in use" when a
+    file cannot be replaced now; no rate limit; audit `run_rename` without the name.
+  - **The name** (`runs.run_name`, a rule of its own, not `--name`'s): NFC, each run of whitespace one space, trimmed,
+    1 to 100 characters, at least one not a space, a mark or a format character; control and format characters
+    refused but the joiners ZWNJ and ZWJ, line and paragraph separators too; an empty name refused (the user's
+    "Refuse it"). The page sends the name as typed and shows the answered one; one text for every refusal (T6).
+  - **What a rename changes** (`runs.rename_run`, under the runs lock, each file whole through `cache.replacing`):
+    ATTRIBUTION.txt's first line, `map.html` (its `<title>` and the disk notice's heading, from today's template:
+    `runs.map_page`, moved there from `mapping` so the web process can write it), run.json's `name` last; its own read
+    of run.json through `runs.read_meta` (the user's answer 10 of 2026-11-25). Not changed: the id and folder, the
+    store's head, share links, favourites, the search's own title.
+  - **Where the page takes the name:** the app from the list of runs over the store's head (`result/load.ts`
+    `fromServer`; `runs.js` and `/s/runs.js` did not change); a `map.html`, own or a share link's, from its `<title>`;
+    the loaded run, Home, Compare and a report follow a rename at once (`renamedRun`, `forgetRunList`). An
+    administrator who opens another user's renamed run sees the saving's name (docs/known-bugs.md).
+  - **The privacy page** (the user's "Yes, as proposed", both): the audit list "… share links made, renewed and
+    revoked, runs renamed (not their names) and deleted, exports of a run's lines made …"; the "Runs" entry "The
+    results of your searches (lines, maps, parameters, the place's name from OpenStreetMap or the name you give) and
+    their size. …".
+  - **Stored data:** none (run.json's `name` changes on a request; no new key). Left: docs/known-bugs.md, "Line
+    volume, round 7".
 
 ## 6. The path to the goal case
 The Gozo coast (GZ1) in the target rig with `--same-line-square 5` (phase 4, measured): 24 480 100 lines found,
@@ -621,13 +692,15 @@ most of the 32 B of x/y, part P5's estimate). A real phone's memory per tab is u
 **Decided by the user's closing answers (2026-11-14,** quoted in `spec.md` section 6**):**
 - **U1, which ranges: (b)**, "1. c)" of the planner's list: the six values of section 3 (+49 B a line). Measured for
   five ranges: the ranged filters never miss and name 1-17 % too many (part P3a). The goal case sends about 25-33 MB
-  (estimate, section 6). Left as later options: (a) five (+41 B), (c) fifteen (+121 B).
+  (estimate, section 6). Left as later options: (a) five (+41 B), (c) fifteen (+121 B). **Not built**: the user
+  dropped the ranges on 2026-11-23 (section 3 "Not taken").
 - **U4, exports: made for each download, none kept** ("5. c) - how does it work with regressions?"): 1.2, 1.4; the
   regression set: 1.7.
 - **U5, old runs: removed, not converted**, "both on server and on this pc": section 2, on the user's word at wave 4.
 - **U12, compression at saving: brotli** ("4. a)"), br-5 (BAH's store 32.4 MB, 1.6 s, part P5; the others measured
   there: gzip-6 36.0 MB, 3.6 s; zstd-3 35.9 MB, 0.4 s). The packages were compared in round 3 and the user chose
-  pyarrow's own codec (2026-11-15: "a"): no new package (section 4).
+  pyarrow's own codec (2026-11-15: "a"): no new package (section 4). **Not built**: round 7 reduced wave 6 to the
+  size on Home (the user, 2026-11-23: "Size on Home only"; section 4 "As built in round 7").
 
 **Taken as recommended** (class "planner": the user was offered the list on 2026-11-14 and did not go through it):
 - **U3** water and filled metres: (a) left out of the ranges; (b) per found line after a measurement on the goal case.
