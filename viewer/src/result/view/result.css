@@ -30,10 +30,8 @@
 .ui .r-pop:focus { outline: none; }  /* the panel itself takes the focus only while it loads */
 .ui .r-others, .ui .r-share, .ui .r-downloads { display: flex; flex-direction: column; gap: 8px; }
 .ui .r-other .u-grow { overflow: hidden; text-overflow: ellipsis; }
-/* Compare's box switched off while it has the focus (RunActions.tsx `held`): it keeps the focus and the kit's ring,
-   so it cannot be `disabled`; drawn off from the tokens (a native box draws itself off only when disabled) */
-.ui .r-other .u-check[aria-disabled="true"] { appearance: none; margin: 0; border: 1px solid var(--line); border-radius: var(--r-1);
-  background: var(--surface-2); cursor: default; }
+/* (Compare's box switched off while it has the focus, RunActions.tsx `held`: the kit's look of a box that is off but
+   keeps the focus, ui.css .u-check[aria-disabled]) */
 /* "Farther away": its disclosure the icon set's arrow, turned while open (R9: not the browser's triangle; step 3d G6, T4) */
 .ui .r-others summary.r-far { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; list-style: none; cursor: pointer; }
 .ui .r-others summary.r-far::-webkit-details-marker { display: none; }
