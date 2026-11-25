@@ -67,7 +67,7 @@ Kept, where a sign stays:
 | --- | --- | --- | --- |
 | everywhere | units (m, km, °, %), an en dash in a range ("30–300 m") | R9 allows them | R9 |
 | a filter's chip (the result view) | ≤, ≥ | R9 allows them in a filter's chip | R9; G5's row kept-01 |
-| a one-line meta line, a browser tab's title | " · " (a date and a count under a name; "{title} · Find-a-Line") | R9 allows `·` in a meta line | R9; G5's rows kept-06, left-09 |
+| a one-line meta line, a browser tab's title | " · " (a date and a count under a name; "{title} · Find-a-Line"; on a run's card the time and the size as stored, "24 Nov 2026, 21:14 · 2.1 MB") | R9 allows `·` in a meta line | R9; G5's rows kept-06, left-09; the card's time and size: the user's answer 1 a of 2026-11-24 (line volume round 7, `local/line-volume-7-2026-11-23/user-inputs.md`) |
 | the 3D view's speed and zoom | "×1", "×8" | a multiplier the user kept like a unit | the user, 2026-11-19 ("Keep "x1""); DESIGN choice 47; G5's row kept-02 |
 | the sign of a number | "+2 m" | a sign, not a word | G5's row kept-03 |
 | the coverage map's images and videos | "≤ 1 m", the stars' character | rendered by hand and rarely: left for now | step 3d's scope Q16 a (`local/ux-design-2026-11-16/3d/scope.md`); G5's row kept-04 |

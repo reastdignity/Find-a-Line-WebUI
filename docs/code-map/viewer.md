@@ -34,7 +34,10 @@ access, 1 cannot tell, 2 easy access, null without): `AccessMark` (a dot of 20 p
 "–" for a line of a run without the mark), `accessMarkSvg` (the mark of 24 px on the map, in the map's colours),
 `AccessKey` and `useAccessHelp` (the one help text of the result page and the search form: a "?", or the kit's info
 icon with `icon` as in the result view, that opens a panel
-in place, not a bubble); it hides and sorts nothing; `tight.ts`
+in place, not a bubble); it hides and sorts nothing; `size.ts` a run's size as a person reads it (line volume's
+round 7: `sizeText` Home's card, "2.1 MB", "under 0.1 MB", "" for none; `downloadSizes` the loading line's two
+numbers in the total's unit and cut, two decimals for a total under 50 000 bytes; a MB 10^6 bytes; `RunLoading.tsx`
+`loadingText`, the card's lines in `app/c/Home.tsx`, the size `api.ts` `RunListed.bytes` from `/api/runs`); `tight.ts`
 the tight mark (`TIGHT` = 1 m, `clearanceText` rounds a tight clearance down, the mark's words with and without A-frames), `endzone.ts` the zone's TypeScript twin of `helpers.zone_steps` and the chart's limit with the zone and
 the lift (`limits`, `riggingNeed`, `liftChoices`), `labels.ts` the chart's label layout (`layoutLabels`: no two boxes
 intersect, priority anchors > min clearance > A-frame > zone > highest, a label that does not fit is dropped),

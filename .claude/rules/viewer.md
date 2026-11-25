@@ -84,6 +84,9 @@ catalogue), `browser-tests.md`.
   rename rewrites. A place that renames, saves or deletes a run on the page calls `renamedRun` or `forgetRunList`
   (both copies of the list go: the loaded one and `window.FINDALINE_RUNS`), so Compare and the next run opened read
   the list again (`tests/test_rename_view_page.py`, `test_compare_causes_page.py`).
+- A run's size a person reads goes through `size.ts` (`sizeText`, `downloadSizes`: 10^6 bytes, one cut for Home's
+  card and the loading line, number and unit joined by a no-break space in the catalogue): a new place takes it. The
+  3D view's terrain line has its own `mb` (`view3d/main.ts`: 10^6 bytes, one decimal).
 - `Profile.tsx` draws no colour: each curve and swatch has a class that `profile.css` colours from a token (a new curve:
   a class and a token, both themes).
 - `Profile.tsx` draws at `TEXT_PX` with `LABEL_BOXES` (measured at 12 px): a size change changes both; `labels.ts`'

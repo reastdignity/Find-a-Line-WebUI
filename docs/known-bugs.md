@@ -854,6 +854,22 @@ Found in round 7's reviews and checks (renaming a run, the size on Home, the scr
 - **`runs.list_runs` sorts runs of the same saving time** in the folder's order, which can differ from one process
   to another.
 
+**The size on Home and the loading line** (`viewer/src/size.ts`)
+- **A total under 5 000 bytes reads "0.00 of 0.00 MB"** while it loads (two decimals below 50 000 bytes: the user's
+  answer 3, "Two decimals"). Left as built (the planner's decision of 2026-11-25): no run's store is that small (the
+  smallest `linestore.write` makes, no lines and an empty head, is 9 092 bytes, and a search without lines saves no
+  run); only an answer that is no store could be (a portal's or a proxy's page of 200 under 5 000 bytes), until its
+  read fails as "could not be loaded" (read from the code, not tried).
+- **Home's card rounds exact halves both ways** (`toFixed` of a double, older than the round's two-decimal line):
+  150 000 bytes read "0.1 MB", 250 000 "0.3 MB", 350 000 "0.3 MB", 850 000 "0.8 MB". From 999.95 GB a size reads
+  "1000.0 GB" (no run is that large).
+- **A `store.bytes` edited by hand** is passed on by `/api/runs` as it is: a negative one shows no size on the card
+  (`sizeText` gives none), a huge one a huge size.
+- **The 3D view's terrain line** counts in 10^6 bytes now, but with one decimal at every size and never in GB
+  ("Downloading the terrain… 12.3 of 45.6 MB"), while the run's line takes the card's cut.
+- **The loading bar has no accessible name** (axe's `aria-progressbar-name` on the loading page): the kit's
+  `Progress`, older than the round.
+
 ## The UI measuring tools: known and left (2026-11-17)
 
 Found in the reviews of `tools/ui_metrics.py` and `tools/ui_walks.py`, none fixed; none changes a count on today's

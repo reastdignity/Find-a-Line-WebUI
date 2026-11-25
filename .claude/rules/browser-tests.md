@@ -18,6 +18,8 @@ paths:
   - "tests/test_rename_*_page.py"
   - "tests/test_failed_result_page.py"
   - "tests/test_compare_*_page.py"
+  - "tests/test_home_size_page.py"
+  - "tests/test_tiny_run_loading_page.py"
 ---
 # Tests that start a browser
 

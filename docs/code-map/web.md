@@ -25,7 +25,9 @@ the Basic form (`/api/rigs`: GET the user's with `max`, POST makes one (`jobs.ri
 every Basic search; the local app without limits keeps SearchParams' bounds); POST `/<id>` renames and/or changes it,
 DELETE; another's or a gone rig 404 `rig_missing`, the 11th `rigs_max` (409); audit `rig` with `do` only, no name or
 value), the admin tab's
-`/api/admin/*` (status, users, runs), `/api/osm` and the demo flag behind `require_admin`; the Admin page is
+`/api/admin/*` (status, users, runs), `/api/osm` and the demo flag behind `require_admin`; `/api/runs` (the user's runs
+and the demo runs, locally all: `id`, `name`, `created`, `summary`, `has_map`, `description`, `shared`, `own`,
+`demo`, and since line volume's round 7 `bytes`, run.json's `store.bytes` as an integer, else null: Home's size); the Admin page is
 `viewer/src/app/c/AdminC.tsx` (public site only), the OSM extracts `app/c/OsmC.tsx` (locally and for administrators)),
 the highline layer of a country (`Countries`: one `countcube.Cube` per version of
 `<data>/countries/<id>/cube/cube.json`, its folder and mtime, ids `COUNTRY_ID` only, the arrays memory-mapped; a newer
