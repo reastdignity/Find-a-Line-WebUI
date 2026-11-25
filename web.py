@@ -300,8 +300,7 @@ def profile_problem(folder: str, points: List[float], admin: bool = False,
     the run's --max-length, or of a run without a box, is no line of the run: patch_line)."""
     import runs as rn
     try:
-        with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
-            meta = json.load(f)
+        meta = rn.read_meta(os.path.join(folder, "run.json"))  # waits out Windows' moment after a replacement
         max_length = float(meta["params"]["max_length"])
         box = rn._bbox(meta)
         source = meta.get("source", {}).get("id")
@@ -1681,9 +1680,9 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     exports_dir = jb.exports_folder(data_dir)
 
     def has_store(run_id: str) -> bool:
-        """Whether a run has a store to export from (run.json's block "store": linestore.write wrote it)."""
-        with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
-            return bool(json.load(f).get("store"))
+        """Whether a run has a store to export from (run.json's block "store": linestore.write wrote it). Read
+        through runs.read_meta (it may wait, so off the event loop: run_in_threadpool)."""
+        return bool(rn.read_meta(os.path.join(runs_dir, run_id, "run.json")).get("store"))
 
     @app.post("/api/runs/{run}/export")
     async def export_run(body: Dict, client: Request, run: str = Depends(run_access),
@@ -1725,8 +1724,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
                 os.remove(path)
             return None
         try:
-            with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
-                title = json.load(f).get("name")
+            title = rn.read_meta(os.path.join(runs_dir, run_id, "run.json")).get("name")  # may wait: off the loop
         except (OSError, ValueError):  # the run deleted or being rewritten: its id names the file
             title = None
         stem = title.strip() if isinstance(title, str) and title.strip() else run_id
