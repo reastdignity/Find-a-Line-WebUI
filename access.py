@@ -1002,59 +1002,63 @@ def _flat_lakes_rows(z, res: float, work: str, out: _Mask) -> None:
     regions still growing below and the writes they leave are read through their records (_Regions.visit)."""
     h, w = z.shape
     flat = _Mask(os.path.join(work, "access_flat.npy"), (h, w))
-    for r0, r1 in _strips(h, w):
-        flat.write(r0, r1, np.isfinite(np.asarray(z[r0:r1], np.float32))
-                   & (_slope_rows(z, r0, r1, res) < FLAT_WATER_DEG))
+    try:
+        for r0, r1 in _strips(h, w):
+            flat.write(r0, r1, np.isfinite(np.asarray(z[r0:r1], np.float32))
+                       & (_slope_rows(z, r0, r1, res) < FLAT_WATER_DEG))
 
-    def judge(pixels, lowest, highest):
-        big = pixels * res * res >= FLAT_WATER_MIN_M2
-        keep = big & (highest - lowest <= FLAT_WATER_SPREAD_M - 1e-6)  # p95 - p5 lies within the lowest and highest
-        return np.where(keep, KEEP, np.where(big, ASK, DROP))
+        def judge(pixels, lowest, highest):
+            big = pixels * res * res >= FLAT_WATER_MIN_M2
+            keep = big & (highest - lowest <= FLAT_WATER_SPREAD_M - 1e-6)  # p95 - p5 lies within the lowest and highest
+            return np.where(keep, KEEP, np.where(big, ASK, DROP))
 
-    answered = {}  # the open questions answered in the forward sweep
+        answered = {}  # the open questions answered in the forward sweep
 
-    def write(regions, s, labels, final):
-        r0, r1 = regions.strips[s]
-        q = regions.questions
-        tab = final == KEEP
-        asked = np.unique(final[final >= ASK]) - ASK  # questions closed in this strip
-        now = np.array([j for j in asked.tolist()  # all its pixels in this strip (it may have closed below)
-                        if q["first"][j] == s == q["last"][j] and q["pixels"][j] <= GATHER_PX], np.int64)
-        if len(now):
-            values = np.asarray(z[r0:r1], np.float32)
-            count = np.array(q["pixels"], np.int64)
-            for batch in _batches(now, count):
-                slot = np.full(ASK + len(count), -1, np.int32)
-                slot[ASK + batch] = np.arange(len(batch))
-                of = np.where(final >= ASK, slot[np.maximum(final, 0)], -1)  # by label: its region's place
-                sel = (of >= 0)[labels]
-                ok = _spread_ok(of[labels[sel]], values[sel], len(batch))
-                del sel
-                for j, v in zip(batch.tolist(), ok.tolist()):
-                    answered[j] = v
-                tab |= np.isin(final, ASK + batch[ok])
-        out.write(r0, r1, out.rows(r0, r1) | tab[labels])
-        return (final >= ASK) & ~np.isin(final, ASK + now)  # the questions left: their pieces recorded
+        def write(regions, s, labels, final):
+            r0, r1 = regions.strips[s]
+            q = regions.questions
+            tab = final == KEEP
+            asked = np.unique(final[final >= ASK]) - ASK  # questions closed in this strip
+            now = np.array([j for j in asked.tolist()  # all its pixels in this strip (it may have closed below)
+                            if q["first"][j] == s == q["last"][j] and q["pixels"][j] <= GATHER_PX], np.int64)
+            if len(now):
+                values = np.asarray(z[r0:r1], np.float32)
+                count = np.array(q["pixels"], np.int64)
+                for batch in _batches(now, count):
+                    slot = np.full(ASK + len(count), -1, np.int32)
+                    slot[ASK + batch] = np.arange(len(batch))
+                    of = np.where(final >= ASK, slot[np.maximum(final, 0)], -1)  # by label: its region's place
+                    sel = (of >= 0)[labels]
+                    ok = _spread_ok(of[labels[sel]], values[sel], len(batch))
+                    del sel
+                    for j, v in zip(batch.tolist(), ok.tolist()):
+                        answered[j] = v
+                    tab |= np.isin(final, ASK + batch[ok])
+            out.write(r0, r1, out.rows(r0, r1) | tab[labels])
+            return (final >= ASK) & ~np.isin(final, ASK + now)  # the questions left: their pieces recorded
 
-    regions = _Regions(flat, os.path.join(work, REGIONS_FILE), judge,
-                       heights=lambda r0, r1: np.asarray(z[r0:r1], np.float32), on_strip=write)
-    nq = len(regions.questions["pixels"])
-    keep, done = np.zeros(nq, bool), np.zeros(nq, bool)
-    for j, v in answered.items():
-        keep[j], done[j] = v, True
-    _spread_flat(regions, z, keep, done)
-    verdict = np.zeros(ASK + nq, bool)  # by a record's code: written now (a lake kept, or a question kept)
-    verdict[ASK:] = keep & ~done
-    for s in range(len(regions.strips)):
-        records = regions.records(s)
-        now = verdict[records[:, 6]] | ((records[:, 6] == KEEP) & (records[:, 7] == 1))
-        for a, b, c, d, labels, ids, _ in regions.visit(s, records[now]):
-            mine = np.zeros(int(labels.max()) + 1, bool)
-            mine[ids] = True
-            rows = out.rows(a, b)
-            rows[:, c:d] |= mine[labels]
-            out.write(a, b, rows)
-    regions.remove()
+        regions = _Regions(flat, os.path.join(work, REGIONS_FILE), judge,
+                           heights=lambda r0, r1: np.asarray(z[r0:r1], np.float32), on_strip=write)
+        nq = len(regions.questions["pixels"])
+        keep, done = np.zeros(nq, bool), np.zeros(nq, bool)
+        for j, v in answered.items():
+            keep[j], done[j] = v, True
+        _spread_flat(regions, z, keep, done)
+        verdict = np.zeros(ASK + nq, bool)  # by a record's code: written now (a lake kept, or a question kept)
+        verdict[ASK:] = keep & ~done
+        for s in range(len(regions.strips)):
+            records = regions.records(s)
+            now = verdict[records[:, 6]] | ((records[:, 6] == KEEP) & (records[:, 7] == 1))
+            for a, b, c, d, labels, ids, _ in regions.visit(s, records[now]):
+                mine = np.zeros(int(labels.max()) + 1, bool)
+                mine[ids] = True
+                rows = out.rows(a, b)
+                rows[:, c:d] |= mine[labels]
+                out.write(a, b, rows)
+        regions.remove()
+    except BaseException:  # its mask's handle let go (its file: the caller's, as after a failed search)
+        flat.close()
+        raise
     flat.remove()
 
 
@@ -1070,58 +1074,68 @@ def _open_ground_rows(z, water, filled, wet: _Mask, res: float, work: str, name:
     growing below stays until its region is known, then a visit of its box takes it out if the region is not kept."""
     h, w = z.shape
     g = _Mask(os.path.join(work, f"access_{name}.npy"), (h, w))
-    for r0, r1 in _strips(h, w):
-        a, b = (max(0, r0 - HALO), min(h, r1 + HALO)) if smoothed else (r0, r1)
-        za, da = _data_rows(z, water, filled, a, b)
-        data = da[r0 - a:r1 - a]  # _data_rows of rows r0..r1: the same pixels, read once
-        land = data & ~wet.rows(r0, r1)  # the only pixels the mask can hold: land with the source's own data
-        cols = np.flatnonzero(land.any(axis=0))
-        rows = np.zeros((r1 - r0, w), bool)
-        if len(cols):  # F: only the columns that hold such land, and HALO columns each side for their neighbours
-            c0, c1 = int(cols[0]), int(cols[-1]) + 1
-            e0, e1 = max(0, c0 - HALO), min(w, c1 + HALO)
-            if smoothed:
-                s = slope_deg(_smoothed(za[:, e0:e1], da[:, e0:e1]), res)[r0 - a:r1 - a, c0 - e0:c1 - e0]
-            else:  # _slope_rows on the crop: a row around the strip, the same central differences
-                a1, b1 = max(0, r0 - 1), min(h, r1 + 1)
-                s = slope_deg(np.asarray(z[a1:b1, e0:e1], np.float32), res)[r0 - a1:r1 - a1, c0 - e0:c1 - e0]
-            dd = data[:, c0:c1]
-            rows[:, c0:c1] = (np.where(dd, s, 90.0) < OPEN_DEG) & land[:, c0:c1]
-            del s, dd
-        g.write(r0, r1, rows)
-        del za, da, data, land, rows
-    def big(pixels):
-        return pixels * res * res >= OPEN_MIN_M2
+    try:
+        for r0, r1 in _strips(h, w):
+            a, b = (max(0, r0 - HALO), min(h, r1 + HALO)) if smoothed else (r0, r1)
+            za, da = _data_rows(z, water, filled, a, b)
+            data = da[r0 - a:r1 - a]  # _data_rows of rows r0..r1: the same pixels, read once
+            land = data & ~wet.rows(r0, r1)  # the only pixels the mask can hold: land with the source's own data
+            cols = np.flatnonzero(land.any(axis=0))
+            rows = np.zeros((r1 - r0, w), bool)
+            if len(cols):  # F: only the columns that hold such land, and HALO columns each side for their neighbours
+                c0, c1 = int(cols[0]), int(cols[-1]) + 1
+                e0, e1 = max(0, c0 - HALO), min(w, c1 + HALO)
+                if smoothed:
+                    s = slope_deg(_smoothed(za[:, e0:e1], da[:, e0:e1]), res)[r0 - a:r1 - a, c0 - e0:c1 - e0]
+                else:  # _slope_rows on the crop: a row around the strip, the same central differences
+                    a1, b1 = max(0, r0 - 1), min(h, r1 + 1)
+                    s = slope_deg(np.asarray(z[a1:b1, e0:e1], np.float32), res)[r0 - a1:r1 - a1, c0 - e0:c1 - e0]
+                dd = data[:, c0:c1]
+                rows[:, c0:c1] = (np.where(dd, s, 90.0) < OPEN_DEG) & land[:, c0:c1]
+                del s, dd
+            g.write(r0, r1, rows)
+            del za, da, data, land, rows
+        def big(pixels):
+            return pixels * res * res >= OPEN_MIN_M2
 
-    def write(regions, s, labels, final):  # a pending piece stays in the mask until its region is known
-        r0, r1 = regions.strips[s]
-        g.write(r0, r1, ((final == KEEP) | (final < 0))[labels])
+        def write(regions, s, labels, final):  # a pending piece stays in the mask until its region is known
+            r0, r1 = regions.strips[s]
+            g.write(r0, r1, ((final == KEEP) | (final < 0))[labels])
 
-    # a region's verdict grows with it: one of OPEN_MIN_M2 is kept whatever joins it later (settled)
-    regions = _Regions(g, os.path.join(work, REGIONS_FILE),
-                       lambda pixels, lowest, highest: np.where(big(pixels), KEEP, DROP),
-                       settled=lambda pixels: np.where(big(pixels), KEEP, -1), on_strip=write)
-    for s in range(len(regions.strips)):  # the pending pieces of regions not kept: out of the mask
-        records = regions.records(s)
-        for a, b, c, d, labels, ids, _ in regions.visit(s, records[records[:, 6] != KEEP]):
-            drop = np.zeros(int(labels.max()) + 1, bool)
-            drop[ids] = True
-            rows = g.rows(a, b)
-            rows[:, c:d] &= ~drop[labels]
-            g.write(a, b, rows)
-    g.close()  # its handle let go while the next pass runs (opened again for the blocks' windows)
-    regions.remove()
+        # a region's verdict grows with it: one of OPEN_MIN_M2 is kept whatever joins it later (settled)
+        regions = _Regions(g, os.path.join(work, REGIONS_FILE),
+                           lambda pixels, lowest, highest: np.where(big(pixels), KEEP, DROP),
+                           settled=lambda pixels: np.where(big(pixels), KEEP, -1), on_strip=write)
+        for s in range(len(regions.strips)):  # the pending pieces of regions not kept: out of the mask
+            records = regions.records(s)
+            for a, b, c, d, labels, ids, _ in regions.visit(s, records[records[:, 6] != KEEP]):
+                drop = np.zeros(int(labels.max()) + 1, bool)
+                drop[ids] = True
+                rows = g.rows(a, b)
+                rows[:, c:d] &= ~drop[labels]
+                g.write(a, b, rows)
+        g.close()  # its handle let go while the next pass runs (opened again for the blocks' windows)
+        regions.remove()
+    except BaseException:  # its mask's handle let go (its file: the caller's, as after a failed search)
+        g.close()
+        raise
     return g
 
 
 def _blocks_needed(needed, h: int, w: int, block_px: int) -> np.ndarray:
     """Which blocks (rows, columns of block_px) hold a pixel of `needed` (bool, the grid's shape) in their core:
     `needed` read once, strip by strip; a memory-mapped one through a mapping of its own, let go afterwards, so its
-    pages do not stay in the process with the caller's map. Only the blocks' table is kept."""
+    pages do not stay in the process with the caller's map. Only the blocks' table is kept. The own mapping only where
+    it holds the same pixels in the same order (the whole .npy, its shape, type, strides and offset); a raw memmap, a
+    slice or a view in another order is read through the caller's array."""
     own = None
     if isinstance(needed, np.memmap) and getattr(needed, "filename", None):
-        own = np.load(needed.filename, mmap_mode="r")
-        if own.shape != (h, w):  # not the whole file: read the caller's array
+        try:
+            own = np.load(needed.filename, mmap_mode="r")
+        except (ValueError, OSError):  # not a .npy (a raw memmap)
+            own = None
+        if own is not None and not (own.shape == needed.shape == (h, w) and own.dtype == needed.dtype
+                                    and own.strides == needed.strides and own.offset == needed.offset):
             own = None
     source = needed if own is None else own
     starts = np.arange(0, w, block_px)
@@ -1160,37 +1174,44 @@ def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int
     on_part("grid-wide")
     wm = _whole_metres_rows(z, water, filled)
     wet = _Mask(os.path.join(work, "access_water.npy"), (h, w))
-    for r0, r1 in _strips(h, w):
-        wet.write(r0, r1, np.asarray(water[r0:r1], bool) if water is not None else False)
-    if not wm:
-        _flat_lakes_rows(z, res, work, wet)
-    og = _open_ground_rows(z, water, filled, wet, res, work, "og", smoothed=False)
-    og2 = _open_ground_rows(z, water, filled, wet, res, work, "og2", smoothed=True) if wm else None
-    out = _new(path, (h, w), np.uint8)
-    on_part("blocks")
-    blocks = largest = left_out = 0
-    for r0 in range(0, h, block_px):
-        for c0 in range(0, w, block_px):
-            r1, c1 = min(h, r0 + block_px), min(w, c0 + block_px)
-            if wanted is not None and not wanted[r0 // block_px, c0 // block_px]:
-                out[r0:r1, c0:c1] = NOT_COMPUTED
-                left_out += 1
-                continue
-            a, b, c, d = max(0, r0 - margin), min(h, r1 + margin), max(0, c0 - margin), min(w, c1 + margin)
-            zz = np.array(z[a:b, c:d], np.float32)
-            data = np.isfinite(zz)
-            if filled is not None:
-                dry = np.asarray(water[a:b, c:d], bool) if water is not None else np.zeros(zz.shape, bool)
-                data &= ~(np.asarray(filled[a:b, c:d], bool) & ~dry)
-            answers = _answers(zz, wet.window(a, b, c, d), data, res, wm, og.window(a, b, c, d), alpine,
-                               og2=og2.window(a, b, c, d) if og2 is not None else None)
-            out[r0:r1, c0:c1] = answers[r0 - a:r1 - a, c0 - c:c1 - c]
-            del zz, data, answers
-            blocks += 1
-            largest = max(largest, (b - a) * (d - c))
-    out.flush()
-    del out
-    for mask in (wet, og, og2):
-        if mask is not None:
-            mask.remove()
+    og = og2 = None
+    try:
+        for r0, r1 in _strips(h, w):
+            wet.write(r0, r1, np.asarray(water[r0:r1], bool) if water is not None else False)
+        if not wm:
+            _flat_lakes_rows(z, res, work, wet)
+        og = _open_ground_rows(z, water, filled, wet, res, work, "og", smoothed=False)
+        og2 = _open_ground_rows(z, water, filled, wet, res, work, "og2", smoothed=True) if wm else None
+        out = _new(path, (h, w), np.uint8)
+        on_part("blocks")
+        blocks = largest = left_out = 0
+        for r0 in range(0, h, block_px):
+            for c0 in range(0, w, block_px):
+                r1, c1 = min(h, r0 + block_px), min(w, c0 + block_px)
+                if wanted is not None and not wanted[r0 // block_px, c0 // block_px]:
+                    out[r0:r1, c0:c1] = NOT_COMPUTED
+                    left_out += 1
+                    continue
+                a, b, c, d = max(0, r0 - margin), min(h, r1 + margin), max(0, c0 - margin), min(w, c1 + margin)
+                zz = np.array(z[a:b, c:d], np.float32)
+                data = np.isfinite(zz)
+                if filled is not None:
+                    dry = np.asarray(water[a:b, c:d], bool) if water is not None else np.zeros(zz.shape, bool)
+                    data &= ~(np.asarray(filled[a:b, c:d], bool) & ~dry)
+                answers = _answers(zz, wet.window(a, b, c, d), data, res, wm, og.window(a, b, c, d), alpine,
+                                   og2=og2.window(a, b, c, d) if og2 is not None else None)
+                out[r0:r1, c0:c1] = answers[r0 - a:r1 - a, c0 - c:c1 - c]
+                del zz, data, answers
+                blocks += 1
+                largest = max(largest, (b - a) * (d - c))
+        out.flush()
+        del out
+        for mask in (wet, og, og2):
+            if mask is not None:
+                mask.remove()
+    except BaseException:  # its masks' handles let go (their files: the caller's, as after a failed search)
+        for mask in (wet, og, og2):
+            if mask is not None:
+                mask.close()
+        raise
     return {"blocks": blocks, "left_out": left_out, "window_px": largest, "whole_metres": wm}
