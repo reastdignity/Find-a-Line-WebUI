@@ -463,15 +463,17 @@ def rename_run(runs_dir: str, run_id: str, name: str) -> Dict:
     none). If a step fails, run.json still holds the old name, so every list shows the old name, while
     ATTRIBUTION.txt and map.html may already hold the new one: a second rename to the same name repairs it (a
     rename to yet another name rewrites map.html but leaves an ATTRIBUTION.txt whose first line no longer names
-    run.json's name as it is). Raises KeyError, with no file written, for a run without a readable run.json (or
-    one without a string name or an id), OSError when a file cannot be replaced now (on Windows a file held open by
-    another process; also filelock.Timeout: the lock not had in time). Returns the new run.json."""
+    run.json's name as it is). run.json is read through read_meta, as a listing reads it: on Windows a run.json just
+    moved to its name is refused for a moment, and the read is tried again after each of READ_PAUSES (up to 1.58 s,
+    under the runs lock). Raises KeyError, with no file written, for a run without a readable run.json (or one
+    without a string name or an id), OSError when a file cannot be replaced now (on Windows a file held open by
+    another process; also filelock.Timeout: the lock not had in time) or run.json is still refused after the last
+    pause (PermissionError, no file written). Returns the new run.json."""
     folder = os.path.join(runs_dir, run_id)
     meta_path = os.path.join(folder, "run.json")
     with cache.runs_lock(runs_dir):
         try:
-            with open(meta_path, encoding="utf-8") as f:
-                meta = json.load(f)
+            meta = read_meta(meta_path)
         except (FileNotFoundError, NotADirectoryError, ValueError):  # no run (a missing or unreadable run.json)
             raise KeyError(run_id) from None
         # everything the files need, checked before any is written: a string name, the id map_page reads
@@ -552,7 +554,8 @@ def _local_time(created: str) -> str:
         return created[:16].replace("T", " ")
 
 
-# The pauses of a reader that goes through the runs folder (read_meta: list_runs, update.changed_runs) whose open of
+# The pauses of a reader that goes through the runs folder (read_meta: list_runs, update.changed_runs; rename_run's
+# read of its run's run.json too) whose open of
 # a run.json Windows refuses (PermissionError): the file is held for a moment after save_results moved it to its
 # name (cache.replacing), while another process saves that run. Measured on a loaded PC, 2026-11-24, with a reader
 # that opens the file as it appears: refused at 1 816 of 3 000 new files, each read 7 ms after its first refusal at
@@ -563,10 +566,11 @@ READ_PAUSES = (0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.8) if os.name == "nt" else ()
 
 def read_meta(path: str) -> Dict:
     """A run's run.json for a reader that goes through the runs folder, and so can meet a run at the moment it is
-    saved (list_runs; update.changed_runs, the command `cache status`), opened again after each of READ_PAUSES while
-    Windows refuses it: two compute slots ending together, one listing the runs (write_index, under the runs lock)
-    at the moment the other's run.json appeared (written outside the lock), ended that search as failed, its run
-    saved. After the last pause the PermissionError is raised; any other error at once."""
+    saved (list_runs; update.changed_runs, the command `cache status`; also rename_run, the user's answer 10 of
+    2026-11-25), opened again after each of READ_PAUSES while Windows refuses it: two compute slots ending together,
+    one listing the runs (write_index, under the runs lock) at the moment the other's run.json appeared (written
+    outside the lock), ended that search as failed, its run saved. After the last pause the PermissionError is
+    raised; any other error at once."""
     for pause in (*READ_PAUSES, None):
         try:
             with open(path, encoding="utf-8") as f:
