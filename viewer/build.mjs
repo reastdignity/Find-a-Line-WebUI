@@ -20,8 +20,9 @@ const outdir = at > 0 ? process.argv[at + 1] : "dist";
 const media = process.argv.includes("--media");
 const LICENCES = "THIRD-PARTY-LICENSES.txt";
 const notice = `/*! Licences of the bundled libraries: ${LICENCES} */`;
-// The site on a phone's home screen ("Add to home screen"): the icons (src/ui/logo/*.png, the logo's mark drawn by
-// tools/home_screen_icons.py), the iPhone's (every page's head links it: runs.HOME_SCREEN_HEAD) and the manifest,
+// The site on a phone's home screen ("Add to home screen"): the icons (home-screen/*.png, the logo's mark drawn by
+// tools/home_screen_icons.py; beside src, whose every file the tests read as text), the iPhone's (every page's head
+// links it: runs.HOME_SCREEN_HEAD) and the manifest,
 // written here as JSON (one line ending on every system) with the page's light ground, --bg of src/ui/tokens.css, as
 // its one colour (an Android phone's splash and task switcher).
 const HOME_SCREEN_ICONS = [
@@ -61,8 +62,9 @@ await esbuild.build({
 mkdirSync(outdir, { recursive: true });
 copyFileSync("src/coverage/shapes.json", `${outdir}/coverage-shapes.json`);
 if (!media) {
-  for (const name of ["logo.svg", "favicon.svg", ...HOME_SCREEN_ICONS.map((icon) => icon.src), APPLE_TOUCH_ICON]) {
-    copyFileSync(`src/ui/logo/${name}`, `${outdir}/${name}`);
+  for (const name of ["logo.svg", "favicon.svg"]) copyFileSync(`src/ui/logo/${name}`, `${outdir}/${name}`);
+  for (const name of [...HOME_SCREEN_ICONS.map((icon) => icon.src), APPLE_TOUCH_ICON]) {
+    copyFileSync(`home-screen/${name}`, `${outdir}/${name}`);
   }
   writeFileSync(`${outdir}/manifest.webmanifest`, homeScreenManifest());
 }

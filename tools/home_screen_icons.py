@@ -2,14 +2,15 @@
 The site's icons for a phone's home screen ("Add to home screen", line volume round 7's extra B8): the logo's mark
 (viewer/src/ui/logo/mark.svg, its own drawing) on white, in the light theme's colours (the mark's classes as
 viewer/src/ui/ui.css colours them, from the tokens of viewer/src/ui/tokens.css), drawn by Chromium (Playwright) and
-saved by Pillow as opaque PNG (an iPhone draws a transparent pixel black) into viewer/src/ui/logo/:
+saved by Pillow as opaque PNG (an iPhone draws a transparent pixel black) into viewer/home-screen/ (beside viewer/src,
+not in it: tests read every file under viewer/src as text):
 
 - apple-touch-icon.png, 180 px: an iPhone's icon (opaque and square; the phone rounds its corners);
 - icon-192.png and icon-512.png: the manifest's icons ("any");
 - icon-maskable-512.png: the manifest's maskable icon, the mark inside the middle 80 % that every mask keeps.
 
 The mark's square (its viewBox) stands in the tile's middle at SHARE of its width (MASKABLE_SHARE in the maskable
-one), as the accepted mock-up drew it (local/line-volume-7-2026-11-23/MU1, points 18 to 21). viewer/build.mjs
+one), as the accepted mock-up of line volume round 7 drew it (its points 18 to 21). viewer/build.mjs
 copies the four files into viewer/dist beside the manifest it writes; the pages link them (runs.HOME_SCREEN_HEAD).
 Run again after a change of the mark, of its classes' colours or of those tokens: tests/test_home_screen.py compares
 the files with a fresh drawing.
@@ -27,6 +28,7 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOGO = os.path.join(REPO, "viewer", "src", "ui", "logo")
 MARK = os.path.join(LOGO, "mark.svg")
+FOLDER = os.path.join(REPO, "viewer", "home-screen")  # the PNG files (viewer/build.mjs copies them into dist)
 UI_CSS = os.path.join(REPO, "viewer", "src", "ui", "ui.css")
 TOKENS = os.path.join(REPO, "viewer", "src", "ui", "tokens.css")
 
@@ -109,7 +111,7 @@ def draw(icons: dict | None = None) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
-    parser.add_argument("--out", default=LOGO, help="the folder of the PNG files (default: viewer/src/ui/logo)")
+    parser.add_argument("--out", default=FOLDER, help="the folder of the PNG files (default: viewer/home-screen)")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     for name, picture in draw().items():

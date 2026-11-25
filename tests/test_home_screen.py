@@ -103,7 +103,7 @@ def test_manifest_as_built():
         manifest = json.load(f)
     assert manifest == _manifest_expected()
     for name in ICON_FILES:
-        with open(os.path.join(web.APP_DIST, name), "rb") as a, open(os.path.join(icons.LOGO, name), "rb") as b:
+        with open(os.path.join(web.APP_DIST, name), "rb") as a, open(os.path.join(icons.FOLDER, name), "rb") as b:
             assert a.read() == b.read(), name
 
 
@@ -148,7 +148,7 @@ def test_icons_are_the_marks_drawing():
     light = icons.light_tokens(open(TOKENS, encoding="utf-8").read())
     colours = {tuple(int(light[t][i:i + 2], 16) for i in (1, 3, 5)) for t in ("--ink", "--clear")}
     for name, size in ICON_FILES.items():
-        picture = Image.open(os.path.join(icons.LOGO, name))
+        picture = Image.open(os.path.join(icons.FOLDER, name))
         assert picture.format == "PNG" and picture.mode == "RGB" and picture.size == (size, size), name
         assert icons.ICONS[name][0] == size
         pixels = picture.load()
@@ -192,7 +192,7 @@ def test_icons_match_a_fresh_drawing():
         _chromium(p).close()
     drawn = icons.draw()
     for name, size in ICON_FILES.items():
-        kept = Image.open(os.path.join(icons.LOGO, name)).convert("RGB")
+        kept = Image.open(os.path.join(icons.FOLDER, name)).convert("RGB")
         fresh = drawn[name]
         assert fresh.size == kept.size == (size, size), name
         a, b = kept.load(), fresh.load()
