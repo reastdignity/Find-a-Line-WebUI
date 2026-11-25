@@ -689,3 +689,50 @@ def test_a_folder_deleted_while_status_runs(tmp_path, monkeypatch, capsys):
     assert _printed(capsys.readouterr().out, cache_dir) == _expected(drop=["Tiles in the older encoding"])
     with pytest.raises(SystemExit, match="No folder nowhere"):
         _status(data, "nowhere")
+
+
+def test_an_index_deleted_between_the_look_and_the_open(tmp_path, monkeypatch, capsys):
+    """J1 (the third code review's F1): spain's index deleted after _query's look (_settled's stamp) and before its
+    immutable open (the user deleting the folder while `status` runs): the open (mode=ro&immutable=1) makes no file
+    where immutable=1 alone made an empty index.sqlite; the index counts as gone (no rows: its row 0 files, the
+    runs read its files as changed), nothing is made in the folder, and the command goes on to its end."""
+    data, cache_dir = canned(tmp_path)
+    index = _index(cache_dir, "spain")
+    before = listing(os.path.join(cache_dir, "spain"))
+    real, done = update._settled, []
+
+    def settled(db_path):
+        found = real(db_path)
+        if db_path == index and not done:
+            done.append(found[0])
+            os.remove(index)
+        return found
+    monkeypatch.setattr(update, "_settled", settled)
+    _tripwire(monkeypatch)
+    assert _status(data) == 0
+    out = _printed(capsys.readouterr().out, cache_dir)
+    assert done == ["read"] and not os.path.exists(index)
+    assert listing(os.path.join(cache_dir, "spain")) == {k: v for k, v in before.items() if k != "index.sqlite"}
+    assert re.search(r"\nspain +0\.00GB +0  - - - ", out) and "  recorded: 2 of 3 files changed" in out
+    assert out.rstrip().endswith("(it is downloaded again when needed).")
+
+
+def test_a_file_deleted_while_its_folder_is_summed(tmp_path, monkeypatch, capsys):
+    """J2 (the third code review's F2): a file removed between the walk's listing and the read of its size (a folder
+    being deleted during the longest part of `status`) counts 0 bytes; the table is printed and the command ends
+    with 0."""
+    data, cache_dir = canned(tmp_path)
+    tile = SPAIN.tile_path(cache_dir, (5.0, 101, 2000))
+    real, done = os.path.getsize, []
+
+    def size(path):
+        if os.path.abspath(path) == os.path.abspath(tile) and not done:
+            done.append(path)
+            os.remove(path)
+        return real(path)
+    monkeypatch.setattr(os.path, "getsize", size)
+    _tripwire(monkeypatch)
+    assert _status(data) == 0
+    out = _printed(capsys.readouterr().out, cache_dir)
+    assert done and re.search(r"\nspain +0\.00GB +2  2026-05-01 - 2026-05-01", out)
+    assert out.rstrip().endswith("(it is downloaded again when needed).")

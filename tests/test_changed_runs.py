@@ -588,7 +588,7 @@ def test_listing_the_runs_writes_nothing(tmp_path, monkeypatch):
     first = _changes(data)
     assert _listing(cache_dir) == before
     assert sorted(first) == ["old"] + [f"run{k:02d}" for k in range(40)]  # the Nominatim row is gone everywhere
-    assert len(connects) == 3 and all("immutable=1" in c for c in connects), connects
+    assert len(connects) == 3 and all(c.endswith("?mode=ro&immutable=1") for c in connects), connects
     _nominatim(cache_dir, {("search", "Gozo"): "{}"})
     before, connects[:] = _listing(cache_dir), []
     assert len(_changes(data)) == 41 and _listing(cache_dir) == before and len(connects) == 4
@@ -601,7 +601,8 @@ def test_listing_the_runs_writes_nothing(tmp_path, monkeypatch):
         before, connects[:] = _listing(cache_dir), []
         changes = _changes(data)
         assert _listing(cache_dir) == before
-        assert [c for c in connects if "mode=ro" in c] == [c for c in connects if "/poland/" in c or "nominatim" in c]
+        assert [c for c in connects if c.endswith("?mode=ro")] == [c for c in connects
+                                                                    if "/poland/" in c or "nominatim" in c]
         assert len(connects) == 4
         assert changes["run00"].changed == 2 and changes["run01"].changed == 1  # and slovakia/t/gone.tif
     finally:
