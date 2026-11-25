@@ -24,7 +24,8 @@ function headGrounds(): Grounds | null {
   const metas = Array.from(document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]'));
   const found: Partial<Record<Scheme, HTMLMetaElement>> = {};
   for (const meta of metas) {
-    const scheme = SCHEME.exec(meta.media.trim())?.[1] as Scheme | undefined;
+    // the attribute, not the property: a browser that does not reflect a meta's media must not throw here
+    const scheme = SCHEME.exec((meta.getAttribute("media") || "").trim())?.[1] as Scheme | undefined;
     if (scheme) found[scheme] = meta;
   }
   const {light, dark} = found;

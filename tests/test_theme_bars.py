@@ -48,13 +48,14 @@ def _needs_node():
 UNIT_SCRIPT = r"""
 const fresh = () => { delete require.cache[require.resolve(BUNDLE)]; return require(BUNDLE); };
 const asked = [];
+// a line of the head: its media only as an attribute (null: none), its content as the property the page writes
 const meta = (media, content) => {
-  const m = {media, writes: 0, value: content};
+  const m = {writes: 0, value: content, getAttribute: (name) => name === "media" ? media : null};
   Object.defineProperty(m, "content", {get() { return this.value; }, set(v) { this.value = v; this.writes++; }});
   return m;
 };
 const page = (metas) => { globalThis.document = {querySelectorAll: (s) => { asked.push(s); return metas; }}; return metas; };
-const lines = (metas) => metas.map((m) => [m.media, m.content, m.writes]);
+const lines = (metas) => metas.map((m) => [m.getAttribute("media"), m.content, m.writes]);
 const head = () => [meta("(prefers-color-scheme: light)", LIGHT), meta("(prefers-color-scheme: dark)", DARK)];
 const out = {};
 let m = fresh(), metas = page(head());
@@ -72,6 +73,7 @@ const others = {
   three: [...head(), meta("", "#ffffff")],
   both_light: [meta("(prefers-color-scheme: light)", LIGHT), meta("(prefers-color-scheme: light)", DARK)],
   no_media: [meta("", LIGHT), meta("", DARK)],
+  no_media_attribute: [meta("(prefers-color-scheme: light)", LIGHT), meta(null, DARK)],
 };
 out.others = Object.fromEntries(Object.entries(others).map(([k, v]) => { m = fresh(); page(v); m.themeBars("dark");
                                                                          return [k, lines(v)]; }));
@@ -113,7 +115,8 @@ def test_the_function(tmp_path):
     assert out["others"] == {"one": [["", "#ffffff", 0]],
                              "three": [[lo, LIGHT, 0], [hi, DARK, 0], ["", "#ffffff", 0]],
                              "both_light": [[lo, LIGHT, 0], [lo, DARK, 0]],
-                             "no_media": [["", LIGHT, 0], ["", DARK, 0]]}
+                             "no_media": [["", LIGHT, 0], ["", DARK, 0]],
+                             "no_media_attribute": [[lo, LIGHT, 0], [None, DARK, 0]]}
     assert out["later"] == [[lo, DARK, 1], [hi, DARK, 0]]
     assert out["asked"] == ['meta[name="theme-color"]']
 
