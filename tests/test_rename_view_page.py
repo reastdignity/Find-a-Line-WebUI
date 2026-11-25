@@ -455,18 +455,29 @@ def test_edit_and_run_again_has_the_circular_arrow_in_the_header(rename_site):
     assert f'd="{kit_icon("edit")}"' not in edit[1] and f'd="{kit_icon("edit")}"' in pencil, (edit, pencil)
 
 
-def test_the_header_keeps_its_height_when_the_rename_button_comes(rename_site):
+# A desktop-wide window with a touch screen (a tablet on its side, a touch laptop): the view's desktop frame with a
+# coarse pointer, whose icon buttons are 44 px
+TOUCH_DESKTOP = {"viewport": {"width": 1280, "height": 800}, "has_touch": True}
+
+
+@pytest.mark.parametrize("pointer", ["mouse", "touch"])
+def test_the_header_keeps_its_height_when_the_rename_button_comes(rename_site, pointer):
     """The Rename button is drawn only once the list of runs has answered. Before it (the answer held) and after it the
     owner's desktop header is as high and the list under it starts as low: nothing under the header moves when the
-    button comes. A visitor's header on the run's map.html, which never has the button, has that height too. The button
-    keeps its 32 px, and its place in the name's line. With the keyboard's focus its ring is drawn inside it (the kit's
-    inner ring): none outside, where it would touch the name and cross the date's line."""
+    button comes. A visitor's header on the run's map.html, which never has the button, has that height too. With a
+    mouse the button is 32 px, in the name's line and centred on it; on a desktop-wide touch screen (a coarse pointer)
+    it is 44 px, beside the name and the date and centred on the two lines, clear of both. Either way it stands inside
+    the header, the name and the date do not move when it comes, and with the keyboard's focus its ring is drawn inside
+    it (the kit's inner ring): none outside, where it would touch the name and cross the date's line."""
     site, _ = rename_site
-    box = """() => { const top = document.querySelector('.c-result-top').getBoundingClientRect(),
-      cols = document.querySelector('.c-cols').getBoundingClientRect(), b = document.querySelector('.c-run-title .c-rename-btn');
-      const r = b && b.getBoundingClientRect(), n = document.querySelector('.c-run-title .c-run-name').getBoundingClientRect();
-      return {header: top.height, list: cols.top, button: r && [r.width, r.height], inside: r && r.top >= top.top && r.bottom <= top.bottom,
-              centred: r && Math.abs((r.top + r.bottom) / 2 - (n.top + n.bottom) / 2) <= 1}; }"""
+    device = DESKTOP if pointer == "mouse" else TOUCH_DESKTOP
+    box = """() => { const r = (sel) => { const e = document.querySelector(sel); return e && e.getBoundingClientRect(); };
+      const top = r('.c-result-top'), cols = r('.c-cols'), b = r('.c-run-title .c-rename-btn'), n = r('.c-run-title .c-run-name'),
+            d = r('.c-run-title > .u-small'), mid = (x) => (x.top + x.bottom) / 2;
+      return {coarse: matchMedia('(pointer: coarse)').matches, header: top.height, list: cols.top, name: [n.left, n.top], date: [d.left, d.top],
+              button: b && [b.width, b.height], inside: b && b.top >= top.top && b.bottom <= top.bottom,
+              on_name: b && Math.abs(mid(b) - mid(n)) <= 1, on_lines: b && Math.abs(mid(b) - (n.top + d.bottom) / 2) <= 1,
+              after_name: b && b.left - n.right, after_date: b && b.left - d.right}; }"""
     held, answered = [], []
 
     def lists(route):  # the page's requests for the user's runs: held until `answered` says to let them through
@@ -475,7 +486,7 @@ def test_the_header_keeps_its_height_when_the_rename_button_comes(rename_site):
         else:
             route.continue_()
     with Browser(site) as browser:
-        page = page_of(browser)
+        page = page_of(browser, device)
         page.goto("about:blank")
         page.route("**/api/runs", lists)
         page.goto(f"{site}/?ui=c#run={RUN_A}")
@@ -493,14 +504,21 @@ def test_the_header_keeps_its_height_when_the_rename_button_comes(rename_site):
         ring = page.evaluate("(sel) => { const b = document.querySelector(sel), s = getComputedStyle(b); "
                              "return {on: document.activeElement === b && b.matches(':focus-visible'), shadow: s.boxShadow, "
                              "token: getComputedStyle(b.closest('.ui')).getPropertyValue('--focus-in').trim()}; }", BUTTON)
-        visitor = page_of(browser, who=None)
+        visitor = page_of(browser, device, who=None)
         visitor.goto(f"{site}/runs/{RUN_A}/map.html")
         view_of(visitor, RUN_A)
         visitor.wait_for_load_state("networkidle")
         other = visitor.evaluate(box)
+    assert before["coarse"] == after["coarse"] == other["coarse"] == (pointer == "touch"), (before, after, other)
     assert before["button"] is None and other["button"] is None, (before, other)
-    assert after["button"] == [32, 32] and after["inside"] and after["centred"], after
     assert before["header"] == after["header"] == other["header"], (before, after, other)
+    assert before["list"] == after["list"] == other["list"], (before, after, other)
+    assert before["name"] == after["name"] and before["date"] == after["date"], (before, after)  # the title's words stay put
+    assert after["inside"], after
+    if pointer == "mouse":
+        assert after["button"] == [32, 32] and after["on_name"] and after["after_name"] >= 0, after
+    else:  # 44 px, beside both lines: clear of the name and of the date
+        assert after["button"] == [44, 44] and after["on_lines"], after
+        assert after["after_name"] >= 0 and after["after_date"] >= 0, after
     assert ring["on"] and "inset" in ring["shadow"] and ring["shadow"].count("rgb") == 1, ring  # one ring, inside
     assert ring["token"].startswith("inset"), ring
-    assert before["list"] == after["list"] == other["list"], (before, after, other)

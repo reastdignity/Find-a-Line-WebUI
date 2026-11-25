@@ -28,6 +28,18 @@
    outside would touch the name before it and the window's top edge and cross the date under it */
 .ui .c-run-nameline .c-rename-btn:focus-visible { box-shadow: var(--focus-in); }
 @media (forced-colors: active) { .ui .c-run-nameline .c-rename-btn:focus-visible { outline-offset: -2px; } }
+/* A touch screen's desktop frame: the view's icon buttons are 44 px there (view.css). No margin fits one into the
+   name's 24 px line: with -10 px it would stand 1 px above the header's top edge and its lower part, with its ring,
+   over the date's line. So the title is a grid there: the name over the date, the button beside both lines and
+   centred on them (the two lines are 42 px: it hangs 1 px into the header's padding above and below). The header
+   keeps its height with and without the button, and the button stands clear of the name and of the date. */
+@media (pointer: coarse) {
+  .ui .v-result .c-run-title { display: grid; grid-template-columns: minmax(0, auto) auto; column-gap: 4px; justify-content: start; }
+  .ui .v-result .c-run-nameline { display: contents; }
+  .ui .v-result .c-run-title > .u-small, .ui .v-result .c-run-nameline > .c-run-name { grid-column: 1; }
+  .ui .v-result .c-run-nameline > .r-popwrap { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+  .ui .v-result .c-run-nameline .c-rename-btn { margin-block: -1px; }
+}
 /* The rename form (RunRename.tsx: a card's panel on Home, the view's box): the field, then Save and Cancel, the
    refusal's line under them */
 .ui .c-rename { display: flex; flex-direction: column; gap: 8px; margin: 0; }
