@@ -2886,7 +2886,9 @@ def test_cache_status_waits_for_a_run_json_windows_refuses(tmp_path, monkeypatch
     """`findaline.py cache status` (update.changed_runs) goes through every run of the runs folder, as runs.list_runs
     does, so it can meet a run.json at the moment another process saves that run, which Windows refuses for a moment
     (PermissionError: the command ended with it). It reads through the listing's waiting read (runs.read_meta): the
-    file is opened again after each of runs.READ_PAUSES, and after the last pause the error is raised."""
+    file is opened again after each of runs.READ_PAUSES. A run.json still refused after the last pause is a run.json
+    that cannot be read: that run is named as not checked and the listing goes on (since the data record, one
+    run.json never hides the other runs; before it the error was raised)."""
     import json
 
     import runs
@@ -2908,12 +2910,18 @@ def test_cache_status_waits_for_a_run_json_windows_refuses(tmp_path, monkeypatch
     monkeypatch.setattr(runs, "READ_PAUSES", (0.0, 0.001, 0.002), raising=False)
     cache_dir = str(tmp_path / "cache")
     refused[:] = [PermissionError] * 3
-    assert update.changed_runs(cache_dir, str(runs_dir)) == [("one", 1, 1), ("two", 1, 1)]
+    changes = update.changed_runs(cache_dir, str(runs_dir))
+    assert [(c.name, c.changed, c.files, c.approximate) for c in changes] == [("one", 1, 1, True), ("two", 1, 1, True)]
     assert refused == []  # all three met, then read
+    refused[:] = [PermissionError] * 4  # the first run's read: once and after each of the three pauses, then given up
+    changes = update.changed_runs(cache_dir, str(runs_dir))
+    assert [(c.name, c.unreadable, c.changed) for c in changes] == [("one", True, 0), ("two", False, 1)]
+    assert changes[0].line() == "one: its run.json cannot be read (not checked)"
+    assert refused == []  # none left for the second run: it is read and counted beside the one that is named
     refused[:] = [PermissionError] * 9
-    with pytest.raises(PermissionError):
-        update.changed_runs(cache_dir, str(runs_dir))
-    assert len(refused) == 5  # once and after each of the three pauses
+    changes = update.changed_runs(cache_dir, str(runs_dir))
+    assert [(c.name, c.unreadable) for c in changes] == [("one", True), ("two", True)]
+    assert len(refused) == 1  # each run: four tries, no more
 
 
 def test_labels_topics_and_presets():

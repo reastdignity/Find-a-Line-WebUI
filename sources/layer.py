@@ -332,12 +332,13 @@ class Layer:
 
     def used(self, grid: Grid, cache_dir: str) -> Dict:
         """What a run records about the data it used (see runs.py)."""
-        files = self.files(grid, cache_dir)
+        files, checksums = self.files(grid, cache_dir), {}
         info = {"layer": self.description, "folder": self.folder, "files": len(files),
-                "fetched": cache.touch(cache_dir, files),
+                "fetched": cache.touch(cache_dir, files, checksums),
                 "paths": sorted(cache.relative(cache_dir, p) for p in files)}
         if self.credit:
             info["credit"] = self.credit.as_dict()
+        info["identity"] = cache.identity_of(info["paths"], checksums)  # every builder of paths fills it
         return info
 
     def used_entries(self, grid: Grid, cache_dir: str, wrote: Optional[Dict[str, bool]] = None) -> List[Dict]:

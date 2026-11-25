@@ -188,6 +188,12 @@ with `cache.replacing`: the code as it was (`main` 47d46aa4) raised PermissionEr
 the mended code in none in two runs, having waited in 755 and in 892 of them, once each (10 ms). It reads through
 the listing's waiting read now (`runs.read_meta`: the same pauses, on Windows only);
 `tests/test_units.py::test_cache_status_waits_for_a_run_json_windows_refuses` makes the refusal with a fake `open`.
+Since the data record (the same day) a run.json still refused after the last pause no longer ends the command: that
+run is named as not checked ("its run.json cannot be read") and the other runs are listed (the user's choice of
+2026-11-24); and a run folder taken away between the listing and the read (a run being removed, `runs.park_run`),
+which ended the command with a FileNotFoundError, is no run any more and is left out. Only that: a run.json missing
+while its folder is there, or while the runs folder cannot be reached (Windows reports a lost network drive as "not
+found" too), is named as not checked, so a drive that drops never reads as "nothing changed".
 `runs.run_state` (the command `findaline.py runs remove-old`) needed no mending: it takes a run.json it cannot open
 for a run to skip ("cannot read now"), never for an old one.
 
@@ -288,6 +294,79 @@ are right. A search of local files (`--elevation-file`) could not resume at all 
 a tile edge. Since the fix the record is kept in the run's folder (`data_used.json`) and read back. The runs saved
 so: a run folder with `progress.json` and `tiles/` whose run.json has `"data": []`. They are not repaired; search
 again to get a run that names its data and credits.
+
+## The data record: what it does not see (2026-11-24)
+
+A run records what data it read (run.json's `identity` keys: docs/code-map/search.md), and the regression
+harness, `cache status` and `tools/record_check.py` compare by it. Known and left:
+- **Content replaced while a search reads it.** Closed since 2026-11-24 for a layer's files and the water mask's:
+  each file is noted before the mosaic reads it and after (`mosaic.noted_before`, `cache.touch`), each note its
+  stored checksum and its identity on disk (`os.stat`'s inode, time in ns, size), and a file whose two notes differ
+  is not known (`mosaic.read_window`); a layer prepared twice in a run (a fallback's terrain for the terrain and the
+  surface) never covers such a null (`search._merged_data`). A file written again with the same content while a
+  layer reads it (a tile fetched again unchanged, or encoded again by another process) is not known too: files are
+  never hashed for the record. Left (every writer moves the new file in first and writes its row after, hashing
+  the file and waiting for the index's lock):
+  - a file moved in before the note before the read whose row lands after the note after it (a writer's gap longer
+    than the layer's whole read): the old checksum is recorded although the new bytes were read, `cache status`
+    calls the file changed, the regression harness (its stored record holds the old one too) "same data";
+  - a writer killed between its move and its row (a cancelled download, a stopped `cache update`): the new bytes
+    stay under the old row for good, and every later run, `cache status` and the harness say "same".
+
+  The OSM tiles of the coastline and of an area and the world file's edition are noted once, after their read: the
+  coastline's tiles are read by `osm.theme` in `coast.sea_mask` and noted by `coast.identity` in step 1 after the
+  sea mask, an area's by `osm.theme` in `area._near` or `from_spec` and noted by `area.Inputs.identity` once the
+  area is built, the world file's edition asked again (`coast.world_file`) after the sea mask read it; a file
+  replaced in between is recorded as read. A Nominatim answer is noted in the function that read it
+  (`area.region`, right after `osm.search`).
+- **A real change read as "re-encoded" by `cache status`**, in narrow cases: other content stamped in the same
+  second as the entry's newest fetch, a writer's fetch time taken before it waited for the index's lock, a clock set
+  back. The run is still listed; only the word is wrong.
+- **A file replaced by hand** without the index being told reads "same": the index's stored checksum is compared,
+  a file is never hashed again.
+- **The order of overlapping files** of one layer is the code's (the first written wins), not recorded.
+  `NewestPerSheet`'s order is total since this change (the name as the last key); no tied overlapping pair of
+  sheets was in the real cache's stored answers then (8 indexes, 242 778 sheets), an area holding one could give
+  other lines than before.
+- **Checksums across machines.** A float tile is written again in the cache's encoding: its bytes may differ under
+  another GDAL or rasterio for the same values, so a record made on one machine can read "data differs" on another
+  (the record holds the versions, and the harness names a change of them). On one PC two caches that downloaded
+  apart gave equal checksums (60 of 60 files, 2026-11-24).
+- **What steers a search and is recorded only by its outcome**: Nominatim's answer for the country of a search's
+  centre (the source's id is recorded) and, for two kinds of layer, an index answer (the files are recorded): the
+  same record gives the same result, but a cache built from a record alone is not always enough to run the search
+  again (docs/regression-tests.md, "The completeness check").
+- **A filler or neighbour that read its files and filled no pixel** is left out of the record, as of the credits.
+- **What `cache status` still touches or misses.** Since 2026-11-24 it changes no cached file, no index and no row
+  and makes no folder, but SQLite's own side files beside an index are not left alone by SQLite's reader:
+  - it writes into a `-shm` that is there (it notes its place there), which is the case beside an index a search
+    has open, beside a `-wal` that still holds rows, and beside an empty `-wal` with its `-shm` left behind (by a
+    writer that was killed, made by a test, or by the read-only read below; the next writer's close removes the
+    two, which `status` used to do itself, opening every index for writing): on the real cache three `-shm` files
+    beside an empty `-wal`, of unknown origin, got a new modification time and nothing else changed
+    (`tests/test_status_readonly.py::test_a_wal_and_shm_left_by_a_killed_writer`);
+  - it makes a `-shm`, or a `-shm` and a `-wal`, in the cases `update._read_only` names (a `-wal` without its
+    `-shm`; `update._query`'s bound: a writer changed the index during three immutable reads in a row, then it is
+    read read-only; none in the second code review's 40-s probes beside a busy writer, where reading read-only
+    after one such read made 15 a run; an index dated in the future, a clock set back or files copied with a later
+    time, is read read-only every time and left with a `-shm` and a `-wal` after each `status`).
+  Not used: SQLite's `readonly_shm` (undocumented), and an empty `-wal` read as no WAL (a live connection that has
+  only read, or has just checkpointed, shows one too). Beside a search an index's rows are read again when the
+  stamp check of `update._query` sees a writer (the file's time or size, or a `-wal`). It rests on the file's
+  modification time moving when a WAL is written into it, by at least a clock tick (NTFS up to 15.6 ms, ext4 and
+  xfs a jiffy), so a file written less than `STAMP_MARGIN_NS` (0.1 s) ago is waited out first (at most 0.1 s a
+  read, 0.3 s an index); measured on local NTFS. Not covered on FAT32 (2 s steps); not sound on a network share
+  (the Windows client caches a file's details for seconds; a cache shared between machines is not supported). An
+  index that cannot be read at the moment (a writer's lock over the timeout, a hot journal of a rollback-journal
+  index) is named with the error's class, and the runs that read its files as not checked. A world file put there
+  by hand gets its index rows only from `cache update` (`status` names it), so until then a search's
+  `--update stale` does not check it after a year (`coast.world_polygons`: no row, never stale); until 2026-11-24
+  the first `cache status` adopted it. The OSM extracts of a data folder whose path holds `[` are not
+  listed (`osmextract.extracts`' `glob`, as other `glob`s of the code that start at the data folder;
+  `coast.world_file`'s is mended).
+- A run made before the record is counted by the rule of before (fetch times) and marked approximate; a relative
+  `--slope-file` is not checked; a resumed run marked because earlier tiles exist keeps its mark even if the
+  marking session stopped before its own first tile.
 
 ## The square rule: a tiled search's line limit counts a pair of squares twice
 

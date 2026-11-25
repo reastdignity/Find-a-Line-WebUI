@@ -247,12 +247,13 @@ class S3SheetSets(IndexedTiles):
                 for name, year, _ in gave_pixels(path):
                     names.add(name)
                     years.add(year)
-            label, credit = self.level_credits.get(level, (None, self.credit))
+            label, credit, checksums = *self.level_credits.get(level, (None, self.credit)), {}
             entry = {"layer": self.description if label is None else f"{self.description}, {label}",
-                     "folder": self.folder, "files": len(paths), "fetched": cache.touch(cache_dir, paths),
+                     "folder": self.folder, "files": len(paths), "fetched": cache.touch(cache_dir, paths, checksums),
                      "paths": sorted(cache.relative(cache_dir, p) for p in paths), "source_files": sorted(names),
                      "survey_years": [min(years), max(years)] if years else None}
             if credit is not None:
                 entry["credit"] = credit.as_dict()
+            entry["identity"] = cache.identity_of(entry["paths"], checksums)
             entries.append(entry)
         return entries

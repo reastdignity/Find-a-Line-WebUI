@@ -26,7 +26,8 @@ Every top-level folder has an index.sqlite with one row per file: its status
 ("ok", or "missing" when the service has no data there), when it was fetched,
 checked and last used, ETag / Last-Modified, sha256, the date of the source data and
 the processing version. URLs are stored without API keys. A row without its file
-counts as not downloaded; a file without a row is adopted.
+counts as not downloaded; a file without a row is adopted. A run records the stored sha256 of every
+cached file it read (touch's checksums: its data entries' `identity`), null for a file adopted without one.
 
 Updates (update.py, and --update of a search) never happen on their own. Data that
 can change is checked again after its interval (TTL_DAYS); versioned releases
@@ -52,7 +53,7 @@ import tempfile
 import time
 import tomllib
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Sequence
 
 LAYOUT = 1
 LOCKS = "locks"  # the lock files of downloads (sources.host_slot, tile_lock), not a dataset
@@ -209,8 +210,9 @@ def data_dir(arg: Optional[str] = None) -> str:
     return os.path.abspath(arg or os.environ.get("FINDALINE_DATA") or os.path.dirname(os.path.abspath(__file__)))
 
 
-def check_layout(cache_dir: str):
-    """Stop with a clear message when the cache has another layout; mark a new cache."""
+def check_layout(cache_dir: str, mark: bool = True):
+    """Stop with a clear message when the cache has another layout; mark a new cache (mark False: a missing or empty
+    cache is left as it is, for a command that only reads: `cache status`)."""
     marker = os.path.join(cache_dir, "LAYOUT")
     if os.path.isdir(cache_dir) and os.listdir(cache_dir):
         found = open(marker).read().strip() if os.path.exists(marker) else "none"
@@ -218,6 +220,8 @@ def check_layout(cache_dir: str):
             sys.exit(f"The cache in {cache_dir} has another layout ({found}, expected {LAYOUT}). "
                      "Delete that folder (everything is downloaded again when needed), or keep only "
                      "what you need after moving it to the new layout (see cache.py).")
+        return
+    if not mark:
         return
     os.makedirs(cache_dir, exist_ok=True)
     with open(marker, "w") as f:
@@ -449,9 +453,21 @@ def forget(cache_dir: str, paths: Iterable[str]):
         db.close()
 
 
-def info(cache_dir: str, path: str) -> Optional[Dict]:
-    """The index row of a file, as a dict (None if it has none)."""
+def _dicts(db: sqlite3.Connection, query: str, args: Sequence = ()) -> List[Dict]:
+    """The rows a query on an index gives, as dicts."""
+    db.row_factory = sqlite3.Row
+    return [dict(r) for r in db.execute(query, args)]
+
+
+def info(cache_dir: str, path: str, read: Optional[Callable] = None) -> Optional[Dict]:
+    """The index row of a file, as a dict (None if it has none). read: a reading door, read(index file, ask) ->
+    ask(connection) or an empty answer without the file or its table (update._query: read-only, makes nothing),
+    instead of the index's writing connection (_connect: makes the folder, the file and the table, switches to WAL)."""
     top, inner = _split(cache_dir, path)
+    if read is not None:
+        found = read(os.path.join(cache_dir, top, "index.sqlite"),
+                     lambda db: _dicts(db, "SELECT * FROM files WHERE path = ?", (inner,))) or []
+        return found[0] if found else None
     with _connect(cache_dir, top) as db:
         db.row_factory = sqlite3.Row
         row = db.execute("SELECT * FROM files WHERE path = ?", (inner,)).fetchone()
@@ -459,14 +475,17 @@ def info(cache_dir: str, path: str) -> Optional[Dict]:
     return dict(row) if row else None
 
 
-def rows(cache_dir: str, top: str) -> List[Dict]:
-    """All index rows of a top-level folder; "path" is relative to cache_dir."""
+def rows(cache_dir: str, top: str, read: Optional[Callable] = None) -> List[Dict]:
+    """All index rows of a top-level folder; "path" is relative to cache_dir. read: a reading door, as info's."""
     if not os.path.exists(os.path.join(cache_dir, top, "index.sqlite")):
         return []
-    with _connect(cache_dir, top) as db:
-        db.row_factory = sqlite3.Row
-        found = [dict(r) for r in db.execute("SELECT * FROM files")]
-    db.close()
+    if read is not None:
+        found = read(os.path.join(cache_dir, top, "index.sqlite"), lambda db: _dicts(db, "SELECT * FROM files")) or []
+    else:
+        with _connect(cache_dir, top) as db:
+            db.row_factory = sqlite3.Row
+            found = [dict(r) for r in db.execute("SELECT * FROM files")]
+        db.close()
     for row in found:
         row["path"] = f"{top}/{row['path']}"
     return found
@@ -604,8 +623,14 @@ def count_missing(cache_dir: str, paths: Iterable[str]) -> int:
     return count
 
 
-def touch(cache_dir: str, paths: Iterable[str]) -> Dict[str, Optional[str]]:
-    """Mark files as used now; return the range of their fetch times (oldest, newest)."""
+def touch(cache_dir: str, paths: Iterable[str],
+          checksums: Optional[Dict[str, Optional[str]]] = None) -> Dict[str, Optional[str]]:
+    """Mark files as used now; return the range of their fetch times (oldest, newest). checksums: filled with each
+    file's stored sha256 by its path relative to the cache (relative()), None where the index has none (a file
+    adopted by hand), read in the same query as its fetch time, in the transaction of the update of last_used_at (a
+    run's record, identity_of). This is the note after the read: prepare_layer and the water mask note the files
+    before the read too (sources.mosaic.noted_before, with each file's identity on disk) and keep a checksum only
+    where both notes agree (read_window)."""
     by_top: Dict[str, List[str]] = {}
     for path in paths:
         top, inner = _split(cache_dir, path)
@@ -615,8 +640,50 @@ def touch(cache_dir: str, paths: Iterable[str]) -> Dict[str, Optional[str]]:
         with _connect(cache_dir, top) as db:
             db.executemany("UPDATE files SET last_used_at = ? WHERE path = ?", [(now, i) for i in inners])
             for inner in inners:
-                row = db.execute("SELECT fetched_at FROM files WHERE path = ?", (inner,)).fetchone()
+                row = db.execute("SELECT fetched_at, sha256 FROM files WHERE path = ?", (inner,)).fetchone()
                 if row and row[0]:
                     fetched.append(row[0])
+                if checksums is not None:
+                    checksums[f"{top}/{inner}"] = (row[1] or None) if row else None
         db.close()
     return {"oldest": min(fetched, default=None), "newest": max(fetched, default=None)}
+
+
+def stored_checksums(cache_dir: str, paths: Sequence[str]) -> List[Optional[str]]:
+    """The stored sha256 of each file (paths relative to the cache, with /), in their order, None where the index
+    has no row or no checksum; writes no row (it opens the index through _connect, as every lookup does), one
+    connection per top-level folder, none for a folder without an index (a run's record: the OSM tiles of its
+    coastline and of its area, a layer's files before the read: sources.mosaic.noted_before)."""
+    answers: List[Optional[str]] = [None] * len(paths)
+    by_top: Dict[str, List[int]] = {}
+    for k, path in enumerate(paths):
+        by_top.setdefault(path.partition("/")[0], []).append(k)
+    for top, ks in by_top.items():
+        if not os.path.isfile(os.path.join(cache_dir, top, "index.sqlite")):
+            continue
+        db = _connect(cache_dir, top)
+        try:
+            for k in ks:
+                row = db.execute("SELECT sha256 FROM files WHERE path = ?", (paths[k].partition("/")[2],)).fetchone()
+                answers[k] = (row[0] or None) if row else None
+        finally:
+            db.close()
+    return answers
+
+
+def file_identity(path: str) -> Optional[Dict]:
+    """A run's record of a local file it read (--elevation-file, --surface-file, --slope-file): its size and its
+    modification time (UTC, ISO, seconds, as run.json's `created`), never a hash of the file; None when it cannot be
+    read now."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return {"size": stat.st_size,
+            "modified": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(timespec="seconds")}
+
+
+def identity_of(paths: Sequence[str], checksums: Dict[str, Optional[str]]) -> Dict[str, List[Optional[str]]]:
+    """A data entry's `identity` (a run's record of the data it read, never in the public export: runs.public_meta):
+    the stored sha256 of each of its paths, parallel to them (touch's checksums), null where not known."""
+    return {"sha256": [checksums.get(p) for p in paths]}

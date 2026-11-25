@@ -86,13 +86,66 @@ def prepare_layer(layer: Layer, grid: Grid, cache_dir: str, out_path: str, label
     if empty:  # normal over the sea; on land a sign of a lost tile (see the regression tests)
         print(f"{layer.description}: {empty} of {len(tiles)} tiles without data (the service has none there)")
     files = layer.files(grid, cache_dir)
+    before = noted_before(cache_dir, files)  # the files as they are before the read (read_window)
     # Which files wrote a pixel, for a layer that credits its files' owners by the pixels they gave (Tuscany's)
     wrote: Optional[List[bool]] = [] if layer.credits_by_pixels else None
     build_mosaic(files, grid, out_path, label, shift=layer.shift, rows=rows, resampling=resampling,
                  same_resolution=same_resolution, wrote=wrote, below=[layer.floor_of(p) for p in files],
                  offset=layer.height_offset)
-    used_data.extend(layer.used_entries(grid, cache_dir, None if wrote is None else dict(zip(files, wrote))))
+    used_data.extend(read_window(layer.used_entries(grid, cache_dir, None if wrote is None else
+                                                    dict(zip(files, wrote))), before, cache_dir))
     return out_path
+
+
+Noted = Tuple[Optional[str], Optional[Tuple[int, int, int]]]  # a file's stored sha256 and its identity on disk
+
+
+def _on_disk(path: str) -> Optional[Tuple[int, int, int]]:
+    """A file's identity on disk (os.stat's st_ino, st_mtime_ns, st_size: a file moved over it changes the first
+    two on NTFS even at the same size); None when it cannot be stat'ed."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return stat.st_ino, stat.st_mtime_ns, stat.st_size
+
+
+def noted_before(cache_dir: str, files: Sequence[str]) -> Dict[str, Noted]:
+    """The note before the read (read_window): each cached file about to be read, by its path relative to the
+    cache, as (its identity on disk, then its stored sha256), taken after the download and before any of the files
+    is opened. The checksums: cache.stored_checksums, one connection per top-level folder, which writes no row (it
+    opens the index as every lookup of a search does: cache._connect). A file outside the cache (a local file) is
+    not noted."""
+    paths, disk = [], []
+    for path in files:
+        try:
+            relative = cache.relative(cache_dir, path)
+        except ValueError:  # on another drive
+            continue
+        if relative != ".." and not relative.startswith("../"):
+            paths.append(relative)
+            disk.append(_on_disk(path))
+    return {p: (sha, d) for p, d, sha in zip(paths, disk, cache.stored_checksums(cache_dir, paths))}
+
+
+def read_window(entries: List[Dict], before: Dict[str, Noted], cache_dir: str) -> List[Dict]:
+    """A layer's data entries (used_entries: every builder's) with the rule of the two notes, in place: a path keeps
+    the checksum the note after the read gave (cache.touch, then the file's identity on disk here) only when the
+    note before the read (noted_before) holds the same known checksum and the same identity on disk; otherwise (a
+    checksum or the file changed, a note is missing, the file cannot be stat'ed) it is None, not known: its file
+    was replaced while the layer was read, and the bytes read may be either content. Nothing else changes."""
+    for entry in entries:
+        identity = entry.get("identity")
+        if "paths" in entry and isinstance(identity, dict) and "sha256" in identity:
+            identity["sha256"] = [s if _same_note(before.get(p), s, cache_dir, p) else None
+                                  for p, s in zip(entry["paths"], identity["sha256"])]
+    return entries
+
+
+def _same_note(noted: Optional[Noted], sha256: Optional[str], cache_dir: str, path: str) -> bool:
+    """Whether a file's note after the read (its stored sha256, its identity on disk now) is its note before."""
+    return (sha256 is not None and noted is not None and noted[0] == sha256 and noted[1] is not None
+            and noted[1] == _on_disk(os.path.join(cache_dir, *path.split("/"))))
 
 
 def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,

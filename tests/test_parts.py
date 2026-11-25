@@ -378,6 +378,32 @@ def test_index_tiles_at_once(tmp_path):
     assert [s.url for s in sheets] == [f"https://x.example/{order[0][0]}_{order[0][1]}/A.asc"]
 
 
+def test_tied_sheets_in_one_order(tmp_path):
+    """NewestPerSheet's order is total: two overlapping sheets of equal year and equal first two numbers come in the
+    same order whatever order the answer lists them in (the name decides), and so do two versions of one godło; a
+    name of fewer numbers sorts as before (its missing numbers below any)."""
+    from sources.indexes.cached import CachedIndex, Listing
+    from sources.indexes.versions import NewestPerSheet, Sheet, _sheet_order
+    grid = Grid(left=500000.0, top=700000.0, res=100.0, height=20, width=20, crs="EPSG:2180")
+
+    def item(name, godlo):
+        return {"year": 2020, "godlo": godlo, "url": f"https://x.example/{name}.asc", "crs": "EPSG:2180",
+                "res": 1.0, "extent": [499000, 697000, 503000, 701000]}
+
+    listed = [item("7_5_B", "B"), item("7_5_A", "A"), item("7_5_C1", "C"), item("7_5_C2", "C")]
+    orders = []
+    for k, items in enumerate((listed, listed[::-1])):
+        class Answer(Listing):
+            def fetch(self, lat, lon, items=items):
+                return {"sheets": items}
+        index = CachedIndex("test", Answer(), NewestPerSheet("t/sheets", "EPSG:2180", 1.0), f"p{k}", "t")
+        index.use(str(tmp_path / "cache"), None)
+        orders.append([s.name for s in index.tiles(grid)])
+    assert orders[0] == orders[1] == ["7_5_C2", "7_5_B", "7_5_A"]
+    sheet = lambda name: Sheet(2020, name, name, "", "", 1.0)  # noqa: E731
+    assert _sheet_order(sheet("x")) < _sheet_order(sheet("x7")) < _sheet_order(sheet("x7_0")) < _sheet_order(sheet("x8"))
+
+
 def _area_grid(parts, crs="EPSG:2180", res=100.0, margin=2000.0):
     """A grid over shapely parts (in crs) with their union as its outline."""
     from shapely.ops import unary_union
@@ -657,6 +683,47 @@ def test_composed_layer(tmp_path, capsys):
     layer.reader.fetched.clear()
     src.download_layers([(layer, "fake")], None, cache_dir)
     assert layer.reader.fetched == []  # all cached or missing
+
+
+def _statements(monkeypatch):
+    """The SQL statements run on the cache's index connections from now on (cache._connect traced)."""
+    run, connect = [], cache._connect
+
+    def traced(cache_dir, top):
+        db = connect(cache_dir, top)
+        db.set_trace_callback(run.append)
+        return db
+    monkeypatch.setattr(cache, "_connect", traced)
+    return run
+
+
+def test_used_records_the_stored_checksums(tmp_path, monkeypatch):
+    """Layer.used gives its entry `identity`: the index's stored sha256 of each file, parallel to `paths`, None for a
+    file the index holds no checksum for (adopted by hand); read in the lookup cache.touch makes for the fetch
+    times, so noting a layer's files runs the same statements as touch alone, one SELECT per file."""
+    layer, cache_dir = FakeLayer(4), str(tmp_path)
+    src.download_layers([(layer, "fake")], None, cache_dir)
+    adopted = layer.tile_path(cache_dir, 1)
+    with open(adopted, "ab") as f:  # replaced by hand: its row loses the checksum
+        f.write(b"!")
+    db = cache._connect(cache_dir, "fake")
+    with db:
+        db.execute("UPDATE files SET sha256 = NULL WHERE path = ?", ("layer/1.bin",))
+    db.close()
+    used = layer.used(None, cache_dir)
+    assert used["paths"] == ["fake/layer/0.bin", "fake/layer/1.bin", "fake/layer/3.bin"]
+    expected = [cache.info(cache_dir, layer.tile_path(cache_dir, t))["sha256"] for t in (0, 3)]
+    assert used["identity"] == {"sha256": [expected[0], None, expected[1]]} and all(len(s) == 64 for s in expected)
+    assert list(used)[-1] == "identity" and set(used) == {"layer", "folder", "files", "fetched", "paths", "identity"}
+    files = layer.files(None, cache_dir)
+    run = _statements(monkeypatch)
+    cache.touch(cache_dir, files)
+    alone, run[:] = list(run), []
+    layer.used(None, cache_dir)
+    assert len(run) == len(alone) and sum(s.startswith("SELECT") for s in run) == len(files) == 3
+    assert cache.stored_checksums(cache_dir, used["paths"] + ["fake/layer/9.bin", "nothing/here.tif"]) == \
+        [expected[0], None, expected[1], None, None]
+    assert not os.path.exists(os.path.join(cache_dir, "nothing"))  # read only: no index made for a folder
 
 
 class GridLayer(FakeLayer):
