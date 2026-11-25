@@ -361,9 +361,12 @@ harness, `cache status` and `tools/record_check.py` compare by it. Known and lef
   index) is named with the error's class, and the runs that read its files as not checked. A world file put there
   by hand gets its index rows only from `cache update` (`status` names it), so until then a search's
   `--update stale` does not check it after a year (`coast.world_polygons`: no row, never stale); until 2026-11-24
-  the first `cache status` adopted it. The OSM extracts of a data folder whose path holds `[` are not
-  listed (`osmextract.extracts`' `glob`, as other `glob`s of the code that start at the data folder;
-  `coast.world_file`'s is mended).
+  the first `cache status` adopted it. Since 2026-11-25 every listing of the code that starts at the data, cache
+  or runs folder takes that folder's name literally, `[` and `]` too (`tests/test_glob_folders.py` guards it). Left:
+  on Windows, with the index out of reach, the cached tiles of the layers of `sources/layers/metalink.py`,
+  `geojson.py`, `zipmembers.py` and `packages.py` are not found in such a folder (`ShaPerTile._cached_tiles` and
+  `PackageVersions.cached` compare each path with `path()` as text, and `glob` gives an escaped folder's paths
+  back with `\` where the layer's folder holds `/`).
 - A run made before the record is counted by the rule of before (fetch times) and marked approximate; a relative
   `--slope-file` is not checked; a resumed run marked because earlier tiles exist keeps its mark even if the
   marking session stopped before its own first tile.
