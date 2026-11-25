@@ -600,7 +600,11 @@ read by share links, the result view then behind `?view=b`), none fixed:
   Firefox; the focus rules are tested in Chromium only. **Brought to R1 and R2 in round 6** (2026-11-22) in the
   states `tools/ui_shots.py` measures: no text under 12 px outside the credits, no control under the bound in the
   first view or with a line. The filter editor and More filters, which no state measures, are not; what is left is in
-  "Line volume, round 6" below.
+  "Line volume, round 6" below. **They have states since round 7** (`c-view-editor`, `c-view-more`,
+  `c-view-more-end`, 2026-11-24): the first two measured on the clip's run in the light theme, on the phones no control under 44 px
+  and no text under 12 px outside the map's credits, for the controls that run draws; the checkboxes, the water
+  select, Rigging of richer runs and a set chip are not measured, and on a phone part of More filters' middle is in
+  no picture (the iPhone's 20 of 33 controls, the Pixel's 12).
 
 ## Line volume, round 5 (store wave 4): known and left (2026-11-18)
 
@@ -795,13 +799,26 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
 
 ## Line volume, round 7: known and left (2026-11-25)
 
-Found in round 7's reviews and checks (`linestore.read` of chosen columns); none fixed.
+Found in round 7's reviews and checks (the screenshot states of the filters, `linestore.read` of chosen columns);
+none fixed. The user's answers of 2026-11-25 are quoted.
 
 **`linestore.read` of chosen columns** (A4; no caller meets either, the code review's two findings, confirmed by a
 run)
 - A selection that matches nothing (`columns=[]`, or only optional columns the store lacks) returns a table without
   columns, whose `len()` raises `StopIteration`.
 - `columns="length"` (a string, not a list) raises a ValueError that names its letters as unknown columns.
+
+**The result view's filters** (seen while A3 took its screenshot states; the user's answer 8: "Known bugs + roadmap")
+- **The pressed main chip is not marked while its editor is open** (only `aria-expanded=true`), whereas More filters'
+  chip turns `u-on`.
+- **A range's empty track is invisible in the editor's grey box**: it has the box's own colour, so "Length from" at its
+  low end shows a lone thumb with no track (light and dark).
+- **At half height a phone's sheet opens the editor under the screen's edge**: the states raise the sheet to full
+  first for that reason.
+- `tools/ui_shots.py`: with all three main filters set, `c-view-editor`'s chip selector matches nothing and the state
+  ends at its wait's 10 s deadline, a picture without the editor (the comment at `VIEW_EDIT_CHIP`; no pass reaches
+  it: the storage starts empty and no page before the state sets a filter). `c-view-report` once showed a "Failed to
+  fetch" banner over its picture in a whole pass and none when shot alone (2026-11-24; it runs before the new states).
 
 ## The UI measuring tools: known and left (2026-11-17)
 
