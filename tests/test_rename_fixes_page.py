@@ -14,6 +14,7 @@ import json
 import os
 import re
 import sys
+from urllib.parse import urlparse
 
 import pytest
 
@@ -451,3 +452,30 @@ def test_the_views_share_and_rename_ask_for_the_runs_once(rename_site):
         page.wait_for_load_state("networkidle")
         count = len(sent)
     assert count == 2, sent
+
+
+def test_an_old_list_that_fails_is_asked_for_again(rename_site):
+    """The same, but the old request for the list fails (aborted) after the rename instead of answering: nothing of it
+    is kept and no empty list either; the list is asked for again, and RUN_B opened from its card shows the new name
+    in the view's head and in window.FINDALINE_RUNS."""
+    site, _ = rename_site
+    with Browser(site) as browser:
+        page = page_of(browser)
+        fresh(page)
+        held = hold_first(page, RUNS_JS)
+        open_home(page, site, RUN_B)
+        route = the_held(page, held)
+        field = open_rename(page, RUN_B)
+        field.fill(NEW)
+        with page.expect_response(rename_answer(RUN_B)):
+            page.keyboard.press("Enter")
+        page.wait_for_selector(f"{card(RUN_B)} .c-card-panel", state="detached")
+        with page.expect_response(lambda r: urlparse(r.url).path == "/runs/runs.js"):  # asked for again, answered
+            route.abort()
+        page.wait_for_function("() => Array.isArray(window.FINDALINE_RUNS)")
+        page.click(f"{card(RUN_B)} a.c-card-open")
+        view_of(page, RUN_B)
+        head = page.evaluate(TEXT, TITLE)
+        listed = page.evaluate("() => window.FINDALINE_RUNS.map((r) => r.name)")
+    assert head == NEW, f"the view shows {head!r}; window.FINDALINE_RUNS {listed}"
+    assert NEW in listed and NAME_B not in listed, listed

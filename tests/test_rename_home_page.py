@@ -396,7 +396,9 @@ def test_waiting_and_the_refusals(rename_site):
 
 def test_a_small_phone_keeps_the_menu_and_the_line_in_sight(rename_site):
     """On a 390 by 664 phone the menu of a card low on the screen is scrolled into view whole, above the bottom
-    bar, when it opens; so is the card's panel, and again when a refusal's line makes it taller."""
+    bar, when it opens; so is the card's panel when it opens. A name's refusal (two lines) then stands above the bar
+    too, but on this phone it would fit without the panel's second scroll: that scroll is
+    test_a_small_phone_keeps_a_long_line_in_sight's."""
     site, _ = rename_site
     box = ("(sel) => { const b = document.querySelector(sel).getBoundingClientRect(), "
            "bar = document.querySelector('.u-bnav').getBoundingClientRect(), "
