@@ -261,6 +261,18 @@ the closed profile, the list's stars and help, the spot stepper, the sort's dire
 states `c-view-boxes`, `-chips-held`, `-box-coarser`, `-box-shore`, `-link-centre` with `--run` of a coastal run:
 `tools/ui_coast_run.py`); `tests/test_ui_shots_view_states.py`.
 
+Line volume's round 7 (renaming a run, the failed and loading pages, Compare's causes): Home's `c-card-menu`,
+`c-card-menu-search` (an owner's card with its search: "Edit & run again" in the menu), `c-card-menu-low` (a low
+card's menu on a phone, the page scrolled), `c-card-rename`, `c-card-rename-refused` (named `c-card-*`, so a part
+`c-home` picks Home alone); the view's `c-view-rename`, `c-view-rename-refused`, `c-view-rename-focus` (the button's
+ring after a real Shift+Tab and Tab: a step `key:<key>` presses a key through Playwright's keyboard, then the settled
+wait; only this state has key steps) and `c-view-compare-causes` (three runs Compare cannot show, the owner's header:
+a job stub); the page family "run-wait" (`RUN_WAITS`, drawn once the box shows a failure's sentence or a bar of a
+known amount): `map-failed`, `map-failed-shared`, `map-too-large`, `c-run-failed` (a store the server answers with 404
+or as too large), `c-run-loading`, `c-run-loading-gb` (a store that keeps loading, of a total in MB or GB). They set,
+share, delete or store nothing; only the two `-refused` states send a name, one the server refuses
+(`tests/test_ui_shots_round7.py`).
+
 ## `tools/ui_coast_run.py`
 
 Run by hand: a coastal run for `ui_shots.py`'s coast states of the result view: a copy of the Żabi Koń clip's run of a

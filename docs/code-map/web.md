@@ -100,6 +100,14 @@ whatever the Range and deletes it afterwards, also when the client breaks off or
 `EXPORT_MEDIA`, `content_disposition` (run.json's name, else the run id: `filename*` in UTF-8 and an ASCII
 `filename` without what `PLAIN_UNSAFE` refuses after NFKD). Neither route imports `linestore` or pyarrow.
 
+Renaming a run (line volume's round 7, docs/line-volume/spec-store.md section 5): `POST /api/runs/<run>` with
+`{"name"}` (`own_run`: the owner alone, an administrator who is not the owner 404 too; the public site only, the local
+app 404 "runs are renamed on the public site"; a plain `def`, as `runs.rename_run` may wait); the name by
+`runs.run_name` (400 `run_name` for a refused or missing one, 422 for a body that is not an object), `runs.rename_run`
+(404 "no such run" without a readable run.json, 409 "the run is in use: try again in a moment" when a file cannot be
+replaced now); answers `{"ok": true, "name": <as stored>}`; audit `run_rename` with the run id, never the name; no
+rate limit.
+
 ## `messages.py`, `locales/`
 
 The message catalogue of the web interface: `locales/<language>.json` (English only now: `en.json`), flat namespaced

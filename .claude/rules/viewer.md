@@ -79,6 +79,11 @@ catalogue), `browser-tests.md`.
   counts the sheet at rest only once the credits' corner stands above it. Every move goes into the bar's room, a
   selection's fit through `selectedFit`; no move's padding grows for the controls. While P3's drop runs (a selection
   at full), `bar()` and `free()` count the sheet at half.
+- A run's name on a page is run.json's (a rename changes it there, never in the store's head): `result/load.ts`
+  `fromServer` puts the listed name over the head's and `map/main.tsx` the page's `<title>` (`titleName`), which a
+  rename rewrites. A place that renames, saves or deletes a run on the page calls `renamedRun` or `forgetRunList`
+  (both copies of the list go: the loaded one and `window.FINDALINE_RUNS`), so Compare and the next run opened read
+  the list again (`tests/test_rename_view_page.py`, `test_compare_causes_page.py`).
 - `Profile.tsx` draws no colour: each curve and swatch has a class that `profile.css` colours from a token (a new curve:
   a class and a token, both themes).
 - `Profile.tsx` draws at `TEXT_PX` with `LABEL_BOXES` (measured at 12 px): a size change changes both; `labels.ts`'
@@ -91,12 +96,12 @@ catalogue), `browser-tests.md`.
 
 ## Pitfalls
 
-- **The disk notice** (store wave 4): a run's map.html written since then (`mapping.MAP_HTML`, `DISK_NOTICE` =
+- **The disk notice** (store wave 4): a run's map.html written since then (`runs.MAP_HTML`, `DISK_NOTICE` =
   `map/main.tsx` `NOTICE`) stands after the viewer's script, so the viewer marks a served page (`fal-served`, by
   `map/served.ts`, which stays the entry's first import; hidden by `map/notice.css` in the head's viewer.css) before
   the notice is parsed: no frame shows it over http(s), even when a later module throws; from disk it
-  loads nothing. Its sentence is `ui.map.disk_notice`, filled by Python (`mapping.map_page`); the page shows it without
-  the bundle too (`tests/test_disk_notice.py`). A map.html written before (no notice) gets the same notice from the
+  loads nothing. Its sentence is `ui.map.disk_notice`, filled by Python (`runs.map_page`, which a rename writes again:
+  `runs.rename_run`); the page shows it without the bundle too (`tests/test_disk_notice.py`). A map.html written before (no notice) gets the same notice from the
   bundle from disk (`map/main.tsx` `diskNotice`: no run is read from disk since store wave 4's item 5).
 - **The viewer** reads a run over http(s) only, its `lines.arrow`/`profiles.arrow` as bytes (`result/load.ts`), and
   the list of runs as a script (`runs.js`); a download with progress is an XMLHttpRequest (`download.ts`), never
