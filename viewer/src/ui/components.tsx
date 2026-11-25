@@ -3,9 +3,8 @@
 // the only `style` props are CSSOM (allowed by the CSP's style-src 'self').
 
 import type { ButtonHTMLAttributes, ComponentChildren } from "preact";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n";
-import { themeBars } from "./bars";
 import { Hint } from "./Hint";
 import { Icon, type IconName } from "./icons";
 import { radioKeys, radioStop } from "./radios";
@@ -17,12 +16,9 @@ export { Hint };
 
 export type Theme = "auto" | "light" | "dark";
 
-/** The root of a new interface: a full-screen page (`screen`) or a block, with its theme. A page's root shows its
- *  theme in the browser's bars too (bars.ts), from its first render on (before the first frame that draws it); a
- *  block inside a page (the kit's columns of both themes) leaves them to the page. */
+/** The root of a new interface: a full-screen page (`screen`) or a block, with its theme. */
 export function Screen({theme = "auto", screen = true, class: cls, children}:
                        {theme?: Theme; screen?: boolean; class?: string; children?: ComponentChildren}) {
-  useLayoutEffect(() => { if (screen) themeBars(theme); }, [theme, screen]);
   return <div class={cx("ui", screen && "u-screen", cls)} data-theme={theme === "auto" ? undefined : theme}>
     {children}</div>;
 }

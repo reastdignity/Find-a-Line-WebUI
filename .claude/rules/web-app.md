@@ -20,8 +20,7 @@ tests that start Edge).
 ## Must stay in sync
 
 - Server pages: `page.*` and `ui.app.*` via `web.page_text`, the sign-in notes via `messages.text`; HTML byte-pinned
-  by `tests/test_texts_in_catalogue.py`, privacy's too (its words in Python). Every head and `runs.MAP_HTML`
-  carry `runs.HOME_SCREEN_HEAD`, a new page's too (`tests/test_home_screen.py`). Only with the user's yes on the exact
+  by `tests/test_texts_in_catalogue.py`, privacy's too (its words in Python). Only with the user's yes on the exact
   sentence (legal, privacy, safety): `page.about.{esri_terms,osm,fabdem,ring,lead}`, `page.signin.note{,_open}`, `ui.beta.main`.
 - The message catalogue `locales/en.json` and its users: every field the web may set has `field.<name>.label`, `.unit`
   and `.help`, every choice of a choice field (but the sources' names, from `sources.SOURCES`)
@@ -54,8 +53,8 @@ tests that start Edge).
   limits and quotas: `run_phase`, `run_quick`), `Jobs.admission(limited=)` and `web.within_rate` follow it. The
   safeguards (`queue_max`, `free_disk_gb_min`, time limits, a compute slot's memory budget and F7's early stop at it:
   `Plan.early_stop`, which `run_phase` sets from the server's `Limits` also when the user's limits are None) never
-  depend on it. Locally the one user is `LOCAL` and `FINDALINE_LIMIT_*` apply (`web.unlimited` is False without
-  `--public`).
+  depend on it. Locally the one user is `LOCAL` and `FINDALINE_LIMIT_*` apply as before (`web.unlimited` is False
+  without `--public`).
 - `web.RUN_FILES` (the files of a run the public site serves) and what `search.save_run` writes (`map.html`,
   `ATTRIBUTION.txt`, the store `lines.arrow`, `profiles.arrow`): a new file a map needs goes into both, a file with the
   owner's details (`run.json`) or work state (`progress.json`, `tiles/`) into neither; one holding the run's name, into
@@ -65,8 +64,8 @@ tests that start Edge).
   run's `bytes`; `web.EXPORT_NAME` follows `jobs.EXPORT_TOKEN_BYTES`, `EXPORT_EXTENSIONS` (`tests/test_export.py`).
   `window.FINDALINE_APP` (`profiles`: may the map
   compute profiles and measure; `favourites`: may it mark favourite lines) is written by the dynamic `runs.js` of
-  `web.py` and read by `viewer/src/result/model.ts` (declared in `types.ts`); undefined: yes from a server, no from
-  disk.
+  `web.py` and read by `viewer/src/result/model.ts` (declared in `types.ts`); undefined means as before (from a server
+  yes, from disk no).
 - The privacy page (`web.privacy_page`) states what is stored and for how long:
   `accounts.SESSION_DAYS`/`IDLE_DAYS`/`OAUTH_SECONDS`, `Limits.keep_events_days`, `jobs.DAY` (usage),
   `audit.KEEP_DAYS`, a search's area and country (`jobs.area_km2`/`country`), the account's country of its time zone
@@ -157,7 +156,8 @@ tests that start Edge).
 
 ## Running it
 
-- The web app for tests: CLAUDE.md's command, in the background. Headless Edge waits for the open event stream: stub `EventSource` in a test page (see
+- `python findaline.py web --no-browser --port 8799 --data-dir <scratch>` runs the web app for tests (start it in the
+  background). Headless Edge waits for the open event stream: stub `EventSource` in a test page (see
   docs/regression-tests.md) or use `--timeout` for screenshots.
 - `web --public` / `worker --public`: the public site behind a reverse proxy (`settings.PublicSettings`:
   `FINDALINE_PUBLIC_URL`, `FINDALINE_TRUSTED_PROXY`, `FINDALINE_CONTACT`, also from Docker secrets in `/run/secrets`);

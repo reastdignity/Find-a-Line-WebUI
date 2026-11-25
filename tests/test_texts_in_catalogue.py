@@ -36,15 +36,10 @@ import web  # noqa: E402
 
 OLD_FOOTER = ('<footer class="p-footer"><a href="/">Find-a-Line</a><a href="/coverage">Data coverage</a>'
               '<a href="/privacy">Privacy</a><a href="/about">About and data licences</a></footer>')  # G5: one wording
-# with line volume round 7's four home-screen lines in the head (B8: the manifest, the iPhone's icon, the ground)
 OLD_SIGNIN_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Find-a-Line</title>
 <link rel="icon" href="/app/favicon.svg" type="image/svg+xml">
-<link rel="manifest" href="/app/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/app/apple-touch-icon.png">
-<meta name="theme-color" content="#f2f5f5" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#121a1b" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/app/app.css">
 </head><body class="ui p-body"><main class="p-page p-signin">
 <header class="p-brand"><h1 class="u-logo">{logo}<span class="u-sr">Find-a-Line</span></h1>
@@ -214,14 +209,10 @@ PRIVACY = {
 def test_privacy_page_byte_for_byte(variant):
     """The privacy page renders byte for byte as pinned above (main at db84edbc, G5's link, the data server's row), in every variant (contact, how long events are
     kept, the 3D view's ring). Its words are the user's: a change of them, or of a fact it states (a retention, a
-    cookie, a stored field), needs the user's yes on the exact sentences first; then the digests here change with it.
-    The head's home-screen lines (runs.HOME_SCREEN_HEAD: no word, pinned literally by tests/test_home_screen.py and
-    the sign-in and map pages' pins) are taken out once first, so a change of their colours never moves these."""
+    cookie, a stored field), needs the user's yes on the exact sentences first; then the digests here change with it."""
     import hashlib
     contact, days, ring = variant
     page = web.privacy_page(contact, days, ring=ring)
-    assert page.count(web.HOME_SCREEN_HEAD + "\n") == 1
-    page = page.replace(web.HOME_SCREEN_HEAD + "\n", "", 1)
     assert hashlib.sha256(page.encode("utf-8")).hexdigest() == PRIVACY[variant], (
         "the privacy page changed: its words are the user's to approve; change it only with the user's yes on the "
         "exact sentences, then update PRIVACY")

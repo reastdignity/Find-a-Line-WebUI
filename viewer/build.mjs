@@ -11,7 +11,7 @@
 // `node build.mjs --out <dir>` builds elsewhere (tests compare it with dist/).
 // `node build.mjs --media --out <dir>` builds only the page of the coverage animations and images
 // (coverage-media.js and .css, for tools/coverage_media.py; never in dist: users do not need it).
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import * as esbuild from "esbuild";
 import { getLicenseFileText } from "generate-license-file";
 
@@ -20,27 +20,6 @@ const outdir = at > 0 ? process.argv[at + 1] : "dist";
 const media = process.argv.includes("--media");
 const LICENCES = "THIRD-PARTY-LICENSES.txt";
 const notice = `/*! Licences of the bundled libraries: ${LICENCES} */`;
-// The site on a phone's home screen ("Add to home screen"): the icons (home-screen/*.png, the logo's mark drawn by
-// tools/home_screen_icons.py; beside src, whose every file the tests read as text), the iPhone's (every page's head
-// links it: runs.HOME_SCREEN_HEAD) and the manifest,
-// written here as JSON (one line ending on every system) with the page's light ground, --bg of src/ui/tokens.css, as
-// its one colour (an Android phone's splash and task switcher).
-const HOME_SCREEN_ICONS = [
-  { src: "icon-192.png", sizes: "192x192", type: "image/png" },
-  { src: "icon-512.png", sizes: "512x512", type: "image/png" },
-  { src: "icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
-];
-const APPLE_TOUCH_ICON = "apple-touch-icon.png";
-
-function homeScreenManifest() {
-  const light = /^\.ui \{([\s\S]*?)^\}/m.exec(readFileSync("src/ui/tokens.css", "utf8"));
-  const ground = light && /--bg:\s*(#[0-9a-f]{6});/.exec(light[1]);
-  if (!ground) throw new Error("src/ui/tokens.css: no --bg in its first .ui block");
-  return JSON.stringify({
-    name: "Find-a-Line", short_name: "Find-a-Line", start_url: "/", display: "standalone", orientation: "portrait",
-    background_color: ground[1], theme_color: ground[1], icons: HOME_SCREEN_ICONS,
-  }, null, 2) + "\n";
-}
 
 const entryPoints = media
   ? { "coverage-media": "src/coverage/media/main.ts" }
@@ -63,10 +42,6 @@ mkdirSync(outdir, { recursive: true });
 copyFileSync("src/coverage/shapes.json", `${outdir}/coverage-shapes.json`);
 if (!media) {
   for (const name of ["logo.svg", "favicon.svg"]) copyFileSync(`src/ui/logo/${name}`, `${outdir}/${name}`);
-  for (const name of [...HOME_SCREEN_ICONS.map((icon) => icon.src), APPLE_TOUCH_ICON]) {
-    copyFileSync(`home-screen/${name}`, `${outdir}/${name}`);
-  }
-  writeFileSync(`${outdir}/manifest.webmanifest`, homeScreenManifest());
 }
 // The runtime dependencies' licences; TypeScript (an optional peer of i18next) and the type-only packages are
 // never bundled, and TypeScript's native package differs per platform, while dist must be the same on every OS.

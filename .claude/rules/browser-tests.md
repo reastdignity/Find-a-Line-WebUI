@@ -20,8 +20,6 @@ paths:
   - "tests/test_compare_*_page.py"
   - "tests/test_home_size_page.py"
   - "tests/test_tiny_run_loading_page.py"
-  - "tests/test_home_screen.py"
-  - "tests/test_theme_bars.py"
 ---
 # Tests that start a browser
 
