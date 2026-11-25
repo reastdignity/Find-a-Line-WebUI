@@ -26,8 +26,9 @@ COVERED = {
     "X1 shore": "c-view-box-shore",
     "card open": "c-view-card", "card folded": "c-view-card-folded", "boxes": "c-view-boxes", "chips": "c-view-boxes",
     "rails": "c-view-rails", "map.html": "c-view-map", "map.html line": "c-view-map-line", "share link": "c-view-shared",
-    # round 7's PG: the header's Rename box open, a refused name in it, Compare's three causes (a desktop)
-    "PG rename": "c-view-rename", "PG rename refused": "c-view-rename-refused", "PG Compare's causes": "c-view-compare-causes",
+    # round 7's PG: the header's Rename box open, a refused name in it, its button's focus ring, Compare's causes (a desktop)
+    "PG rename": "c-view-rename", "PG rename refused": "c-view-rename-refused", "PG rename focus": "c-view-rename-focus",
+    "PG Compare's causes": "c-view-compare-causes",
     # C4's (step 3d: the spot stepper, the sort's direction, the star's picker on a phone)
     "C4 stepper, desktop": "c-view-stepper", "C4 stepper, phone at half": "c-view-stepper-half",
     "C4 stepper, phone low": "c-view-stepper-low", "C4 Previous off": "c-view-stepper-first",
@@ -48,13 +49,16 @@ def test_every_listed_state_has_its_page():
 def test_the_states_open_the_view():
     """Each state is a page of the view (the flag "b"; the app's result, a run's map.html or a share link's page),
     waits for the view first, needs the view's columns (the coast boxes' an uncertain shore), and is made of scripts,
-    waits and only the clicks that keep a state to one kind of device."""
+    waits and only the clicks that keep a state to one kind of device; keys only in c-view-rename-focus (Shift+Tab and
+    Tab: the keyboard's focus ring follows only a person's key)."""
+    keys = {"key:Shift+Tab", "key:Tab"}
     for name, (ui, hash_, steps, *who) in ui_shots.VIEW_STATES.items():
         assert ui_shots.PAGES[name] == (ui, hash_, steps, *who) and ui_shots.VIEWS[name] == "b", name
         assert (ui, hash_) in (("c", "#run={run}"), ("map", ""), ("map", "#line={line}"), ("shared", "#line={line}")), name
         assert steps[0] == ui_shots.VIEW_READY and ui_shots.page_family(name) == "view-b", name
         assert ui_shots.NEEDS[name] == (("view", "shore") if name in SHORE else "view"), name
-        assert all(s.startswith(("js:", "wait:")) or s in CLICKS for s in steps), name
+        assert all(s.startswith(("js:", "wait:")) or s in CLICKS or (name == "c-view-rename-focus" and s in keys)
+                   for s in steps), name
         assert "localStorage.setItem('findaline.view', \"b\")" in ui_shots.page_storage(name), name
     assert ui_shots.LAYOUTS["c-view-rails"] == ui_shots.LAYOUTS["c-result-rails"]
     # the clip's run (the view's columns, no shore) leaves out the coast boxes' states before any load; a coastal run
@@ -68,7 +72,7 @@ def test_the_states_open_the_view():
     desktop = [n for n, p in ui_shots.VIEW_STATES.items() if ui_shots.VIEW_DESKTOP in p[2]]
     phone = [n for n, p in ui_shots.VIEW_STATES.items() if ui_shots.VIEW_PHONE in p[2]]
     assert set(desktop) == {"c-view-other-run", "c-view-card", "c-view-card-folded", "c-view-rails", "c-view-stepper",
-                            "c-view-rename", "c-view-rename-refused", "c-view-compare-causes"}
+                            "c-view-rename", "c-view-rename-refused", "c-view-rename-focus", "c-view-compare-causes"}
     assert set(phone) == {"c-view-chips-held", "c-view-box-coarser", "c-view-box-shore", "c-view-stepper-half",
                           "c-view-stepper-low", "c-view-picker-low"}
     assert ui_shots.select_pages("c-view-") and set(ui_shots.VIEW_STATES) <= set(ui_shots.select_pages("c-view"))
@@ -102,7 +106,7 @@ def test_the_owners_header_has_edit_and_run_again():
     of its init script), so the header has "Edit & run again"; so do round 7's (PG) view states of the owner's header:
     the Rename box, a refused name in it, Compare's causes (its stub last, after its runs' script); no other page has
     the stub. The other init scripts are round 7's (PG: tests/test_ui_shots_round7.py)."""
-    owners = ("c-view-share", "c-view-rename", "c-view-rename-refused", "c-view-compare-causes")
+    owners = ("c-view-share", "c-view-rename", "c-view-rename-refused", "c-view-rename-focus", "c-view-compare-causes")
     assert set(ui_shots.PAGE_SCRIPTS) == {*owners, "c-card-menu-search", "c-card-menu-low", "map-failed",
                                           "map-failed-shared", "map-too-large", "c-run-failed", "c-run-loading",
                                           "c-run-loading-gb"}

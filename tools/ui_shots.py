@@ -99,6 +99,8 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 # "need:<expression>" to wait until it is true and leave the page out when it is not (the run does not have it),
 # "sideways:<width>x<height>" to turn a phone (a touch screen; left out on a device without one) to that viewport and
 # load the page again (as a phone held sideways opens it; the steps after it wait for the page again),
+# "key:<key>" to press a key on the page's keyboard (Playwright's keyboard.press: a person's key, e.g. "Tab", which a
+# script's event is not: the browser draws the keyboard's focus ring, :focus-visible, after a real key),
 # or a list of such steps[, the user: "admin" (default), "walker", an approved user with the site's limits, one of
 # RIGGERS (with saved rigs), or "visitor", not signed in]); a step "full" takes the whole page, not only the viewport;
 # "{run}" is the clip's run, "{line}" its first line (keys.lineCoords); an interface starting with "/" is a path of
@@ -654,6 +656,13 @@ VIEW_RENAME = [VIEW_OWNER + " && !!document.querySelector('.c-run-title .c-renam
                "wait:(() => { const f = document.querySelector('.c-run-title .r-pop .c-rename input'); return !!f && f.value.length > 0 "
                "&& document.activeElement === f && f.selectionStart === 0 && f.selectionEnd === f.value.length; })()"]
 VIEW_RENAME_REFUSED = rename_refused(".c-run-title .r-pop .c-rename")
+# The Rename button holding the keyboard's focus, its box closed: the button focused by a script, then Shift+Tab and Tab
+# pressed as a person's keys (a script's focus after the header's click draws no ring), waited for until the button
+# has the focus and matches :focus-visible (its ring drawn)
+VIEW_RENAME_BTN = "document.querySelector('.c-run-title .c-rename-btn')"
+VIEW_RENAME_FOCUS = [VIEW_OWNER + " && !!" + VIEW_RENAME_BTN, f"js:{VIEW_RENAME_BTN}.focus()", "key:Shift+Tab", "key:Tab",
+                     f"wait:document.activeElement === {VIEW_RENAME_BTN} && {VIEW_RENAME_BTN}.matches(':focus-visible') "
+                     "&& !document.querySelector('.c-run-title .r-pop')"]
 # Compare's runs that cannot be shown, one per cause (RunActions.tsx CAUSE_TEXT): (name, id, kind, the end of its row
 # once ticked), made up in the page beside the shown run by COMPARE_CAUSES_RUNS (PAGE_SCRIPTS; every name invented).
 # The owner's header waited for (its job answered in the page: the list of runs is then forgotten once, AppC.tsx, and
@@ -752,10 +761,12 @@ VIEW_STATES = {
                                                     ".find((b) => b.offsetParent)?.click()", "wait:document.querySelector('.v-help')"]),
     "c-view-measuring": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, VIEW_ACTION % "Measure", "wait:window.FINDALINE_VIEW.map.isMeasuring"]),
     # line volume's round 7 (PG), a desktop's header (a phone has neither: left out by VIEW_DESKTOP): the Rename box
-    # open; a name the server refuses sent there; Compare with a run of each cause that cannot be shown. Nothing saved
+    # open; a name the server refuses sent there; the button with the keyboard's focus (its ring, the box closed);
+    # Compare with a run of each cause that cannot be shown. Nothing saved
     # (the server refuses the name, the runs are the page's own), nothing kept in the browser
     "c-view-rename": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP] + VIEW_RENAME),
     "c-view-rename-refused": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP] + VIEW_RENAME + VIEW_RENAME_REFUSED),
+    "c-view-rename-focus": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP] + VIEW_RENAME_FOCUS),
     "c-view-compare-causes": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP] + VIEW_COMPARE_CAUSES),
     # the desktop's card: open (a line selected, its profile drawn), folded; both side panels as rails (LAYOUTS)
     "c-view-card": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP, VIEW_SPOTS, "js:" + VIEW_SELECT, VIEW_SELECTED, VIEW_CHART]),
@@ -922,6 +933,7 @@ HOME_MORE_RUNS = ("(() => { const f = window.fetch, names = %s; window.fetch = (
                   "return new Response(JSON.stringify({...d, runs}), {status: r.status, headers: {'content-type': 'application/json'}}); "
                   "})); })();") % json.dumps(["Sample ridge", "Sample massif", "Sample coast", "Sample gorge", "Sample tower"])
 PAGE_SCRIPTS.update({"c-view-rename": VIEW_JOB_STUB, "c-view-rename-refused": VIEW_JOB_STUB,
+                     "c-view-rename-focus": VIEW_JOB_STUB,
                      "c-view-compare-causes": COMPARE_CAUSES_RUNS + VIEW_JOB_STUB,
                      "c-card-menu-search": HOME_JOB_STUB, "c-card-menu-low": HOME_MORE_RUNS,
                      "map-failed": RUN_STORE_MISSING, "map-failed-shared": RUN_STORE_MISSING,
@@ -1654,6 +1666,10 @@ def run_step(page, step: str, label: str, state: Pass, row: dict, watch: Watch |
         return None
     if step.startswith("js:"):
         page.evaluate(step[3:])
+        settle()
+        return None
+    if step.startswith("key:"):  # a person's key (the keyboard's focus ring follows only a real one)
+        page.keyboard.press(step[4:])
         settle()
         return None
     if step.startswith("wait:"):  # the 3D view: its terrain, then its imagery

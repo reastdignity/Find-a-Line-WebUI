@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(REPO, "tools"))
 import ui_shots  # noqa: E402
 
 CARDS = ["c-card-menu", "c-card-menu-search", "c-card-menu-low", "c-card-rename", "c-card-rename-refused"]
-VIEW = ["c-view-rename", "c-view-rename-refused", "c-view-compare-causes"]
+VIEW = ["c-view-rename", "c-view-rename-refused", "c-view-rename-focus", "c-view-compare-causes"]
 WAITS = ["map-failed", "map-failed-shared", "map-too-large", "c-run-failed", "c-run-loading", "c-run-loading-gb"]
 ROUND_7 = CARDS + VIEW + WAITS
 # The name parts the tool's other tests select pages by (tests/test_ui_shots.py: --only, --exclude): none picks a state
@@ -95,3 +95,33 @@ def test_round_7s_pages_are_made_in_the_page():
                                          (ui_shots.RUN_STORE_SIZES_GB, ui_shots.RUN_STORE_LOADING_GB, ui_shots.RUN_LOADING_GB, 22)):
         assert round(100 * sum(d for _, d in sizes.values()) / sum(t for t, _ in sizes.values())) == percent
         assert json.dumps(sizes) in script and wait.endswith(f"=== {percent}")
+
+
+class Keys:
+    """A Playwright page's keyboard and evaluate, as run_step uses them for a "key:" step."""
+
+    def __init__(self):
+        self.calls = []
+        self.keyboard = self
+
+    def press(self, key):
+        self.calls.append(("press", key))
+
+    def evaluate(self, script, arg=None):
+        self.calls.append(("evaluate", script))
+
+
+def test_the_rename_buttons_keyboard_ring():
+    """c-view-rename-focus (a desktop, the owner's header): the Rename button focused by a script, then Shift+Tab and Tab
+    pressed as a person's keys ("key:", Playwright's keyboard: the browser draws the keyboard's ring only after a real
+    key), and waited for until the button holds the focus, matches :focus-visible and its box is closed. A "key:" step
+    presses its key and nothing else."""
+    steps = ui_shots.PAGES["c-view-rename-focus"][2]
+    assert steps[:2] == [ui_shots.VIEW_READY, ui_shots.VIEW_DESKTOP] and steps[2:] == ui_shots.VIEW_RENAME_FOCUS
+    assert steps[3:6] == ["js:" + ui_shots.VIEW_RENAME_BTN + ".focus()", "key:Shift+Tab", "key:Tab"]
+    assert ".matches(':focus-visible')" in steps[-1] and "document.activeElement === " + ui_shots.VIEW_RENAME_BTN in steps[-1]
+    assert "!document.querySelector('.c-run-title .r-pop')" in steps[-1]
+    assert ui_shots.PAGE_SCRIPTS["c-view-rename-focus"] == ui_shots.VIEW_JOB_STUB
+    page = Keys()
+    assert ui_shots.run_step(page, "key:Shift+Tab", "label", ui_shots.Pass("desktop", "light"), {}) is None
+    assert page.calls == [("press", "Shift+Tab")]
