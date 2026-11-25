@@ -484,6 +484,7 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
             assert n["constant_needed"] == max(v for v in (n["pass_ws_b_per_px"], n.get("blocks_beyond_50_b_per_px"))
                                                if v is not None)
             assert n["mark_files_b_per_px"] > 0 and n["pass_private_mib"] is not None
+            assert 0 < n["mark_files_pass_b_per_px"] and 0 < n["mark_files_blocks_b_per_px"]
             if "_answers" in st["hooks"]:  # every block's part, with the windows block_grid lays out
                 import access
                 h, w = saved["plan"]["grid"]

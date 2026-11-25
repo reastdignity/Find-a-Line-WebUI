@@ -1355,10 +1355,11 @@ def constant_needed(st: Dict, pixels: int, window_bytes: float = 50) -> Dict:
         out["mark_files_bytes"] = max(disks) - st["work_bytes_at_start"]
         out["mark_files_b_per_px"] = per_px(out["mark_files_bytes"], pixels)
         # wave 2b: the masks are not mapped, so their bytes are in no working-set column; on disk, in the pass and in
-        # the blocks apart (the work folder's peak in those parts less its size at the stage's start)
+        # the blocks apart (the work folder's peak in those parts less its size at the stage's start); the pass without
+        # "masks opened", where block_grid makes the blocks' output grid (1 B/px, seen there or not by the sidecar)
         for key, head in (("pass", "grid-wide"), ("blocks", "blocks: ")):
             got = [r["peak_disk"] for label, r in st["parts"].items()
-                   if label.startswith(head) and r.get("peak_disk") is not None]
+                   if label.startswith(head) and label != "grid-wide: masks opened" and r.get("peak_disk") is not None]
             if got:
                 out[f"mark_files_{key}_bytes"] = max(got) - st["work_bytes_at_start"]
                 out[f"mark_files_{key}_b_per_px"] = per_px(out[f"mark_files_{key}_bytes"], pixels)
