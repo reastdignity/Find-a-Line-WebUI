@@ -676,7 +676,8 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   `test_a_later_server_on_the_same_port_serves_its_own_file` holds it.
 - **`tools/perf_country.py` decodes all 29 columns of a store** (`linestore.read`) though it uses 10: about 350 B a
   line at its peak plus the Arrow table, so a machine smaller than the one that made a very large run may not read it
-  back; a column selection in `linestore.read` would cut it.
+  back; a column selection in `linestore.read` would cut it. **Mended in line volume's round 7** (A4,
+  `read(columns=)`): it decodes its `STORE_COLUMNS` alone; the file is still read whole (the Arrow table stays).
 - **`runs remove-old`:** two removals finishing the same `runs/_removing-<id>` at once may report it "Left on disk"
   although it is gone (cosmetic); the first scan's folder sizes run under the runs lock; a search cancelled or killed
   while "saving results" leaves a folder without `run.json` that nothing removes (older than store wave 4), as does a
@@ -791,6 +792,16 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
   counts the requests sent (`page.on("request")`) since round 6's closing fixes.
 - **`tools/lan_app.py`** (the LAN test of gate 2): `make_clip` has no test. While it serves, the local app's other routes stay open on the network (an estimate, a place's lookup,
   deleting a search or a run of the scratch folder, the rigs and the admin routes).
+
+## Line volume, round 7: known and left (2026-11-25)
+
+Found in round 7's reviews and checks (`linestore.read` of chosen columns); none fixed.
+
+**`linestore.read` of chosen columns** (A4; no caller meets either, the code review's two findings, confirmed by a
+run)
+- A selection that matches nothing (`columns=[]`, or only optional columns the store lacks) returns a table without
+  columns, whose `len()` raises `StopIteration`.
+- `columns="length"` (a string, not a list) raises a ValueError that names its letters as unknown columns.
 
 ## The UI measuring tools: known and left (2026-11-17)
 

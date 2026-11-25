@@ -378,8 +378,10 @@ run.json's block `store` (format, lines, bytes, the first 16 hex of
 2^53 once scaled, an infinity, a NaN where none may miss, an anchor beyond int32) is float64 of round(value,
 decimals), without `decimals`, and a count beyond uint32 uint64, so a store never refuses a run's values; both files under `.part` names until both are
 whole. `read(run_path,
-profiles=True)` → (`LineTable`, head), the profiles as dicts of `line_profile`, the view's columns by their names
-when the store has them; `export(run_path, "csv"|"geojson",
+profiles=True, columns=None)` → (`LineTable`, head), the profiles as dicts of `line_profile`, the view's columns by
+their names when the store has them; `columns` (line volume's round 7): only those `LineTable` columns decoded (a
+pair such as `anchor1` whole, the view's by their names; one the store lacks left out, one no store knows a
+ValueError), the file still read whole, each equal to the full read's (`tests/test_linestore.py::test_read_of_chosen_columns`); `export(run_path, "csv"|"geojson",
 out)` regroups (`mapping.group_lines` with run.json's distance and value) and writes with `runs.save_results`
 with run.json's values without its `store`: the bytes the run's `lines.csv`/`lines.geojson` held before store
 wave 4. `store_state(run_path)`: "current", "no_view", "old", "missing", "unreadable", "newer" or "cannot_read" (an

@@ -436,7 +436,8 @@ steep share × relief, and the samples' 1 km cells with their edge fraction; `vi
 at another grid) and `estimate` (country totals: strata of the steep share, the relief below 0.5 %, lines per km² from
 the cells, a bootstrap over the places; times from `time_model` per band and grid; `inputs.json` names the strata,
 machines, data and services); a run's lines (`read_lines`) from its lines.npz (`profile --lean` until store wave 4;
-`--lean` is accepted and does nothing since), its store (`linestore.read`'s columns in memory, grouped and in
+`--lean` is accepted and does nothing since), its store (`linestore.read`'s columns in memory, since line volume's
+round 7 only `STORE_COLUMNS`, the ones it uses, decoded (`read(columns=)`), grouped and in
 lines.csv's order: length, clearance, height and the first anchor's coordinates unrounded, so a line at a band's or
 cell's edge may take another key than its lines.csv's rounding) or the lines.csv of a run saved before the store,
 `lines_from` in compare's, cube's and relief's results; a lines.csv over 200 MB packed once into
