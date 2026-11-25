@@ -861,7 +861,7 @@ Found in round 7's reviews and checks (renaming a run, the size on Home, the scr
 - **Home's Share and Delete panels show an empty line** for a failure without words (a gateway's error with no text);
   the rename's form shows "The run was not renamed. Try again in a moment." there (the user's answer 1).
 - **`Popover` adds its Esc listener after the paint** (`common.tsx`): an Esc right after the box opens can do nothing
-  (a test saw it once in four runs).
+  (a test saw it once in four runs: the worker's count, not re-run, `local/line-volume-7-2026-11-23/PG/report.md`).
 - **A card's menu low on a phone** (the mock-up's point 25 a): the page scrolls so that the whole menu stands above the
   bottom bar, and the point the menu's button was pressed at then lies on a menu item: a second press there (a double
   tap, or a press meant to close the menu) presses that item ("Delete…" only opens its question; "Open the result"

@@ -356,7 +356,8 @@ removal left; by `run_state`: `linestore.store_state` and run.json's `VIEW_FAILE
 (a removal: the folder renamed to `_removing-<id>` under the runs lock, then deleted), run names, `params_summary` (a run's description: the elevation band first among the limits);
 a rename (line volume's round 7, the public site's `POST /api/runs/<id>`): `run_name` (the name as stored: NFC, each
 run of whitespace one space, trimmed, 1 to `params.MAX_NAME` characters, one of them visible; refused with `UserError`
-"run_name": control and format characters but the two joiners `JOINERS`, line and paragraph separators) and
+"run_name": every character of a "C" category (control, format, surrogate, private use, unassigned) but the two
+joiners `JOINERS`, line and paragraph separators) and
 `rename_run` (under the runs lock, each file whole through `cache.replacing`: ATTRIBUTION.txt's first line when it
 is the one `attribution_text` wrote, map.html from `map_page` (`MAP_HTML`, `DISK_NOTICE`), run.json
 last, read through `read_meta`; the id, folder, store and links stay); `read_meta` (run.json opened again after each
