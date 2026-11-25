@@ -507,6 +507,32 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
     assert out["stages"][0]["compare_with_once"]["differ"] == 0
 
 
+def test_every_block_and_the_kept_grids(tmp_path, made_up_search):
+    """--every-block: the blocks stage computes every block (split as any), rule (b) from the same run against the
+    grid at once; --keep-grid and --keep-full keep the grids; compare --files by rule (b) at every pixel and by rule
+    (a) against a grid made with the area (its 255s skipped and counted)."""
+    import access
+    takes_needed = hasattr(access, "NOT_COMPUTED")
+    out_dir, every, full, area = tmp_path / "out", tmp_path / "every.npy", tmp_path / "full.npy", tmp_path / "area.npy"
+    got = pa.main(["stages", "--out", str(out_dir), "--name", "e", "--order", "blocks,once,full", "--block-px", "60",
+                   "--every-block", "--keep-grid", str(every), "--keep-full", str(full), *made_up_search])
+    st = got["stages"][0]
+    assert st["needed_passed"] == "not passed (every block)" and st["left_out"] == 0
+    assert st["rule_b"]["differ"] == 0 and st["rule_a"]["left_out_px"] == 0
+    assert "grid-wide: open ground: mask" in st["parts"] and "needed: the search area's blocks" not in st["parts"]
+    assert got["stages"][2]["kept_grid"] == str(full) and np.array_equal(np.load(every), np.load(full))
+    pa.main(["stages", "--out", str(out_dir), "--name", "a", "--order", "blocks", "--block-px", "60", "--keep-grid",
+             str(area), *made_up_search])
+    b = pa.main(["compare", "--out", str(out_dir), "--name", "cb", "--files", str(every), str(full)])
+    assert b["rule"] == "b" and b["differ"] == 0
+    a = pa.main(["compare", "--out", str(out_dir), "--name", "ca", "--rule", "a", "--files", str(every), str(area)])
+    assert a["rule"] == "a" and a["differ"] == 0 and a["once_not_computed"] == 0
+    assert (a["left_out_px"] > 0) == takes_needed
+    if takes_needed:  # by rule (b) the pixels left out differ
+        assert pa.main(["compare", "--out", str(out_dir), "--name", "cx", "--files", str(every),
+                        str(area)])["differ"] == a["left_out_px"]
+
+
 def test_the_rules_constants_for_one_run_only(tmp_path, made_up_search):
     """plan with --area-bytes and --area-fixed: the rule's answer with them (recorded), and search's names as before
     once the command ends (a second command in the process starts from the tree's constants)."""

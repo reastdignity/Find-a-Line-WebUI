@@ -38,7 +38,9 @@ Commands:
   "needed". The grid at once against it by rule (a), as the search reads it ("rule_a", also "compare_with_once"):
   0 pixels differ where a block was computed, no pixel of the area is 255, and the 255s are exactly the blocks left
   out. "full" (an --order entry of its own) is block_grid without `needed`, every block, not split and not to be
-  read for seconds: rule (b), "rule_b", compares it with the grid at once at every pixel.
+  read for seconds: rule (b), "rule_b", compares it with the grid at once at every pixel (--keep-full keeps its
+  grid). --every-block: the "blocks" stages without the area (every block computed, measured and split as any
+  blocks stage: the constant's reading, gate 2), and with a grid at once rule (b) from the same run.
   The columns since the masks are bits (wave 2b, access._Mask: read and written by file calls, never mapped): the
   masks' pages are no longer in the process's working set, so "WS" (the working set above the stage's start, the
   rule's measure) and "WS less private" (the file pages) no longer hold them: they lie in the system's file cache,
@@ -63,7 +65,8 @@ Commands:
   the seconds of writing and reading (the windows' hashing apart), the bytes kept; the windows' hashes of the three
   ways compared. The mask: --mask PATH (a .npy of `pieces --capture`) or --made-up H W (random, seeded per strip).
 - compare: step 1, the grid at once and the grid in blocks, the pixels that differ (and the first few, as row and
-  column); --files A B compares two saved grids instead.
+  column); --files A B compares two saved grids instead, at every pixel (--rule b) or skipping B's pixels left out
+  by E and counting them (--rule a; A's own 255s counted too, none expected).
 
 Measure one command at a time under the test lock's --exclusive (docs/workflow.md): the working sets follow what else
 the machine holds.
@@ -1185,9 +1188,12 @@ def empty_working_set() -> Optional[Dict]:
 
 
 def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block_px: Optional[int],
-              empty_start: bool = False, keep_grid: Optional[str] = None) -> Dict:
-    """One stage of `stages` ("once" or "blocks"): its result and the grid's file. empty_start: the working set
-    emptied just before the start reading (a start that holds none of the files the stage reads)."""
+              empty_start: bool = False, keep_grid: Optional[str] = None, every_block: bool = False,
+              keep_full: Optional[str] = None) -> Dict:
+    """One stage of `stages` ("once", "blocks" or "full"): its result and the grid's file. empty_start: the working
+    set emptied just before the start reading (a start that holds none of the files the stage reads). every_block:
+    "blocks" without the search area (every block computed: the constant's reading, gate 2), measured and split as
+    any blocks stage."""
     z, water, res, filled = s.inputs()
     out = {"stage": kind, "run": k, "grid_px": s.pixels, "window_bytes": s.search.ACCESS_WINDOW_BYTES}
     proc = psutil.Process()
@@ -1215,15 +1221,19 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
         t1 = time.time()
         out["untimed"] = True
         out["block_px"], out["blocks"], out["left_out"] = block_px, done["blocks"], done.get("left_out", 0)
+        if keep_full and k == 1:  # after the stage's clock
+            shutil.copyfile(path, keep_full)
+            out["kept_grid"] = keep_full
     else:
         path = os.path.join(s.work, "access.npy")  # search.ACCESS_FILE
         import inspect
         takes = "needed" in inspect.signature(access.block_grid).parameters
-        needed = s.needed() if takes else None
-        # E (wave 2b): the search area as search._access_grid passes it; a tree before E computes every block
+        needed = s.needed() if takes and not every_block else None
+        # E (wave 2b): the search area as search._access_grid passes it; a tree before E computes every block, and
+        # so does --every-block
         extra = {"needed": needed} if takes else {}
-        out["needed_passed"] = "search area" if needed is not None else ("none (every block)" if takes else
-                                                                         "a tree without needed")
+        out["needed_passed"] = ("not passed (every block)" if every_block else "search area" if needed is not None
+                                else "none (every block)" if takes else "a tree without needed")
         before = set(work_files(s.work))
         start = len(sidecar_events.events)
         sidecar_events.windows = []
@@ -1504,7 +1514,8 @@ def run_stages(args) -> Dict:
         for kind in out["order"]:
             counts[kind] = counts.get(kind, 0) + 1
             first = len(marks.events)
-            st = run_stage(s, marks, kind, counts[kind], access, block_px, args.empty_start, args.keep_grid)
+            st = run_stage(s, marks, kind, counts[kind], access, block_px, args.empty_start, args.keep_grid,
+                           args.every_block, args.keep_full)
             st["first_event"] = first
             raw.append((st, len(marks.events)))
             stages.append(st)
@@ -1539,6 +1550,8 @@ def run_stages(args) -> Dict:
             rep["left_out_px"] = rep["rule_a"]["left_out_px"]
             if once_grid is not None:  # the comparison the judges read: rule (a)
                 rep["compare_with_once"] = rep["rule_a"]
+                if args.every_block:  # every block computed: rule (b) at every pixel, from this same run
+                    rep["rule_b"] = dict(compare_grids(once_grid, np.load(st["path"], mmap_mode="r")), rule="b")
         elif st["stage"] == "full" and once_grid is not None:
             rep["rule_b"] = dict(compare_grids(once_grid, np.load(st["path"], mmap_mode="r")), rule="b")
     del once_grid, area
@@ -1756,9 +1769,11 @@ def anchors_of(s: Search) -> Tuple[np.ndarray, np.ndarray]:
 
 
 def run_compare(args) -> Dict:
-    if args.files:
-        return {"command": "compare", "files": args.files,
-                **compare_grids(np.load(args.files[0], mmap_mode="r"), np.load(args.files[1], mmap_mode="r"))}
+    if args.files:  # rule (b): every pixel; rule (a): B's pixels left out (NOT_COMPUTED) skipped and counted, and A's
+        a, b = np.load(args.files[0], mmap_mode="r"), np.load(args.files[1], mmap_mode="r")  # own 255s counted
+        got = compare_rule_a(a, b, None) if args.rule == "a" else dict(compare_grids(a, b), rule="b")
+        del a, b
+        return {"command": "compare", "files": args.files, **got}
     machine = set_cores(args.cores)
     import access
     s = Search(args)
@@ -1891,7 +1906,9 @@ def print_table(out: Dict):
                   f"{_mb(m['sampled_peak_rss_above_start']):>8} {_mb(m['sampled_peak_private_above_start']):>8}")
     elif cmd == "compare":
         print(f"pixels that differ: {out['differ']} of {out['pixels']}" + (f", first {out['first']}"
-                                                                           if out["first"] else ""))
+                                                                           if out["first"] else "")
+              + (f" (rule a: {out['left_out_px']} pixels left out in B skipped, A's own 255s "
+                 f"{out['once_not_computed']})" if out.get("rule") == "a" else ""))
 
 
 # ---------------------------------------------------------------- main
@@ -1908,6 +1925,11 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--cores", type=int, help="run on this many cores and numba threads")
     p.add_argument("--keep-work", action="store_true", help="keep the work folder")
     p.add_argument("--keep-grid", help="stages: copy the first blocks stage's finished access grid (.npy) here")
+    p.add_argument("--keep-full", help="stages: copy the first 'full' stage's grid (.npy) here")
+    p.add_argument("--every-block", action="store_true",
+                   help="stages: the blocks stages without the search area (every block computed; E not applied)")
+    p.add_argument("--rule", choices=("a", "b"), default="b",
+                   help="compare --files A B: b, every pixel; a, B's pixels left out (255) skipped and counted")
     p.add_argument("--keep-samples", action="store_true", help="stages: keep the sidecar's samples (<out>/samples)")
     p.add_argument("--order", default="once,blocks", help="stages: the stages after step 1, e.g. blocks,once,blocks; "
                                                           "full: every block without the search area (rule (b))")
