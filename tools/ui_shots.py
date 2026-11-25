@@ -99,6 +99,8 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 # "need:<expression>" to wait until it is true and leave the page out when it is not (the run does not have it),
 # "sideways:<width>x<height>" to turn a phone (a touch screen; left out on a device without one) to that viewport and
 # load the page again (as a phone held sideways opens it; the steps after it wait for the page again),
+# "key:<key>" to press a key on the page's keyboard (Playwright's keyboard.press: a person's key, e.g. "Tab", which a
+# script's event is not: the browser draws the keyboard's focus ring, :focus-visible, after a real key),
 # or a list of such steps[, the user: "admin" (default), "walker", an approved user with the site's limits, one of
 # RIGGERS (with saved rigs), or "visitor", not signed in]); a step "full" takes the whole page, not only the viewport;
 # "{run}" is the clip's run, "{line}" its first line (keys.lineCoords); an interface starting with "/" is a path of
@@ -291,9 +293,82 @@ MOTION_TURN = ("js:for (const [alpha, beta] of [[0, 90], [-40, 100]]) "
                "dispatchEvent(Object.assign(new Event('deviceorientation'), {alpha, beta, gamma: 0}))")
 # A server-rendered page (sign-in, privacy, about) scrolled to its end: its body or the document scrolls (pages.css)
 PAGE_END = "for (const e of [document.scrollingElement, document.body]) e.scrollTop = e.scrollHeight"
+# line volume's round 7 (PG): Home's card of the run (Home.tsx; the run is the administrator's own): its menu opened by a
+# click on its button once the card is drawn (Home.tsx scrolls the opened menu into view; Playwright's click, as a
+# person's: after a script's press the menu's first item, which takes the focus, was drawn with the keyboard's ring on
+# every device, 2026-11-24); "Rename…" pressed:
+# the card's panel with the form (RunRename.tsx RenameForm), waited for with the whole name selected in its field; a
+# name the server refuses typed (a tab in it: runs.run_name, 400 "run_name"; nothing is renamed) through the field's
+# own value setter and an "input" event (Preact listens to it), then Save pressed once it is on (a step of its own: the
+# form is drawn again first) and the refusal's line waited for
+CARD_MENU = ["wait:document.querySelector('.c-card[data-run] .c-card-menu')", ".c-card[data-run] .c-card-menu",
+             "wait:document.querySelector('.c-card[data-run] [role=menu]')"]
+CARD_RENAME = ["js:[...document.querySelectorAll('.c-card[data-run] [role=menu] [role=menuitem]')]"
+               ".find((b) => b.textContent.trim() === 'Rename…')?.click()",
+               "wait:(() => { const f = document.querySelector('.c-card-panel .c-rename input'); return !!f && f.value.length > 0 "
+               "&& document.activeElement === f && f.selectionStart === 0 && f.selectionEnd === f.value.length; })()"]
+REFUSED_NAME = "Sample\tname"
+
+
+def rename_refused(form: str) -> list:
+    """The steps of a refused rename in the rename form `form` (a selector of its .c-rename): REFUSED_NAME typed, Save
+    pressed once it is on, the refusal's line waited for."""
+    save = f"document.querySelector('{form} button[type=submit]')"
+    return [f"js:(() => {{ const f = document.querySelector('{form} input'); "
+            "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(f, %s); "
+            "f.dispatchEvent(new Event('input', {bubbles: true})); })()" % json.dumps(REFUSED_NAME),
+            f"wait:{save}?.disabled === false", f"js:{save}.click()", f"wait:document.querySelector('{form} [role=alert]')"]
+
+
+CARD_RENAME_REFUSED = rename_refused(".c-card-panel .c-rename")
+# The card of the run's search (its job answered in the page: HOME_JOB_STUB), its menu opened by a click as CARD_MENU's
+# and waited for with "Edit & run again" among its items
+CARD_MENU_SEARCH = ["wait:document.querySelector('.c-card[data-run][data-job] .c-card-menu')",
+                    ".c-card[data-run][data-job] .c-card-menu",
+                    "wait:[...document.querySelectorAll('.c-card[data-run][data-job] [role=menu] [role=menuitem]')]"
+                    ".some((i) => i.textContent.trim() === 'Edit & run again')"]
+# The last of six cards (five made up in the page: HOME_MORE_RUNS) placed low: its menu's button scrolled to just above
+# the phones' bottom bar (.u-bnav; a desktop: the window's bottom, where the page can scroll so far) and marked, then
+# clicked as a person's click: the page itself brings the opened menu into view (Home.tsx, c.css scroll-padding-bottom)
+CARD_LAST_LOW = ("(() => { const all = [...document.querySelectorAll('.c-card[data-run] .c-card-menu')], b = all[all.length - 1]; "
+                 "if (!b) return; let box = b.parentElement; "
+                 "while (box && !/auto|scroll/.test(getComputedStyle(box).overflowY)) box = box.parentElement; "
+                 "box = box || document.scrollingElement; const bar = document.querySelector('.u-bnav')?.getBoundingClientRect(); "
+                 "box.scrollTop += b.getBoundingClientRect().bottom - ((bar && bar.height ? bar.top : innerHeight) - 8); "
+                 "b.setAttribute('data-shot-last', ''); })()")
+CARD_MENU_LOW = ["wait:document.querySelectorAll('.c-card[data-run] .c-card-menu').length >= 6", "js:" + CARD_LAST_LOW,
+                 "[data-shot-last]", "wait:document.querySelector('.c-card[data-run] [role=menu]')"]
+# line volume's round 7 (PG): a run's page that cannot load its store or still downloads it (RunLoading.tsx: the box
+# .c-result-wait with the way back, the sentence and "Try again", or the loading line and its bar), each made by an init
+# script of its page (PAGE_SCRIPTS: RUN_STORE_MISSING, RUN_STORE_LOADING). Its result is never drawn: these pages are a
+# family of their own (RUN_WAITS, PAGE_STATE "run-wait"), drawn once the box shows the failure's sentence or a bar of
+# a known amount. A run's own map.html: the Back button "Find-a-Line", the sentence, "Try again"; a share link's page:
+# no Back, "Try again" and the second sentence; the app's page: Back "Home", the sentence, "Try again"; a run's own
+# map.html whose store is too large for the browser: Back and the sentence, no "Try again"; the app's page while the run
+# downloads, its total known: the loading line and its bar part-way (17 %; in GB: 22 %)
+RUN_FAILED = "wait:!!document.querySelector('.c-result-wait p.c-error') && !!document.querySelector('.c-result-wait .c-retry')"
+RUN_FAILED_BACK = RUN_FAILED + " && !!document.querySelector('.c-result-wait .c-back')"
+RUN_FAILED_SHARED = (RUN_FAILED + " && !!document.querySelector('.c-result-wait .c-wait-more') "
+                     "&& !document.querySelector('.c-result-wait .c-back')")
+RUN_TOO_LARGE = ("wait:!!document.querySelector('.c-result-wait p.c-error') && !!document.querySelector('.c-result-wait .c-back') "
+                 "&& !document.querySelector('.c-result-wait .c-retry')")
+RUN_LOADING_AT = ("wait:Number(document.querySelector('.c-result-wait .c-loading .u-prog:not(.u-busy)')"
+                  "?.getAttribute('aria-valuenow')) === %d")
+RUN_LOADING = RUN_LOADING_AT % 17
+RUN_LOADING_GB = RUN_LOADING_AT % 22
+RUN_WAITS = ("map-failed", "map-failed-shared", "map-too-large", "c-run-failed", "c-run-loading", "c-run-loading-gb")
 PAGES = {
     "c-home": ("c", "", None),
     "c-home-limited": ("c", "", None, "walker"),  # the usage meters of a user with the site's limits
+    # line volume's round 7 (PG): the run's card's menu open; the menu of a run's card that has its search ("Edit & run
+    # again"); the last of six cards' menu opened low (the page brings it into view above a phone's bottom bar); its
+    # "Rename…" pressed (the form); a name the server refuses sent (its refusal's line)
+    # (named "c-card-*", not "c-home-*": a part "c-home" picks Home alone)
+    "c-card-menu": ("c", "", CARD_MENU),
+    "c-card-menu-search": ("c", "", CARD_MENU_SEARCH),
+    "c-card-menu-low": ("c", "", CARD_MENU_LOW),
+    "c-card-rename": ("c", "", CARD_MENU + CARD_RENAME),
+    "c-card-rename-refused": ("c", "", CARD_MENU + CARD_RENAME + CARD_RENAME_REFUSED),
     "c-menu": ("c", "", ".c-account-btn"),        # the account menu (desktop: a popover)
     "c-account": ("c", "#account", None),         # the account page (phones)
     "c-account-end": ("c", "#account", "scroll:.c-main"),
@@ -392,6 +467,14 @@ PAGES = {
     "map": ("map", "", None),
     "map-line": ("map", "", ".r-rows .r-row"),  # a spot selected: its details and profile
     "map-shared": ("shared", "", None),
+    # line volume's round 7 (PG): a run's map.html, a share link's page and the app's page whose store could not be
+    # loaded; the app's page while the run downloads (RUN_WAITS)
+    "map-failed": ("map", "", RUN_FAILED_BACK),
+    "map-failed-shared": ("shared", "", RUN_FAILED_SHARED),  # (not "map-shared-*": a part "map-shared" picks its own)
+    "map-too-large": ("map", "", RUN_TOO_LARGE),
+    "c-run-failed": ("c", "#run={run}", RUN_FAILED_BACK),
+    "c-run-loading": ("c", "#run={run}", RUN_LOADING),
+    "c-run-loading-gb": ("c", "#run={run}", RUN_LOADING_GB),
     "map-credits": ("map", "", ".u-credits-toggle"),  # the data credits unfolded (phones: on a desktop no button)
     "map-layers": ("map", "", "js:" + LAYERS_OPEN),  # the base layers (Esri with ESRI_API_KEY set)
     "map-esri": ("map", "", "js:" + ESRI_ON),  # the satellite layer shown (ESRI_API_KEY set; else as "map")
@@ -564,6 +647,43 @@ VIEW_OTHER_RUN = """js:(() => { const {view, map} = window.FINDALINE_VIEW, m = v
   m.addRun({id: '2026-11-20_120000_Other_00000000000000b1', name: 'Other run', created: '2026-11-20T12:00:00', has_lines: true},
            {...m.data, area, columns: {...c, lon1: shift(c.lon1), lon2: shift(c.lon2)}});
   view.setLevel('spots'); })()"""
+# line volume's round 7 (PG): the view's Rename (a desktop's header: RunRename.tsx). The owner's header (its job answered
+# in the page, as c-view-share's: PAGE_SCRIPTS) with the Rename button, pressed by a script; its box under the title
+# waited for with the whole name selected in its field; then a name the server refuses sent (rename_refused)
+VIEW_OWNER = "wait:!!document.querySelector('[aria-label=\"Edit & run again\"], .c-result-top a[href*=\"edit\"]')"
+VIEW_RENAME = [VIEW_OWNER + " && !!document.querySelector('.c-run-title .c-rename-btn')",
+               "js:" + VIEW_PRESS % ".c-run-title .c-rename-btn",
+               "wait:(() => { const f = document.querySelector('.c-run-title .r-pop .c-rename input'); return !!f && f.value.length > 0 "
+               "&& document.activeElement === f && f.selectionStart === 0 && f.selectionEnd === f.value.length; })()"]
+VIEW_RENAME_REFUSED = rename_refused(".c-run-title .r-pop .c-rename")
+# The Rename button holding the keyboard's focus, its box closed: the button focused by a script, then Shift+Tab and Tab
+# pressed as a person's keys (a script's focus after the header's click draws no ring), waited for until the button
+# has the focus and matches :focus-visible (its ring drawn)
+VIEW_RENAME_BTN = "document.querySelector('.c-run-title .c-rename-btn')"
+VIEW_RENAME_FOCUS = [VIEW_OWNER + " && !!" + VIEW_RENAME_BTN, f"js:{VIEW_RENAME_BTN}.focus()", "key:Shift+Tab", "key:Tab",
+                     f"wait:document.activeElement === {VIEW_RENAME_BTN} && {VIEW_RENAME_BTN}.matches(':focus-visible') "
+                     "&& !document.querySelector('.c-run-title .r-pop')"]
+# Compare's runs that cannot be shown, one per cause (RunActions.tsx CAUSE_TEXT): (name, id, kind, the end of its row
+# once ticked), made up in the page beside the shown run by COMPARE_CAUSES_RUNS (PAGE_SCRIPTS; every name invented).
+# The owner's header waited for (its job answered in the page: the list of runs is then forgotten once, AppC.tsx, and
+# read again by Compare), Compare opened (a desktop's header), the three rows waited for, each box ticked by a script's
+# click, the three causes waited for: the first two boxes then off
+COMPARE_CAUSES = [("Sample ridge", "2026-11-20_120000_Sample_ridge_000000000000e1", "large", "too large for this browser"),
+                  ("Sample massif", "2026-11-20_120000_Sample_massif_00000000000e2", "newer", "made by a newer Find-a-Line"),
+                  ("Sample coast", "2026-11-20_120000_Sample_coast_000000000000e3", "gone", "could not be loaded")]
+COMPARE_ROWS = "[...document.querySelectorAll('.r-pop .r-others label.r-other')]"
+COMPARE_NAME = "(o) => o.querySelector('.u-grow')?.firstChild?.textContent"
+COMPARE_NAMES = json.dumps([name for name, *_ in COMPARE_CAUSES])
+VIEW_COMPARE_CAUSES = [
+    VIEW_OWNER,
+    VIEW_ACTION % "Compare",
+    "wait:(() => { const names = %s.map(%s); return %s.every((n) => names.includes(n)); })()"
+    % (COMPARE_ROWS, COMPARE_NAME, COMPARE_NAMES),
+    "js:%s.filter((o) => %s.includes((%s)(o))).forEach((o) => o.querySelector('input').click())"
+    % (COMPARE_ROWS, COMPARE_NAMES, COMPARE_NAME),
+    "wait:(() => { const ends = Object.fromEntries(%s.map((o) => [(%s)(o), o.querySelector('.u-grow .u-small')?.textContent || ''])); "
+    "return Object.entries(%s).every(([n, c]) => (ends[n] || '').endsWith(' · ' + c)); })()"
+    % (COMPARE_ROWS, COMPARE_NAME, json.dumps({name: cause for name, _, _, cause in COMPARE_CAUSES}))]
 # A link to the best spot's shown line, hidden by a length filter: the route opens it (today's note first in the list)
 VIEW_NOTE = "js:" + VIEW_DO % ("const m = view.model, l = m.lineAt(view.shownOf(view.order[0])); m.setFilters({...m.filters, lenMin: Math.ceil(l.len) + 1}); "
                                "location.hash = '#run=' + encodeURIComponent(m.runId) + '&line=' + encodeURIComponent(m.lineLink(l))")
@@ -658,6 +778,14 @@ VIEW_STATES = {
     "c-view-help": ("c", "#run={run}", [VIEW_READY, "js:[...document.querySelectorAll('.v-about-button button, .v-help-button button')]"
                                                     ".find((b) => b.offsetParent)?.click()", "wait:document.querySelector('.v-help')"]),
     "c-view-measuring": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, VIEW_ACTION % "Measure", "wait:window.FINDALINE_VIEW.map.isMeasuring"]),
+    # line volume's round 7 (PG), a desktop's header (a phone has neither: left out by VIEW_DESKTOP): the Rename box
+    # open; a name the server refuses sent there; the button with the keyboard's focus (its ring, the box closed);
+    # Compare with a run of each cause that cannot be shown. Nothing saved
+    # (the server refuses the name, the runs are the page's own), nothing kept in the browser
+    "c-view-rename": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP] + VIEW_RENAME),
+    "c-view-rename-refused": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP] + VIEW_RENAME + VIEW_RENAME_REFUSED),
+    "c-view-rename-focus": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP] + VIEW_RENAME_FOCUS),
+    "c-view-compare-causes": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP] + VIEW_COMPARE_CAUSES),
     # the desktop's card: open (a line selected, its profile drawn), folded; both side panels as rails (LAYOUTS)
     "c-view-card": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP, VIEW_SPOTS, "js:" + VIEW_SELECT, VIEW_SELECTED, VIEW_CHART]),
     "c-view-card-folded": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP, VIEW_SPOTS, "js:" + VIEW_SELECT, VIEW_SELECTED, VIEW_CHART,
@@ -734,6 +862,104 @@ VIEW_JOB_STUB = ("(() => { const run = decodeURIComponent((location.hash.match(/
                  "own: true}], "
                  "seq: 1, worker: true}), {headers: {'content-type': 'application/json'}})); })();")
 PAGE_SCRIPTS = {"c-view-share": VIEW_JOB_STUB}
+# line volume's round 7 (PG): c-view-compare-causes' runs (COMPARE_CAUSES) in every list of runs the page reads. The
+# list's script (/runs/runs.js, which load.ts loadRunList adds to the page, again after each forgetRunList: the owner's
+# finished job makes AppC.tsx forget the list once) sets window.FINDALINE_RUNS; the document's capturing listener of
+# "load" sees that script loaded before the script's own onload reads the list, and adds the three to that list in place
+# (not a property of the window: forgetRunList deletes the property), each once, with the box, centre, day and
+# description of the shown run (the address's), so each is "here": the first's lines.arrow asked for as the shown run's
+# (an answer of 200) whose body the browser could not hold (a null response: load.ts TooLarge); the second's store of a
+# newer format (refused before any download); the third no run of the site (its lines.arrow answered 404)
+COMPARE_CAUSES_RUNS = """(() => {
+  const run = decodeURIComponent((location.hash.match(/run=([^&]+)/) || [])[1] || ''), made = %s;
+  document.addEventListener('load', (e) => {
+    const s = e.target, list = window.FINDALINE_RUNS;
+    if (!(s instanceof HTMLScriptElement) || new URL(s.src || '/', location.href).pathname !== '/runs/runs.js' || !Array.isArray(list)) return;
+    const shown = list.find((r) => r.id === run);
+    if (!shown) return;
+    for (const [name, id, kind] of made) {
+      if (!list.some((r) => r.id === id)) list.push({id, name, bbox: shown.bbox, center: shown.center, created: shown.created,
+        description: shown.description, has_lines: true, has_map: true,
+        ...(kind === 'newer' ? {store: {format: 99, lines: 1, bytes: 1, sha256: ''}} : {})});
+    }
+  }, true);
+  const large = '/runs/' + made.find((m) => m[2] === 'large')[1] + '/lines.arrow', open = XMLHttpRequest.prototype.open;
+  const response = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, 'response');
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    this.shotsTooLarge = new URL(String(url), location.href).pathname === large;
+    return open.call(this, method, this.shotsTooLarge ? '/runs/' + encodeURIComponent(run) + '/lines.arrow' : url, ...rest);
+  };
+  Object.defineProperty(XMLHttpRequest.prototype, 'response',
+                        {configurable: true, get() { return this.shotsTooLarge ? null : response.get.call(this); }});
+})();""" % json.dumps([[name, id_, kind] for name, id_, kind, _ in COMPARE_CAUSES])
+# RUN_WAITS' failed pages: the run's lines.arrow asked for under a name the server answers with 404 (web.RunFiles
+# serves only RUN_FILES), as a run without its store
+RUN_STORE_MISSING = r"""(() => { const open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    return open.call(this, method, String(url).replace(/\/lines\.arrow$/, '/lines.arrow.missing'), ...rest); }; })();"""
+# map-too-large: the run's lines.arrow answered (200, its bytes) with a body the browser could not hold (a null
+# response: load.ts TooLarge), as COMPARE_CAUSES_RUNS's first run
+RUN_STORE_TOO_LARGE = r"""(() => { const open = XMLHttpRequest.prototype.open;
+  const response = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, 'response');
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.shotsTooLarge = /\/lines\.arrow$/.test(new URL(String(url), location.href).pathname);
+    return open.apply(this, arguments);
+  };
+  Object.defineProperty(XMLHttpRequest.prototype, 'response',
+                        {configurable: true, get() { return this.shotsTooLarge ? null : response.get.call(this); }}); })();"""
+# c-run-loading, c-run-loading-gb: a stand-in of the requests of the run's two files (download.ts), never sent: after
+# the page's first 100 ms (download.ts reports no progress before), each answers "headers in" with its size
+# (web.SIZE_HEADER) and one progress event, then nothing (file -> [size, bytes come]; RUN_STORE_SIZES: 41 of 247 million
+# bytes, the bar at 17 %; RUN_STORE_SIZES_GB: 412 of 1 840 million, 22 %)
+RUN_STORE_SIZES = {"lines.arrow": [200000000, 30000000], "profiles.arrow": [47000000, 11000000]}
+RUN_STORE_SIZES_GB = {"lines.arrow": [1500000000, 300000000], "profiles.arrow": [340000000, 112000000]}
+RUN_STORE_LOADING_OF = r"""(() => {
+  const sizes = SIZES;
+  const open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    const path = new URL(String(url), location.href).pathname;
+    this.shotsSizes = /^\/runs\/[^/]+\/[a-z]+\.arrow$/.test(path) ? sizes[path.split('/').pop()] : undefined;
+    return open.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function () {
+    if (!this.shotsSizes) return send.apply(this, arguments);
+    const [total, done] = this.shotsSizes;
+    setTimeout(() => {
+      Object.defineProperties(this, {readyState: {value: XMLHttpRequest.HEADERS_RECEIVED}, status: {value: 200}});
+      this.getResponseHeader = (name) => name.toLowerCase() === 'x-findaline-bytes' ? String(total) : null;
+      this.onreadystatechange?.(new Event('readystatechange'));
+      this.onprogress?.(new ProgressEvent('progress', {lengthComputable: true, loaded: done, total}));
+    }, Math.max(0, 101 - performance.now()));
+  };
+})();"""
+RUN_STORE_LOADING = RUN_STORE_LOADING_OF.replace("SIZES;", json.dumps(RUN_STORE_SIZES) + ";")
+RUN_STORE_LOADING_GB = RUN_STORE_LOADING_OF.replace("SIZES;", json.dumps(RUN_STORE_SIZES_GB) + ";")
+# c-card-menu-search: a finished job of the run Home lists first (its own; read from the page's own /api/runs answer:
+# Home's address names no run) in the app's list of jobs, answered in the page as VIEW_JOB_STUB does (tests/
+# test_rename_home_page.py jobs_stub): the run's card is then its search's, with "Edit & run again" in its menu
+HOME_JOB_STUB = ("(() => { const f = window.fetch; window.fetch = (url, init) => "
+                 "new URL(String(url), location.href).pathname !== '/api/jobs' || (init && init.method && init.method !== 'GET') "
+                 "? f(url, init) : f('/api/runs', init).then((r) => r.json()).then((d) => { "
+                 "const runs = d.runs || [], run = runs.find((r) => r.own) || runs[0]; "
+                 "return new Response(JSON.stringify({jobs: run ? [{id: 'job-shots-home', status: 'done', run_id: run.id, "
+                 "title: run.name, created: run.created, finished: run.created, own: true}] : [], seq: 1, worker: true}), "
+                 "{headers: {'content-type': 'application/json'}}); }); })();")
+# c-card-menu-low: the page's own /api/runs answer padded with five copies of its first run under invented names and
+# ids (no run of the site: their mini maps fail to load and show the card's placeholder), so Home lists six cards
+HOME_MORE_RUNS = ("(() => { const f = window.fetch, names = %s; window.fetch = (url, init) => "
+                  "new URL(String(url), location.href).pathname !== '/api/runs' || (init && init.method && init.method !== 'GET') "
+                  "? f(url, init) : f(url, init).then((r) => !r.ok ? r : r.json().then((d) => { const first = (d.runs || [])[0]; "
+                  "const runs = !first ? d.runs : d.runs.concat(names.map((name, k) => ({...first, id: '2026-11-20_120000_Sample_' "
+                  "+ k + '_0000000000000f' + k, name, shared: false, demo: false}))); "
+                  "return new Response(JSON.stringify({...d, runs}), {status: r.status, headers: {'content-type': 'application/json'}}); "
+                  "})); })();") % json.dumps(["Sample ridge", "Sample massif", "Sample coast", "Sample gorge", "Sample tower"])
+PAGE_SCRIPTS.update({"c-view-rename": VIEW_JOB_STUB, "c-view-rename-refused": VIEW_JOB_STUB,
+                     "c-view-rename-focus": VIEW_JOB_STUB,
+                     "c-view-compare-causes": COMPARE_CAUSES_RUNS + VIEW_JOB_STUB,
+                     "c-card-menu-search": HOME_JOB_STUB, "c-card-menu-low": HOME_MORE_RUNS,
+                     "map-failed": RUN_STORE_MISSING, "map-failed-shared": RUN_STORE_MISSING,
+                     "map-too-large": RUN_STORE_TOO_LARGE, "c-run-failed": RUN_STORE_MISSING,
+                     "c-run-loading": RUN_STORE_LOADING, "c-run-loading-gb": RUN_STORE_LOADING_GB})
 # Not here: the gate's 1024 x 768 pictures (G9's desktop column, X3: the list's heads with a mouse and on touch) need a
 # device ui_shots does not have (DEVICES); X2 is a sheet of c-view-line's pictures beside the mock-up
 PAGES.update(VIEW_STATES)
@@ -809,8 +1035,9 @@ WATCH = """(() => {
 # What is still busy in the page (a list of words, empty when nothing is) and the counts of frames and timers asked
 # for. The families' marks: "result" window.FINDALINE_RESULT (ResultColumns.tsx, KitResult.tsx) and with a line in
 # the address its profile's chart; "view-b" window.FINDALINE_VIEW (the result view of line-volume round 4, set after its
-# first full draw); "search" the bar's estimate neither waiting nor loading (search/useSearch.ts; its 800 ms debounce
-# is a short timer too); "layer" the histograms not waiting and the total not "Counting…" (LayerPage.tsx,
+# first full draw); "run-wait" RunLoading.tsx's box with a failure's sentence or a bar of a known amount (RUN_WAITS:
+# a run's page whose result is never drawn); "search" the bar's estimate neither waiting nor loading
+# (search/useSearch.ts; its 800 ms debounce is a short timer too); "layer" the histograms not waiting and the total not "Counting…" (LayerPage.tsx,
 # LayerHistograms.tsx); "coverage" its status gone (coverage/page/CoveragePage.tsx); "view3d" the activity's pill
 # hidden or a notice (view3d/main.ts, as VIEW3D_READY); "home" no "Loading…" (Home.tsx, FavouritesPage.tsx, Trip.tsx),
 # no mini map loading in view (Thumb.tsx: its tiles are SVG images, requests), the OSM page's list or its error
@@ -838,6 +1065,8 @@ PAGE_STATE = """({family, line, frames}) => {
     if (line && !has(".r-dock .fal-profile-chart")) busy.push("the profile not drawn");
   } else if (family === "view-b") {
     if (!window.FINDALINE_VIEW) busy.push("the result view not drawn");
+  } else if (family === "run-wait") {
+    if (!has(".c-result-wait p.c-error") && !has(".c-result-wait .c-loading .u-prog:not(.u-busy)")) busy.push("the run's box not drawn");
   } else if (family === "search") {
     const bar = document.querySelector(".s-bar");
     if (!bar) busy.push("no estimate bar");
@@ -1284,7 +1513,10 @@ def page_url(site: dict, ui: str, hash_: str) -> str:
 
 def page_family(name: str) -> str:
     """The family of a page, from its interface and hash: what says it is drawn (PAGE_STATE). The result view of
-    line-volume round 4 (VIEWS) is "view-b": it waits for window.FINDALINE_VIEW."""
+    line-volume round 4 (VIEWS) is "view-b": it waits for window.FINDALINE_VIEW; a run's page that cannot load or still
+    loads (RUN_WAITS) is "run-wait": it waits for RunLoading's box."""
+    if name in RUN_WAITS:
+        return "run-wait"
     if name in VIEWS:
         return "view-b"
     ui, hash_ = PAGES[name][:2]
@@ -1455,6 +1687,10 @@ def run_step(page, step: str, label: str, state: Pass, row: dict, watch: Watch |
         return None
     if step.startswith("js:"):
         page.evaluate(step[3:])
+        settle()
+        return None
+    if step.startswith("key:"):  # a person's key (the keyboard's focus ring follows only a real one)
+        page.keyboard.press(step[4:])
         settle()
         return None
     if step.startswith("wait:"):  # the 3D view: its terrain, then its imagery

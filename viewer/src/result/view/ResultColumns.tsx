@@ -24,7 +24,7 @@ import { addShore } from "../../shoreLayer";
 import { addCoarser } from "../../coarserLayer";
 import type { Line, Ortho, RunData } from "../../types";
 import { when } from "../../time";
-import { loadRun, type LoadProgress } from "../load";
+import { failureOf, loadRun, type LoadFailure, type LoadProgress } from "../load";
 import { buildModel, type ResultModel } from "../model";
 import { ResultMap, type Choice, type Padding } from "../ResultMap";
 import { cx, num, useModel } from "./common";
@@ -420,22 +420,25 @@ function Phone({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, ac
 export function ResultColumns(props: ResultColumnsProps) {
   const [model, setModel] = useState<ResultModel | null>(null);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<LoadFailure | null>(null);
+  const [tries, setTries] = useState(0);  // "Try again": the run is loaded again (a failed load is not kept)
   useEffect(() => {
     let live = true;
     const report = (p: LoadProgress) => { if (live) setProgress(p); };
     setModel(null);
     setProgress(null);
-    setError("");
+    setError(null);
     (props.data ? Promise.resolve(props.data) : loadRun(props.runId, props.base, report))
       // The result view (SpotColumns: where opensView says; a run it cannot show stays on this page, the fallback,
       // whatever VIEW_DEFAULT is) reads the store's spots: no grouping
       .then((d) => live ? buildModel(d, {list: {sort: "hmean", desc: true}, ungrouped: opensView(d)}, report) : null)
-      .then((m) => { if (live && m) setModel(m); }, (e) => { if (live) setError(e.message); });
+      .then((m) => { if (live && m) setModel(m); }, (e) => { if (live) setError(failureOf(e)); });
     return () => { live = false; };
-  }, [props.runId]);
+  }, [props.runId, tries]);
   if (!model || model.runId !== props.runId) {
-    return <RunLoading progress={progress} error={error}><Back back={props.back} /></RunLoading>;
+    // The way back while the run loads and when it failed; "Try again" only where a new try can help
+    return <RunLoading progress={progress} error={error?.text} onRetry={error?.again ? () => setTries((n) => n + 1) : undefined}>
+      <Back back={props.back} /></RunLoading>;
   }
   const data = model.data;
   const view = {...props, model, data};

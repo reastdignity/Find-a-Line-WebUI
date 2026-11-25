@@ -11,7 +11,7 @@ import { api, ApiError, canChange, user, type RunListed } from "../../app/api";
 import { t } from "../../i18n";
 import { listOthers, NEARBY_KM, colorOf } from "../../others";
 import type { Line, RunData, RunInfo } from "../../types";
-import { loadOtherRun, loadRunList } from "../load";
+import { loadOtherRun, loadRunList, NewerStore, TooLarge } from "../load";
 import type { ResultModel } from "../model";
 import { LinkField } from "./LineDetails";
 import { Popover, Swatch, useModel } from "./common";
@@ -103,17 +103,33 @@ function Measure({model, view, onMeasured, compact, plain, tip = "below", select
   </span>;
 }
 
-interface OtherItem { run: RunInfo; km: number; status: "off" | "loading" | "on" | "error" }
+/** Why a run cannot be shown with this one: its store is too large for the browser, of a newer format, or could
+ *  not be loaded (load.ts TooLarge, NewerStore; anything else, a StoreFailed among it). A new try can help only
+ *  the last. */
+type Cause = "too_large" | "newer" | "failed";
+const CAUSE_TEXT: Record<Cause, string> = {too_large: "ui.actions.other_too_large", newer: "ui.actions.other_newer",
+                                           failed: "ui.actions.other_failed"};
+const causeOf = (e: unknown): Cause => e instanceof TooLarge ? "too_large" : e instanceof NewerStore ? "newer" : "failed";
 
-/** Compare: other runs with lines, nearest first (the ones within NEARBY_KM unfolded). */
+/** `held`: the row's box switched off while it had the focus. It then stays in the Tab order, announced as off
+ *  (aria-disabled) and drawn off, with its ring, and a press does nothing: a box given `disabled` loses the focus to
+ *  the page, and the keyboard its place in the list. Once the focus has left it, it is a disabled box as the others. */
+interface OtherItem { run: RunInfo; km: number; status: "off" | "loading" | "on" | "error"; cause?: Cause; held?: boolean }
+
+/** Compare: other runs with lines, nearest first (the ones within NEARBY_KM unfolded). The rows are made from
+ *  the list of runs at each opening: the same rows while the list is the one they were made from, new rows once
+ *  it was read again (load.ts forgetRunList: a search saved its run, a run was renamed or deleted on this page). A
+ *  run that cannot be shown says why after its row's words; its box is off where a new try cannot help. */
 function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
   const [items, setItems] = useState<OtherItem[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [farOpen, setFarOpen] = useState<boolean | null>(null);  // null: open when one of them is shown
+  const listed = useRef<RunInfo[] | null>(null);  // the list the rows were made from
   const load = () => {
-    if (items) return;
     setFailed(false);
     loadRunList(base + "runs.js").then((runs) => {
+      if (runs === listed.current) return;
+      listed.current = runs;
       const b = view ? view.areaBounds() : null;
       const box = b ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
         : model.data.run.bbox || [model.data.center[1], model.data.center[0], model.data.center[1], model.data.center[0]];
@@ -121,22 +137,36 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
         .map(({run, km}) => ({run, km, status: model.others.has(run.id) ? "on" : "off"})));
     }, () => setFailed(true));
   };
-  const change = (item: OtherItem, status: OtherItem["status"]) =>
-    setItems((all) => all && all.map((i) => i.run.id === item.run.id ? {...i, status} : i));
+  const change = (item: OtherItem, status: OtherItem["status"], cause?: Cause, held?: boolean) =>
+    setItems((all) => all && all.map((i) => i.run.id === item.run.id ? {...i, status, cause, held} : i));
+  // the focus left a held box (not the window: the box keeps the page's focus then): a disabled box from now on
+  const release = (item: OtherItem) => { if (document.hasFocus()) change(item, item.status, item.cause, false); };
   const toggle = (item: OtherItem) => {
     if (item.status === "on" || item.status === "loading") { model.removeRun(item.run.id); change(item, "off"); return; }
     change(item, "loading");
     // its store's lines.arrow (load.ts loadOtherRun)
-    loadOtherRun(item.run, base).then((lines) => { model.addRun(item.run, lines); change(item, "on"); },
-                                      () => change(item, "error"));
+    loadOtherRun(item.run, base).then((lines) => { model.addRun(item.run, lines); change(item, "on"); }, (e) => {
+      const cause = causeOf(e), at = document.activeElement;
+      change(item, "error", cause, cause !== "failed" && at instanceof HTMLElement && at.dataset.other === item.run.id);
+    });
   };
+  const note = (item: OtherItem) => item.status === "loading" ? " · " + t("ui.actions.loading")
+    : item.status === "error" ? " · " + t(CAUSE_TEXT[item.cause ?? "failed"]) : "";
+  // a box is off where a new try cannot help: disabled, or `held` (above) with its presses ignored
+  const off = (item: OtherItem) => item.status === "error" && item.cause !== "failed";
   const row = (item: OtherItem) => <label class="r-check r-other" key={item.run.id} title={item.run.description}>
-    <input type="checkbox" class="u-check" checked={item.status === "on" || item.status === "loading"} onChange={() => toggle(item)} />
+    <input type="checkbox" class="u-check" data-other={item.run.id} checked={item.status === "on" || item.status === "loading"}
+           disabled={off(item) && !item.held} aria-disabled={off(item) && item.held ? true : undefined}
+           onClick={(e) => { if (off(item)) e.preventDefault(); }} onChange={() => { if (!off(item)) toggle(item); }}
+           onBlur={() => { if (item.held) release(item); }} />
     <Swatch color={colorOf(item.run.id)} />
     <span class="u-grow">{item.run.name}<span class="u-small"> · {day(item.run.created)} · {item.km < 1 ? t("ui.actions.here")
-      : num0(item.km) + " km"}{item.status === "loading" ? " · " + t("ui.actions.loading") : item.status === "error" ? " · " + t("ui.actions.no_lines") : ""}</span></span>
+      : num0(item.km) + " km"}{note(item)}</span></span>
   </label>;
-  return <Popover label={t("ui.actions.compare_label")} align="right"
+  // the box closed with a held row in it (a press outside takes the box away with the focus in it: no blur comes):
+  // the row is a disabled one when the box opens again
+  const closed = (open: boolean) => { if (!open) setItems((all) => all && all.map((i) => i.held ? {...i, held: false} : i)); };
+  return <Popover label={t("ui.actions.compare_label")} align="right" onOpen={closed}
                   button={(open, toggleOpen) => compact
                     ? <IconButton icon="compare" label={t("ui.actions.compare")} expanded={open} onClick={() => { load(); toggleOpen(); }} />
                     : <Button icon="compare" aria-expanded={open} onClick={() => { load(); toggleOpen(); }}>{t("ui.actions.compare")}</Button>}>
@@ -159,19 +189,44 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
 
 const num0 = (v: number) => v.toFixed(0);
 
+let listing: ReturnType<typeof api.runs> | null = null;  // the request for the user's runs on its way
+
+/** The user's runs (api.runs): one request for all who ask while it is on its way (Share and the head's Rename
+ *  ask together when a run opens). */
+function listedRuns(): ReturnType<typeof api.runs> {
+  if (!listing) {
+    const asked = listing = api.runs();
+    const done = () => { if (listing === asked) listing = null; };
+    asked.then(done, done);
+  }
+  return listing;
+}
+
+/** The run `runId` as the user's list of runs has it when it is their own on the public site, else null; and a
+ *  setter for a change made here (Share's link). Who may share a run and rename it (RunRename): the server lets
+ *  only the owner. Null, with nothing asked, in the local app and on a run's map.html (no signed-in user there:
+ *  `user.local`), and for another user's run an administrator opens. */
+export function useOwnRun(runId: string): [RunListed | null, (run: RunListed) => void] {
+  const [run, setRun] = useState<RunListed | null>(null);
+  useEffect(() => {
+    if (user.local) return;
+    let live = true;
+    setRun(null);
+    listedRuns().then((r) => { if (live) setRun(r.public ? r.runs.find((x) => x.id === runId && x.own) || null : null); },
+                      () => {});
+    return () => { live = false; };
+  }, [runId]);
+  return [user.local ? null : run, setRun];
+}
+
 /** Share (the public site, the owner's runs): a link that opens the run's map for anyone who has it;
  *  nothing unless the run is the user's own. */
 function Share({model, compact, plain}: RunActionsProps) {
-  const runId = model.runId;
-  const [run, setRun] = useState<RunListed | null>(null);
+  const [own, setRun] = useOwnRun(model.runId);
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
-  useEffect(() => {
-    if (user.local) return;
-    api.runs().then((r) => setRun(r.public ? r.runs.find((x) => x.id === runId && x.own && x.has_map) || null
-      : null), () => {});
-  }, [runId]);
-  if (!run || user.local) return null;
+  const run = own && own.has_map ? own : null;
+  if (!run) return null;
   const changed = (shared: boolean) => setRun({...run, shared});
   const share = () => api.share(run.id).then((r) => { setUrl(r.url); setError(""); changed(true); },
                                              (e) => setError(e.message));

@@ -313,6 +313,8 @@ MOVED = {
     "result/view/common.tsx": {
         "button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex='-1'])": "a selector"},
     "result/view/Shape.tsx": {}, "result/view/SpotPanels.tsx": {}, "result/view/RunLoading.tsx": {},
+    "result/view/RunRename.tsx": {},  # line volume's round 7: the rename form and the view's button
+    "size.ts": {},  # a size in words (Home's card, the loading line)
     "result/view/ResultIntro.tsx": {}, "result/model.ts": {"no line ": "a diagnostic (an error thrown in code)"},
     # what the view borrows of a file whose other parts are today's page's own (their English: docs/known-bugs.md)
     "result/view/FilterBar.tsx (MainEditor, MoreFilters)": {},

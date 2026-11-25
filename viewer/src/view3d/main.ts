@@ -156,7 +156,8 @@ async function sha256Hex(body: Uint8Array): Promise<string | null> {
 type Stage = "server" | "download" | "unpacking" | "building" | "done";
 type OnStage = (name: Stage, text: string, fraction: number | null) => void;
 
-const mb = (bytes: number) => (bytes / 2 ** 20).toFixed(1);
+/** Megabytes of 10^6 bytes, as every size the pages show (size.ts). */
+const mb = (bytes: number) => (bytes / 1e6).toFixed(1);
 
 async function fetchPatch(page: PageRequest, onStage: OnStage): Promise<Patch> {
   const asked = performance.now();

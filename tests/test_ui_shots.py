@@ -437,7 +437,7 @@ def test_families_and_limits():
                 "c-view": "view-b", "c-view-area": "view-b"}
     assert {name: ui_shots.page_family(name) for name in families} == families
     assert {ui_shots.page_family(name) for name in ui_shots.PAGES} == {
-        "view3d", "coverage", "static", "result", "search", "layer", "home", "view-b"}
+        "view3d", "coverage", "static", "result", "search", "layer", "home", "view-b", "run-wait"}
     state = ui_shots.Pass("pixel", "dark")
     view3d, estimate = ui_shots.VIEW3D_READY[5:], ui_shots.READY[5:]
     assert [state.limit(e) for e in (view3d, estimate, ui_shots.NEED_READY, ui_shots.VIEW_READY[5:])] == [30000] * 4
