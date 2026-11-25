@@ -85,8 +85,10 @@ user's bounds or not allowed, or a default it leaves is outside them); the priva
 (`privacy_page`, `about_page`, `PAGE_HTML`; server-rendered, no script; the sign-in page's, the examples', the area
 total's, the about page's and the footer's words from the catalogue's `page.*` through `page_text`, the privacy
 page's in Python); `/coverage` (public in both modes,
-`COVERAGE_HTML`: a shell of `dist/coverage.js`, nothing stored); `font/woff2` registered with `mimetypes` (Python on
-Windows has no type for it); the audit log through `record`; the page is `viewer/src/app`
+`COVERAGE_HTML`: a shell of `dist/coverage.js`, nothing stored); every page's head (the five templates and
+`runs.MAP_HTML`) carries `runs.HOME_SCREEN_HEAD` (line volume's round 7: the manifest, the iPhone's icon, `theme-color`
+in the page's ground by the system's theme; the files are in `APP_DIST` under the public `/app`); `font/woff2` and
+`.webmanifest` (`application/manifest+json`) registered with `mimetypes` (Python on Windows has no type for the first); the audit log through `record`; the page is `viewer/src/app`
 
 Exports (store wave 3, docs/line-volume/spec-store.md 1.4: made for each download, none kept): `POST
 /api/runs/<run>/export` with `{"format": "csv"|"geojson"}` (`run_access`: the owner, administrators, a signed-in

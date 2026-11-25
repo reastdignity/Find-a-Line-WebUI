@@ -802,8 +802,10 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
   time the status against the zoom at 852 x 393), `test_view_link.py::test_sheet_moves` (the iPhone in WebKit),
   `test_shell_c_view_map.py::test_phone_controls_apart`, `test_lan_app.py::test_smoke_over_https`,
   `test_view_frame.py::test_measured_points_lie_under_the_numbers[412]`,
-  `test_access_view.py::test_legend_lists_the_three_marks`, `test_shell_c_flows.py::test_shell_c_intros`. Run them
-  alone before calling a failure a regression.
+  `test_access_view.py::test_legend_lists_the_three_marks`, `test_shell_c_flows.py::test_shell_c_intros`,
+  `test_keyboard_app.py::test_place_map_coverage_legend` (line volume's round 7: its 30 s wait for the search panel
+  timed out once in a full run while another full run shared the PC, 2026-11-25; 3 of 3 alone on the branch and on
+  its base). Run them alone before calling a failure a regression.
 - `test_view_gaps.py::test_no_page_zoom_outside_the_map`'s double-tap step tests nothing in Chromium (its pinch step
   does).
 - `test_store_share.py` (and `test_thumb_store.py`) still check that `runs.js` is asked at most once by the browser's
@@ -893,6 +895,20 @@ each a roadmap line in docs/roadmap.md, "Line volume round 7: open")
   ends at its wait's 10 s deadline, a picture without the editor (the comment at `VIEW_EDIT_CHIP`; no pass reaches
   it: the storage starts empty and no page before the state sets a filter). `c-view-report` once showed a "Failed to
   fetch" banner over its picture in a whole pass and none when shot alone (2026-11-24; it runs before the new states).
+
+**The home-screen app and the bars** (B8; the installed app on a real iPhone is the user's check)
+- **CI has no Playwright**: the browser tests of the home-screen app (`tests/test_home_screen.py`: the fresh drawing
+  of the icons, the installability in Chromium, a `map.html` from disk) and of the bars (`tests/test_theme_bars.py`
+  but its Node unit) skip there and run on a developer's PC only.
+- **The portrait lock on Android** (the user's answer 2 of 2026-11-25, "Keep portrait"): an installed app stays
+  upright, so the sideways layouts of the 3D view, the place map and the coverage page cannot be reached there (a
+  browser tab keeps them; an iPhone likely ignores the lock, not tried). DESIGN.md row 137.
+- **The coverage page differs by one pixel column** at the right edge when the system's theme is crossed with the
+  chosen one (its `body`'s background follows the system, `coverage/page/page.css`, while `.ui.cov` follows the
+  chosen theme). Older than the round.
+- **Until the bundle runs, the bars show the system's ground**: on the coverage page one paint came before its script
+  in 3 of 7 tries (only the body, in the system's colours); nothing can set the lines earlier without an inline
+  script or a server change.
 
 ## The UI measuring tools: known and left (2026-11-17)
 

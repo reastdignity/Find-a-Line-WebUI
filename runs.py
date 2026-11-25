@@ -401,7 +401,8 @@ VIEWER_FOLDER = "_viewer"  # in runs/: the viewer bundle shared by every map (ma
 DISK_NOTICE = "disk-notice"  # viewer/src/map/main.tsx NOTICE
 # The page's ground, light and dark (viewer/src/ui/tokens.css --bg; the manifest's one colour is the light one:
 # viewer/build.mjs): an installed app's status bar and a phone browser's bars take it (theme-color, by the system's
-# theme), so the bar stays a strip of its own in the page's ground and nothing of the page moves (no viewport-fit).
+# theme; a page that shows the theme chosen in the app puts that theme's ground into both lines: viewer/src/ui/bars.ts),
+# so the bar stays a strip of its own in the page's ground and nothing of the page moves (no viewport-fit).
 GROUND_LIGHT, GROUND_DARK = "#f2f5f5", "#121a1b"
 # Every page's head, the site on a phone's home screen ("Add to home screen"): the manifest and the iPhone's icon
 # (viewer/dist, served at /app/ to anyone: viewer/build.mjs, tools/home_screen_icons.py) and the page's ground. Here
