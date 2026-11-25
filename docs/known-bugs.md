@@ -225,8 +225,8 @@ every 0.5 ms read a refused replacement after 13 to 15 ms at the median and 204 
 3 000 moves): a replacement is held longer than a new file (29 ms above), so the 1.58 s of pauses are about 8 times
 the longest replacement measured. `tests/test_run_readers_wait.py` makes the refusal with a fake `open`.
 What it costs: a run.json that can never be opened (a permission denied, not a folder of that name, which `isfile`
-turns away first) answers 1.58 s later than before with the same answer, on Windows only (`/api/reach` checks twice,
-about 3.2 s; in the quick lane, one task at a time, the next task waits as long).
+turns away first) answers 1.58 s later than before with the same answer, on Windows only (`/api/reach` stops at its
+first check, so 1.58 s too; in the quick lane, one task at a time, the next task waits as long).
 Not covered:
 - **A run.json absent for a moment** (the user's answer 9 of 2026-11-25: "Known limit", the option worded "Write it
   into the known bugs with the measurement. Nothing more is built."). In 2 of those twelve probe runs, one from a thread and one from a
