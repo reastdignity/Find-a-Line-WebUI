@@ -198,6 +198,17 @@ the view became a run's page by default (`spec-view.md` B.10, on the user's "yes
 the looks: docs/DESIGN.md rows 100 to 130; left: docs/known-bugs.md ("Line volume, round 6") and docs/roadmap.md
 ("Line volume round 6: open"). Not met: T7 (`spec-view.md` B.8). Open: 2d, 2e, 2g.
 
+**State on 2026-11-25.** Round 7 (planned 2026-11-23 against what had changed since this specification: the text
+files gone, the store a run's only data, the result view the default page) closed the three steps left. 2g is built
+as `spec-store.md` section 5 now says (the public site only, no command; Home's card menu and panel, the desktop
+view's button; the name rule; the audit event without the name; the privacy page's two sentences). 2d was reduced by
+the user to the run's size on Home's card, as stored, with the loading line counted in 10^6 bytes (section 4 "As
+built in round 7"): brotli and the immutable cache are not built. 2e's server half was built, accepted on the six
+cases and dropped by the user after its measured gain and cost (section 3 "Not taken"). Beside them the extras A3,
+A4, A6, A7 and A8 (`docs/roadmap.md`, "State on 2026-11-25"), and the readers handed a run reading its run.json
+through `runs.read_meta`, as the rename does. The decisions: 6.9. Left: `docs/known-bugs.md` ("Line volume, round 7") and `docs/roadmap.md`
+("Line volume round 7: open"). No step of this specification is open.
+
 ## 6. The user's choices
 Classes: **before** = decide before building that work; **mock-up** = decided at that task's mock-up; **measure** =
 decided by a measurement first; **planner** = taken as recommended by the planner unless the user objects.
@@ -255,7 +266,7 @@ the sectors are computed in Python at saving.
 ### 6.3 Still open
 | Id | The question | Options | Recommendation | Blocks | Class |
 |---|---|---|---|---|---|
-| store U2 | A line that passes only by its ranges; where ranges show | (a) drawn as any line, ranges in details; (b) a mark of its own | (a), with a details mock-up | store wave 7's page | mock-up |
+| store U2 | A line that passes only by its ranges; where ranges show | (a) drawn as any line, ranges in details; (b) a mark of its own | (a), with a details mock-up | store wave 7's page | mock-up; **closed 2026-11-23 as not built**: the ranges were dropped (6.9) |
 | store U5's removal | The removal of old runs on each host (the PC, the VPS) | yes after the `--dry-run` list; not yet | – | store wave 4's second deploy | before; **decided 2026-11-18**: "remove on PC", "remove on server" (6.7) |
 
 ### 6.4 Decided on 2026-11-15 (rounds 2 and 3)
@@ -352,6 +363,21 @@ The user's words, verbatim, each on the question named; the planner's decisions 
 | – | A press after a pinch: first "thats fine" for a zoom out, then "yes" to a pan at the same zoom | DESIGN.md row 123 |
 | – | Gate 2's triage: 1 a, 2 a, 3 a, 10 a (bugs); 4 a ("Turn your phone upright to use this page."), 6 b, 8 a, 9 a, 11 a, 12 a, 13 a (decisions); finding 1 "Keep as is, recheck"; the 3D view's photos "Roadmap only"; "Top level" per spot "add it to road map as a possible search filter" | DESIGN.md rows 125 to 129; `docs/roadmap.md` |
 | – | Gate 2's second check: Safari's CSP line "Leave it, known bug"; the long list's sheet "Implement 41, and create a bug report for fixing it properly"; the 2D credits pill and R2: "(a) Accept 14 px"; the flip: "yes" | `docs/known-bugs.md`; DESIGN.md row 130 and R2; `spec-view.md` B.10 |
+
+### 6.9 Decided in round 7 (2026-11-23 to 2026-11-25)
+The user's words, verbatim, each on the question named (`local/line-volume-7-2026-11-23/user-inputs.md`, with the
+planner's own decisions in `planner-decisions.md` beside it).
+
+| Id | Decided | Where it is applied |
+|---|---|---|
+| S1 to S5 | The extras: "A6 way back from map.html, A7 Compare's two faults, A8 remove --html" (A1, the warning before a heavy run, left out); "A3 filter screenshots, A4 read chosen columns"; the long list's proper fix "No, a later round"; "B8 add to home screen"; a cut download resumed (A2) "Leave on the roadmap" | `docs/roadmap.md` "Line volume" |
+| S6, S7 | 2d after the user's question on its gains: "Size on Home only" (the size on Home's cards and the unit; no brotli, no copies on disk, no change to nginx or the deploy); a run's store cached as immutable: "No, keep asking the server" | `spec-store.md` 4 |
+| D2 to D4, D6 | Renaming: "Public site only"; no command ("No, the page only"); a name left empty: "Refuse it"; the privacy page's two sentences: "Yes, as proposed" (both) | `spec-store.md` 5 |
+| D1, D5 | 2e's acceptance on "All six of the specification"; the square rule's unfinished tiled searches: "Deploy on an empty queue" (the planner's reading: void since 2e was dropped) | `spec-store.md` 3 |
+| – | 2e, after the measured gain and cost: "Drop the ranges" (G-03 b stands as the count; store U1 and U2 closed as not built) | `spec-store.md` 3, 8; 6.3 |
+| – | The mock-up MU-1 (2026-11-23): "Size as stored (Recommended)", "A panel under the card (Recommended)", "Desktop icon, phone via Home (Recommended)", "Back button and Try again (Recommended)"; its 28 points (2026-11-24): "go with recomeneded", (a) at each, with the texts T1 to T6, T9 to T15 and T21 | `spec-store.md` 4, 5; DESIGN.md rows 22, 98, 100, 108 and R9 |
+| – | The rename on Windows (2026-11-24): "d" (the option worded "those readers wait too: they read through the same waiting function") | `docs/known-bugs.md` "Two searches saved at once on Windows" |
+| – | The ten answers of 2026-11-25: 1 a failed rename's text "The run was not renamed…" (T22); 2 "Keep portrait"; 3 a tiny run's loading line "Two decimals"; 4 the bars by the chosen theme "Keep it"; 5 Compare's off boxes "One look for all"; 6 the tablet header "Known bug, design later"; 7 Home's Favourite lines "Known bug"; 8 the three filter faults "Known bugs + roadmap"; 9 the run.json absent for a moment "Known limit"; 10 the rename's own read "Yes, it waits too" | DESIGN.md row 98; `docs/known-bugs.md` and `docs/roadmap.md` "Line volume, round 7" |
 
 ## 7. Findings of phase 4 to fix later
 Each is also an entry of `docs/known-bugs.md` (the "Line volume" entries) unless it is a measurement.

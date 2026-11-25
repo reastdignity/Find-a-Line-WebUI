@@ -1843,6 +1843,10 @@ def test_privacy_and_about_pages(run_people):
         "searched and the site's statistics, and administrators can still see it.") in text
     assert "searches started, cancelled and removed" in text
     assert "stays in your queue" not in text and "searches started and cancelled" not in text
+    # renaming a run (the user's approved wording, 2026-11-23)
+    assert "parameters, the place&#x27;s name from OpenStreetMap or the name you give) and their size." in text
+    assert "share links made, renewed and revoked, runs renamed (not their names) and deleted, exports" in text
+    assert "deleted runs" not in text
     for source in src.SOURCES.values():
         for credit in source.credits:
             assert web.html.escape(credit.data) in about.text, credit.data
@@ -4273,8 +4277,8 @@ def test_privacy_page_names_the_exports(run_people):
     the file kept until it is fetched, for one hour at most (jobs.EXPORT_KEEP_SECONDS)."""
     import jobs as jb
     text = run_people["anonymous"].get("/privacy").text
-    assert web.html.escape("deleted runs, exports of a run's lines made (CSV or GeoJSON: the format, not the "
-                           "content), the demo flag") in text
+    assert web.html.escape("runs renamed (not their names) and deleted, exports of a run's lines made (CSV or "
+                           "GeoJSON: the format, not the content), the demo flag") in text
     assert "A file made for a download is kept on the server until it is fetched, for one hour at most." in text
     assert jb.EXPORT_KEEP_SECONDS == 3600 and 0 < jb.EXPORT_SWEEP < jb.EXPORT_KEEP_SECONDS
 

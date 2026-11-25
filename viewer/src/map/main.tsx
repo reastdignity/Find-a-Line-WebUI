@@ -3,7 +3,11 @@
 // of runs (../runs.js: window.FINDALINE_RUNS, none on a share link); the bundle loads the run's store beside it
 // (result/load.ts: fetched with a progress bar). The lines of other runs come from their store (Compare). The
 // load's failures are shown in their own words (too large, a newer store, a store not loaded: a run without one
-// too). The selected line is the hash, #line=lat1,lon1,lat2,lon2 (keys.ts lineCoords), so a copied link opens it.
+// too), with the way back to the app's first page ("/": Home when signed in, else the sign-in page; also while the
+// run still loads) and, for a store not loaded, "Try again" (the store is loaded again in the page); a share
+// link's visitor has no way back: "Try again" and a sentence. The selected line is the hash,
+// #line=lat1,lon1,lat2,lon2 (keys.ts lineCoords), so a copied link opens it. The run's name is the page's title's
+// (runs.MAP_HTML, which a rename rewrites; the store's head keeps the name of the saving).
 //
 // The disk notice (store wave 4: docs/line-volume/spec-store.md 1.2): a map.html written since then carries it
 // (mapping.MAP_HTML, the element NOTICE after this bundle's script). Over http(s) the page is marked served by the
@@ -20,11 +24,11 @@ import { useEffect, useState } from "preact/hooks";
 import "../app/base.css";
 import "./notice.css";
 import { t } from "../i18n";
-import { loadRunFrom, NewerStore, StoreFailed, TooLarge, type LoadProgress } from "../result/load";
+import { failureOf, loadRunFrom, type LoadFailure, type LoadProgress } from "../result/load";
 import type { ResultModel } from "../result/model";
 import { ResultColumns, type BackAction } from "../result/view/ResultColumns";
 import { RunLoading } from "../result/view/RunLoading";
-import { DESKTOP, Screen, useMedia } from "../ui/components";
+import { Button, DESKTOP, Screen, useMedia } from "../ui/components";
 import { storedTheme } from "../ui/choice";
 import type { Line, RunData } from "../types";
 
@@ -37,10 +41,21 @@ function linkOf(model: ResultModel, l: Line): string {
   return id === model.runId ? here() + hash : new URL("../" + encodeURIComponent(id) + "/map.html" + hash, here()).href;
 }
 
+/** A share link's page (/s/<token>/map.html): its visitor has no app to go back to. */
+const shared = () => location.pathname.startsWith("/s/");
+
 /** The way back: the app on its server, none on a share link. */
 function backOf(runId: string): BackAction | undefined {
-  if (location.pathname.startsWith("/s/")) return undefined;
-  return {label: "Find-a-Line", onClick: () => { location.href = "/#run=" + encodeURIComponent(runId); }};
+  if (shared()) return undefined;
+  return {label: t("ui.map.back"), onClick: () => { location.href = "/#run=" + encodeURIComponent(runId); }};
+}
+
+const TITLE_END = / - Find-a-Line$/;  // runs.MAP_HTML: "<name> - Find-a-Line"
+
+/** The run's name as the page's title has it, or null for a title of another form. A rename (runs.rename_run)
+ *  rewrites the title; the store's head keeps the name of the saving, and a share link's page has no list of runs. */
+function titleName(): string | null {
+  return TITLE_END.test(document.title) ? document.title.replace(TITLE_END, "") || null : null;
 }
 
 function RunMap({data}: {data: RunData}) {
@@ -62,18 +77,32 @@ function RunMap({data}: {data: RunData}) {
   </Screen>;
 }
 
-/** The map once its data is in; meanwhile the load's progress (RunLoading), or its error. */
+/** The map once its data is in; meanwhile the load's progress (RunLoading), or its error. While it loads and
+ *  when it failed the way back leads to the app's first page (not to the run in the app, where the same store
+ *  would fail again); none on a share link. A store that could not be loaded gets "Try again" (the load started
+ *  again here: a failed load is not kept), on a share link with the sentence what else to do. */
 function LoadedMap() {
   const [data, setData] = useState<RunData | null>(null);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<LoadFailure | null>(null);
+  const [tries, setTries] = useState(0);
   useEffect(() => {
-    loadRunFrom("./", "map", setProgress)
-      .then(setData, (e) => setError(e instanceof TooLarge || e instanceof NewerStore || e instanceof StoreFailed
-        ? e.message : t("ui.result.store_failed")));
-  }, []);
+    setProgress(null);
+    setError(null);
+    loadRunFrom("./", "map", setProgress).then((run) => {
+      const name = titleName();
+      if (name) run.run.name = name;
+      setData(run);
+    }, (e) => setError(failureOf(e, true)));
+  }, [tries]);
   if (data) return <RunMap data={data} />;
-  return <Screen theme={storedTheme()}><RunLoading progress={progress} error={error} /></Screen>;
+  const link = shared();
+  return <Screen theme={storedTheme()}>
+    <RunLoading main progress={progress} error={error?.text} onRetry={error?.again ? () => setTries((n) => n + 1) : undefined}
+                more={link && error?.again ? t("ui.result.store_failed_shared") : undefined}>
+      {!link && <Button kind="ghost" icon="back" class="c-back" onClick={() => { location.href = "/"; }}>{t("ui.map.back")}</Button>}
+    </RunLoading>
+  </Screen>;
 }
 
 /** mapping.DISK_NOTICE: the id of the disk notice in a run's map.html. */
@@ -84,7 +113,7 @@ export const NOTICE = "disk-notice";
  *  title (mapping: "<name> - Find-a-Line"), the sentence from the catalogue. */
 function diskNotice(): HTMLElement {
   const parts = location.pathname.split("/"), id = decodeURIComponent(parts[parts.length - 2] || "");
-  const name = (window.FINDALINE_RUNS || []).find((r) => r.id === id)?.name ?? document.title.replace(/ - Find-a-Line$/, "");
+  const name = (window.FINDALINE_RUNS || []).find((r) => r.id === id)?.name ?? titleName() ?? document.title;
   const element = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text = "") => {
     const e = document.createElement(tag);
     e.className = cls;

@@ -19,12 +19,14 @@ runs.js is rewritten after every run (write_index).
 """
 
 import contextlib
+import html
 import json
 import math
 import os
 import re
 import secrets
 import time
+import unicodedata
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional
 
@@ -388,6 +390,119 @@ def attribution_text(meta: Dict) -> str:
 
 RESULT_FILES = ("lines.csv", "lines.geojson", "ATTRIBUTION.txt", "run.json")  # what save_results writes
 
+VIEWER_FOLDER = "_viewer"  # in runs/: the viewer bundle shared by every map (mapping.install_viewer)
+# A run's map: over http(s) the viewer loads the run's store itself (viewer/src/map/main.tsx, result/load.ts). From
+# disk (file://) it loads nothing: the disk notice (the element DISK_NOTICE) names the run and the command that opens
+# it through the app (docs/line-volume/spec-store.md 1.2), and shows without the viewer too. It stands after the
+# viewer's script, so that over http the viewer, run first, hides it before it is parsed: no frame shows it there.
+# Maps written before store wave 4 have no notice: from disk the viewer builds the same one (its main.tsx diskNotice:
+# no run is read from disk since store wave 4's item 5). Here, not in mapping: the web process rewrites a renamed
+# run's map.html (rename_run) and never imports mapping (numpy, pyproj, rasterio); mapping keeps the names.
+DISK_NOTICE = "disk-notice"  # viewer/src/map/main.tsx NOTICE
+MAP_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title} - Find-a-Line</title>
+<link rel="stylesheet" href="../{viewer}/viewer.css">
+</head><body><div id="map"></div>
+<script src="../runs.js"></script>
+<script src="../{viewer}/viewer.js"></script>
+<main id="{notice_id}" class="ui fal-disk" data-run="{run}"><div class="fal-disk-box">
+<h1 class="fal-disk-name">{title}</h1>
+<p class="fal-disk-text">{notice}</p>
+<pre class="fal-disk-command"><code>findaline.py view {run}</code></pre>
+</div></main>
+</body></html>
+"""
+
+
+def map_page(run: Dict) -> str:
+    """The text of a run's map.html (MAP_HTML): its name, its id in the disk notice's command and the notice's
+    sentence from the message catalogue (locales/en.json `ui.map.disk_notice`), each escaped for HTML."""
+    import messages  # the catalogue (json only)
+    return MAP_HTML.format(title=html.escape(run["name"]), viewer=VIEWER_FOLDER, notice_id=DISK_NOTICE,
+                           run=html.escape(str(run["id"])), notice=html.escape(messages.text("ui.map.disk_notice")))
+
+
+JOINERS = ("\u200c", "\u200d")  # ZWNJ, ZWJ: format characters a name may hold (run_name)
+HIDDEN_CATEGORIES = ("Z", "M", "C")  # first letters of the categories no visible character of a name has
+
+
+def run_name(value) -> str:
+    """A run's name as a rename stores it (rename_run; the public site's POST /api/runs/<id>): in Unicode's composed
+    form (NFC: a composed and a decomposed spelling are one name), its runs of whitespace collapsed to one space,
+    stripped; 1 to params.MAX_NAME characters, at least one of them visible (not of HIDDEN_CATEGORIES: not a
+    space, a mark or a format character, so a name of joiners or combining marks only is refused as an empty one;
+    a letter or symbol that draws nothing, U+3164 or U+2800, passes: a known limit). Refused (UserError "run_name";
+    the error never holds the name): no string, or a string holding a character of a Unicode category starting with "C"
+    (control, format: the bidi and zero-width marks, surrogates, private use, unassigned) or "Zl"/"Zp", but for the
+    two joiners of real names (JOINERS: ZWNJ in Persian and Indic words, ZWJ in joined emoji), checked before the
+    whitespace is collapsed (as jobs.rig_name does), so a tab or a line break is refused, not turned into a space."""
+    from messages import UserError
+    from params import MAX_NAME
+    if isinstance(value, str) and not any(c not in JOINERS and (unicodedata.category(c)[0] == "C"
+                                                                or unicodedata.category(c) in ("Zl", "Zp"))
+                                          for c in value):
+        name = " ".join(unicodedata.normalize("NFC", value).split())
+        if 0 < len(name) <= MAX_NAME and any(unicodedata.category(c)[0] not in HIDDEN_CATEGORIES for c in name):
+            return name
+    raise UserError(f"a run's name: 1 to {MAX_NAME} characters, no control or invisible characters", "run_name",
+                    max=MAX_NAME)
+
+
+def _attribution_head(name: str, created: str) -> str:
+    """The first line of a run's ATTRIBUTION.txt (attribution_text's)."""
+    return f"Find-a-Line run \"{name}\" ({created})"
+
+
+def rename_run(runs_dir: str, run_id: str, name: str) -> Dict:
+    """Rename a saved run (the public site's POST /api/runs/<id>; `name` checked by run_name), under
+    cache.runs_lock(runs_dir), taken once. Each file is replaced whole or not at all (cache.replacing), in this order:
+    ATTRIBUTION.txt (only its first line, and only when it is the line attribution_text wrote for the old name: any
+    other file is left as it is; every other byte stays), map.html (only when the run has one: map_page with the new
+    name, its <title> and the disk notice's heading), run.json last (only its "name"; every other key, its value and
+    the order stay). Not touched: the run's id and folder, its store (lines.arrow, profiles.arrow: their head keeps
+    the name of the saving), progress.json, tiles/, the jobs.sqlite row, the job, runs.js (the public worker writes
+    none). If a step fails, run.json still holds the old name, so every list shows the old name, while
+    ATTRIBUTION.txt and map.html may already hold the new one: a second rename to the same name repairs it (a
+    rename to yet another name rewrites map.html but leaves an ATTRIBUTION.txt whose first line no longer names
+    run.json's name as it is). run.json is read through read_meta, as a listing reads it: on Windows a run.json just
+    moved to its name is refused for a moment, and the read is tried again after each of READ_PAUSES (up to 1.58 s,
+    under the runs lock). Raises KeyError, with no file written, for a run without a readable run.json (or one
+    without a string name or an id), OSError when a file cannot be replaced now (on Windows a file held open by
+    another process; also filelock.Timeout: the lock not had in time) or run.json is still refused after the last
+    pause (PermissionError, no file written). Returns the new run.json."""
+    folder = os.path.join(runs_dir, run_id)
+    meta_path = os.path.join(folder, "run.json")
+    with cache.runs_lock(runs_dir):
+        try:
+            meta = read_meta(meta_path)
+        except (FileNotFoundError, NotADirectoryError, ValueError):  # no run (a missing or unreadable run.json)
+            raise KeyError(run_id) from None
+        # everything the files need, checked before any is written: a string name, the id map_page reads
+        if not isinstance(meta, dict) or not isinstance(meta.get("name"), str) or meta.get("id") is None:
+            raise KeyError(run_id)
+        old, created = meta["name"], meta.get("created", "")
+        attribution = os.path.join(folder, "ATTRIBUTION.txt")
+        try:
+            with open(attribution, "rb") as f:
+                text = f.read()
+        except FileNotFoundError:
+            text = None
+        if text is not None:
+            first, newline, rest = text.partition(b"\n")
+            ending = b"\r" if first.endswith(b"\r") else b""
+            if first[:len(first) - len(ending)] == _attribution_head(old, created).encode("utf-8"):
+                with cache.replacing(attribution) as f:
+                    f.write(_attribution_head(name, created).encode("utf-8") + ending + newline + rest)
+        page = os.path.join(folder, "map.html")
+        if os.path.isfile(page):
+            with cache.replacing(page, "w", encoding="utf-8") as f:  # as mapping.save_map writes it
+                f.write(map_page({**meta, "name": name}))
+        meta["name"] = name  # the key keeps its place in the dict, so in the file
+        with cache.replacing(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+    return meta
+
 
 def save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, file: None,
                  files: tuple = RESULT_FILES):
@@ -442,7 +557,7 @@ def _local_time(created: str) -> str:
 
 
 # The pauses of a reader of a saved run's run.json (read_meta: every product reader but run_state and the local
-# app's static /runs: list_runs, update.changed_runs, the readers handed a run) whose open of
+# app's static /runs: list_runs, update.changed_runs, the readers handed a run, rename_run's too) whose open of
 # a run.json Windows refuses (PermissionError): the file is held for a moment after cache.replacing moved it to its
 # name, new or replacing one, while another process or thread writes it. Measured on a loaded PC, 2026-11-24, with a
 # reader that opens the file as it appears: refused at 1 816 of 3 000 new files, each read 7 ms after its first
@@ -455,13 +570,13 @@ READ_PAUSES = (0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.8) if os.name == "nt" else ()
 
 def read_meta(path: str) -> Dict:
     """A run's run.json for a reader that goes through the runs folder, and so can meet a run at the moment it is
-    saved (list_runs; update.changed_runs, the command `cache status`), opened again after each of READ_PAUSES while
-    Windows refuses it: two compute slots ending together, one listing the runs (write_index, under the runs lock)
-    at the moment the other's run.json appeared (written outside the lock), ended that search as failed, its run
-    saved. After the last pause the PermissionError is raised; any other error at once. The readers handed a run
-    read through it too (web.profile_problem, has_store and take_export; the quick lane's tasks, jobs.export_bytes,
-    linestore.export; findaline.app_holds), so a run.json replaced in place is waited for as a new one is; it may
-    sleep, so never on the web's event loop."""
+    saved (list_runs; update.changed_runs, the command `cache status`; also rename_run, the user's answer 10 of
+    2026-11-25), opened again after each of READ_PAUSES while Windows refuses it: two compute slots ending together,
+    one listing the runs (write_index, under the runs lock) at the moment the other's run.json appeared (written
+    outside the lock), ended that search as failed, its run saved. After the last pause the PermissionError is
+    raised; any other error at once. The readers handed a run read through it too (web.profile_problem, has_store
+    and take_export; the quick lane's tasks, jobs.export_bytes, linestore.export; findaline.app_holds), so a
+    run.json replaced in place is waited for as a new one is; it may sleep, so never on the web's event loop."""
     for pause in (*READ_PAUSES, None):
         try:
             with open(path, encoding="utf-8") as f:
