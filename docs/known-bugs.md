@@ -88,6 +88,17 @@ Before calling a failure of it a regression, run it alone on a clean checkout of
 In the same evening's first full pytest `tests/test_web.py::test_search_panel_estimate_rate` (headless Edge) timed
 out once, with other sessions running under the test lock; alone it passed 4 of 4.
 
+## `test_the_worker_tells_the_estimate` passes or fails by the checkout's path
+
+`tests/test_sample_estimate.py::test_the_worker_tells_the_estimate` failed on 2026-11-23 in the worktree of line
+volume's round 7 server work, on that branch and on `main`'s code (b1434458) alike, at the same path: its job meant
+to be refused by the 2 % sample's estimate ended "failed" with `too_many_lines_early` (the early check during the pair
+search) instead of `too_many_lines_estimate`. At another path the same code passed, and so did each of the branch's
+commits there. The sample is seeded by the search's hash, which holds the clip's file path, so the anchors the sample
+counts change with the folder the repository is checked out in, and with them whether this case's estimate refuses.
+Not mended: the test's case sits near the refusal's edge for some paths. Run it in another checkout before calling a
+failure of it a regression.
+
 ## `test_quick_lane` fails at some times with "disk I/O error"
 
 `tests/test_web.py::test_quick_lane` failed on 2026-11-17 in a full pytest of the ui-shots-waits branch with
