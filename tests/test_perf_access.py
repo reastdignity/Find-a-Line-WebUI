@@ -263,6 +263,32 @@ def test_the_pass_parts_on_hand_made_labels():
     assert pa.pass_parts(parts, 24.375)["other"] == {"something new": 1.0}
 
 
+def test_b_passes_counted_once_when_the_selection_calls_itself(monkeypatch):
+    """B's passes: filling._select calls itself again (through the module) when a pair splits; each read of the
+    region's heights is one pass, not one per nesting (code review 2a-3)."""
+    import types
+    from sources import filling
+
+    def fake_select(chunks, depth=0):  # reads the heights once, then once more through a call of itself
+        list(chunks())
+        if depth == 0:
+            return filling._select(chunks, depth=1)
+        return 0.0
+    monkeypatch.setattr(filling, "_select", fake_select)
+
+    class Regions:
+        questions = {"pixels": [5], "first": [0], "last": [1], "lowest": [0.0], "highest": [1.0]}
+
+    def _spread_large(regions, z, q):
+        return filling._select(lambda: iter([np.zeros(5, np.float32)]))
+    fake = types.SimpleNamespace(_spread_large=_spread_large)
+    marks = pa.Marks()
+    marks.hook(fake)
+    fake._spread_large(Regions(), None, 0)
+    marks.unhook(fake)
+    assert marks.large[0]["passes"] == 2 and filling._select is fake_select
+
+
 def test_the_blocks_hook_keeps_no_window_alive():
     """Marks.hook's _answers: the open ground's windows reach the measure without a reference of the hook, so the
     measure's own `del og` / `del og2` free them as in a call without the hook (a wrapper of *args kept them)."""

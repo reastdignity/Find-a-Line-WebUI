@@ -1006,13 +1006,17 @@ class Marks:
         real_select = getattr(filling, "_select", None)
         if callable(real_select) and callable(getattr(access, "_spread_large", None)):
             def hooked_select(chunks, *a, **k):
-                if not state["in_b"]:
+                if not state["in_b"] or state.get("selecting"):  # a call _select makes of itself: counted already
                     return real_select(chunks, *a, **k)
 
                 def counted():
                     self.large[-1]["passes"] += 1
                     yield from chunks()
-                return real_select(counted, *a, **k)
+                state["selecting"] = True
+                try:
+                    return real_select(counted, *a, **k)
+                finally:
+                    state["selecting"] = False
             self.restore.append(("_select", real_select))
             filling._select = hooked_select
             self._filling = filling
