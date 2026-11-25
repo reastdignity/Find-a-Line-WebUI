@@ -7,7 +7,8 @@ in `.claude/rules/` (search-pipeline, line-test, run-files).
 ## `findaline.py`
 
 Command line only: options from `params.py`, messages, questions, the list of spots, the matplotlib window, the
-search's last line `View it: findaline.py view <id>` (`--html` only says it is no longer used, store U10);
+search's last line `View it: findaline.py view <id>` (`--html`, accepted for one release by store U10, is gone since
+line volume's round 7: refused as any unknown option);
 `cache`/`osm`/`web`/`worker` as first argument go to update.py / web.py / jobs.py. `export` (`export_main`): a run's
 CSV or GeoJSON from its store. `view [RUN]` (`view_main`, `_run_folder`, `app_holds`): a run opened in the app at
 `/#run=<id>`, the app on `--port` when it serves this run's run.json (the local app serves its runs folder as files),
@@ -322,7 +323,9 @@ Sag estimator (elastic catenary + point load) and envelope table for `--model sa
 Coordinates (`coordify` adds columns; each part's different anchor pixels transformed once and gathered), grouping
 (`group_lines` → `Groups`: index arrays; its cell index `_cell_index`: one int64 key per line, a stable argsort, the
 lines of a row of cells found by `searchsorted`; its loop `grouping.greedy`), matplotlib map; `save_map` writes a
-run's `map.html` (`map_page`: with the disk notice) and installs the viewer (its orthophoto entry
+run's `map.html` (`map_page` and `MAP_HTML` with the disk notice, kept in `runs.py` since line volume's round 7 and
+imported here under their names: the web process rewrites a renamed run's page and never imports `mapping`) and
+installs the viewer (its orthophoto entry
 `ortho_entry`, also the 3D view's patch meta, is in the store's head); `map_head` the store's head as a dict
 (`linestore.write`; data.js's head in old runs): the run's `terrain`; `end_zone`, `lift` and `"ends":
 ["lift_needed", "lift_no_zone"]` only when the run has the options (`_ends`); a run made with the square rule has
@@ -351,6 +354,15 @@ the public worker clears; `_listed` leaves out the run's `terrain`; no `runs/ind
 `old_runs` (the runs of `findaline.py runs remove-old`: old, current, skipped with the reason, the folders a
 removal left; by `run_state`: `linestore.store_state` and run.json's `VIEW_FAILED`), `park_run` and `finish_removal`
 (a removal: the folder renamed to `_removing-<id>` under the runs lock, then deleted), run names, `params_summary` (a run's description: the elevation band first among the limits);
+a rename (line volume's round 7, the public site's `POST /api/runs/<id>`): `run_name` (the name as stored: NFC, each
+run of whitespace one space, trimmed, 1 to `params.MAX_NAME` characters, one of them visible; refused with `UserError`
+"run_name": control and format characters but the two joiners `JOINERS`, line and paragraph separators) and
+`rename_run` (under the runs lock, each file whole through `cache.replacing`: ATTRIBUTION.txt's first line when it
+is the one `attribution_text` wrote, map.html from `map_page` (`MAP_HTML`, `DISK_NOTICE`), run.json
+last, read through `read_meta`; the id, folder, store and links stay); `read_meta` (run.json opened again after each
+of `READ_PAUSES` while Windows refuses it); `HOME_SCREEN_HEAD` (round 7's home-screen app: the manifest's and the
+iPhone icon's links and `theme-color` in `GROUND_LIGHT` and `GROUND_DARK`, the light and dark `--bg`), in `MAP_HTML` and
+in web.py's five pages;
 `save_results` writes `lines.csv` and `lines.geojson` (for `linestore.export`; the search writes only its
 `ATTRIBUTION.txt` and `run.json`) `LINES_CHUNK` rows at a time, each part's rows in their order
 computed alone (`row_order(groups, lo, hi, at)` with `rep_positions`); `files=` which of its four files;
@@ -378,8 +390,10 @@ run.json's block `store` (format, lines, bytes, the first 16 hex of
 2^53 once scaled, an infinity, a NaN where none may miss, an anchor beyond int32) is float64 of round(value,
 decimals), without `decimals`, and a count beyond uint32 uint64, so a store never refuses a run's values; both files under `.part` names until both are
 whole. `read(run_path,
-profiles=True)` → (`LineTable`, head), the profiles as dicts of `line_profile`, the view's columns by their names
-when the store has them; `export(run_path, "csv"|"geojson",
+profiles=True, columns=None)` → (`LineTable`, head), the profiles as dicts of `line_profile`, the view's columns by
+their names when the store has them; `columns` (line volume's round 7): only those `LineTable` columns decoded (a
+pair such as `anchor1` whole, the view's by their names; one the store lacks left out, one no store knows a
+ValueError), the file still read whole, each equal to the full read's (`tests/test_linestore.py::test_read_of_chosen_columns`); `export(run_path, "csv"|"geojson",
 out)` regroups (`mapping.group_lines` with run.json's distance and value) and writes with `runs.save_results`
 with run.json's values without its `store`: the bytes the run's `lines.csv`/`lines.geojson` held before store
 wave 4. `store_state(run_path)`: "current", "no_view", "old", "missing", "unreadable", "newer" or "cannot_read" (an

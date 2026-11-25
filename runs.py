@@ -401,7 +401,8 @@ VIEWER_FOLDER = "_viewer"  # in runs/: the viewer bundle shared by every map (ma
 DISK_NOTICE = "disk-notice"  # viewer/src/map/main.tsx NOTICE
 # The page's ground, light and dark (viewer/src/ui/tokens.css --bg; the manifest's one colour is the light one:
 # viewer/build.mjs): an installed app's status bar and a phone browser's bars take it (theme-color, by the system's
-# theme), so the bar stays a strip of its own in the page's ground and nothing of the page moves (no viewport-fit).
+# theme; a page that shows the theme chosen in the app puts that theme's ground into both lines: viewer/src/ui/bars.ts),
+# so the bar stays a strip of its own in the page's ground and nothing of the page moves (no viewport-fit).
 GROUND_LIGHT, GROUND_DARK = "#f2f5f5", "#121a1b"
 # Every page's head, the site on a phone's home screen ("Add to home screen"): the manifest and the iPhone's icon
 # (viewer/dist, served at /app/ to anyone: viewer/build.mjs, tools/home_screen_icons.py) and the page's ground. Here
@@ -570,13 +571,15 @@ def _local_time(created: str) -> str:
         return created[:16].replace("T", " ")
 
 
-# The pauses of a reader that goes through the runs folder (read_meta: list_runs, update.changed_runs; rename_run's
-# read of its run's run.json too) whose open of
-# a run.json Windows refuses (PermissionError): the file is held for a moment after save_results moved it to its
-# name (cache.replacing), while another process saves that run. Measured on a loaded PC, 2026-11-24, with a reader
-# that opens the file as it appears: refused at 1 816 of 3 000 new files, each read 7 ms after its first refusal at
-# the median, 29 ms at the longest (docs/known-bugs.md); 1.58 s in all here, over fifty times the longest, for a
-# slower machine. On every other system a refusal is a fault of the folder: no pause, the error at once
+# The pauses of a reader of a saved run's run.json (read_meta: every product reader, list_runs,
+# update.changed_runs and the readers handed a run; rename_run's read of its run's run.json too) whose open of
+# a run.json Windows refuses (PermissionError): the file is held for a moment after cache.replacing moved it to its
+# name, new or replacing one, while another process or thread writes it. Measured on a loaded PC, 2026-11-24, with a
+# reader that opens the file as it appears: refused at 1 816 of 3 000 new files, each read 7 ms after its first
+# refusal at the median, 29 ms at the longest; a run.json replaced in place 3 000 times, 13 to 15 ms at the median,
+# 204 ms at the longest (docs/known-bugs.md). 1.58 s in all here: over fifty times a new file's longest, about 8
+# times a replacement's, for a slower machine. On every other system a refusal is a fault of the folder: no pause,
+# the error at once
 READ_PAUSES = (0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.8) if os.name == "nt" else ()
 
 

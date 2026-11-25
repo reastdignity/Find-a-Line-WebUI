@@ -362,7 +362,8 @@ Ubuntu's logrotate rotates them daily and keeps 14, compressed):
   its own address, token included, as the Referer) log only `crit`, which a proxied request never
   reaches, so their addresses never appear there. A request of another path made from a shared
   map's page would show the token in the Referer; the viewer makes none, but a browser may ask for
-  `/favicon.ico` with it. Warnings (an answer buffered to a temporary file) and the refusals of the
+  `/favicon.ico` with it, and for "Add to home screen" `/app/manifest.webmanifest` and its icons
+  (every page's head links them since line volume's round 7). Warnings (an answer buffered to a temporary file) and the refusals of the
   limits (`info`) are not logged.
 - `findaline.metrics.log`, one JSON line per request of the site on port 443, for the monitoring
   (section 15): the time, the route group (`api`, `events`, `patch` (the 3D view's terrain: slow,

@@ -8,7 +8,10 @@ and the pitfalls are in `.claude/rules/` (viewer, view3d, browser-tests, coverag
 
 The result viewer (TypeScript, Preact, Leaflet; `src/`: `map/main.tsx` a run's `map.html` (bundle `viewer.js`: the
 app's result view, `result/view/ResultColumns.tsx`, loading the run's store itself over http(s) (`loadRunFrom("./")`),
-`#line=` in its hash, the way back to the app, none on a share link; the disk notice (store wave 4: `mapping.MAP_HTML`'s `#disk-notice`, `NOTICE`,
+`#line=` in its hash, the way back to the app, none on a share link; while the store loads and when it failed (line
+volume's round 7, A6) a Back button "Find-a-Line" to "/" (none on a share link) and "Try again" where a new try can
+help (`result/view/RunLoading.tsx`: `onRetry`; `more` a share link's visitor's second sentence; `main` the box as the
+page's main region); the run's name from the page's `<title>` (`titleName`), which a rename rewrites; the disk notice (store wave 4: `runs.MAP_HTML`'s `#disk-notice`, `NOTICE`,
 `map/notice.css`): over http(s) the page is marked `fal-served` by `map/served.ts` (the entry's first import, so a
 later module that throws leaves the mark) before the notice is parsed, which hides it, and it is
 removed once parsed; from disk a page with the notice shows it (the run's name, `ui.map.disk_notice`, `findaline.py
@@ -31,7 +34,10 @@ access, 1 cannot tell, 2 easy access, null without): `AccessMark` (a dot of 20 p
 "–" for a line of a run without the mark), `accessMarkSvg` (the mark of 24 px on the map, in the map's colours),
 `AccessKey` and `useAccessHelp` (the one help text of the result page and the search form: a "?", or the kit's info
 icon with `icon` as in the result view, that opens a panel
-in place, not a bubble); it hides and sorts nothing; `tight.ts`
+in place, not a bubble); it hides and sorts nothing; `size.ts` a run's size as a person reads it (line volume's
+round 7: `sizeText` Home's card, "2.1 MB", "under 0.1 MB", "" for none; `downloadSizes` the loading line's two
+numbers in the total's unit and cut, two decimals for a total under 50 000 bytes; a MB 10^6 bytes; `RunLoading.tsx`
+`loadingText`, the card's lines in `app/c/Home.tsx`, the size `api.ts` `RunListed.bytes` from `/api/runs`); `tight.ts`
 the tight mark (`TIGHT` = 1 m, `clearanceText` rounds a tight clearance down, the mark's words with and without A-frames), `endzone.ts` the zone's TypeScript twin of `helpers.zone_steps` and the chart's limit with the zone and
 the lift (`limits`, `riggingNeed`, `liftChoices`), `labels.ts` the chart's label layout (`layoutLabels`: no two boxes
 intersect, priority anchors > min clearance > A-frame > zone > highest, a label that does not fit is dropped),
@@ -76,10 +82,16 @@ and rail, `useWidthOf`; `sidepanel.css`: the result's and the highline layer's);
 `hint.bounds.*`; `Intro.tsx` an intro dialog shown once per browser (localStorage `findaline.intro.<name>`,
 `IntroLink` opens it again), or only from its link (`useIntro(name, false)`: the search's, step 3d G5);
 `radios.ts` the keys of a radio group (WAI-ARIA's: one Tab stop, the arrows move and choose; no Preact, so the
-3D view's switches use it too); `choice.ts` the switch, `Gallery.tsx` `?ui=kit`; `pages.css` the server-rendered sign-in,
+3D view's switches use it too); `choice.ts` the switch, `bars.ts` the browser's bars (line volume's round 7:
+`themeBars`, the head's two `theme-color` lines in the ground of the theme a page shows, "auto" their own values
+back; `Screen`, the coverage page and the disk notice call it), `Gallery.tsx` `?ui=kit`; `pages.css` the server-rendered sign-in,
 privacy and about pages of `web.py`; `logo/` the logo: `logo.svg` and `mark.svg` coloured by classes of `ui.css`
 (`Logo`/`LogoMark` in `icons.tsx` bundle them as text), `logo.svg` and `favicon.svg` copied to `dist/` by `build.mjs`
-(`web.LOGO_SVG` reads `dist/logo.svg`; the standalone files in `docs/logo/`)), `result/` a run in the app (`load.ts`
+(`web.LOGO_SVG` reads `dist/logo.svg`; the standalone files in `docs/logo/`); since line volume's round 7 `build.mjs`
+also copies the home-screen icons `viewer/home-screen/*.png` (`tools/home_screen_icons.py`; beside `src/`, as tests
+read every file under it as text) and writes `dist/manifest.webmanifest` itself (`homeScreenManifest`: "Find-a-Line",
+standalone, portrait, from "/", the light `--bg` of `tokens.css` its one colour; written, not copied, so the
+checkout's line endings never reach dist)), `result/` a run in the app (`load.ts`
 `loadRun`/`loadRunFrom` a run by its folder (store wave 4's item 5: its store only, over http(s); no data.js, no
 script tag): `lines.arrow` and `profiles.arrow` downloaded by `download.ts` (XMLHttpRequest: its progress counts the
 decoded bytes, against `SIZE_HEADER` = `web.SIZE_HEADER`, which `web.RunFiles` sets: nginx's gzip drops Content-Length;
@@ -94,7 +106,11 @@ link, get `STORE_PROBE`: the store's files asked for directly; docs/line-volume/
 (apache-arrow `RecordBatchReader`: one record batch; the head from the schema's metadata `findaline`, `parseLoose` for
 its NaN; the columns views of the downloaded bytes, int64/uint64 ones copied into doubles; a higher `format` than
 `STORE_FORMAT` refused as `NewerStore`, `ui.result.newer_store`; a file not fetched (a 404: a run without a store)
-or not readable is `StoreFailed`, `ui.result.store_failed`; a null body `TooLarge`, `ui.result.too_large`),
+or not readable is `StoreFailed`, `ui.result.store_failed`; a null body `TooLarge`, `ui.result.too_large`;
+`failureOf` the failed page's sentence and whether a new try can help: not for the first two), the name the list of
+runs gives over the store's head (`fromServer` with `listedOf`: a rename changes run.json's name, never the head's;
+`renamedRun` puts a new name into a loaded run, and with `forgetRunList` the list is read again by its next reader,
+Compare among them: a search's end, a rename and a delete on the page call it),
 `storedProfiles` a profile made when it is asked for; `loadOtherRun` Compare's other run (`RunActions`) from its
 `lines.arrow` alone, `loadRunLines` a mini map's (`app/c/Thumb.tsx`) the same way, and a run the list does not name by
 its `lines.arrow` asked for directly (`STORE_PROBE`'s rule); a run read from its store carries `RunData.fromStore`, by
@@ -166,7 +182,10 @@ limits from `/api/usage`; demo `?ui=kit-search`), `app/useJobs.ts`, `app/request
 of drawn shapes, area files) shared by the shells, `app/BetaNotice.tsx` (the notice after a sign-in: the cookie
 `web.WELCOME_COOKIE`) and `app/ReportDialog.tsx` with `report.ts` (Report a problem, opened by a window event from
 anywhere; both mounted by `app.tsx`), `app/c/` the app's shell (`AppC.tsx`: the header, the pages and the phones'
-bottom navigation; hash routes in `route.ts`; `ResultPage.tsx` wraps `result/view/ResultColumns.tsx`; `NewSearch.tsx`
+bottom navigation; hash routes in `route.ts`; `ResultPage.tsx` wraps `result/view/ResultColumns.tsx`; `Home.tsx` the
+runs' cards, a card's menu (since line volume's round 7 "Rename…" after "Share…" for the owner on the public site,
+opening a panel under the card with `result/view/RunRename.tsx` `RenameForm`; the menu scrolled into view above a
+phone's bottom bar); `NewSearch.tsx`
 the search (it waits for the saved rigs: a request to edit opens Basic or Advanced by them), whose panel
 `search/SearchPanel.tsx` has one layout since its variant of B went (the demo `?ui=kit-search` shows it); `AdminC.tsx`, `OsmC.tsx` the admin and OSM pages; `LayerPage.tsx` the highline layer (`#layer`; the local
 app and administrators, from the account menu; `MapPage` with an `aside`: two side panels as the result's
@@ -257,7 +276,13 @@ hint, the head's row and the body; the Leaflet map with quarter zoom steps, the 
 `message`), Esc; `data-choosing` on the map's column while the table of spots is asked for; `window.FINDALINE_VIEW =
 {view, map}` once drawn, no `FINDALINE_RESULT`). Step 3c's parts: the run's actions (`RunActions`: in the header
 after the caller's, Measure's tip beside "Cancel"; a phone's pill, plain icons, no Compare, the tip as the status
-line's first line); the profile's card over the desktop map (`ProfileCard`: the selected line's until
+line's first line; `useOwnRun` the run as the user's list has it when it is their own on the public site, one
+request for Share and Rename; Compare says why a run cannot be shown, `CAUSE_TEXT`, its box `u-off`, kept in the Tab
+order with `aria-disabled` while it holds the focus, and makes its rows anew only once the list was read again:
+line volume's round 7); the run's name in the desktop header's Title with the Rename button after it for its owner
+(round 7: `RunRename.tsx` `RunRename`, the kit's popover with `RenameForm`: `storedForm` and `nothingToSave` judge
+a name as the server would store it, `answeredName` takes the server's, `renameFailure` a failure's line: "in use" for
+a 409, else the request's own words, else `FAILED_TEXT`, "The run was not renamed. Try again in a moment."); the profile's card over the desktop map (`ProfileCard`: the selected line's until
 `model.closeProfile`, or the measured line's; it stands on the credits' line, `--v-card-bottom`; its height goes to the
 canvas's `setCovered`; MapBar's short foot while it is open; a desktop's `padding()` counts the card ahead,
 `cardHeightAhead`, and the short foot above it, `shortFoot`; `keepFree` fits the selected line only where an anchor

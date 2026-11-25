@@ -259,7 +259,32 @@ phone's sheet at full height for the list's states: `VIEW_HALF` twice); their st
 favourites' halos, a measured line, Compare's other run, a selected line with its card or dock, the star's folders,
 the closed profile, the list's stars and help, the spot stepper, the sort's direction, the empty state, the coast
 states `c-view-boxes`, `-chips-held`, `-box-coarser`, `-box-shore`, `-link-centre` with `--run` of a coastal run:
-`tools/ui_coast_run.py`); `tests/test_ui_shots_view_states.py`.
+`tools/ui_coast_run.py`); `tests/test_ui_shots_view_states.py`. Line volume's round 7 (A3) added `c-view-editor`
+(Length's editor open under the chips), `c-view-more` (More filters open) and `c-view-more-end` (More filters scrolled
+to its end: the list's body on a desktop, the sheet's body on a phone; a wait proves the section's last control wholly
+in view), on every device with a phone's sheet at full, right before `c-view-note`: they change no filter, and the
+states after them set filters the pass keeps (`findaline.filters`).
+
+Line volume's round 7 (renaming a run, the failed and loading pages, Compare's causes): Home's `c-card-menu`,
+`c-card-menu-search` (an owner's card with its search: "Edit & run again" in the menu), `c-card-menu-low` (a low
+card's menu on a phone, the page scrolled), `c-card-rename`, `c-card-rename-refused` (named `c-card-*`, so a part
+`c-home` picks Home alone); the view's `c-view-rename`, `c-view-rename-refused`, `c-view-rename-focus` (the button's
+ring after a real Shift+Tab and Tab: a step `key:<key>` presses a key through Playwright's keyboard, then the settled
+wait; only this state has key steps) and `c-view-compare-causes` (three runs Compare cannot show, the owner's header:
+a job stub); the page family "run-wait" (`RUN_WAITS`, drawn once the box shows a failure's sentence or a bar of a
+known amount): `map-failed`, `map-failed-shared`, `map-too-large`, `c-run-failed` (a store the server answers with 404
+or as too large), `c-run-loading`, `c-run-loading-gb` (a store that keeps loading, of a total in MB or GB). They set,
+share, delete or store nothing; only the two `-refused` states send a name, one the server refuses
+(`tests/test_ui_shots_round7.py`).
+
+## `tools/home_screen_icons.py`
+
+Run by hand (line volume's round 7, B8): the site's home-screen icons in `viewer/home-screen/` (`apple-touch-icon.png`
+180 px, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`): the logo's mark (`viewer/src/ui/logo/mark.svg`) on
+white in the light theme's colours, drawn by Playwright's Chromium (group `ui`), saved opaque by Pillow; beside
+`viewer/src`, not in it (tests read every file there as text); `viewer/build.mjs` copies them into dist. Run again
+after a change of the mark, its `.u-l*` rules in `ui.css` or `--ink`/`--clear` (`tests/test_home_screen.py` compares
+the files with a fresh drawing).
 
 ## `tools/ui_coast_run.py`
 
@@ -436,7 +461,8 @@ steep share × relief, and the samples' 1 km cells with their edge fraction; `vi
 at another grid) and `estimate` (country totals: strata of the steep share, the relief below 0.5 %, lines per km² from
 the cells, a bootstrap over the places; times from `time_model` per band and grid; `inputs.json` names the strata,
 machines, data and services); a run's lines (`read_lines`) from its lines.npz (`profile --lean` until store wave 4;
-`--lean` is accepted and does nothing since), its store (`linestore.read`'s columns in memory, grouped and in
+`--lean` is accepted and does nothing since), its store (`linestore.read`'s columns in memory, since line volume's
+round 7 only `STORE_COLUMNS`, the ones it uses, decoded (`read(columns=)`), grouped and in
 lines.csv's order: length, clearance, height and the first anchor's coordinates unrounded, so a line at a band's or
 cell's edge may take another key than its lines.csv's rounding) or the lines.csv of a run saved before the store,
 `lines_from` in compare's, cube's and relief's results; a lines.csv over 200 MB packed once into

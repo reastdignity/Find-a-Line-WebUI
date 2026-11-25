@@ -25,7 +25,9 @@ the Basic form (`/api/rigs`: GET the user's with `max`, POST makes one (`jobs.ri
 every Basic search; the local app without limits keeps SearchParams' bounds); POST `/<id>` renames and/or changes it,
 DELETE; another's or a gone rig 404 `rig_missing`, the 11th `rigs_max` (409); audit `rig` with `do` only, no name or
 value), the admin tab's
-`/api/admin/*` (status, users, runs), `/api/osm` and the demo flag behind `require_admin`; the Admin page is
+`/api/admin/*` (status, users, runs), `/api/osm` and the demo flag behind `require_admin`; `/api/runs` (the user's runs
+and the demo runs, locally all: `id`, `name`, `created`, `summary`, `has_map`, `description`, `shared`, `own`,
+`demo`, and since line volume's round 7 `bytes`, run.json's `store.bytes` as an integer, else null: Home's size); the Admin page is
 `viewer/src/app/c/AdminC.tsx` (public site only), the OSM extracts `app/c/OsmC.tsx` (locally and for administrators)),
 the highline layer of a country (`Countries`: one `countcube.Cube` per version of
 `<data>/countries/<id>/cube/cube.json`, its folder and mtime, ids `COUNTRY_ID` only, the arrays memory-mapped; a newer
@@ -83,8 +85,10 @@ user's bounds or not allowed, or a default it leaves is outside them); the priva
 (`privacy_page`, `about_page`, `PAGE_HTML`; server-rendered, no script; the sign-in page's, the examples', the area
 total's, the about page's and the footer's words from the catalogue's `page.*` through `page_text`, the privacy
 page's in Python); `/coverage` (public in both modes,
-`COVERAGE_HTML`: a shell of `dist/coverage.js`, nothing stored); `font/woff2` registered with `mimetypes` (Python on
-Windows has no type for it); the audit log through `record`; the page is `viewer/src/app`
+`COVERAGE_HTML`: a shell of `dist/coverage.js`, nothing stored); every page's head (the five templates and
+`runs.MAP_HTML`) carries `runs.HOME_SCREEN_HEAD` (line volume's round 7: the manifest, the iPhone's icon, `theme-color`
+in the page's ground by the system's theme; the files are in `APP_DIST` under the public `/app`); `font/woff2` and
+`.webmanifest` (`application/manifest+json`) registered with `mimetypes` (Python on Windows has no type for the first); the audit log through `record`; the page is `viewer/src/app`
 
 Exports (store wave 3, docs/line-volume/spec-store.md 1.4: made for each download, none kept): `POST
 /api/runs/<run>/export` with `{"format": "csv"|"geojson"}` (`run_access`: the owner, administrators, a signed-in
@@ -99,6 +103,14 @@ to now (a refused mtime sends it all the same) so no clean-up deletes it while i
 whatever the Range and deletes it afterwards, also when the client breaks off or the sending raises),
 `EXPORT_MEDIA`, `content_disposition` (run.json's name, else the run id: `filename*` in UTF-8 and an ASCII
 `filename` without what `PLAIN_UNSAFE` refuses after NFKD). Neither route imports `linestore` or pyarrow.
+
+Renaming a run (line volume's round 7, docs/line-volume/spec-store.md section 5): `POST /api/runs/<run>` with
+`{"name"}` (`own_run`: the owner alone, an administrator who is not the owner 404 too; the public site only, the local
+app 404 "runs are renamed on the public site"; a plain `def`, as `runs.rename_run` may wait); the name by
+`runs.run_name` (400 `run_name` for a refused or missing one, 422 for a body that is not an object), `runs.rename_run`
+(404 "no such run" without a readable run.json, 409 "the run is in use: try again in a moment" when a file cannot be
+replaced now); answers `{"ok": true, "name": <as stored>}`; audit `run_rename` with the run id, never the name; no
+rate limit.
 
 ## `messages.py`, `locales/`
 
