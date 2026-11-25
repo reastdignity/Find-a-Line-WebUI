@@ -361,7 +361,9 @@ joiners `JOINERS`, line and paragraph separators) and
 `rename_run` (under the runs lock, each file whole through `cache.replacing`: ATTRIBUTION.txt's first line when it
 is the one `attribution_text` wrote, map.html from `map_page` (`MAP_HTML`, `DISK_NOTICE`), run.json
 last, read through `read_meta`; the id, folder, store and links stay); `read_meta` (run.json opened again after each
-of `READ_PAUSES` while Windows refuses it);
+of `READ_PAUSES` while Windows refuses it); `HOME_SCREEN_HEAD` (round 7's home-screen app: the manifest's and the
+iPhone icon's links and `theme-color` in `GROUND_LIGHT` and `GROUND_DARK`, the light and dark `--bg`), in `MAP_HTML` and
+in web.py's five pages;
 `save_results` writes `lines.csv` and `lines.geojson` (for `linestore.export`; the search writes only its
 `ATTRIBUTION.txt` and `run.json`) `LINES_CHUNK` rows at a time, each part's rows in their order
 computed alone (`row_order(groups, lo, hi, at)` with `rep_positions`); `files=` which of its four files;

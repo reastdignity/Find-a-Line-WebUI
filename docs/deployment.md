@@ -362,7 +362,8 @@ Ubuntu's logrotate rotates them daily and keeps 14, compressed):
   log only `crit`, which a proxied request never reaches, so their addresses never appear there.
   A request a shared map's page makes carries at most the origin as its Referer, never the token
   (the page's `Referrer-Policy: strict-origin`, which the app sets on every answer: web.py
-  `SECURITY_HEADERS`): its tiles and its `/favicon.ico`. Warnings (an answer buffered to a temporary file) and the refusals of the
+  `SECURITY_HEADERS`): its tiles, its `/favicon.ico`, and since line volume's round 7
+  `/app/manifest.webmanifest` and its icons (every page's head links them). Warnings (an answer buffered to a temporary file) and the refusals of the
   limits (`info`) are not logged.
 - `findaline.metrics.log`, one JSON line per request of the site on port 443, for the monitoring
   (section 15): the time, the route group (`api`, `events`, `patch` (the 3D view's terrain: slow,

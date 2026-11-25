@@ -399,9 +399,24 @@ VIEWER_FOLDER = "_viewer"  # in runs/: the viewer bundle shared by every map (ma
 # no run is read from disk since store wave 4's item 5). Here, not in mapping: the web process rewrites a renamed
 # run's map.html (rename_run) and never imports mapping (numpy, pyproj, rasterio); mapping keeps the names.
 DISK_NOTICE = "disk-notice"  # viewer/src/map/main.tsx NOTICE
+# The page's ground, light and dark (viewer/src/ui/tokens.css --bg; the manifest's one colour is the light one:
+# viewer/build.mjs): an installed app's status bar and a phone browser's bars take it (theme-color, by the system's
+# theme; a page that shows the theme chosen in the app puts that theme's ground into both lines: viewer/src/ui/bars.ts),
+# so the bar stays a strip of its own in the page's ground and nothing of the page moves (no viewport-fit).
+GROUND_LIGHT, GROUND_DARK = "#f2f5f5", "#121a1b"
+# Every page's head, the site on a phone's home screen ("Add to home screen"): the manifest and the iPhone's icon
+# (viewer/dist, served at /app/ to anyone: viewer/build.mjs, tools/home_screen_icons.py) and the page's ground. Here
+# for MAP_HTML and web.py's pages alike. From the server's root: a map.html opened from disk finds none of them (the
+# browser leaves them out; the page does not need them).
+HOME_SCREEN_HEAD = (
+    '<link rel="manifest" href="/app/manifest.webmanifest">\n'
+    '<link rel="apple-touch-icon" href="/app/apple-touch-icon.png">\n'
+    f'<meta name="theme-color" content="{GROUND_LIGHT}" media="(prefers-color-scheme: light)">\n'
+    f'<meta name="theme-color" content="{GROUND_DARK}" media="(prefers-color-scheme: dark)">')
 MAP_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} - Find-a-Line</title>
+""" + HOME_SCREEN_HEAD + """
 <link rel="stylesheet" href="../{viewer}/viewer.css">
 </head><body><div id="map"></div>
 <script src="../runs.js"></script>

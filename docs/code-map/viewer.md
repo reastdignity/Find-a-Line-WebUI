@@ -82,10 +82,16 @@ and rail, `useWidthOf`; `sidepanel.css`: the result's and the highline layer's);
 `hint.bounds.*`; `Intro.tsx` an intro dialog shown once per browser (localStorage `findaline.intro.<name>`,
 `IntroLink` opens it again), or only from its link (`useIntro(name, false)`: the search's, step 3d G5);
 `radios.ts` the keys of a radio group (WAI-ARIA's: one Tab stop, the arrows move and choose; no Preact, so the
-3D view's switches use it too); `choice.ts` the switch, `Gallery.tsx` `?ui=kit`; `pages.css` the server-rendered sign-in,
+3D view's switches use it too); `choice.ts` the switch, `bars.ts` the browser's bars (line volume's round 7:
+`themeBars`, the head's two `theme-color` lines in the ground of the theme a page shows, "auto" their own values
+back; `Screen`, the coverage page and the disk notice call it), `Gallery.tsx` `?ui=kit`; `pages.css` the server-rendered sign-in,
 privacy and about pages of `web.py`; `logo/` the logo: `logo.svg` and `mark.svg` coloured by classes of `ui.css`
 (`Logo`/`LogoMark` in `icons.tsx` bundle them as text), `logo.svg` and `favicon.svg` copied to `dist/` by `build.mjs`
-(`web.LOGO_SVG` reads `dist/logo.svg`; the standalone files in `docs/logo/`)), `result/` a run in the app (`load.ts`
+(`web.LOGO_SVG` reads `dist/logo.svg`; the standalone files in `docs/logo/`); since line volume's round 7 `build.mjs`
+also copies the home-screen icons `viewer/home-screen/*.png` (`tools/home_screen_icons.py`; beside `src/`, as tests
+read every file under it as text) and writes `dist/manifest.webmanifest` itself (`homeScreenManifest`: "Find-a-Line",
+standalone, portrait, from "/", the light `--bg` of `tokens.css` its one colour; written, not copied, so the
+checkout's line endings never reach dist)), `result/` a run in the app (`load.ts`
 `loadRun`/`loadRunFrom` a run by its folder (store wave 4's item 5: its store only, over http(s); no data.js, no
 script tag): `lines.arrow` and `profiles.arrow` downloaded by `download.ts` (XMLHttpRequest: its progress counts the
 decoded bytes, against `SIZE_HEADER` = `web.SIZE_HEADER`, which `web.RunFiles` sets: nginx's gzip drops Content-Length;

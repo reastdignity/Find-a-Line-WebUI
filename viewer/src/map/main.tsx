@@ -31,6 +31,7 @@ import { RunLoading } from "../result/view/RunLoading";
 import { Button, DESKTOP, Screen, useMedia } from "../ui/components";
 import { storedTheme } from "../ui/choice";
 import type { Line, RunData } from "../types";
+import { themeBars } from "../ui/bars";
 
 const hashOf = (_runId: string, line: string | null) => line ? "#line=" + encodeURIComponent(line) : "";
 const here = () => location.href.replace(/#.*$/, "");
@@ -141,6 +142,7 @@ function start() {
   }
   const shown = notice ?? diskNotice(), theme = storedTheme();
   if (theme !== "auto") shown.dataset.theme = theme;
+  themeBars(theme);
 }
 
 if (served) render(<LoadedMap />, document.getElementById("map")!);

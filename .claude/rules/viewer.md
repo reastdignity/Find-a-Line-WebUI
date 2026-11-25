@@ -87,6 +87,11 @@ catalogue), `browser-tests.md`.
 - A run's size a person reads goes through `size.ts` (`sizeText`, `downloadSizes`: 10^6 bytes, one cut for Home's
   card and the loading line, number and unit joined by a no-break space in the catalogue): a new place takes it. The
   3D view's terrain line has its own `mb` (`view3d/main.ts`: 10^6 bytes, one decimal).
+- The browser's bars (`ui/bars.ts` `themeBars`) take their grounds from the head's two `theme-color` lines
+  (`runs.HOME_SCREEN_HEAD`: one per `prefers-color-scheme`, else it leaves them); a new place that applies a chosen
+  theme outside `Screen` calls it (`tests/test_theme_bars.py`). The manifest is written by `build.mjs` (its colour
+  `--bg`), the home-screen icons live in `viewer/home-screen/`: no binary file under `viewer/src`, which a test reads
+  as text.
 - `Profile.tsx` draws no colour: each curve and swatch has a class that `profile.css` colours from a token (a new curve:
   a class and a token, both themes).
 - `Profile.tsx` draws at `TEXT_PX` with `LABEL_BOXES` (measured at 12 px): a size change changes both; `labels.ts`'

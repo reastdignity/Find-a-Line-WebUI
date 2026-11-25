@@ -205,7 +205,7 @@ view's button; the name rule; the audit event without the name; the privacy page
 the user to the run's size on Home's card, as stored, with the loading line counted in 10^6 bytes (section 4 "As
 built in round 7"): brotli and the immutable cache are not built. 2e's server half was built, accepted on the six
 cases and dropped by the user after its measured gain and cost (section 3 "Not taken"). Beside them the extras A3,
-A4, A6, A7 and A8 (`docs/roadmap.md`, "State on 2026-11-25"), and the readers handed a run reading its run.json
+A4, A6, A7, A8 and B8 (`docs/roadmap.md`, "State on 2026-11-25"), and the readers handed a run reading its run.json
 through `runs.read_meta`, as the rename does. The decisions: 6.9. Left: `docs/known-bugs.md` ("Line volume, round 7") and `docs/roadmap.md`
 ("Line volume round 7: open"). No step of this specification is open.
 
@@ -375,9 +375,9 @@ planner's own decisions in `planner-decisions.md` beside it).
 | D2 to D4, D6 | Renaming: "Public site only"; no command ("No, the page only"); a name left empty: "Refuse it"; the privacy page's two sentences: "Yes, as proposed" (both) | `spec-store.md` 5 |
 | D1, D5 | 2e's acceptance on "All six of the specification"; the square rule's unfinished tiled searches: "Deploy on an empty queue" (the planner's reading: void since 2e was dropped) | `spec-store.md` 3 |
 | – | 2e, after the measured gain and cost: "Drop the ranges" (G-03 b stands as the count; store U1 and U2 closed as not built) | `spec-store.md` 3, 8; 6.3 |
-| – | The mock-up MU-1 (2026-11-23): "Size as stored (Recommended)", "A panel under the card (Recommended)", "Desktop icon, phone via Home (Recommended)", "Back button and Try again (Recommended)"; its 28 points (2026-11-24): "go with recomeneded", (a) at each, with the texts T1 to T6, T9 to T15 and T21 | `spec-store.md` 4, 5; DESIGN.md rows 22, 98, 100, 108 and R9 |
+| – | The mock-up MU-1 (2026-11-23): "Size as stored (Recommended)", "A panel under the card (Recommended)", "Desktop icon, phone via Home (Recommended)", "Back button and Try again (Recommended)"; its 28 points (2026-11-24): "go with recomeneded", (a) at each, with the texts T1 to T6, T9 to T15 and T21 | `spec-store.md` 4, 5; DESIGN.md rows 22, 98, 100, 108, 137 and R9 |
 | – | The rename on Windows (2026-11-24): "d" (the option worded "those readers wait too: they read through the same waiting function") | `docs/known-bugs.md` "Two searches saved at once on Windows" |
-| – | The ten answers of 2026-11-25: 1 a failed rename's text "The run was not renamed…" (T22); 2 "Keep portrait"; 3 a tiny run's loading line "Two decimals"; 4 the bars by the chosen theme "Keep it"; 5 Compare's off boxes "One look for all"; 6 the tablet header "Known bug, design later"; 7 Home's Favourite lines "Known bug"; 8 the three filter faults "Known bugs + roadmap"; 9 the run.json absent for a moment "Known limit"; 10 the rename's own read "Yes, it waits too" | DESIGN.md row 98; `docs/known-bugs.md` and `docs/roadmap.md` "Line volume, round 7" |
+| – | The ten answers of 2026-11-25: 1 a failed rename's text "The run was not renamed…" (T22); 2 "Keep portrait"; 3 a tiny run's loading line "Two decimals"; 4 the bars by the chosen theme "Keep it"; 5 Compare's off boxes "One look for all"; 6 the tablet header "Known bug, design later"; 7 Home's Favourite lines "Known bug"; 8 the three filter faults "Known bugs + roadmap"; 9 the run.json absent for a moment "Known limit"; 10 the rename's own read "Yes, it waits too" | DESIGN.md rows 98, 137; `docs/known-bugs.md` and `docs/roadmap.md` "Line volume, round 7" |
 
 ## 7. Findings of phase 4 to fix later
 Each is also an entry of `docs/known-bugs.md` (the "Line volume" entries) unless it is a measurement.
