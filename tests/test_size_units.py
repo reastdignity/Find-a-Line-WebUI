@@ -2,7 +2,8 @@
 run's size as stored, on Home's card) and downloadSizes (the two numbers of the line shown while a run downloads),
 and result/view/RunLoading.tsx loadingText (that line's words). A MB is 10^6 bytes and a GB 10^9; one decimal below
 10 MB, whole MB up to 999, then GB with one decimal, each rounded; "under 0.1 MB" where one decimal would read "0.0".
-The line counts in the total's unit and cut, so it ends at the card's number. A size never breaks inside: its number
+The line counts in the total's unit and cut, so it ends at the card's number; a total under 50 000 bytes, where one
+decimal would read "0.0", in MB with two decimals (the user's answer 3 of 2026-11-25: test_tiny_run_loading.py). A size never breaks inside: its number
 and its unit (and "under") are joined by no-break spaces (U+00A0, written NBSP below), in the card and in the line.
 
 Needs Node and `npm install` in viewer/; skipped without them."""
@@ -41,7 +42,7 @@ DOWNLOADS = [
     ((41e6, 247.3e6), {"done": "41", "total": "247", "unit": "MB"}),
     ((412e6, 1.84e9), {"done": "0.4", "total": "1.8", "unit": "GB"}),
     ((0.3e6, 0.612e6), {"done": "0.3", "total": "0.6", "unit": "MB"}),
-    ((19_000, 38_000), {"done": "0.0", "total": "0.0", "unit": "MB"}),  # never "under" in the line
+    ((19_000, 38_000), {"done": "0.02", "total": "0.04", "unit": "MB"}),  # never "under" in the line: two decimals
     ((247.3e6, 247.3e6), {"done": "247", "total": "247", "unit": "MB"}),
     ((41e6, None), {"done": "41", "total": "", "unit": "MB"}),
     ((3e6, None), {"done": "3.0", "total": "", "unit": "MB"}),
@@ -122,15 +123,16 @@ def test_no_size_has_no_words(units):
 
 def test_download_sizes(units):
     """downloadSizes gives the bytes got and the total in the total's unit and with its cut ("41" of "247" MB, "0.4"
-    of "1.8" GB, "0.3" of "0.6" MB, "0.0" of "0.0" MB: never "under"); a total not known: the bytes got with their own
-    cut and unit, the total empty."""
+    of "1.8" GB, "0.3" of "0.6" MB; under 50 000 bytes two decimals, "0.02" of "0.04" MB: never "under"); a total not
+    known: the bytes got with their own cut and unit, the total empty."""
     got = units["downloads"]
     assert got == [want for _, want in DOWNLOADS], [(c, w, g) for (c, w), g in zip(DOWNLOADS, got) if g != w]
 
 
 def test_the_card_and_the_line_agree(units):
     """For a spread of sizes over every part of the cut, the loading line's total with its unit is the card's size
-    (sizeText), but where the card says "under 0.1 MB" (the line then reads "0.0"); both join the number and the unit
+    (sizeText), but where the card says "under 0.1 MB" (the line then reads two decimals: "0.04"); both join the
+    number and the unit
     by a no-break space (since the fix round: the design review's finding 3)."""
     differ, under = [], []
     for size, (card, line) in zip(AGREE, units["agree"]):
@@ -139,7 +141,7 @@ def test_the_card_and_the_line_agree(units):
         elif f"{line['total']}{NBSP}{line['unit']}" != card:
             differ.append((size, card, line))
     assert differ == [], differ
-    assert under == [(38_000, {"done": "0.0", "total": "0.0", "unit": "MB"})], under
+    assert under == [(38_000, {"done": "0.04", "total": "0.04", "unit": "MB"})], under
     assert [card for card, _ in units["agree"]] == [UNDER] + [f"{n}{NBSP}{u}" for n, u in (("0.6", "MB"), ("10", "MB"), ("47", "MB"),
                                                                                          ("247", "MB"), ("1.0", "GB"), ("1.8", "GB"))]
 

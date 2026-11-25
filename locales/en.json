@@ -618,6 +618,7 @@
   "ui.rename.title": "Rename the run",
   "ui.rename.name": "The run's name",
   "ui.rename.in_use": "The run is in use. Try again in a moment.",
+  "ui.rename.failed": "The run was not renamed. Try again in a moment.",
   "ui.card.delete_title": "Delete the run",
   "ui.card.delete_ask": "Delete “{{name}}” and its files? This cannot be undone.",
   "ui.searched.title": "Area searched",

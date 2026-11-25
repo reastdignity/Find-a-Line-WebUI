@@ -13,7 +13,8 @@ import type { LoadProgress } from "../load";
 
 /** The words of a phase of loading a run (null: not started). While downloading: the bytes got and the total in the
  *  total's unit and cut as Home's card cuts the run's size (size.ts: a MB is 10^6 bytes), so the line ends at the
- *  card's number; a total not known: the bytes got with their own unit. */
+ *  card's number, but for a total under 0.05 MB (the card's "under 0.1 MB"): both in MB with two decimals; a total
+ *  not known (or 0): the bytes got with their own unit. */
 export function loadingText(p: LoadProgress | null): string {
   if (!p) return t("ui.result.loading_start");
   if (p.phase === "parse") return t("ui.result.loading_parse");

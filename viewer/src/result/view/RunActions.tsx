@@ -152,10 +152,12 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
   };
   const note = (item: OtherItem) => item.status === "loading" ? " · " + t("ui.actions.loading")
     : item.status === "error" ? " · " + t(CAUSE_TEXT[item.cause ?? "failed"]) : "";
-  // a box is off where a new try cannot help: disabled, or `held` (above) with its presses ignored
+  // a box is off where a new try cannot help: disabled, or `held` (above) with its presses ignored; either kind is
+  // drawn off by the kit (`u-off`: ui.css), one look for both (the user's answer 5 of 2026-11-25)
   const off = (item: OtherItem) => item.status === "error" && item.cause !== "failed";
   const row = (item: OtherItem) => <label class="r-check r-other" key={item.run.id} title={item.run.description}>
-    <input type="checkbox" class="u-check" data-other={item.run.id} checked={item.status === "on" || item.status === "loading"}
+    <input type="checkbox" class={off(item) ? "u-check u-off" : "u-check"} data-other={item.run.id}
+           checked={item.status === "on" || item.status === "loading"}
            disabled={off(item) && !item.held} aria-disabled={off(item) && item.held ? true : undefined}
            onClick={(e) => { if (off(item)) e.preventDefault(); }} onChange={() => { if (!off(item)) toggle(item); }}
            onBlur={() => { if (item.held) release(item); }} />

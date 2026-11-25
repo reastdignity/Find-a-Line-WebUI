@@ -1,8 +1,9 @@
 """The rename's fix round on the page (line volume's round 7; the code review's F1 to F4, the scope review's S-PG3 and
 the three changes without a test of its section 2): an old list of runs that arrives after a rename or a delete is
 not written back (the view and window.FINDALINE_RUNS have the new list); a 200 that is no rename renames nothing
-and shows a line; a failure that came with no words of its own shows FAILED_TEXT's words; only a refused name (the
-server's 400) marks the field invalid; the name shown is the server's answer, not the page's own form of what was
+and shows a line; a failure that came with no words of its own shows FAILED_TEXT's words ("The run was not renamed.
+Try again in a moment.", on a card and in the view); only a refused name (the server's 400) marks the field invalid;
+the name shown is the server's answer, not the page's own form of what was
 typed; a rename while the run still loads reaches its view; a rename that ends after its form is gone (another
 panel opened, Home left) names the card; the view's Share and Rename ask for the user's runs once.
 
@@ -12,7 +13,6 @@ fixture and helpers are tests/test_rename_home_page.py's and tests/test_rename_v
 
 import json
 import os
-import re
 import sys
 from urllib.parse import urlparse
 
@@ -36,12 +36,9 @@ pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
 # ms: the deadline of every wait for the page (lowered through the variable only to see the tests fail sooner on a
 # checkout without the fixes)
 WAIT = int(os.environ.get("RENAME_FIXES_WAIT_MS", PAGE_WAIT))
-# The key FAILED_TEXT names, as RunRename.tsx writes it: a stand-in today, so its words are read through the key and
-# never pinned here (the key the constant will name is the one asserted)
-with open(os.path.join(REPO, "viewer", "src", "result", "view", "RunRename.tsx"), encoding="utf-8") as _f:
-    _failed = re.search(r'^export const FAILED_TEXT = "([^"]+)";', _f.read(), re.M)
-FAILED_KEY = _failed.group(1) if _failed else None  # None: a checkout without the constant (its tests fail on the line)
-FAILED_WORDS = WORDS[FAILED_KEY] if FAILED_KEY else None
+# The line of a failure that came with no words of its own: the user's text T22 (2026-11-25, answer 1), the words of
+# the key FAILED_TEXT names (ui.rename.failed: test_rename_fixes_units.py), pinned here as the page shows them
+FAILED_WORDS = "The run was not renamed. Try again in a moment."
 IN_USE = WORDS["ui.rename.in_use"]
 NEW = "North face"  # a new name with nothing of the old ones in it
 TYPED = "Name typed here"  # what a test types where no rename is stored
@@ -248,11 +245,35 @@ def test_a_failure_without_words_shows_a_line(rename_site):
         page.wait_for_function("(sel) => !document.querySelector(sel + ' .c-rename input').readOnly", arg=card(RUN_A))
         form = page.evaluate(FORM, card(RUN_A))
         name = page.evaluate(NAME, card(RUN_A))
-    assert reason == "", reason  # (the stand-in has no reason phrase)
+    assert reason == "", reason  # (the page's own Response, as the fake 502 makes it, has no reason phrase)
     assert form["line"] == FAILED_WORDS, form
     assert form["off"] == [False, False] and form["value"] == TYPED and form["focus"], form
     assert form["invalid"] is None and form["described"], form
     assert name == NAME_A, name
+
+
+def test_a_failure_without_words_in_the_view(rename_site):
+    """The view's box: a rename answered with a 502 page that is no JSON and has no reason phrase: the box stays open
+    with the typed name and FAILED_TEXT's words in its line, Save on again, the focus in the field, the field not
+    marked invalid, and the title keeps the run's name."""
+    site, data = rename_site
+    with Browser(site) as browser:
+        page = page_of(browser, script=BAD_GATEWAY)
+        page.goto(f"{site}/?ui=c#run={RUN_A}")
+        view_of(page, RUN_A)
+        field = open_box(page)
+        field.fill(TYPED)
+        page.keyboard.press("Enter")
+        page.wait_for_function("(sel) => window.RENAME_HELD.length === 1 && (%s)(sel)" % READ_ONLY, arg=BOX)
+        page.evaluate("() => window.RENAME_HELD.pop()()")
+        page.wait_for_function(BOX_ENDED, arg=BOX)
+        box = page.evaluate(COUNT, BOX)
+        form = page.evaluate(FORM, ".c-run-title") if box else None
+        title = page.evaluate(TEXT, TITLE)
+    assert title == NAME_A, f"the title shows {title!r}; box {box}, form {form}"
+    assert box == 1 and form["value"] == TYPED and form["off"] == [False, False] and form["focus"], form
+    assert form["line"] == FAILED_WORDS and form["invalid"] is None and form["described"], form
+    assert stored_name(data, RUN_A) == NAME_A
 
 
 # C-F4: aria-invalid only for a refused name

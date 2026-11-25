@@ -29,10 +29,10 @@ export function nothingToSave(typed: string, name: string): boolean {
 let forms = 0;  // ids of the forms' fields (the refusal's line describes its field)
 
 /** The line of a failed rename that came with no words of its own (an error page that is not JSON and has no
- *  reason phrase: a proxy's 502 over HTTP/2) or with an answer that is no rename (a 200 without the stored name).
- *  A STAND-IN: the key of T9 ("in use") until the user's text for this case is approved (T22, asked of the user
- *  on 2026-11-25); then this constant names that text's key and nothing else changes. */
-export const FAILED_TEXT = "ui.rename.in_use";
+ *  reason phrase: a proxy's 502 over HTTP/2) or with an answer that is no rename (a 200 without the stored name):
+ *  that the run kept its name and a new try may go through, "The run was not renamed. Try again in a moment." (the
+ *  user's text T22, 2026-11-25). A run in use (409) has its own line, ui.rename.in_use. */
+export const FAILED_TEXT = "ui.rename.failed";
 
 /** The name a rename's answer gives (web.py rename_run: {"ok": true, "name": "<as stored>"}), or null for an
  *  answer that is no rename: a 200 whose body is not that (a proxy's or a portal's page, which `call` reads as
