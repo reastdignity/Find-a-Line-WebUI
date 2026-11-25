@@ -138,6 +138,7 @@ it does not see").
 | 2026-11-24 | R17 by name only; `--cold` for every cache but the real one; a tiled search resumed with no tile left keeps its data record and credits (a fault found on the way) | tags `history/regression-cold`, `history/resume-record` |
 | 2026-11-24 | The data record: run.json's `identity`, the harness's side file and line, `cache status` exact, the completeness check | tag `history/data-record-task` |
 | 2026-11-24 | Two follow-ups of the data record: a layer's files noted before the read too (a file replaced while it is read is not known); `cache status` reading only as a whole, also beside a running search; the world coastline file found in a data folder whose path holds `[` | tag `history/data-record-followups` |
+| 2026-11-25 | A data folder whose path holds `[`: every listing that starts at the data, cache or runs folder takes the folder's name as it is, the two comparisons of a listed path with a built one too; a test keeps new listings so (`tests/test_glob_folders.py`) | tag `history/glob-escape` |
 
 ## Still open
 
@@ -146,7 +147,5 @@ it does not see").
 - **R70**: waits for the provider's answer; the islands' new read path has not met the real host yet.
 - **PC-wide limits for Overpass and Nominatim**, and a contact in the User-Agent of a development machine.
 - **The data record's short windows that are left** (known-bugs.md, "The data record: what it does not see"): the
-  OpenStreetMap tiles of a coastline or an area and the world file's edition are noted once, after their read.
-- **A data folder whose path holds `[`**: closed. The world coastline file is found since 2026-11-24; every
-  other listing that starts at the data, cache or runs folder, and the two comparisons of a listed path with a
-  built one, are mended since 2026-11-25 (known-bugs.md, the end of "What `cache status` still touches or misses").
+  OpenStreetMap tiles of a coastline or an area and the world file's edition are noted once, after their read
+  (left so on the user's word of 2026-11-25).
