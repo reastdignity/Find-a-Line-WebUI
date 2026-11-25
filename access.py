@@ -378,14 +378,21 @@ def _answers(z: np.ndarray, water: np.ndarray, data: np.ndarray, res: float, wm:
     return out
 
 
+NOT_COMPUTED = 255  # a pixel of a block the grid in blocks left out (no pixel of the search area in its core)
+
+
 def at(grid: np.ndarray, pixels) -> np.ndarray:
     """The answers at `pixels` (int (n, 2): rows, columns); a pixel outside the grid is refused (ValueError), never
-    read from the other end of a row as a negative index would be."""
+    read from the other end of a row as a negative index would be, and so is a pixel of a block left out
+    (NOT_COMPUTED: block_grid's `needed`): a block left out by mistake fails the search, it never becomes a mark."""
     pixels = np.asarray(pixels, np.int64).reshape(-1, 2)
     h, w = grid.shape
     if ((pixels < 0) | (pixels >= (h, w))).any():
         raise ValueError("a pixel outside the access grid")
-    return grid[pixels[:, 0], pixels[:, 1]]
+    answers = grid[pixels[:, 0], pixels[:, 1]]
+    if (answers == NOT_COMPUTED).any():
+        raise ValueError("a pixel of the access grid that was not computed")
+    return answers
 
 
 # --- The grid in blocks (the search's: docs/line-volume/spec-search.md 3.2, the user's choice of 2026-11-15) ---
@@ -1066,8 +1073,32 @@ def _open_ground_rows(z, water, filled, wet: _Mask, res: float, work: str, name:
     return g
 
 
+def _blocks_needed(needed, h: int, w: int, block_px: int) -> np.ndarray:
+    """Which blocks (rows, columns of block_px) hold a pixel of `needed` (bool, the grid's shape) in their core:
+    `needed` read once, strip by strip; a memory-mapped one through a mapping of its own, let go afterwards, so its
+    pages do not stay in the process with the caller's map. Only the blocks' table is kept."""
+    own = None
+    if isinstance(needed, np.memmap) and getattr(needed, "filename", None):
+        own = np.load(needed.filename, mmap_mode="r")
+        if own.shape != (h, w):  # not the whole file: read the caller's array
+            own = None
+    source = needed if own is None else own
+    starts = np.arange(0, w, block_px)
+    out = np.zeros((-(-h // block_px), len(starts)), bool)
+    try:
+        for r0, r1 in _strips(h, w):
+            rows = np.asarray(source[r0:r1], bool)
+            for br in range(r0 // block_px, (r1 - 1) // block_px + 1):
+                a, b = max(r0, br * block_px), min(r1, (br + 1) * block_px)
+                out[br] |= np.logical_or.reduceat(rows[a - r0:b - r0].any(axis=0), starts)
+            del rows
+    finally:
+        del source, own
+    return out
+
+
 def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int, alpine: bool = True,
-               on_part=lambda name: None) -> dict:
+               on_part=lambda name: None, needed=None) -> dict:
     """The answers of access_grid for every pixel of a grid too large to hold at once, written into the uint8 grid
     `path` (memory-mapped): the grid-wide judgements once on the whole grid, strip by strip, their masks
     memory-mapped in `work` (_Mask: the whole-metre sample, the flat lakes on float heights, the open ground on the
@@ -1075,13 +1106,16 @@ def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int
     array of the whole grid); then every block of block_px x block_px pixels from its window of margin_px(res) around
     it, by access_grid's own code (_answers) on the windows of those masks. Every other distance of the measure is
     bounded by MARGIN_M, so each block's answers are the whole grid's, whatever the blocks' size
-    (tests/test_access_search.py). on_part(name): "grid-wide", then "blocks" (a progress bar's parts). Returns the
-    blocks' count and their largest window (pixels)."""
+    (tests/test_access_search.py). on_part(name): "grid-wide", then "blocks" (a progress bar's parts). needed (bool,
+    the grid's shape; the search area): a block whose core holds none of its pixels is not computed, its pixels get
+    NOT_COMPUTED (at refuses them); None: every block. Returns the blocks computed ("blocks"), those left out
+    ("left_out") and the largest window computed (pixels)."""
     h, w = z.shape
     margin = margin_px(res)
     block_px = max(1, int(block_px))
     _check_size(min(h, block_px + 2 * margin) * min(w, block_px + 2 * margin))
     os.makedirs(work, exist_ok=True)
+    wanted = _blocks_needed(needed, h, w, block_px) if needed is not None else None
     on_part("grid-wide")
     wm = _whole_metres_rows(z, water, filled)
     wet = _Mask(os.path.join(work, "access_water.npy"), (h, w))
@@ -1093,10 +1127,14 @@ def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int
     og2 = _open_ground_rows(z, water, filled, wet, res, work, "og2", smoothed=True) if wm else None
     out = _new(path, (h, w), np.uint8)
     on_part("blocks")
-    blocks = largest = 0
+    blocks = largest = left_out = 0
     for r0 in range(0, h, block_px):
         for c0 in range(0, w, block_px):
             r1, c1 = min(h, r0 + block_px), min(w, c0 + block_px)
+            if wanted is not None and not wanted[r0 // block_px, c0 // block_px]:
+                out[r0:r1, c0:c1] = NOT_COMPUTED
+                left_out += 1
+                continue
             a, b, c, d = max(0, r0 - margin), min(h, r1 + margin), max(0, c0 - margin), min(w, c1 + margin)
             zz = np.array(z[a:b, c:d], np.float32)
             data = np.isfinite(zz)
@@ -1114,4 +1152,4 @@ def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int
     for mask in (wet, og, og2):
         if mask is not None:
             mask.remove()
-    return {"blocks": blocks, "window_px": largest, "whole_metres": wm}
+    return {"blocks": blocks, "left_out": left_out, "window_px": largest, "whole_metres": wm}

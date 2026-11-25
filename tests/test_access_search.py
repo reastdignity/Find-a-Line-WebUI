@@ -287,7 +287,9 @@ def test_blocks_give_one_grids_answers(tmp_path, offline, monkeypatch, whole):
     access.margin_px) equals the grid at once at every pixel, on made-up grids of 3 km at 5 m in blocks of 300 m
     (many windows, most inside the grid), on float and on whole-metre heights, and where the only open ground is a
     path whose part in any window is under 1 ha (a window judged alone would find none); and through the search the
-    lines' marks are the same."""
+    lines' marks are the same. E: through the search the blocks without a pixel of the search area are left out
+    (access.NOT_COMPUTED), so the grids are equal inside the area and wherever a block was computed; the same grid
+    made whole by a direct call without the area equals the grid at once at every pixel."""
     import rasterio as rio
     from rasterio.transform import from_origin
     z = _rough(whole)
@@ -312,10 +314,18 @@ def test_blocks_give_one_grids_answers(tmp_path, offline, monkeypatch, whole):
         runs[name + "-lines"] = {k: lines.results.columns[k] for k in ("a1_xy", "a2_xy", "access1", "access2")}
         if block:
             blocks = [e for e in events if e.startswith("Access to anchors in ")]
-            assert blocks and int(blocks[0].split()[4]) > 50, blocks
+            assert blocks and int(blocks[0].split()[4]) > 50 and " left out " in blocks[0], blocks
+            runs["mask"] = np.array(data.mask, bool)  # the search area: the blocks without it left out (E)
+            work = tmp_path / "direct"  # the same grid whole: a direct call without the area
+            access.block_grid(data.elevation, data.water, plan.resolution, data.filled_pixels(),
+                              str(work / "access.npy"), str(work), block, alpine=True)
+            runs["direct"] = np.array(np.load(work / "access.npy", mmap_mode="r"))
         del data
     assert runs["one"].shape == (plan.grid.height, plan.grid.width) and len(set(runs["one"].ravel().tolist())) >= 2
-    assert np.array_equal(runs["one"], runs["blocks"])
+    assert np.array_equal(runs["one"], runs["direct"])
+    inside, left_out = runs["mask"], runs["blocks"] == access.NOT_COMPUTED  # E: equal inside the area, 255 or equal
+    assert left_out.any() and not (inside & left_out).any()  # outside it
+    assert np.array_equal(runs["one"][~left_out], runs["blocks"][~left_out])
     for k, v in runs["one-lines"].items():
         assert len(v) > 20 and np.array_equal(v, runs["blocks-lines"][k]), k
     assert access.whole_metres(z[np.isfinite(z)]) == bool(whole)
@@ -512,6 +522,83 @@ def test_the_grid_wide_pass_makes_nothing_of_4_bytes_a_pixel(tmp_path, monkeypat
     assert os.listdir(work) == ["access.npy"]
 
 
+@pytest.mark.parametrize("mapped", [False, True], ids=["array", "mapped-file"])
+def test_blocks_only_where_the_area_is(tmp_path, monkeypatch, mapped):
+    """E: access.block_grid with `needed` (the search area) computes only the blocks whose core holds a pixel of it:
+    their pixels are the grid at once's, every pixel of the others is access.NOT_COMPUTED, and access.at refuses one
+    (ValueError) while it reads the computed ones. The blocks' table (_blocks_needed, the area read strip by strip,
+    as an array or a memory-mapped file read through a mapping of its own) is every block's own `any`, for blocks of
+    any size and strips of 64 rows. Without `needed` every block is computed."""
+    z = _hills(400, 420, 5.0, 8).astype(np.float32)
+    h, w = z.shape
+    one = access.access_grid(z, None, 5.0, alpine=True)
+    rr, cc = np.mgrid[0:h, 0:w]
+    area = (rr - 120) ** 2 + (cc - 300) ** 2 < 70 ** 2  # a disc in a corner of the grid
+    area[350:353, 10:12] = True  # and a speck far from it
+    if mapped:
+        np.save(tmp_path / "mask.npy", area)
+        area = np.load(tmp_path / "mask.npy", mmap_mode="r")
+    monkeypatch.setattr(access, "STRIP_PX", 1)  # 64 rows a strip
+    for block in (7, 60, 100, 1000):
+        table = access._blocks_needed(area, h, w, block)
+        want = np.array([[np.asarray(area[r:r + block, c:c + block]).any() for c in range(0, w, block)]
+                         for r in range(0, h, block)])
+        assert np.array_equal(table, want), block
+    work = tmp_path / "work"
+    done = access.block_grid(z, None, 5.0, None, str(work / "access.npy"), str(work), 60, alpine=True,
+                             needed=area)
+    got = np.array(np.load(work / "access.npy", mmap_mode="r"))
+    table = access._blocks_needed(area, h, w, 60)
+    assert done["blocks"] == table.sum() and done["left_out"] == table.size - table.sum() > 0
+    computed = np.kron(table, np.ones((60, 60), bool))[:h, :w]
+    assert np.array_equal(got[computed], one[computed]) and (got[~computed] == access.NOT_COMPUTED).all()
+    assert (computed | ~np.asarray(area)).all()  # every pixel of the area computed
+    pixels = np.argwhere(np.asarray(area))[::97]
+    assert np.array_equal(access.at(got, pixels), one[pixels[:, 0], pixels[:, 1]])
+    outside = np.argwhere(~computed)[:1]
+    with pytest.raises(ValueError):
+        access.at(got, outside)
+    with pytest.raises(ValueError):
+        access.at(got, np.concatenate([pixels[:3], outside]))
+    whole = access.block_grid(z, None, 5.0, None, str(work / "access.npy"), str(work), 60, alpine=True)
+    assert whole["left_out"] == 0 and whole["blocks"] == table.size
+    assert np.array_equal(np.array(np.load(work / "access.npy", mmap_mode="r")), one)
+    del area
+    assert os.listdir(work) == ["access.npy"]
+
+
+def test_a_polygon_in_a_wide_box(tmp_path, offline, monkeypatch):
+    """E through the search: a triangle in the made-up box of 3 km at 5 m, the access grid in blocks of 300 m with
+    the blocks outside the triangle left out: the lines and their marks are those of the grid at once, and the blocks
+    left out are named in the search's line."""
+    from rasterio.warp import transform
+    z = _rough(False)
+    path = tmp_path / "rough.tif"
+    _write_5m(path, z)
+    corners = [(LEFT + 200, TOP - 2800), (LEFT + 2800, TOP - 2800), (LEFT + 200, TOP - 400), (LEFT + 200, TOP - 2800)]
+    lon, lat = transform("EPSG:2180", "EPSG:4326", [x for x, _ in corners], [y for _, y in corners])
+    triangle = {"type": "Polygon", "coordinates": [list(map(list, zip(lon, lat)))]}
+    (tmp_path / "triangle.geojson").write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": triangle}))
+    params = SearchParams(elevation_file=str(path), area=str(tmp_path / "triangle.geojson"), resolution=5, nmpt="off",
+                          water="off", fill_gaps="off", min_length=50, max_length=300, slope_threshold=55,
+                          prominence_span=10, drop_radius=10, ortho="never", name="triangle", access=True)
+    tables, made = {}, []
+    for name, block in (("one", None), ("blocks", 60)):
+        events = []
+        monkeypatch.setattr(search, "_access_block_px", lambda plan, block=block: block)
+        paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
+        os.makedirs(paths.work)
+        plan = search.plan_search(params, paths, lambda kind, text: events.append(str(text)))
+        assert not plan.tiles
+        lines = search.find_lines(plan, search.prepare_data(plan))
+        tables[name] = {k: lines.results.columns[k] for k in ("a1_xy", "a2_xy", "access1", "access2")}
+        made += [e for e in events if e.startswith("Access to anchors in ")]
+    assert len(made) == 1 and " left out (no part of the search area)" in made[0], made
+    assert int(made[0].split()[4]) > 20 and int(made[0].split(", ")[1].split()[0]) > 5, made
+    for k, v in tables["one"].items():
+        assert len(v) > 20 and np.array_equal(v, tables["blocks"][k]), k
+
+
 def test_a_walk_too_large_is_refused(tmp_path, monkeypatch):
     """A grid at once, or a block's window, of access.WALK_PX_MAX pixels or more is refused (the walk's int32
     indices); the search's block rule keeps every window under it."""
@@ -527,7 +614,8 @@ def test_a_walk_too_large_is_refused(tmp_path, monkeypatch):
 
 def test_blocks_from_the_free_memory(tmp_path, offline, monkeypatch):
     """Without Plan.memory (the command line) the access grid's budget is the memory free (search.available_memory):
-    a small one gives blocks, the same answers as at once."""
+    a small one gives blocks, the same answers as at once (E: inside the search area; the blocks without it hold
+    access.NOT_COMPUTED, and the same grid made whole by a direct call is the grid at once)."""
     z = _rough(False)
     path = tmp_path / "rough.tif"
     _write_5m(path, z)
@@ -543,10 +631,21 @@ def test_blocks_from_the_free_memory(tmp_path, offline, monkeypatch):
         os.makedirs(paths.work)
         plan = search.plan_search(params, paths, lambda kind, text: events.append(str(text)))
         assert plan.memory is None
-        grids[name] = np.array(search._access_grid(plan, search.prepare_data(plan)))
+        data = search.prepare_data(plan)
+        grids[name] = np.array(search._access_grid(plan, data))
         made = [e for e in events if e.startswith("Access to anchors in ")]
         assert bool(made) == (name == "blocks"), made
-    assert np.array_equal(grids["at-once"], grids["blocks"])
+        if name == "blocks":
+            mask = np.array(data.mask, bool)  # the search area: the blocks without it left out (E)
+            work = tmp_path / "direct"  # the same grid whole: a direct call without the area
+            access.block_grid(data.elevation, data.water, plan.resolution, data.filled_pixels(),
+                              str(work / "access.npy"), str(work), search._access_block_px(plan), alpine=True)
+            grids["direct"] = np.array(np.load(work / "access.npy", mmap_mode="r"))
+        del data
+    assert np.array_equal(grids["at-once"], grids["direct"])
+    left_out = grids["blocks"] == access.NOT_COMPUTED  # E: equal inside the area, 255 or equal outside it
+    assert not (mask & left_out).any()
+    assert np.array_equal(grids["at-once"][~left_out], grids["blocks"][~left_out])
 
 
 def _write_5m(path, z):

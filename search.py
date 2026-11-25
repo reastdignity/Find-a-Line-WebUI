@@ -2276,8 +2276,11 @@ def _access_grid(plan: Plan, data: Data, path: Optional[str] = None) -> np.ndarr
     step 1's filled terrain, its water and its filled pixels (Data.filled_pixels: no data for the walk). Once per
     search on the whole grid, so a tiled search's tiles read one grid's answers (_tile_data takes each tile's
     window). At once (access.access_grid) when it fits, else in blocks (access.block_grid, _access_block_px: the
-    same answers). path: saved there and returned memory-mapped (a tiled search's work folder; blocks always write
-    into the work folder), else in memory."""
+    same answers). In blocks only those whose core holds a pixel of the search area (Data.mask: every anchor comes
+    from it, _anchors) are computed, the others hold access.NOT_COMPUTED, which access.at refuses; with partner
+    anchors beyond the outline (Data.partner, the count mode across a border) every block. path: saved there and
+    returned memory-mapped (a tiled search's work folder; blocks always write into the work folder), else in
+    memory."""
     import access  # numba: only where a search computes (see _lines)
     block = _access_block_px(plan)
     # a step text of its own (after the estimate's: the job page's phase and jobs.StepClock book it to step 2, the
@@ -2290,8 +2293,10 @@ def _access_grid(plan: Plan, data: Data, path: Optional[str] = None) -> np.ndarr
         path = path or os.path.join(plan.paths.work, ACCESS_FILE)
         done = access.block_grid(data.elevation, data.water, plan.resolution, data.filled_pixels(), path,
                                  plan.paths.work, block, alpine=True,
-                                 on_part=lambda name: progress.compute.update(0, part=name))
-        plan.emit("info", f"Access to anchors in {done['blocks']} blocks of {block * plan.resolution:g} m (the "
+                                 on_part=lambda name: progress.compute.update(0, part=name),
+                                 needed=data.mask if data.partner is None else None)
+        left = f", {done['left_out']} left out (no part of the search area)" if done["left_out"] else ""
+        plan.emit("info", f"Access to anchors in {done['blocks']} blocks of {block * plan.resolution:g} m{left} (the "
                           f"memory: {done['window_px'] / 1e6:.1f} Mpx a window)")
     progress.compute.update(1)
     progress.compute.finish()
