@@ -114,6 +114,7 @@ HOOKS = ("_whole_metres_rows", "_flat_lakes_rows", "_region_areas", "_region_bou
          "_open_ground_rows", "_answers", "_Regions.__init__", "_Regions._backward", "_Regions.visit",
          "_spread_large", "_Regions._label", "_blocks_needed")
 NOT_COMPUTED = 255  # access.NOT_COMPUTED (wave 2b): a pixel of a block left out
+FIXED_HOLD_S = 1.0  # the "fixed" stage held after its warm-up, for the sampler's readings
 GROUPS = {"access_flat.npy": "flat lakes", "access_og_g.npy": "open ground", "access_og2_g.npy": "smoothed open ground",
           "access_og.npy": "open ground", "access_og2.npy": "smoothed open ground"}
 # access._answers' parameters as the per-block hook mirrors them (another signature: the blocks are not split)
@@ -1226,7 +1227,8 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
     elif kind == "fixed":  # the tool's fixed term (code review G1b-1): after an emptied start, a stage that does
         sidecar_events.mark(f"fixed {k}")  # nothing of the grid's size: the made-up warm-up's access_grid, so the
         warm_up()  # process's own pages (interpreter, numpy, numba's kernels) fault back; its peak working set less
-        t1 = time.time()  # private above the start is the term an emptied start's file pages hold beside the grid's
+        time.sleep(FIXED_HOLD_S)  # private above the start is the term an emptied start's file pages hold beside the
+        t1 = time.time()  # grid's; held a moment so that the sampler (every 20 ms) reads it
         path = None
     elif kind == "full":  # rule (b): every block, no `needed`, not split (its seconds not to be read)
         sidecar_events.mark(f"full {k}")
@@ -1578,11 +1580,13 @@ def run_stages(args) -> Dict:
     # blocks stages' file pages at the last block, when both are in the run and the blocks' start was emptied too
     fixed = [r for r in out["stages"] if r["stage"] == "fixed"]
     if fixed:
-        term = max((p.get("peak_ws_less_private_above_start") or 0 for p in fixed[0]["parts"].values()), default=0)
+        got = [p["peak_ws_less_private_above_start"] for p in fixed[0]["parts"].values()
+               if p.get("peak_ws_less_private_above_start") is not None]
+        term = max(got) if got else None  # None: no sample, nothing taken off
         fixed[0]["fixed_term_bytes"] = term
         for rep in out["stages"]:
             rows = [r for r in rep.get("blocks_list") or [] if r.get("ws_less_private_above_start") is not None]
-            if rep["stage"] == "blocks" and rep.get("emptied") and rows:
+            if rep["stage"] == "blocks" and rep.get("emptied") and rows and term is not None:
                 rep["fixed_term_bytes"] = term
                 rep["ws_less_private_last_block_less_fixed_b_per_grid_px"] = per_px(
                     rows[-1]["ws_less_private_above_start"] - term, s.pixels)

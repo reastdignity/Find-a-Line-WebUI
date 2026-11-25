@@ -541,8 +541,9 @@ def test_the_fixed_term_taken_off_an_emptied_start(tmp_path, made_up_search):
     got = pa.main(["stages", "--out", str(tmp_path / "out"), "--name", "f", "--order", "fixed,blocks", "--block-px",
                    "60", "--empty-start", *made_up_search])
     fixed, blocks = got["stages"]
-    assert fixed["stage"] == "fixed" and fixed["fixed_term_bytes"] >= 0
-    if os.name == "nt":
+    assert fixed["stage"] == "fixed" and fixed["s"] >= pa.FIXED_HOLD_S
+    if os.name == "nt":  # held a second: sampled, the process's own pages back in the working set after the emptying
+        assert fixed["fixed_term_bytes"] is not None and fixed["fixed_term_bytes"] > 0
         assert blocks["emptied"]["done"] and blocks["fixed_term_bytes"] == fixed["fixed_term_bytes"]
         rows = [r for r in blocks["blocks_list"] if r.get("ws_less_private_above_start") is not None]
         if rows:  # a block sampled at all
