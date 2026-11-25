@@ -38,9 +38,9 @@ and makes no folder, file or LAYOUT; only SQLite's own side files beside an inde
 at _query's bound, and for an index dated in the future, a clock set back or files copied with a later time, which
 is read read-only every time and left with a -shm and a -wal after each `status`). It may run beside a search: an
 immutable read a writer may have torn is made again (_query: a stamp check with a margin of a clock tick; not sound
-on a network share), so each index's rows are those of one moment. An index that cannot be read now (a writer's lock, a hot journal) is named, never ends the command.
-World water polygons put into the cache by hand (files without index rows) are named in one line; `update` adopts
-them (_adopt_world) before it checks.
+on a network share), so each index's rows are those of one moment. An index that cannot be read now (a writer's
+lock, a hot journal) is named, never ends the command. World water polygons put into the cache by hand (files
+without index rows) are named in one line; `update` adopts them (_adopt_world) before it checks.
 
 The intervals are cache.TTL_DAYS; "missing" tiles of data that can change are checked
 again after cache.MISSING_TTL_DAYS. `update` without --all checks only what is older
