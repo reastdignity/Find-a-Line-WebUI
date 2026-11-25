@@ -250,7 +250,9 @@ def test_the_pass_parts_on_hand_made_labels():
              "grid-wide: smoothed open ground: regions: forward": r(1.25),
              "grid-wide: smoothed open ground: after: visits": r(0.75), "grid-wide: masks opened": r(0.125),
              "blocks: block 1": r(9.0)}
+    parts["grid-wide: open ground: after: write"]["s_raw"] = 1.0004  # unrounded seconds are summed as they are
     pp = pa.pass_parts(parts, 23.375)
+    assert abs(pp["pass_s_raw"] - 23.3754) < 1e-9 and abs(pp["judged_span_s_raw"] - 5.0004) < 1e-9
     assert pp["flat lakes"] == {"mask": 2.0, "regions": 3.25, "after": 1.5,
                                 "sub": {"forward": 3.0, "backward": 0.25, "B": 1.5}}
     assert pp["open ground"]["regions"] == 2.0 and pp["open ground"]["after"] == 1.0

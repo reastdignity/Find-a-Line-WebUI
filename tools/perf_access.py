@@ -353,6 +353,7 @@ def summarise(samples: Sequence[Sequence], listings, events: Sequence[Tuple[floa
                 row["cg_split_at_peak"] = {"anon": c[i["cg_anon"]], "file": c[i["cg_file"]],
                                            "file_mapped": c[i["cg_mapped"]], "file_dirty": c[i["cg_dirty"]]}
     for row in out.values():
+        row["s_raw"] = row["s"]  # the event times' own difference, unrounded (sums of parts are judged on these)
         row["s"] = round(row["s"], 3)
         row["max_gap_s"] = round(row["max_gap_s"], 3)
         row["peak_rss_above_start"] = _above(row.pop("peak_rss"), base.get("rss"))
@@ -1256,7 +1257,7 @@ def pass_parts(parts: Dict[str, Dict], pass_s: Optional[float]) -> Dict:
     its sub-parts: the base's labels and bounds, S's forward and backward sweep) and "after" (with S's B apart); the
     rest (the whole-metre sample, the water's copy, "masks opened"); their sum against the pass; and "the span the
     wide box's line judges": regions + after of the two open-ground passes."""
-    out, total = {}, 0.0
+    out, total, total_raw, span_raw = {}, 0.0, 0.0, 0.0
     for g in PASSES:
         row = {"mask": 0.0, "regions": 0.0, "after": 0.0, "sub": {}}
         for label, r in parts.items():
@@ -1264,6 +1265,9 @@ def pass_parts(parts: Dict[str, Dict], pass_s: Optional[float]) -> Dict:
                 head = f"grid-wide: {g}: {part}"
                 if label == head or label.startswith(head + ":"):
                     row[part] += r["s"]
+                    total_raw += r.get("s_raw", r["s"])
+                    if part != "mask" and g in ("open ground", "smoothed open ground"):
+                        span_raw += r.get("s_raw", r["s"])
                     if label != head:
                         row["sub"][label[len(head) + 2:]] = round(row["sub"].get(label[len(head) + 2:], 0) + r["s"], 3)
         if any(row[p] for p in ("mask", "regions", "after")):
@@ -1275,15 +1279,22 @@ def pass_parts(parts: Dict[str, Dict], pass_s: Optional[float]) -> Dict:
         if r:
             rest[name] = round(r["s"], 3)
             total += r["s"]
+            total_raw += r.get("s_raw", r["s"])
     other = {label[11:]: round(r["s"], 3) for label, r in parts.items() if label.startswith("grid-wide: ")
              and not any(label.startswith(f"grid-wide: {g}: ") for g in PASSES)
              and label[11:] not in rest}
     total += sum(other.values())
+    total_raw += sum(r.get("s_raw", r["s"]) for label, r in parts.items() if label.startswith("grid-wide: ")
+                     and label[11:] in other)
     out["rest"] = rest
     if other:
         out["other"] = other  # a label of neither cut (a hook of another tree): shown, never dropped
     out["sum_s"] = round(total, 3)
     out["pass_s"] = pass_s
+    # unrounded, from the event times: the pass (the grid-wide parts are contiguous, from on_part("grid-wide") to
+    # on_part("blocks")) and the judged span; a margin under the parts' rounding is decided on these
+    out["pass_s_raw"] = total_raw
+    out["judged_span_s_raw"] = span_raw
     out["judged_span_s"] = round(sum(out[g]["regions"] + out[g]["after"] for g in ("open ground", "smoothed open ground")
                                      if g in out), 3)
     return out
