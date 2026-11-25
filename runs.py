@@ -570,13 +570,15 @@ def _local_time(created: str) -> str:
         return created[:16].replace("T", " ")
 
 
-# The pauses of a reader that goes through the runs folder (read_meta: list_runs, update.changed_runs; rename_run's
-# read of its run's run.json too) whose open of
-# a run.json Windows refuses (PermissionError): the file is held for a moment after save_results moved it to its
-# name (cache.replacing), while another process saves that run. Measured on a loaded PC, 2026-11-24, with a reader
-# that opens the file as it appears: refused at 1 816 of 3 000 new files, each read 7 ms after its first refusal at
-# the median, 29 ms at the longest (docs/known-bugs.md); 1.58 s in all here, over fifty times the longest, for a
-# slower machine. On every other system a refusal is a fault of the folder: no pause, the error at once
+# The pauses of a reader of a saved run's run.json (read_meta: every product reader, list_runs,
+# update.changed_runs and the readers handed a run; rename_run's read of its run's run.json too) whose open of
+# a run.json Windows refuses (PermissionError): the file is held for a moment after cache.replacing moved it to its
+# name, new or replacing one, while another process or thread writes it. Measured on a loaded PC, 2026-11-24, with a
+# reader that opens the file as it appears: refused at 1 816 of 3 000 new files, each read 7 ms after its first
+# refusal at the median, 29 ms at the longest; a run.json replaced in place 3 000 times, 13 to 15 ms at the median,
+# 204 ms at the longest (docs/known-bugs.md). 1.58 s in all here: over fifty times a new file's longest, about 8
+# times a replacement's, for a slower machine. On every other system a refusal is a fault of the folder: no pause,
+# the error at once
 READ_PAUSES = (0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.8) if os.name == "nt" else ()
 
 

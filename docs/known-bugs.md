@@ -197,17 +197,42 @@ found" too), is named as not checked, so a drive that drops never reads as "noth
 `runs.run_state` (the command `findaline.py runs remove-old`) needed no mending: it takes a run.json it cannot open
 for a run to skip ("cannot read now"), never for an old one.
 
-Not covered: the readers that are handed a run. They are the web's `has_store` and `take_export` (an export),
-`web.profile_problem` (the public site's bounds check of a profile or a 3D view, which takes a file it cannot open
-for a run without profiles), the quick lane's tasks (a profile, a 3D view's terrain, a reach, an export with
-`linestore.export`) and the commands `findaline.py export` and `view`. Why they should be safe is read from the
-code, not measured: a page or a command names the run to them after it learned of it, from a listing that read its
-run.json or from the end of its search, which should be later than the milliseconds measured. That rests on a saved
-run's run.json being written once (`runs.save_results`): whatever replaces the run.json of a saved run puts each of
-them where the listing was. Measured in one process: an open made after the move had returned was never refused
-(3 000 new files and 3 000 moves onto one file: none); an open by another thread of the writer's process while the
-move is under way was not measured. A red `test_two_jobs_computing_at_once` on Windows with this error after
-2026-11-24 is new: the hold then outlasted the pauses, or it came at another reader.
+**Mended for the readers handed a run** (the user's choice "d" of 2026-11-24, the option worded "those readers wait
+too: they read through the same waiting function"). They are the web's `has_store` and `take_export` (an export),
+`web.profile_problem` (the public site's bounds check of a profile, a 3D view or a reach), the quick lane's tasks (a
+profile, a 3D view's terrain or canopy, a reach, an export: `jobs.export_bytes`, `linestore.export`) and the commands
+`findaline.py export` and `view` (`findaline.app_holds`). They opened run.json bare, safe only while a saved run's
+run.json was written once (`runs.save_results`): whatever replaces it in place puts each of them where the listing
+was. They read it through `runs.read_meta` now (the same pauses, on Windows only; after the last pause each answers
+as before for a file it cannot open), the web's three in a worker thread (`run_in_threadpool`), never on the event
+loop. Shown on the development PC (2026-11-24) with one run.json of 31 KB replaced in place 3 000 times by
+`cache.replacing`, from another thread of the readers' process and from another process, while four of them
+(`profile_problem`, `export_bytes`, an export's POST and its GET) went round without pause, twice each: the code as
+it was (`main` c9add3ce) answered wrongly in 15 to 71 of 317 to 351 calls per reader, every wrong answer a refused
+open; the mended code in none, having waited in 356 calls, after at most three pauses (84 ms). A bare open retried
+every 0.5 ms read a refused replacement after 13 to 15 ms at the median and 204 ms at the longest (twelve runs of
+3 000 moves): a replacement is held longer than a new file (29 ms above), so the 1.58 s of pauses are about 8 times
+the longest replacement measured. `tests/test_run_readers_wait.py` makes the refusal with a fake `open`.
+What it costs: a run.json that can never be opened (a permission denied, not a folder of that name, which `isfile`
+turns away first) answers 1.58 s later than before with the same answer, on Windows only (`/api/reach` checks twice,
+about 3.2 s; in the quick lane, one task at a time, the next task waits as long).
+Not covered:
+- **A run.json absent for a moment** (the user's answer 9 of 2026-11-25: "Known limit", the option worded "Write it
+  into the known bugs with the measurement. Nothing more is built."). In 2 of those twelve probe runs, one from a thread and one from a
+  process, the name was not there at all about once per move (`FileNotFoundError` 2 910 and 2 375 times,
+  `os.path.isfile` False as often); in the other ten, in four further cases and in every reader's run, never. Its
+  cause, how long it lasts and its error code were not caught; the writer saw no error. `read_meta` does not wait for
+  it, nor do the `isfile` checks of `list_runs` and of the web's `may_open` (behind `run_access`): a reader meeting it answers as for a missing file
+  (`profile_problem` no profiles, an export's POST a 500 and its GET a file named by the run id, the quick lane's
+  task a 500, `export` and `view` a traceback; a listing leaves the run out, an access check answers 404). Windows
+  only; the public site runs on Linux.
+- `runs.run_state` (`runs remove-old`) still opens it bare: a refusal is "cannot read now", the run skipped, never
+  removed.
+- `view`'s second read: `app_holds` asks the local app for the run's run.json, which the local app's static files
+  (Starlette's `StaticFiles` at `/runs`) open bare; a refusal there makes `view` take the app for another program
+  ("Port answers, but not with this run"), read from the code, not run.
+A red `test_two_jobs_computing_at_once` on Windows with this error after 2026-11-24 is new: the hold then outlasted
+the pauses, or it came at another reader.
 
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
