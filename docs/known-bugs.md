@@ -829,7 +829,7 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
 ## Line volume, round 7: known and left (2026-11-25)
 
 Found in round 7's reviews and checks (renaming a run, the size on Home, the screenshot states of the filters,
-`linestore.read` of chosen columns, the home-screen app); none fixed. The user's answers of 2026-11-25 are quoted.
+`linestore.read` of chosen columns); none fixed. The user's answers of 2026-11-25 are quoted.
 
 **Renaming a run** (the public site only)
 - **The result view's header at tablet widths** (the user's answer 6: "Known bug, design later"; a header layout for

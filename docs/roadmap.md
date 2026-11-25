@@ -278,10 +278,10 @@ how a result is organised), built the low-effort part and specified the rest.
   on Home's card ("Size on Home only") and the loading line counted in 10^6 bytes; 2e measured and dropped ("Drop the
   ranges"); with them the extras A3 (`tools/ui_shots.py` states of the filter editor and More filters), A4
   (`linestore.read` of chosen columns), A6 (a way back from a run that cannot load), A7 (Compare's causes and its
-  list), A8 (`--html` removed) and B8 (the site on a phone's home screen, its bars by the theme chosen in the app);
+  list) and A8 (`--html` removed);
   the readers handed a run read its run.json through `runs.read_meta` too (the user's "d" of 2026-11-24; a squash of
   its own, `run-readers-wait`), as the rename's own read does. What it
-  decided: [spec.md](line-volume/spec.md) section 6.9; the looks: docs/DESIGN.md rows 22, 81, 98, 100, 108, 137 and
+  decided: [spec.md](line-volume/spec.md) section 6.9; the looks: docs/DESIGN.md rows 22, 81, 98, 100, 108 and
   R9; left: docs/known-bugs.md ("Line volume, round 7") and the list below. None of the specification's steps is open.
 
 ### Line volume round 6: open (2026-11-22)
@@ -298,9 +298,9 @@ From the gates and reviews of round 6, each with its source (the user's answers 
   are four toggle buttons and four Tab stops; `ui/radios.ts` (`radioKeys`, `radioStop`) would make them one stop with
   arrows (DESIGN.md row 82), the buttons `role=radio` with `aria-checked` (`test_shell_c_view_map.py` reads
   `aria-pressed` and changes with it).
-- *Done in line volume's round 7 (B8, DESIGN.md row 137).* **"Add to home screen" as a web app** (the user's 8 a at
-  gate 2: a separate small task after the switch): a manifest, icons, a standalone display and portrait orientation,
-  so a phone gives the page the address bar's and the navigation buttons' room.
+- **"Add to home screen" as a web app** (the user's 8 a at gate 2: a separate small task after the switch): a
+  manifest, icons, a standalone display and portrait orientation, so a phone gives the page the address bar's and the
+  navigation buttons' room.
 - **"Top level" per spot as a possible search filter** (the user, 2026-11-22: "Ok add it to road map as a possible
   search filter"): today's flag (K-17) is decided per 8 m cell, so lines of one face about 30 m apart in height can all
   be top level when their anchors fall in other cells (the Gozo coast's re-run of 2026-11-22, spot 1858: the highest
@@ -366,15 +366,6 @@ started.
   "Line volume, round 7"): mark the pressed main chip while its editor is open (as More filters' chip turns `u-on`);
   draw a range's empty track inside the editor's grey box; open the editor in sight at a phone's half height (raise
   the sheet, or scroll the editor in). Each a design look first.
-- **Telling a person that the site can be added to a phone's home screen** (round 7's point 24: nothing on the site
-  says so; an iPhone offers it only in its Share menu): a short how-to on the Account page would need its texts
-  approved and a mock-up.
-- **What the home-screen icon opens**: the manifest's start is "/", so an icon added from a run's `map.html` opens
-  Home and one added from a share link opens the sign-in page, not the shared run. Whether a share link's visitor
-  should get the run: the user's.
-- **The browser's own install offer**: Chrome and Edge offer to install the site by themselves (an icon in the
-  desktop's address bar, "Install app" in Android's menu, possibly a bar at the bottom of a phone's screen after some
-  use); a `beforeinstallprompt` handler in the bundle would hold it back, not on the server's pages. The user's.
 - **A share link's "too large" page has no next step** (round 7's A6 kept it: Back is not offered to a share link's
   visitor, and "Try again" cannot help).
 - **"Update Find-a-Line to open it." shows on the public site too** (a store of a newer format), where the visitor
