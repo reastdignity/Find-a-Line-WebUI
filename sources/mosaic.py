@@ -137,12 +137,12 @@ def read_window(entries: List[Dict], before: Dict[str, Noted], cache_dir: str) -
     for entry in entries:
         identity = entry.get("identity")
         if "paths" in entry and isinstance(identity, dict) and "sha256" in identity:
-            identity["sha256"] = [s if _same(before.get(p), s, cache_dir, p) else None
+            identity["sha256"] = [s if _same_note(before.get(p), s, cache_dir, p) else None
                                   for p, s in zip(entry["paths"], identity["sha256"])]
     return entries
 
 
-def _same(noted: Optional[Noted], sha256: Optional[str], cache_dir: str, path: str) -> bool:
+def _same_note(noted: Optional[Noted], sha256: Optional[str], cache_dir: str, path: str) -> bool:
     """Whether a file's note after the read (its stored sha256, its identity on disk now) is its note before."""
     return (sha256 is not None and noted is not None and noted[0] == sha256 and noted[1] is not None
             and noted[1] == _on_disk(os.path.join(cache_dir, *path.split("/"))))
