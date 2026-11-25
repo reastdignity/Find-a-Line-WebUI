@@ -428,3 +428,24 @@ def test_a_box_pressed_off_with_the_mouse_keeps_the_focus(rename_site, view_clip
     assert at_left != RUN_TOO and at_left != "body" and still, (at_left, still)
     assert (left["aria"], left["disabled"], left["checked"]) == (None, True, False), left
     assert row_left["line"] == row["line"], (row_left, row)
+
+
+def test_a_held_box_is_a_disabled_one_after_compare_was_closed_from_outside(rename_site, view_clip):
+    """A run too large for the browser ticked with the mouse: its box is held off with the focus on it. A press outside
+    Compare (on the map) closes the box with the focus still in it; opened again, that row's box is a disabled box as
+    the others (no aria-disabled), its cause kept."""
+    site, data = rename_site
+    add_run(view_clip, data, RUN_TOO, NAME_TOO)
+    with Browser(site) as browser:
+        page = open_view(browser, site, TOO_LARGE % RUN_TOO)
+        open_compare(page)
+        tick(page, NAME_TOO)
+        settled(page, NAME_TOO)
+        held = page.evaluate(BOX_STATE, RUN_TOO)
+        page.mouse.click(700, 600)  # the map, clear of the header and of Compare's box
+        page.wait_for_selector(BOX, state="detached")
+        again = open_compare(page)[NAME_TOO]
+        box = page.evaluate(BOX_STATE, RUN_TOO)
+    assert (held["aria"], held["disabled"]) == ("true", False), held
+    assert (box["aria"], box["disabled"], box["checked"]) == (None, True, False), box
+    assert again["line"].endswith(" · too large for this browser") and again["off"], again

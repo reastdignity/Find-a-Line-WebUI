@@ -163,7 +163,10 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
     <span class="u-grow">{item.run.name}<span class="u-small"> · {day(item.run.created)} · {item.km < 1 ? t("ui.actions.here")
       : num0(item.km) + " km"}{note(item)}</span></span>
   </label>;
-  return <Popover label={t("ui.actions.compare_label")} align="right"
+  // the box closed with a held row in it (a press outside takes the box away with the focus in it: no blur comes):
+  // the row is a disabled one when the box opens again
+  const closed = (open: boolean) => { if (!open) setItems((all) => all && all.map((i) => i.held ? {...i, held: false} : i)); };
+  return <Popover label={t("ui.actions.compare_label")} align="right" onOpen={closed}
                   button={(open, toggleOpen) => compact
                     ? <IconButton icon="compare" label={t("ui.actions.compare")} expanded={open} onClick={() => { load(); toggleOpen(); }} />
                     : <Button icon="compare" aria-expanded={open} onClick={() => { load(); toggleOpen(); }}>{t("ui.actions.compare")}</Button>}>
