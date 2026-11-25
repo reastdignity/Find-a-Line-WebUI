@@ -875,8 +875,8 @@ Found in round 7's reviews and checks (renaming a run, the size on Home, the scr
 **The size on Home and the loading line** (`viewer/src/size.ts`)
 - **A total under 5 000 bytes reads "0.00 of 0.00 MB"** while it loads (two decimals below 50 000 bytes: the user's
   answer 3, "Two decimals"). Left as built (the planner's decision of 2026-11-25): no run's store is that small (the
-  smallest `linestore.write` makes, no lines and an empty head, is 9 092 bytes, and a search without lines saves no
-  run); only an answer that is no store could be (a portal's or a proxy's page of 200 under 5 000 bytes), until its
+  smallest `linestore.write` makes, no lines and an empty head, is 9 092 bytes, measured again on 2026-11-25:
+  lines.arrow 5 922, profiles.arrow 3 170; and a search without lines saves no run); only an answer that is no store could be (a portal's or a proxy's page of 200 under 5 000 bytes), until its
   read fails as "could not be loaded" (read from the code, not tried).
 - **Home's card rounds exact halves both ways** (`toFixed` of a double, older than the round's two-decimal line):
   150 000 bytes read "0.1 MB", 250 000 "0.3 MB", 350 000 "0.3 MB", 850 000 "0.8 MB". From 999.95 GB a size reads
