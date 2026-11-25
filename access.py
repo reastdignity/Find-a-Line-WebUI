@@ -495,8 +495,8 @@ class _Mask:
 
     def window(self, r0: int, r1: int, c0: int, c1: int) -> np.ndarray:
         b0, b1 = c0 // 8, -(-c1 // 8)
-        bits = np.unpackbits(self._bytes(r0, r1)[:, b0:b1], axis=1)
-        return np.ascontiguousarray(bits[:, c0 - 8 * b0:c1 - 8 * b0]).view(bool)
+        bits = np.unpackbits(self._bytes(r0, r1)[:, b0:b1], axis=1, count=c1 - 8 * b0)
+        return bits[:, c0 - 8 * b0:].view(bool)  # a view of the unpacked bytes, no copy (its callers copy or read)
 
     def flush(self) -> None:
         if self._f is not None:
