@@ -571,8 +571,8 @@ def _local_time(created: str) -> str:
         return created[:16].replace("T", " ")
 
 
-# The pauses of a reader of a saved run's run.json (read_meta: every product reader but the local app's static
-# /runs: list_runs, update.changed_runs, the readers handed a run, rename_run's own read too) whose open of
+# The pauses of a reader of a saved run's run.json (read_meta: every product reader but run_state and the local
+# app's static /runs: list_runs, update.changed_runs, the readers handed a run, rename_run's too) whose open of
 # a run.json Windows refuses (PermissionError): the file is held for a moment after cache.replacing moved it to its
 # name, new or replacing one, while another process or thread writes it. Measured on a loaded PC, 2026-11-24, with a
 # reader that opens the file as it appears: refused at 1 816 of 3 000 new files, each read 7 ms after its first
