@@ -525,10 +525,13 @@ class _Regions:
         self._backward()
 
     def _label(self, s: int):
-        """A strip's labels, int64: the pieces' count (bincount) and every lookup by label take them without a cast
-        (about twice as fast as int32 ones); 8 B per pixel of a strip, two strips held."""
+        """A strip's labels, int32 (4 B per pixel of a strip, two strips held): a strip's working memory may not grow
+        past wave 1's. int64 labels were measured to make the pieces' count and the lookups by label about twice as
+        fast (on a strip of 1.6 Mpx 2.0 against 3.9 ms and 0.9 against 1.8 ms; the Gozo coast at 1 m, strips of 110
+        rows: the open ground's regions 0.4 to 0.5 s less), and to cost 4 B per pixel more of the two strips held (a
+        full strip of 4 Mpx with heights 70 -> 118 MB, the worst made-up strip 176 -> 209 MB): kept as a variant."""
         r0, r1 = self.strips[s]
-        return ndimage.label(self.mask.rows(r0, r1), structure=_EIGHT, output=np.int64)
+        return ndimage.label(self.mask.rows(r0, r1), structure=_EIGHT, output=np.int32)
 
     def _forward(self, judge, heights, settled, on_strip):
         w, last = self.mask.shape[1], len(self.strips) - 1
