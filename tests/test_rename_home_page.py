@@ -427,11 +427,61 @@ def test_a_small_phone_keeps_the_menu_and_the_line_in_sight(rename_site):
         line = page.evaluate(box, f"{card(last)} .c-rename [role=alert]")
         controls = page.evaluate("(sel) => [...document.querySelectorAll(sel + ' .c-rename input, ' + sel + ' .c-rename button')]"
                                  ".map((c) => Math.round(c.getBoundingClientRect().height))", card(last))
+    # the card low enough: the menu, opened where its button stood, would have reached under the bar
+    assert before["bottom"] + (menu["bottom"] - menu["top"]) > before["bar"], (before, menu)
     assert menu["bottom"] <= menu["bar"] and menu["top"] >= menu["page"], (before, menu)
     assert min(sizes) >= 44, sizes
     assert panel["bottom"] <= panel["bar"], panel
     assert line["bottom"] <= line["bar"], line
     assert min(controls) >= 44, controls
+
+
+# A failure's words long enough for four lines in a small phone's card panel (a server's long message)
+LONG_FAILURE = ("A made-up failure whose words are long enough to take four lines in the card's narrow panel on a small "
+                "phone, as a long message of the server would, so that its line is taller.")
+
+
+def test_a_small_phone_keeps_a_long_line_in_sight(rename_site):
+    """On a 390 by 664 phone the panel of the last card, opened from its menu, leaves less room above the bottom bar
+    than a failure's line of four lines (a server's long message) takes: once that line is drawn the panel is
+    scrolled into view again and the line stands whole above the bar (where the page stood, it would end under the
+    bar)."""
+    site, _ = rename_site
+    box = ("(sel) => { const b = document.querySelector(sel).getBoundingClientRect(), "
+           "bar = document.querySelector('.u-bnav').getBoundingClientRect(), main = document.querySelector('.c-main'); "
+           "return {top: Math.round(b.top), bottom: Math.round(b.bottom), bar: Math.round(bar.top), "
+           "page: Math.round(main.getBoundingClientRect().top), scroll: Math.round(main.scrollTop)}; }")
+    above = ("(sel) => document.querySelector(sel).getBoundingClientRect().bottom <= "
+             "document.querySelector('.u-bnav').getBoundingClientRect().top")
+    with Browser(site) as browser:
+        page = browser.page(device=SMALL_PHONE)
+        open_home(page, site)
+        last = page.evaluate("() => [...document.querySelectorAll('.c-cards > .c-card')].pop().dataset.run")
+        page.route(f"**/api/runs/{last}", lambda route: route.fulfill(status=500, content_type="application/json",
+                                                                       body=json.dumps({"detail": LONG_FAILURE}))
+                   if route.request.method == "POST" else route.continue_())
+        page.evaluate("() => { document.querySelector('.c-main').scrollTop = 0; }")
+        page.tap(f"{card(last)} .c-card-menu")
+        page.wait_for_selector(f"{card(last)} [role=menu]")
+        page.wait_for_function(above, arg=f"{card(last)} .r-pop")
+        page.tap(f"{card(last)} [role=menuitem]:has-text('Rename…')")
+        # the panel's effects ran (the focus in the field: the panel scrolled into view in the same effect)
+        page.wait_for_function("(sel) => { const i = document.querySelector(sel + ' .c-rename input'); "
+                               "return !!i && document.activeElement === i; }", arg=card(last))
+        panel = page.evaluate(box, f"{card(last)} .c-card-panel")
+        page.locator(f"{card(last)} .c-rename input").fill("Another name")
+        page.tap(f"{card(last)} .c-rename button:has-text('Save')")
+        page.wait_for_selector(f"{card(last)} .c-rename [role=alert]")
+        page.wait_for_function(above, arg=f"{card(last)} .c-rename [role=alert]")
+        line = page.evaluate(box, f"{card(last)} .c-rename [role=alert]")
+        words = page.evaluate("(sel) => document.querySelector(sel).textContent", f"{card(last)} .c-rename [role=alert]")
+    assert words == LONG_FAILURE, words
+    assert panel["bottom"] <= panel["bar"], panel
+    # the room under the panel at its opening is less than the line's height: the line cannot fit without a scroll;
+    # where the page stood then, the line would end under the bar
+    assert panel["bar"] - panel["bottom"] < line["bottom"] - line["top"], (panel, line)
+    assert line["bottom"] + (line["scroll"] - panel["scroll"]) > line["bar"], (panel, line)
+    assert line["bottom"] <= line["bar"] and line["top"] >= line["page"], line
 
 
 def test_the_local_app_has_no_rename(tmp_path, view_clip):
