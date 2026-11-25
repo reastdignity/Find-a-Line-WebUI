@@ -259,7 +259,11 @@ phone's sheet at full height for the list's states: `VIEW_HALF` twice); their st
 favourites' halos, a measured line, Compare's other run, a selected line with its card or dock, the star's folders,
 the closed profile, the list's stars and help, the spot stepper, the sort's direction, the empty state, the coast
 states `c-view-boxes`, `-chips-held`, `-box-coarser`, `-box-shore`, `-link-centre` with `--run` of a coastal run:
-`tools/ui_coast_run.py`); `tests/test_ui_shots_view_states.py`.
+`tools/ui_coast_run.py`); `tests/test_ui_shots_view_states.py`. Line volume's round 7 (A3) added `c-view-editor`
+(Length's editor open under the chips), `c-view-more` (More filters open) and `c-view-more-end` (More filters scrolled
+to its end: the list's body on a desktop, the sheet's body on a phone; a wait proves the section's last control wholly
+in view), on every device with a phone's sheet at full, right before `c-view-note`: they change no filter, and the
+states after them set filters the pass keeps (`findaline.filters`).
 
 Line volume's round 7 (renaming a run, the failed and loading pages, Compare's causes): Home's `c-card-menu`,
 `c-card-menu-search` (an owner's card with its search: "Edit & run again" in the menu), `c-card-menu-low` (a low
