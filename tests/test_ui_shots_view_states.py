@@ -26,8 +26,8 @@ COVERED = {
     "X1 shore": "c-view-box-shore",
     "card open": "c-view-card", "card folded": "c-view-card-folded", "boxes": "c-view-boxes", "chips": "c-view-boxes",
     "rails": "c-view-rails", "map.html": "c-view-map", "map.html line": "c-view-map-line", "share link": "c-view-shared",
-    # round 7's PG: the header's Rename box open, Compare's three causes (a desktop)
-    "PG rename": "c-view-rename", "PG Compare's causes": "c-view-compare-causes",
+    # round 7's PG: the header's Rename box open, a refused name in it, Compare's three causes (a desktop)
+    "PG rename": "c-view-rename", "PG rename refused": "c-view-rename-refused", "PG Compare's causes": "c-view-compare-causes",
     # C4's (step 3d: the spot stepper, the sort's direction, the star's picker on a phone)
     "C4 stepper, desktop": "c-view-stepper", "C4 stepper, phone at half": "c-view-stepper-half",
     "C4 stepper, phone low": "c-view-stepper-low", "C4 Previous off": "c-view-stepper-first",
@@ -68,7 +68,7 @@ def test_the_states_open_the_view():
     desktop = [n for n, p in ui_shots.VIEW_STATES.items() if ui_shots.VIEW_DESKTOP in p[2]]
     phone = [n for n, p in ui_shots.VIEW_STATES.items() if ui_shots.VIEW_PHONE in p[2]]
     assert set(desktop) == {"c-view-other-run", "c-view-card", "c-view-card-folded", "c-view-rails", "c-view-stepper",
-                            "c-view-rename", "c-view-compare-causes"}
+                            "c-view-rename", "c-view-rename-refused", "c-view-compare-causes"}
     assert set(phone) == {"c-view-chips-held", "c-view-box-coarser", "c-view-box-shore", "c-view-stepper-half",
                           "c-view-stepper-low", "c-view-picker-low"}
     assert ui_shots.select_pages("c-view-") and set(ui_shots.VIEW_STATES) <= set(ui_shots.select_pages("c-view"))
@@ -99,15 +99,16 @@ def test_todays_pages_are_pinned():
 
 def test_the_owners_header_has_edit_and_run_again():
     """G3: c-view-share's page gets a finished job of its run in the app's list (answered in the page, after the storage
-    of its init script), so the header has "Edit & run again"; so does c-view-rename's (round 7's PG: the owner's
-    header with its Rename box); no other page has the stub. The other init scripts are round 7's (PG:
-    tests/test_ui_shots_round7.py)."""
-    assert set(ui_shots.PAGE_SCRIPTS) == {"c-view-share", "c-view-rename", "c-view-compare-causes", "map-failed",
-                                          "map-failed-shared", "c-run-failed", "c-run-loading"}
-    for name in ("c-view-share", "c-view-rename"):
+    of its init script), so the header has "Edit & run again"; so do round 7's (PG) view states of the owner's header:
+    the Rename box, a refused name in it, Compare's causes (its stub last, after its runs' script); no other page has
+    the stub. The other init scripts are round 7's (PG: tests/test_ui_shots_round7.py)."""
+    owners = ("c-view-share", "c-view-rename", "c-view-rename-refused", "c-view-compare-causes")
+    assert set(ui_shots.PAGE_SCRIPTS) == {*owners, "c-card-menu-search", "c-card-menu-low", "map-failed",
+                                          "map-failed-shared", "map-too-large", "c-run-failed", "c-run-loading",
+                                          "c-run-loading-gb"}
+    for name in owners:
         assert ui_shots.page_storage(name).endswith(ui_shots.VIEW_JOB_STUB), name
-    assert all(ui_shots.VIEW_JOB_STUB not in ui_shots.page_storage(n) for n in ui_shots.PAGES
-               if n not in ("c-view-share", "c-view-rename"))
+    assert all(ui_shots.VIEW_JOB_STUB not in ui_shots.page_storage(n) for n in ui_shots.PAGES if n not in owners)
     assert "pathname !== '/api/jobs'" in ui_shots.VIEW_JOB_STUB and "init.method !== 'GET'" in ui_shots.VIEW_JOB_STUB
     assert "Edit & run again" in ui_shots.PAGES["c-view-share"][2][1]
 

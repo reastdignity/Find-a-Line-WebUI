@@ -305,34 +305,66 @@ CARD_RENAME = ["js:[...document.querySelectorAll('.c-card[data-run] [role=menu] 
                ".find((b) => b.textContent.trim() === 'Rename…')?.click()",
                "wait:(() => { const f = document.querySelector('.c-card-panel .c-rename input'); return !!f && f.value.length > 0 "
                "&& document.activeElement === f && f.selectionStart === 0 && f.selectionEnd === f.value.length; })()"]
-CARD_REFUSED_NAME = "Sample\tname"
-CARD_RENAME_SAVE = "document.querySelector('.c-card-panel .c-rename button[type=submit]')"
-CARD_RENAME_REFUSED = ["js:(() => { const f = document.querySelector('.c-card-panel .c-rename input'); "
-                       "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(f, %s); "
-                       "f.dispatchEvent(new Event('input', {bubbles: true})); })()" % json.dumps(CARD_REFUSED_NAME),
-                       f"wait:{CARD_RENAME_SAVE}?.disabled === false", f"js:{CARD_RENAME_SAVE}.click()",
-                       "wait:document.querySelector('.c-card-panel .c-rename [role=alert]')"]
+REFUSED_NAME = "Sample\tname"
+
+
+def rename_refused(form: str) -> list:
+    """The steps of a refused rename in the rename form `form` (a selector of its .c-rename): REFUSED_NAME typed, Save
+    pressed once it is on, the refusal's line waited for."""
+    save = f"document.querySelector('{form} button[type=submit]')"
+    return [f"js:(() => {{ const f = document.querySelector('{form} input'); "
+            "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(f, %s); "
+            "f.dispatchEvent(new Event('input', {bubbles: true})); })()" % json.dumps(REFUSED_NAME),
+            f"wait:{save}?.disabled === false", f"js:{save}.click()", f"wait:document.querySelector('{form} [role=alert]')"]
+
+
+CARD_RENAME_REFUSED = rename_refused(".c-card-panel .c-rename")
+# The card of the run's search (its job answered in the page: HOME_JOB_STUB), its menu opened by a click as CARD_MENU's
+# and waited for with "Edit & run again" among its items
+CARD_MENU_SEARCH = ["wait:document.querySelector('.c-card[data-run][data-job] .c-card-menu')",
+                    ".c-card[data-run][data-job] .c-card-menu",
+                    "wait:[...document.querySelectorAll('.c-card[data-run][data-job] [role=menu] [role=menuitem]')]"
+                    ".some((i) => i.textContent.trim() === 'Edit & run again')"]
+# The last of six cards (five made up in the page: HOME_MORE_RUNS) placed low: its menu's button scrolled to just above
+# the phones' bottom bar (.u-bnav; a desktop: the window's bottom, where the page can scroll so far) and marked, then
+# clicked as a person's click: the page itself brings the opened menu into view (Home.tsx, c.css scroll-padding-bottom)
+CARD_LAST_LOW = ("(() => { const all = [...document.querySelectorAll('.c-card[data-run] .c-card-menu')], b = all[all.length - 1]; "
+                 "if (!b) return; let box = b.parentElement; "
+                 "while (box && !/auto|scroll/.test(getComputedStyle(box).overflowY)) box = box.parentElement; "
+                 "box = box || document.scrollingElement; const bar = document.querySelector('.u-bnav')?.getBoundingClientRect(); "
+                 "box.scrollTop += b.getBoundingClientRect().bottom - ((bar && bar.height ? bar.top : innerHeight) - 8); "
+                 "b.setAttribute('data-shot-last', ''); })()")
+CARD_MENU_LOW = ["wait:document.querySelectorAll('.c-card[data-run] .c-card-menu').length >= 6", "js:" + CARD_LAST_LOW,
+                 "[data-shot-last]", "wait:document.querySelector('.c-card[data-run] [role=menu]')"]
 # line volume's round 7 (PG): a run's page that cannot load its store or still downloads it (RunLoading.tsx: the box
 # .c-result-wait with the way back, the sentence and "Try again", or the loading line and its bar), each made by an init
 # script of its page (PAGE_SCRIPTS: RUN_STORE_MISSING, RUN_STORE_LOADING). Its result is never drawn: these pages are a
 # family of their own (RUN_WAITS, PAGE_STATE "run-wait"), drawn once the box shows the failure's sentence or a bar of
 # a known amount. A run's own map.html: the Back button "Find-a-Line", the sentence, "Try again"; a share link's page:
-# no Back, "Try again" and the second sentence; the app's page: Back "Home", the sentence, "Try again"; the app's page
-# while the run downloads, its total known: the loading line and its bar part-way (17 %)
+# no Back, "Try again" and the second sentence; the app's page: Back "Home", the sentence, "Try again"; a run's own
+# map.html whose store is too large for the browser: Back and the sentence, no "Try again"; the app's page while the run
+# downloads, its total known: the loading line and its bar part-way (17 %; in GB: 22 %)
 RUN_FAILED = "wait:!!document.querySelector('.c-result-wait p.c-error') && !!document.querySelector('.c-result-wait .c-retry')"
 RUN_FAILED_BACK = RUN_FAILED + " && !!document.querySelector('.c-result-wait .c-back')"
 RUN_FAILED_SHARED = (RUN_FAILED + " && !!document.querySelector('.c-result-wait .c-wait-more') "
                      "&& !document.querySelector('.c-result-wait .c-back')")
-RUN_LOADING = ("wait:Number(document.querySelector('.c-result-wait .c-loading .u-prog:not(.u-busy)')"
-               "?.getAttribute('aria-valuenow')) === 17")
-RUN_WAITS = ("map-failed", "map-failed-shared", "c-run-failed", "c-run-loading")
+RUN_TOO_LARGE = ("wait:!!document.querySelector('.c-result-wait p.c-error') && !!document.querySelector('.c-result-wait .c-back') "
+                 "&& !document.querySelector('.c-result-wait .c-retry')")
+RUN_LOADING_AT = ("wait:Number(document.querySelector('.c-result-wait .c-loading .u-prog:not(.u-busy)')"
+                  "?.getAttribute('aria-valuenow')) === %d")
+RUN_LOADING = RUN_LOADING_AT % 17
+RUN_LOADING_GB = RUN_LOADING_AT % 22
+RUN_WAITS = ("map-failed", "map-failed-shared", "map-too-large", "c-run-failed", "c-run-loading", "c-run-loading-gb")
 PAGES = {
     "c-home": ("c", "", None),
     "c-home-limited": ("c", "", None, "walker"),  # the usage meters of a user with the site's limits
-    # line volume's round 7 (PG): the run's card's menu open; its "Rename…" pressed (the form); a name the server
-    # refuses sent (its refusal's line)
+    # line volume's round 7 (PG): the run's card's menu open; the menu of a run's card that has its search ("Edit & run
+    # again"); the last of six cards' menu opened low (the page brings it into view above a phone's bottom bar); its
+    # "Rename…" pressed (the form); a name the server refuses sent (its refusal's line)
     # (named "c-card-*", not "c-home-*": a part "c-home" picks Home alone)
     "c-card-menu": ("c", "", CARD_MENU),
+    "c-card-menu-search": ("c", "", CARD_MENU_SEARCH),
+    "c-card-menu-low": ("c", "", CARD_MENU_LOW),
     "c-card-rename": ("c", "", CARD_MENU + CARD_RENAME),
     "c-card-rename-refused": ("c", "", CARD_MENU + CARD_RENAME + CARD_RENAME_REFUSED),
     "c-menu": ("c", "", ".c-account-btn"),        # the account menu (desktop: a popover)
@@ -437,8 +469,10 @@ PAGES = {
     # loaded; the app's page while the run downloads (RUN_WAITS)
     "map-failed": ("map", "", RUN_FAILED_BACK),
     "map-failed-shared": ("shared", "", RUN_FAILED_SHARED),  # (not "map-shared-*": a part "map-shared" picks its own)
+    "map-too-large": ("map", "", RUN_TOO_LARGE),
     "c-run-failed": ("c", "#run={run}", RUN_FAILED_BACK),
     "c-run-loading": ("c", "#run={run}", RUN_LOADING),
+    "c-run-loading-gb": ("c", "#run={run}", RUN_LOADING_GB),
     "map-credits": ("map", "", ".u-credits-toggle"),  # the data credits unfolded (phones: on a desktop no button)
     "map-layers": ("map", "", "js:" + LAYERS_OPEN),  # the base layers (Esri with ESRI_API_KEY set)
     "map-esri": ("map", "", "js:" + ESRI_ON),  # the satellite layer shown (ESRI_API_KEY set; else as "map")
@@ -613,16 +647,18 @@ VIEW_OTHER_RUN = """js:(() => { const {view, map} = window.FINDALINE_VIEW, m = v
   view.setLevel('spots'); })()"""
 # line volume's round 7 (PG): the view's Rename (a desktop's header: RunRename.tsx). The owner's header (its job answered
 # in the page, as c-view-share's: PAGE_SCRIPTS) with the Rename button, pressed by a script; its box under the title
-# waited for with the whole name selected in its field
-VIEW_RENAME = ["wait:!!document.querySelector('[aria-label=\"Edit & run again\"], .c-result-top a[href*=\"edit\"]') "
-               "&& !!document.querySelector('.c-run-title .c-rename-btn')",
+# waited for with the whole name selected in its field; then a name the server refuses sent (rename_refused)
+VIEW_OWNER = "wait:!!document.querySelector('[aria-label=\"Edit & run again\"], .c-result-top a[href*=\"edit\"]')"
+VIEW_RENAME = [VIEW_OWNER + " && !!document.querySelector('.c-run-title .c-rename-btn')",
                "js:" + VIEW_PRESS % ".c-run-title .c-rename-btn",
                "wait:(() => { const f = document.querySelector('.c-run-title .r-pop .c-rename input'); return !!f && f.value.length > 0 "
                "&& document.activeElement === f && f.selectionStart === 0 && f.selectionEnd === f.value.length; })()"]
+VIEW_RENAME_REFUSED = rename_refused(".c-run-title .r-pop .c-rename")
 # Compare's runs that cannot be shown, one per cause (RunActions.tsx CAUSE_TEXT): (name, id, kind, the end of its row
 # once ticked), made up in the page beside the shown run by COMPARE_CAUSES_RUNS (PAGE_SCRIPTS; every name invented).
-# Compare opened (a desktop's header), the three rows waited for, each box ticked by a script's click, the three causes
-# waited for: the first two boxes then off
+# The owner's header waited for (its job answered in the page: the list of runs is then forgotten once, AppC.tsx, and
+# read again by Compare), Compare opened (a desktop's header), the three rows waited for, each box ticked by a script's
+# click, the three causes waited for: the first two boxes then off
 COMPARE_CAUSES = [("Sample ridge", "2026-11-20_120000_Sample_ridge_000000000000e1", "large", "too large for this browser"),
                   ("Sample massif", "2026-11-20_120000_Sample_massif_00000000000e2", "newer", "made by a newer Find-a-Line"),
                   ("Sample coast", "2026-11-20_120000_Sample_coast_000000000000e3", "gone", "could not be loaded")]
@@ -630,6 +666,7 @@ COMPARE_ROWS = "[...document.querySelectorAll('.r-pop .r-others label.r-other')]
 COMPARE_NAME = "(o) => o.querySelector('.u-grow')?.firstChild?.textContent"
 COMPARE_NAMES = json.dumps([name for name, *_ in COMPARE_CAUSES])
 VIEW_COMPARE_CAUSES = [
+    VIEW_OWNER,
     VIEW_ACTION % "Compare",
     "wait:(() => { const names = %s.map(%s); return %s.every((n) => names.includes(n)); })()"
     % (COMPARE_ROWS, COMPARE_NAME, COMPARE_NAMES),
@@ -715,9 +752,10 @@ VIEW_STATES = {
                                                     ".find((b) => b.offsetParent)?.click()", "wait:document.querySelector('.v-help')"]),
     "c-view-measuring": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, VIEW_ACTION % "Measure", "wait:window.FINDALINE_VIEW.map.isMeasuring"]),
     # line volume's round 7 (PG), a desktop's header (a phone has neither: left out by VIEW_DESKTOP): the Rename box
-    # open; Compare with a run of each cause that cannot be shown. Nothing saved (the box is only opened, the runs are
-    # the page's own), nothing kept in the browser
+    # open; a name the server refuses sent there; Compare with a run of each cause that cannot be shown. Nothing saved
+    # (the server refuses the name, the runs are the page's own), nothing kept in the browser
     "c-view-rename": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP] + VIEW_RENAME),
+    "c-view-rename-refused": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP] + VIEW_RENAME + VIEW_RENAME_REFUSED),
     "c-view-compare-causes": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP] + VIEW_COMPARE_CAUSES),
     # the desktop's card: open (a line selected, its profile drawn), folded; both side panels as rails (LAYOUTS)
     "c-view-card": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP, VIEW_SPOTS, "js:" + VIEW_SELECT, VIEW_SELECTED, VIEW_CHART]),
@@ -792,22 +830,27 @@ VIEW_JOB_STUB = ("(() => { const run = decodeURIComponent((location.hash.match(/
                  "own: true}], "
                  "seq: 1, worker: true}), {headers: {'content-type': 'application/json'}})); })();")
 PAGE_SCRIPTS = {"c-view-share": VIEW_JOB_STUB}
-# line volume's round 7 (PG): c-view-compare-causes' runs (COMPARE_CAUSES) in the page's list of runs. The list's script
-# (/runs/runs.js) sets window.FINDALINE_RUNS: here a setter that adds the three to it, each with the box, centre, day and
+# line volume's round 7 (PG): c-view-compare-causes' runs (COMPARE_CAUSES) in every list of runs the page reads. The
+# list's script (/runs/runs.js, which load.ts loadRunList adds to the page, again after each forgetRunList: the owner's
+# finished job makes AppC.tsx forget the list once) sets window.FINDALINE_RUNS; the document's capturing listener of
+# "load" sees that script loaded before the script's own onload reads the list, and adds the three to that list in place
+# (not a property of the window: forgetRunList deletes the property), each once, with the box, centre, day and
 # description of the shown run (the address's), so each is "here": the first's lines.arrow asked for as the shown run's
 # (an answer of 200) whose body the browser could not hold (a null response: load.ts TooLarge); the second's store of a
-# newer format (refused before any download); the third no run of the site (its lines.arrow answered 404). load.ts
-# forgetRunList would delete the setter with the list: the site has no job, so the app's list of jobs never says on this
-# page that a search ended (AppC.tsx), and the job stub stays off it
+# newer format (refused before any download); the third no run of the site (its lines.arrow answered 404)
 COMPARE_CAUSES_RUNS = """(() => {
   const run = decodeURIComponent((location.hash.match(/run=([^&]+)/) || [])[1] || ''), made = %s;
-  let runs;
-  Object.defineProperty(window, 'FINDALINE_RUNS', {configurable: true, enumerable: true, get: () => runs, set: (list) => {
-    const shown = Array.isArray(list) ? list.find((r) => r.id === run) : undefined;
-    runs = !shown ? list : list.concat(made.map(([name, id, kind]) => ({id, name, bbox: shown.bbox, center: shown.center,
-      created: shown.created, description: shown.description, has_lines: true, has_map: true,
-      ...(kind === 'newer' ? {store: {format: 99, lines: 1, bytes: 1, sha256: ''}} : {})})));
-  }});
+  document.addEventListener('load', (e) => {
+    const s = e.target, list = window.FINDALINE_RUNS;
+    if (!(s instanceof HTMLScriptElement) || new URL(s.src || '/', location.href).pathname !== '/runs/runs.js' || !Array.isArray(list)) return;
+    const shown = list.find((r) => r.id === run);
+    if (!shown) return;
+    for (const [name, id, kind] of made) {
+      if (!list.some((r) => r.id === id)) list.push({id, name, bbox: shown.bbox, center: shown.center, created: shown.created,
+        description: shown.description, has_lines: true, has_map: true,
+        ...(kind === 'newer' ? {store: {format: 99, lines: 1, bytes: 1, sha256: ''}} : {})});
+    }
+  }, true);
   const large = '/runs/' + made.find((m) => m[2] === 'large')[1] + '/lines.arrow', open = XMLHttpRequest.prototype.open;
   const response = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, 'response');
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
@@ -822,11 +865,24 @@ COMPARE_CAUSES_RUNS = """(() => {
 RUN_STORE_MISSING = r"""(() => { const open = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
     return open.call(this, method, String(url).replace(/\/lines\.arrow$/, '/lines.arrow.missing'), ...rest); }; })();"""
-# c-run-loading: a stand-in of the requests of the run's two files (download.ts), never sent: after the page's first
-# 100 ms (download.ts reports no progress before), each answers "headers in" with its size (web.SIZE_HEADER) and one
-# progress event, then nothing; 41 of 247 million bytes, the bar at 17 %
-RUN_STORE_LOADING = r"""(() => {
-  const sizes = {'lines.arrow': [200000000, 30000000], 'profiles.arrow': [47000000, 11000000]};
+# map-too-large: the run's lines.arrow answered (200, its bytes) with a body the browser could not hold (a null
+# response: load.ts TooLarge), as COMPARE_CAUSES_RUNS's first run
+RUN_STORE_TOO_LARGE = r"""(() => { const open = XMLHttpRequest.prototype.open;
+  const response = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, 'response');
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.shotsTooLarge = /\/lines\.arrow$/.test(new URL(String(url), location.href).pathname);
+    return open.apply(this, arguments);
+  };
+  Object.defineProperty(XMLHttpRequest.prototype, 'response',
+                        {configurable: true, get() { return this.shotsTooLarge ? null : response.get.call(this); }}); })();"""
+# c-run-loading, c-run-loading-gb: a stand-in of the requests of the run's two files (download.ts), never sent: after
+# the page's first 100 ms (download.ts reports no progress before), each answers "headers in" with its size
+# (web.SIZE_HEADER) and one progress event, then nothing (file -> [size, bytes come]; RUN_STORE_SIZES: 41 of 247 million
+# bytes, the bar at 17 %; RUN_STORE_SIZES_GB: 412 of 1 840 million, 22 %)
+RUN_STORE_SIZES = {"lines.arrow": [200000000, 30000000], "profiles.arrow": [47000000, 11000000]}
+RUN_STORE_SIZES_GB = {"lines.arrow": [1500000000, 300000000], "profiles.arrow": [340000000, 112000000]}
+RUN_STORE_LOADING_OF = r"""(() => {
+  const sizes = SIZES;
   const open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (method, url) {
     const path = new URL(String(url), location.href).pathname;
@@ -844,9 +900,33 @@ RUN_STORE_LOADING = r"""(() => {
     }, Math.max(0, 101 - performance.now()));
   };
 })();"""
-PAGE_SCRIPTS.update({"c-view-rename": VIEW_JOB_STUB, "c-view-compare-causes": COMPARE_CAUSES_RUNS,
+RUN_STORE_LOADING = RUN_STORE_LOADING_OF.replace("SIZES;", json.dumps(RUN_STORE_SIZES) + ";")
+RUN_STORE_LOADING_GB = RUN_STORE_LOADING_OF.replace("SIZES;", json.dumps(RUN_STORE_SIZES_GB) + ";")
+# c-card-menu-search: a finished job of the run Home lists first (its own; read from the page's own /api/runs answer:
+# Home's address names no run) in the app's list of jobs, answered in the page as VIEW_JOB_STUB does (tests/
+# test_rename_home_page.py jobs_stub): the run's card is then its search's, with "Edit & run again" in its menu
+HOME_JOB_STUB = ("(() => { const f = window.fetch; window.fetch = (url, init) => "
+                 "new URL(String(url), location.href).pathname !== '/api/jobs' || (init && init.method && init.method !== 'GET') "
+                 "? f(url, init) : f('/api/runs', init).then((r) => r.json()).then((d) => { "
+                 "const runs = d.runs || [], run = runs.find((r) => r.own) || runs[0]; "
+                 "return new Response(JSON.stringify({jobs: run ? [{id: 'job-shots-home', status: 'done', run_id: run.id, "
+                 "title: run.name, created: run.created, finished: run.created, own: true}] : [], seq: 1, worker: true}), "
+                 "{headers: {'content-type': 'application/json'}}); }); })();")
+# c-card-menu-low: the page's own /api/runs answer padded with five copies of its first run under invented names and
+# ids (no run of the site: their mini maps fail to load and show the card's placeholder), so Home lists six cards
+HOME_MORE_RUNS = ("(() => { const f = window.fetch, names = %s; window.fetch = (url, init) => "
+                  "new URL(String(url), location.href).pathname !== '/api/runs' || (init && init.method && init.method !== 'GET') "
+                  "? f(url, init) : f(url, init).then((r) => !r.ok ? r : r.json().then((d) => { const first = (d.runs || [])[0]; "
+                  "const runs = !first ? d.runs : d.runs.concat(names.map((name, k) => ({...first, id: '2026-11-20_120000_Sample_' "
+                  "+ k + '_0000000000000f' + k, name, shared: false, demo: false}))); "
+                  "return new Response(JSON.stringify({...d, runs}), {status: r.status, headers: {'content-type': 'application/json'}}); "
+                  "})); })();") % json.dumps(["Sample ridge", "Sample massif", "Sample coast", "Sample gorge", "Sample tower"])
+PAGE_SCRIPTS.update({"c-view-rename": VIEW_JOB_STUB, "c-view-rename-refused": VIEW_JOB_STUB,
+                     "c-view-compare-causes": COMPARE_CAUSES_RUNS + VIEW_JOB_STUB,
+                     "c-card-menu-search": HOME_JOB_STUB, "c-card-menu-low": HOME_MORE_RUNS,
                      "map-failed": RUN_STORE_MISSING, "map-failed-shared": RUN_STORE_MISSING,
-                     "c-run-failed": RUN_STORE_MISSING, "c-run-loading": RUN_STORE_LOADING})
+                     "map-too-large": RUN_STORE_TOO_LARGE, "c-run-failed": RUN_STORE_MISSING,
+                     "c-run-loading": RUN_STORE_LOADING, "c-run-loading-gb": RUN_STORE_LOADING_GB})
 # Not here: the gate's 1024 x 768 pictures (G9's desktop column, X3: the list's heads with a mouse and on touch) need a
 # device ui_shots does not have (DEVICES); X2 is a sheet of c-view-line's pictures beside the mock-up
 PAGES.update(VIEW_STATES)
