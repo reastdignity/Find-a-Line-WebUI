@@ -2295,9 +2295,9 @@ def _access_grid(plan: Plan, data: Data, path: Optional[str] = None) -> np.ndarr
                                  plan.paths.work, block, alpine=True,
                                  on_part=lambda name: progress.compute.update(0, part=name),
                                  needed=data.mask if data.partner is None else None)
-        left = f", {done['left_out']} left out (no part of the search area)" if done["left_out"] else ""
-        plan.emit("info", f"Access to anchors in {done['blocks']} blocks of {block * plan.resolution:g} m{left} (the "
-                          f"memory: {done['window_px'] / 1e6:.1f} Mpx a window)")
+        left = f"; {done['left_out']} more blocks left out, outside the search area" if done["left_out"] else ""
+        plan.emit("info", f"Access to anchors in {done['blocks']} blocks of {block * plan.resolution:g} m (the "
+                          f"memory: {done['window_px'] / 1e6:.1f} Mpx a window{left})")
     progress.compute.update(1)
     progress.compute.finish()
     if block is None:

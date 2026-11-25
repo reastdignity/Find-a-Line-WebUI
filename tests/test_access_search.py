@@ -314,7 +314,8 @@ def test_blocks_give_one_grids_answers(tmp_path, offline, monkeypatch, whole):
         runs[name + "-lines"] = {k: lines.results.columns[k] for k in ("a1_xy", "a2_xy", "access1", "access2")}
         if block:
             blocks = [e for e in events if e.startswith("Access to anchors in ")]
-            assert blocks and int(blocks[0].split()[4]) > 50 and " left out " in blocks[0], blocks
+            assert blocks and int(blocks[0].split()[4]) > 50, blocks
+            assert re.search(r" Mpx a window; \d+ more blocks left out, outside the search area\)$", blocks[0]), blocks
             runs["mask"] = np.array(data.mask, bool)  # the search area: the blocks without it left out (E)
             work = tmp_path / "direct"  # the same grid whole: a direct call without the area
             access.block_grid(data.elevation, data.water, plan.resolution, data.filled_pixels(),
@@ -567,6 +568,104 @@ def test_blocks_only_where_the_area_is(tmp_path, monkeypatch, mapped):
     assert os.listdir(work) == ["access.npy"]
 
 
+def test_the_blocks_table_of_any_area(tmp_path, monkeypatch):
+    """access._blocks_needed reads the area as it is given: a raw np.memmap (no .npy header), a view of a mapped
+    .npy in another order (upside down; transposed on a square grid) and a slice of a larger mapped .npy each give
+    every block's own `any` of the pixels given, not of the file's own order; a whole mapped .npy too (through its
+    own mapping). Strips of 64 rows, blocks of 7 to 70 pixels."""
+    monkeypatch.setattr(access, "STRIP_PX", 1)
+    rng = np.random.default_rng(3)
+    h = w = 150
+    area = np.zeros((h + 9, w), bool)
+    for _ in range(6):
+        r, c = rng.integers(0, h, 2)
+        area[r:r + 9, c:c + 5] = True
+    raw = np.memmap(tmp_path / "raw.bin", dtype=bool, mode="w+", shape=(h, w))
+    raw[:] = area[:h]
+    np.save(tmp_path / "square.npy", area[:h])
+    np.save(tmp_path / "taller.npy", area)
+    square = np.load(tmp_path / "square.npy", mmap_mode="r")
+    taller = np.load(tmp_path / "taller.npy", mmap_mode="r")
+    for name, given in (("raw", raw), ("whole", square), ("upside down", square[::-1]), ("transposed", square.T),
+                        ("slice", taller[9:])):
+        assert isinstance(given, np.memmap), name
+        pixels = np.asarray(given)
+        for block in (7, 64, 70):
+            want = np.array([[pixels[r:r + block, c:c + block].any() for c in range(0, w, block)]
+                             for r in range(0, h, block)])
+            assert np.array_equal(access._blocks_needed(given, h, w, block), want), (name, block)
+    del raw, square, taller, given
+
+
+def test_a_tiled_search_over_blocks_left_out(tmp_path, offline, monkeypatch):
+    """E in a tiled search: a triangle in the made-up box of 3 km at 5 m in tiles, the access grid in blocks (a small
+    budget of free memory) with the blocks outside the triangle left out: the tiles' lines and marks are those of the
+    same tiled search with the grid at once, the blocks left out are named in the search's line, and no grid of the
+    work folder is left after the tiles."""
+    from rasterio.warp import transform
+    z = _rough(False)
+    path = tmp_path / "rough.tif"
+    _write_5m(path, z)
+    corners = [(LEFT + 200, TOP - 2800), (LEFT + 2800, TOP - 2800), (LEFT + 200, TOP - 400), (LEFT + 200, TOP - 2800)]
+    lon, lat = transform("EPSG:2180", "EPSG:4326", [x for x, _ in corners], [y for _, y in corners])
+    triangle = {"type": "Polygon", "coordinates": [list(map(list, zip(lon, lat)))]}
+    (tmp_path / "triangle.geojson").write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": triangle}))
+    params = SearchParams(elevation_file=str(path), area=str(tmp_path / "triangle.geojson"), resolution=5, nmpt="off",
+                          water="off", fill_gaps="off", min_length=50, max_length=300, slope_threshold=55,
+                          prominence_span=10, drop_radius=10, ortho="never", tile_size=800, name="tiled", access=True)
+    tables, made = {}, []
+    for name, free in (("at-once", 10 ** 12), ("blocks", 9_000_000)):
+        monkeypatch.setattr(search, "available_memory", lambda free=free: free)
+        events = []
+        paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
+        os.makedirs(paths.work)
+        plan = dataclasses.replace(search.plan_search(params, paths, lambda kind, text: events.append(str(text))),
+                                   index_runs=False)
+        assert plan.tiles and len(plan.tiles) > 1
+        lines, run = search.search_lines(plan)
+        made += [e for e in events if e.startswith("Access to anchors in ")]
+        assert not glob.glob(os.path.join(paths.work, "*.npy"))
+        c = lines.results.columns
+        tables[name] = {k: c[k] for k in ("a1_xy", "a2_xy", "access1", "access2")}
+    left = re.search(r"; (\d+) more blocks left out, outside the search area\)$", made[0]) if len(made) == 1 else None
+    assert left and int(left.group(1)) > 0, made
+    for k, v in tables["at-once"].items():
+        assert len(v) > 20 and np.array_equal(v, tables["blocks"][k]), k
+
+
+@pytest.mark.parametrize("where", ["flat lakes", "open ground", "a block"])
+def test_a_failed_grid_lets_its_masks_go(tmp_path, monkeypatch, where):
+    """When the grid in blocks fails (in the flat lakes' pass, in the open ground's regions, in a block), its masks'
+    handles are let go: while the exception is still held, every mask file of the work folder can be removed (on
+    Windows an open handle would refuse it); their removal stays the caller's, as after any failed search."""
+    z = _lakes(_hills(300, 260, 5.0, 8)).astype(np.float32)
+
+    class Boom(Exception):
+        pass
+
+    def boom(*a, **k):
+        raise Boom
+
+    if where == "flat lakes":
+        monkeypatch.setattr(access, "_spread_flat", boom)
+    elif where == "open ground":
+        real = access._Regions._backward
+        monkeypatch.setattr(access._Regions, "_backward",
+                            lambda self: boom() if self.mask.path.endswith("access_og.npy") else real(self))
+    else:
+        monkeypatch.setattr(access, "_answers", boom)
+    monkeypatch.setattr(access, "STRIP_PX", 1)
+    work = tmp_path / "work"
+    with pytest.raises(Boom) as held:
+        access.block_grid(z, None, 5.0, None, str(work / "access.npy"), str(work), 100, alpine=True)
+    masks = [p for p in os.listdir(work) if p.startswith("access_")]
+    assert masks, os.listdir(work)
+    for name in masks:  # the exception (and its frames) still held
+        os.remove(work / name)
+    assert held.value is not None
+    assert os.listdir(work) in ([], ["access.npy"])
+
+
 def test_a_polygon_in_a_wide_box(tmp_path, offline, monkeypatch):
     """E through the search: a triangle in the made-up box of 3 km at 5 m, the access grid in blocks of 300 m with
     the blocks outside the triangle left out: the lines and their marks are those of the grid at once, and the blocks
@@ -593,8 +692,9 @@ def test_a_polygon_in_a_wide_box(tmp_path, offline, monkeypatch):
         lines = search.find_lines(plan, search.prepare_data(plan))
         tables[name] = {k: lines.results.columns[k] for k in ("a1_xy", "a2_xy", "access1", "access2")}
         made += [e for e in events if e.startswith("Access to anchors in ")]
-    assert len(made) == 1 and " left out (no part of the search area)" in made[0], made
-    assert int(made[0].split()[4]) > 20 and int(made[0].split(", ")[1].split()[0]) > 5, made
+    left = re.search(r"^Access to anchors in (\d+) blocks of 300 m \(the memory: [0-9.]+ Mpx a window; (\d+) more "
+                     r"blocks left out, outside the search area\)$", made[0]) if len(made) == 1 else None
+    assert left and int(left.group(1)) > 20 and int(left.group(2)) > 5, made
     for k, v in tables["one"].items():
         assert len(v) > 20 and np.array_equal(v, tables["blocks"][k]), k
 
