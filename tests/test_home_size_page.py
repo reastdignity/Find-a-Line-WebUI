@@ -4,7 +4,9 @@ finished run's card has two lines of their own, its counts with the thousands gr
 time and its size as stored (run.json's store.bytes, which GET /api/runs sends as "bytes"; none for a run saved
 without it); a running search's card keeps its one line and the example's tile shows no size. While the run's two
 files download the page counts in the total's unit and cut, so the line ends at the card's number. The cut is
-test_size_units' (a MB is 10^6 bytes); `size_text` below is this file's own reading of it.
+test_size_units' (a MB is 10^6 bytes); `size_text` below is this file's own reading of it. A size never breaks inside
+(since the fix round, the design review's finding 3): its number and its unit, and "under", are joined by no-break
+spaces, so a line too long for its box breaks beside the size.
 
 Playwright's Edge over the public app on a thread (test_rename_home_page's `rename_site`: "a" owns RUN_A, a demo run,
 and RUN_B, both the clip's run) and over the local app (test_web's `_server`), offline; a run's run.json rewritten
@@ -32,7 +34,7 @@ from test_public import account_settings  # noqa: E402,F401
 from test_shell_c import copy_clip  # noqa: E402
 from test_shell_c_view_map import DESKTOP, SMALL_PHONE, view_clip  # noqa: E402,F401
 from test_shell_c_view_map import WAIT as VIEW_WAIT  # noqa: E402
-from test_size_units import SIZES  # noqa: E402
+from test_size_units import NBSP, SIZES  # noqa: E402
 from test_web import EDGE, _playwright  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
@@ -45,23 +47,25 @@ UTC = {"timezone_id": "UTC"}  # the card's time in the browser's zone (time.ts w
 DESKTOP_UTC, PHONE_UTC = {**DESKTOP, **UTC}, {**SMALL_PHONE, **UTC}
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 UNITS = re.compile(r"\b[MG]B\b")
+UNDER, GB_18 = f"under{NBSP}0.1{NBSP}MB", f"1.8{NBSP}GB"  # the longest size, and one in GB, as the page writes them
 
 
 def size_text(size) -> str:
     """A size in words by the cut, in exact decimals: "under 0.1 MB" where one decimal of a MB would read "0.0", one
-    decimal below 10 MB, whole MB up to 999, then GB with one decimal, each rounded half up; "" for no size."""
+    decimal below 10 MB, whole MB up to 999, then GB with one decimal, each rounded half up; "" for no size. Its
+    spaces are no-break spaces (since the fix round: a size never breaks inside, the design review's finding 3)."""
     if not isinstance(size, (int, float)) or isinstance(size, bool) or not math.isfinite(size) or size < 0:
         return ""
     mb = Decimal(size) / 10 ** 6
     tenth = mb.quantize(Decimal("0.1"), ROUND_HALF_UP)
     if tenth == 0:
-        return "under 0.1 MB"
+        return f"under{NBSP}0.1{NBSP}MB"
     if tenth < 10:
-        return f"{tenth} MB"
+        return f"{tenth}{NBSP}MB"
     whole = mb.quantize(Decimal("1"), ROUND_HALF_UP)
     if whole <= 999:
-        return f"{whole} MB"
-    return f"{(mb / 1000).quantize(Decimal('0.1'), ROUND_HALF_UP)} GB"
+        return f"{whole}{NBSP}MB"
+    return f"{(mb / 1000).quantize(Decimal('0.1'), ROUND_HALF_UP)}{NBSP}GB"
 
 
 def grouped(n: int) -> str:
@@ -184,10 +188,11 @@ def test_sizes_by_the_cut(rename_site):
         page.reload()
         page.wait_for_selector(card(RUN_A))
         large = page.evaluate(CARD, card(RUN_A))
-    assert [size_text(b) for b in (38_000, 612_000, 1_840_000_000)] == ["under 0.1 MB", "0.6 MB", "1.8 GB"]
-    two_lines(small, meta_of(data, RUN_A), "under 0.1 MB")
-    two_lines(b, meta_of(data, RUN_B), "0.6 MB")
-    two_lines(large, meta_of(data, RUN_A), "1.8 GB")
+    # (since the fix round: the size's spaces are no-break spaces, the design review's finding 3)
+    assert [size_text(b) for b in (38_000, 612_000, 1_840_000_000)] == [UNDER, f"0.6{NBSP}MB", GB_18]
+    two_lines(small, meta_of(data, RUN_A), UNDER)
+    two_lines(b, meta_of(data, RUN_B), f"0.6{NBSP}MB")
+    two_lines(large, meta_of(data, RUN_A), GB_18)
 
 
 # The windows of the narrowest cards: the two phones the screenshots are reviewed on (tools/ui_shots.py), and desktops
@@ -211,8 +216,8 @@ def test_the_longest_sizes_keep_their_line(rename_site):
             seen[name] = [page.evaluate(CARD, card(RUN_A)), page.evaluate(CARD, card(RUN_B)),
                           page.evaluate("(sel) => Math.round(document.querySelector(sel).getBoundingClientRect().width)", card(RUN_A))]
     for name, (a, b, width) in seen.items():  # (width: the card's, 271 to 464 px on these windows)
-        two_lines(a, meta_of(data, RUN_A), "under 0.1 MB")
-        two_lines(b, meta_of(data, RUN_B), "1.8 GB")
+        two_lines(a, meta_of(data, RUN_A), UNDER)
+        two_lines(b, meta_of(data, RUN_B), GB_18)
 
 
 def running_stub(created: str) -> str:
@@ -318,7 +323,61 @@ def test_the_loading_line(rename_site):
             page.wait_for_function("(now) => document.querySelector('.c-result-wait .c-loading .u-prog:not(.u-busy)')"
                                    "?.getAttribute('aria-valuenow') === now", arg=now)
             seen.append(page.evaluate(LOADING))
-    assert seen[0] == {"line": "Downloading the run… 41 of 247 MB", "now": "17", "back": "Home"}, seen[0]
-    assert seen[1] == {"line": "Downloading the run… 0.4 of 1.8 GB", "now": "22", "back": "Home"}, seen[1]
-    assert size_text(247_000_000) == "247 MB" and size_text(1_840_000_000) == "1.8 GB"
+    # (since the fix round: a no-break space between the total and its unit, the design review's finding 3)
+    assert seen[0] == {"line": f"Downloading the run… 41 of 247{NBSP}MB", "now": "17", "back": "Home"}, seen[0]
+    assert seen[1] == {"line": f"Downloading the run… 0.4 of 1.8{NBSP}GB", "now": "22", "back": "Home"}, seen[1]
+    assert size_text(247_000_000) == f"247{NBSP}MB" and size_text(1_840_000_000) == GB_18
     assert WORDS["ui.app.home"] == "Home"
+
+
+# A line's box narrowed until the line no longer fits whole: its max-width (through the CSSOM: the page's CSP refuses a
+# style tag) the middle between the text's width up to its last space (inside the size, before its unit) and the whole
+# text's, so a break at that space would split the size; then the tops of the line boxes of the whole text, of the part
+# before the size (up to `mark` without its last space: the time and " ·", or "… of") and of the size (after `mark`)
+NARROWED = """([boxSel, lineSel, mark]) => {
+  const box = document.querySelector(boxSel), line = lineSel ? [...document.querySelectorAll(lineSel)].pop() : box;
+  const text = [...line.childNodes].find((n) => n.nodeType === Node.TEXT_NODE), s = text.data, range = document.createRange();
+  const part = (a, b) => { range.setStart(text, a); range.setEnd(text, b); return range; };
+  const tops = (a, b) => [...new Set([...part(a, b).getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)))]
+    .sort((x, y) => x - y);
+  const start = s.lastIndexOf(mark) + mark.length, inner = Math.max(s.lastIndexOf(' '), s.lastIndexOf(String.fromCharCode(160)));
+  const whole = part(0, s.length).getBoundingClientRect().width, cut = part(0, inner).getBoundingClientRect().width;
+  const before = tops(0, s.length);
+  box.style.maxWidth = (cut + whole) / 2 + 'px';
+  return {text: s, start, widths: [cut, whole, box.getBoundingClientRect().width], before, all: tops(0, s.length),
+          head: tops(0, start - 1), size: tops(start, s.length)}; }"""
+
+
+def test_a_long_line_breaks_beside_the_size(rename_site):
+    """Where a card's second line is too long for its card it breaks beside the size, never inside it: on the small
+    phone and the frame's narrowest desktop window (768 px), the cards of "under 0.1 MB" (the longest size) and of
+    "1.8 GB", each card's link narrowed until the line takes two line boxes, at a width where a break at a plain space
+    would split the size: the first line box holds the time and " ·", the second the size whole. The same for the line
+    shown while a run downloads (the stand-in download), narrowed likewise: "Downloading the run… 41 of", then
+    "247 MB" whole."""
+    site, data = rename_site
+    rewrite(data, RUN_A, with_bytes(38_000))
+    rewrite(data, RUN_B, with_bytes(1_840_000_000))
+    seen = {}
+    with Browser(site) as browser:
+        for name, device in (("phone 390 x 664", PHONE_UTC), ("desktop 768", NARROW["desktop 768"])):
+            page = opened(browser, device)
+            open_home(page, site)
+            page.wait_for_selector(card(RUN_B))
+            for run in (RUN_A, RUN_B):
+                seen[name, run] = page.evaluate(NARROWED, [f"{card(run)} a.c-card-open", f"{card(run)} .c-card-meta2", " · "])
+        page = opened(browser, DESKTOP_UTC, script=store_loading())
+        page.goto(f"{site}/?ui=c#run={RUN_A}")
+        page.wait_for_function("() => document.querySelector('.c-result-wait .c-loading .u-prog:not(.u-busy)')"
+                               "?.getAttribute('aria-valuenow') === '17'")
+        loading = page.evaluate(NARROWED, [".c-result-wait .c-loading .u-progress", None, " of "])
+    sizes = {RUN_A: UNDER, RUN_B: GB_18}
+    # NARROWED's readings, all five checked together: the line whole before, two line boxes now; the size whole in one
+    # line box, the second, the part before it in the first; then the characters
+    cases = {f"{name}, {sizes[run]}": got for (name, run), got in seen.items()} | {"the loading line": loading}
+    assert [w for w, got in cases.items() if len(got["before"]) != 1 or len(got["all"]) != 2] == [], cases
+    assert [w for w, got in cases.items() if len(got["size"]) != 1] == [], cases  # the size not broken inside
+    assert [w for w, got in cases.items() if got["head"] != got["all"][:1] or got["size"] != got["all"][1:]] == [], cases
+    for (name, run), got in seen.items():
+        assert got["text"] == f"{when_of(meta_of(data, run))} · {sizes[run]}" and got["text"][got["start"]:] == sizes[run], (name, got)
+    assert loading["text"] == f"Downloading the run… 41 of 247{NBSP}MB" and loading["text"][loading["start"]:] == f"247{NBSP}MB", loading

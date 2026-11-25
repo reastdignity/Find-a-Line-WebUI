@@ -3,7 +3,8 @@
 // line show the same number. A MB is 10^6 bytes and a GB 10^9 (the units a disk and a download are sold in). The
 // cut (the user's answer 2 a, 2026-11-24, as the accepted mock-up draws it): one decimal below 10 MB, whole MB up
 // to 999, then GB with one decimal, each rounded; "under 0.1 MB" where one decimal would read "0.0" (below 50 000
-// bytes).
+// bytes). A size never breaks inside: the catalogue's texts join its number and its unit (and "under") with
+// no-break spaces, so a line that is too long breaks beside the size, not in it.
 
 import { t } from "./i18n";
 

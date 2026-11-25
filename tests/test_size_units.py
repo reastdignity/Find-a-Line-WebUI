@@ -2,7 +2,8 @@
 run's size as stored, on Home's card) and downloadSizes (the two numbers of the line shown while a run downloads),
 and result/view/RunLoading.tsx loadingText (that line's words). A MB is 10^6 bytes and a GB 10^9; one decimal below
 10 MB, whole MB up to 999, then GB with one decimal, each rounded; "under 0.1 MB" where one decimal would read "0.0".
-The line counts in the total's unit and cut, so it ends at the card's number.
+The line counts in the total's unit and cut, so it ends at the card's number. A size never breaks inside: its number
+and its unit (and "under") are joined by no-break spaces (U+00A0, written NBSP below), in the card and in the line.
 
 Needs Node and `npm install` in viewer/; skipped without them."""
 
@@ -24,14 +25,16 @@ pytestmark = pytest.mark.skipif(
 
 with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as _f:
     WORDS = json.load(_f)
+NBSP = "\u00a0"  # (since the fix round: a size never breaks inside, the design review's finding 3)
+UNDER = f"under{NBSP}0.1{NBSP}MB"
 
 # A size in bytes and its words (sizeText): the cut's edges on both sides, as the user's answer 2 a draws them
 SIZES = [
-    (0, "under 0.1 MB"), (1, "under 0.1 MB"), (49_999, "under 0.1 MB"),
-    (50_000, "0.1 MB"), (99_999, "0.1 MB"), (100_000, "0.1 MB"), (612_000, "0.6 MB"),
-    (9_940_000, "9.9 MB"), (9_949_999, "9.9 MB"), (9_950_000, "10 MB"), (46_800_000, "47 MB"),
-    (247_300_000, "247 MB"), (999_400_000, "999 MB"), (999_499_999, "999 MB"), (999_500_000, "1.0 GB"),
-    (1_000_000_000, "1.0 GB"), (1_840_000_000, "1.8 GB"),
+    (0, UNDER), (1, UNDER), (49_999, UNDER),
+    (50_000, f"0.1{NBSP}MB"), (99_999, f"0.1{NBSP}MB"), (100_000, f"0.1{NBSP}MB"), (612_000, f"0.6{NBSP}MB"),
+    (9_940_000, f"9.9{NBSP}MB"), (9_949_999, f"9.9{NBSP}MB"), (9_950_000, f"10{NBSP}MB"), (46_800_000, f"47{NBSP}MB"),
+    (247_300_000, f"247{NBSP}MB"), (999_400_000, f"999{NBSP}MB"), (999_499_999, f"999{NBSP}MB"), (999_500_000, f"1.0{NBSP}GB"),
+    (1_000_000_000, f"1.0{NBSP}GB"), (1_840_000_000, f"1.8{NBSP}GB"),
 ]
 # A download's bytes got and its total (None: not known) and its numbers (downloadSizes)
 DOWNLOADS = [
@@ -52,10 +55,10 @@ LOADING = [
     ({"phase": "parse", "fraction": None}, WORDS["ui.result.loading_parse"]),
     ({"phase": "groups", "fraction": None}, WORDS["ui.result.loading_groups"]),
     ({"phase": "download", "fraction": None}, WORDS["ui.result.loading_start"]),  # no bytes known yet
-    ({"phase": "download", "fraction": 41 / 247.3, "done": 41e6, "total": 247.3e6}, "Downloading the run… 41 of 247 MB"),
-    ({"phase": "download", "fraction": 412 / 1840, "done": 412e6, "total": 1.84e9}, "Downloading the run… 0.4 of 1.8 GB"),
-    ({"phase": "download", "fraction": None, "done": 41e6, "total": None}, "Downloading the run… 41 MB"),
-    ({"phase": "download", "fraction": None, "done": 41e6, "total": 0}, "Downloading the run… 41 MB"),
+    ({"phase": "download", "fraction": 41 / 247.3, "done": 41e6, "total": 247.3e6}, f"Downloading the run… 41 of 247{NBSP}MB"),
+    ({"phase": "download", "fraction": 412 / 1840, "done": 412e6, "total": 1.84e9}, f"Downloading the run… 0.4 of 1.8{NBSP}GB"),
+    ({"phase": "download", "fraction": None, "done": 41e6, "total": None}, f"Downloading the run… 41{NBSP}MB"),
+    ({"phase": "download", "fraction": None, "done": 41e6, "total": 0}, f"Downloading the run… 41{NBSP}MB"),
 ]
 
 # The cases go to Node as a JSON file; the numbers JSON cannot carry (undefined, NaN, the infinities) are made there
@@ -105,9 +108,11 @@ def units(bundle, tmp_path_factory) -> dict:
 def test_size_text(units):
     """sizeText cuts a size by the rule: "under 0.1 MB" below 50 000 bytes (0 and 1 byte too), one decimal of a MB
     of 10^6 bytes from there to 9 949 999 bytes, whole MB from 9 950 000 to 999 499 999, then GB of 10^9 bytes with
-    one decimal; the number and the unit apart by a plain space (no no-break space)."""
+    one decimal; the number and the unit (and "under") joined by no-break spaces, no plain space in a size."""
     assert units["sizes"] == [want for _, want in SIZES], [(b, w, g) for (b, w), g in zip(SIZES, units["sizes"]) if g != w]
-    assert all(" " in s and " " not in s for s in units["sizes"]), units["sizes"]
+    # (since the fix round: a size never breaks inside, the design review's finding 3; before it a plain space, never
+    # U+00A0)
+    assert all(NBSP in s and " " not in s for s in units["sizes"]), units["sizes"]
 
 
 def test_no_size_has_no_words(units):
@@ -125,31 +130,36 @@ def test_download_sizes(units):
 
 def test_the_card_and_the_line_agree(units):
     """For a spread of sizes over every part of the cut, the loading line's total with its unit is the card's size
-    (sizeText), but where the card says "under 0.1 MB" (the line then reads "0.0")."""
+    (sizeText), but where the card says "under 0.1 MB" (the line then reads "0.0"); both join the number and the unit
+    by a no-break space (since the fix round: the design review's finding 3)."""
     differ, under = [], []
     for size, (card, line) in zip(AGREE, units["agree"]):
-        if card == "under 0.1 MB":
+        if card == UNDER:
             under.append((size, line))
-        elif f"{line['total']} {line['unit']}" != card:
+        elif f"{line['total']}{NBSP}{line['unit']}" != card:
             differ.append((size, card, line))
     assert differ == [], differ
     assert under == [(38_000, {"done": "0.0", "total": "0.0", "unit": "MB"})], under
-    assert [card for card, _ in units["agree"]] == ["under 0.1 MB", "0.6 MB", "10 MB", "47 MB", "247 MB", "1.0 GB", "1.8 GB"]
+    assert [card for card, _ in units["agree"]] == [UNDER] + [f"{n}{NBSP}{u}" for n, u in (("0.6", "MB"), ("10", "MB"), ("47", "MB"),
+                                                                                         ("247", "MB"), ("1.0", "GB"), ("1.8", "GB"))]
 
 
 def test_loading_text(units):
     """loadingText: not started and a download with no bytes known yet say the catalogue's ui.result.loading_start;
     reading and grouping say their texts; a download with its total "Downloading the run… 41 of 247 MB" or "… 0.4 of
-    1.8 GB" (the total's unit); a total not known (none or 0) "Downloading the run… 41 MB"."""
+    1.8 GB" (the total's unit); a total not known (none or 0) "Downloading the run… 41 MB"; a no-break space between
+    the last number and its unit, plain spaces elsewhere."""
     assert units["loading"] == [want for _, want in LOADING], [(p, w, g) for (p, w), g in zip(LOADING, units["loading"]) if g != w]
 
 
 def test_the_catalogue_texts():
-    """The six texts of the sizes and the loading line, word for word, and the start's three."""
-    assert WORDS["ui.size.value"] == "{{n}} {{unit}}"
+    """The six texts of the sizes and the loading line, word for word (a no-break space inside a size: between its
+    number and its unit, and in "under 0.1 MB" both), and the start's three."""
+    # (since the fix round: a size never breaks inside, the design review's finding 3; the words are as before)
+    assert WORDS["ui.size.value"] == "{{n}}" + NBSP + "{{unit}}"
     assert WORDS["ui.size.mb"] == "MB" and WORDS["ui.size.gb"] == "GB"
-    assert WORDS["ui.size.under"] == "under 0.1 MB"
-    assert WORDS["ui.result.loading_download"] == "Downloading the run… {{done}} of {{total}} {{unit}}"
-    assert WORDS["ui.result.loading_download_unknown"] == "Downloading the run… {{done}} {{unit}}"
+    assert WORDS["ui.size.under"] == "under" + NBSP + "0.1" + NBSP + "MB"
+    assert WORDS["ui.result.loading_download"] == "Downloading the run… {{done}} of {{total}}" + NBSP + "{{unit}}"
+    assert WORDS["ui.result.loading_download_unknown"] == "Downloading the run… {{done}}" + NBSP + "{{unit}}"
     assert [WORDS[f"ui.result.loading_{k}"] for k in ("start", "parse", "groups")] == \
         ["Loading the run…", "Reading the lines…", "Grouping the lines…"]
