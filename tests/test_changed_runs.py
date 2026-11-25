@@ -536,8 +536,11 @@ def test_sqlite_uris(tmp_path, monkeypatch):
     _set(cache_dir, "poland/nmt/a.tif", sha256="2" * 64, fetched_at=AFTER)
     before = _listing(cache_dir)
     assert _changes(data)["r"].changed == 1 and _listing(cache_dir) == before
+    refused = "file://box/share/x.sqlite"  # pathlib's URI of \\box\share\x.sqlite: an authority, which SQLite refuses
+    if os.name == "nt":  # elsewhere that path is a relative one and has no URI
+        assert pathlib.Path(r"\\box\share\x.sqlite").as_uri() == refused
     with pytest.raises(sqlite3.OperationalError, match="authority"):
-        sqlite3.connect(pathlib.Path(r"\\box\share\x.sqlite").as_uri() + "?mode=ro", uri=True)
+        sqlite3.connect(refused + "?mode=ro", uri=True)
 
 
 def test_a_cache_on_a_network_path(tmp_path):
