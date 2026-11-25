@@ -815,6 +815,48 @@ def test_a_strips_memory_at_its_worst(tmp_path, monkeypatch):
     assert os.listdir(tmp_path) == []
 
 
+@pytest.mark.parametrize("w", [1, 7, 8, 9, 13, 64, 100])
+def test_a_mask_as_bits(tmp_path, w):
+    """access._Mask holds one bit a pixel, each row packed to whole bytes: rows written in strips of any height (a
+    strip's rows written twice: the second wins; the whole grid at once; False to a band) come back as written, as
+    rows and as a window at every column offset and width (the first and the last column among them), on widths that
+    are no multiple of 8 and a grid one pixel wide; a visit's way (rows read, a part changed, written back) changes
+    only that part; the file is its .npy header and ceil(w / 8) bytes a row."""
+    rng = np.random.default_rng(w)
+    h = 37
+    want = rng.random((h, w)) < 0.5
+    m = access._Mask(str(tmp_path / "m.npy"), (h, w))
+    assert not m.rows(0, h).any()  # a new mask is empty
+    m.write(0, 10, ~want[0:10])  # written twice: the second wins
+    for r0, r1 in ((0, 10), (10, 11), (11, 30), (30, h)):
+        m.write(r0, r1, want[r0:r1])
+    got = m.rows(0, h)
+    assert got.dtype == bool and got.shape == (h, w) and np.array_equal(got, want)
+    for r0, r1 in ((0, h), (3, 4), (5, 20)):
+        assert np.array_equal(m.rows(r0, r1), want[r0:r1])
+    for c0 in range(w):
+        for c1 in range(c0 + 1, w + 1):
+            win = m.window(2, 33, c0, c1)
+            assert win.dtype == bool and np.array_equal(win, want[2:33, c0:c1]), (c0, c1)
+    rows = m.rows(5, 15)  # a visit's way: a part of the rows changed, the rows written back
+    rows[:, w // 3:w // 3 + 2] = False
+    m.write(5, 15, rows)
+    want[5:15, w // 3:w // 3 + 2] = False
+    assert np.array_equal(m.rows(0, h), want)
+    m.write(20, 25, False)
+    want[20:25] = False
+    assert np.array_equal(m.rows(0, h), want)
+    m.close()
+    header = os.path.getsize(tmp_path / "m.npy") - h * (-(-w // 8))
+    assert 0 < header <= 128 and header % 64 == 0
+    packed = np.load(tmp_path / "m.npy")
+    assert packed.dtype == np.uint8 and packed.shape == (h, -(-w // 8))
+    assert np.array_equal(np.unpackbits(packed, axis=1, count=w).view(bool), want)
+    assert np.array_equal(m.rows(0, h), want)  # opened again after close
+    m.remove()
+    assert not list(tmp_path.iterdir())
+
+
 def test_a_closed_mask_lets_its_map_go(tmp_path):
     """_Mask.close: the map is let go (Windows renames a mapped file only once no view of it is left) and the next read
     maps the file again, read only, with what was written."""

@@ -41,7 +41,7 @@ Locality: every distance is in metres and bounded, so a window with a margin of 
 core gives the whole grid's answers in the core, except for the grid-wide judgements: the whole-metre test (a sample
 of the grid), the flat lakes' and the open ground's regions (their size), and on whole metres the open ground's
 regions on the smoothed heights. The search (search._access_grid) computes the grid at once when it fits its memory;
-otherwise `block_grid` makes those judgements once on the whole grid, strip by strip, their masks memory-mapped, and
+otherwise `block_grid` makes those judgements once on the whole grid, strip by strip, their masks as bits in files, and
 every block from its window with them: the whole grid's answers, whatever the blocks (0 pixels differed on the Gozo
 coast, 126 Mpx). The search's tiles read their windows of that one grid.
 
@@ -449,38 +449,67 @@ def _remove(path: str):
 
 
 class _Mask:
-    """A grid-wide bool mask of the work folder (the water with the flat lakes, a pass's mask, the open ground),
-    memory-mapped: written and read in rows, read in a block's window. Every read is a copy, so no view of the map
-    outlives a call (Windows holds a mapped file until its last view is gone). `close` ends the writing: the map is
-    let go (its pages leave the process's working set) and the next read maps the file again, read only."""
+    """A grid-wide bool mask of the work folder (the water with the flat lakes, a pass's mask, the open ground), kept
+    as bits: one bit a pixel, each row packed on its own to whole bytes (np.packbits, ceil(w / 8) bytes a row), in a
+    .npy file of uint8 rows (h, ceil(w / 8)), so a strip's rows and a window's rows are byte ranges of the file. Read
+    and written by plain file calls through one handle, never mapped: none of its pages stays in the process's
+    working set, and nothing of the grid's size is held in its memory (a call's rows or window only). Rows and
+    windows go in and come out as bool arrays. 1/8 B per pixel on disk and its header. `close` lets the handle go
+    (the next read opens the file again); `remove` closes it and removes the file."""
 
     def __init__(self, path: str, shape):
         self.path, self.shape = path, (int(shape[0]), int(shape[1]))
-        self._map = _new(path, self.shape, bool)
+        self._row = -(-self.shape[1] // 8)  # bytes a row
+        size = self.shape[0] * self._row
+        with open(path, "wb") as f:
+            np.lib.format.write_array_header_1_0(f, {"descr": "|u1", "fortran_order": False,
+                                                    "shape": (self.shape[0], self._row)})
+            self._at = f.tell()
+            if size:  # the file's length by its last byte (no zero-fill on Windows)
+                f.seek(self._at + size - 1)
+                f.write(b"\0")
+        self._f = None
 
-    def _view(self):
-        if self._map is None:
-            self._map = np.load(self.path, mmap_mode="r")
-        return self._map
+    def _file(self):
+        if self._f is None:
+            self._f = open(self.path, "r+b")
+        return self._f
+
+    def _bytes(self, r0: int, r1: int) -> np.ndarray:
+        """Rows r0..r1 as their packed bytes (uint8, (r1 - r0, ceil(w / 8)))."""
+        out = np.empty((r1 - r0, self._row), np.uint8)
+        f = self._file()
+        f.seek(self._at + r0 * self._row)
+        if f.readinto(memoryview(out).cast("B")) != out.nbytes:
+            raise OSError(f"{self.path}: rows {r0}-{r1} cut short")
+        return out
 
     def write(self, r0: int, r1: int, rows) -> None:
-        self._map[r0:r1] = rows
+        rows = np.broadcast_to(np.asarray(rows, bool), (r1 - r0, self.shape[1]))
+        f = self._file()
+        f.seek(self._at + r0 * self._row)
+        f.write(np.packbits(rows, axis=1).tobytes())
 
     def rows(self, r0: int, r1: int) -> np.ndarray:
-        return np.array(self._view()[r0:r1])
+        return np.unpackbits(self._bytes(r0, r1), axis=1, count=self.shape[1]).view(bool)
 
     def window(self, r0: int, r1: int, c0: int, c1: int) -> np.ndarray:
-        return np.array(self._view()[r0:r1, c0:c1])
+        b0, b1 = c0 // 8, -(-c1 // 8)
+        bits = np.unpackbits(self._bytes(r0, r1)[:, b0:b1], axis=1)
+        return np.ascontiguousarray(bits[:, c0 - 8 * b0:c1 - 8 * b0]).view(bool)
 
     def flush(self) -> None:
-        self._map.flush()
+        if self._f is not None:
+            self._f.flush()
 
     def close(self) -> None:
-        self._map = None  # no flush: the next map of the file sees its pages
+        if self._f is not None:
+            self._f.close()
+            self._f = None
 
     def remove(self) -> None:
-        """The map closed and its file removed."""
-        self._map = None
+        """The handle closed and the file removed."""
+        self.close()
         _remove(self.path)
 
 
@@ -1030,8 +1059,8 @@ def _flat_lakes_rows(z, res: float, work: str, out: _Mask) -> None:
 
 
 def _open_ground_rows(z, water, filled, wet: _Mask, res: float, work: str, name: str, smoothed: bool) -> _Mask:
-    """_open_ground of the whole grid (on the smoothed heights with `smoothed`), strip by strip, into a memory-mapped
-    bool grid of the work folder (returned); wet: the water with the flat lakes. The pass's mask is written first,
+    """_open_ground of the whole grid (on the smoothed heights with `smoothed`), strip by strip, into a mask of the
+    work folder (a _Mask, returned); wet: the water with the flat lakes. The pass's mask is written first,
     then its regions found (_Regions) and each strip's verdicts written over its own rows in the same sweep (a strip
     is labelled before its rows are written, and no other strip's labels look at them): a piece of a region still
     growing below stays until its region is known, then a visit of its box takes it out if the region is not kept."""
@@ -1068,7 +1097,7 @@ def _open_ground_rows(z, water, filled, wet: _Mask, res: float, work: str, name:
             rows = g.rows(a, b)
             rows[:, c:d] &= ~drop[labels]
             g.write(a, b, rows)
-    g.close()  # not mapped while the next pass runs (as the file of before: closed, opened again for the blocks)
+    g.close()  # its handle let go while the next pass runs (opened again for the blocks' windows)
     regions.remove()
     return g
 
@@ -1100,8 +1129,8 @@ def _blocks_needed(needed, h: int, w: int, block_px: int) -> np.ndarray:
 def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int, alpine: bool = True,
                on_part=lambda name: None, needed=None) -> dict:
     """The answers of access_grid for every pixel of a grid too large to hold at once, written into the uint8 grid
-    `path` (memory-mapped): the grid-wide judgements once on the whole grid, strip by strip, their masks
-    memory-mapped in `work` (_Mask: the whole-metre sample, the flat lakes on float heights, the open ground on the
+    `path` (memory-mapped): the grid-wide judgements once on the whole grid, strip by strip, their masks as bits
+    in files of `work` (_Mask: the whole-metre sample, the flat lakes on float heights, the open ground on the
     heights and on whole metres on the smoothed heights; their regions found strip by strip, _Regions, with no label
     array of the whole grid); then every block of block_px x block_px pixels from its window of margin_px(res) around
     it, by access_grid's own code (_answers) on the windows of those masks. Every other distance of the measure is

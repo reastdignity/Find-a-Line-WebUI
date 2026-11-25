@@ -599,6 +599,32 @@ def test_a_polygon_in_a_wide_box(tmp_path, offline, monkeypatch):
         assert len(v) > 20 and np.array_equal(v, tables["blocks"][k]), k
 
 
+@pytest.mark.parametrize("whole", [False, True], ids=["float", "whole-metres"])
+def test_the_masks_files_are_bits(tmp_path, monkeypatch, whole):
+    """The grid-wide masks of access.block_grid (the water with the lakes, the flat mask, the open ground, on whole
+    metres the smoothed open ground) are files of one bit a pixel, rows packed to whole bytes, and their .npy header:
+    each one's size when it is removed, on a grid 421 pixels wide (no multiple of 8)."""
+    z = _lakes(_hills(400, 421, 5.0, 8))
+    z = (np.round(z) if whole else z).astype(np.float32)
+    h, w = z.shape
+    sizes, real_remove = {}, access._remove
+
+    def remove(path):
+        if os.path.exists(path):
+            sizes[os.path.basename(path)] = os.path.getsize(path)
+        real_remove(path)
+
+    monkeypatch.setattr(access, "_remove", remove)
+    work = tmp_path / "work"
+    access.block_grid(z, None, 5.0, None, str(work / "access.npy"), str(work), 100, alpine=True)
+    masks = {k: v for k, v in sizes.items() if k != access.REGIONS_FILE}
+    want = {"access_water.npy", "access_og.npy"} | ({"access_og2.npy"} if whole else {"access_flat.npy"})
+    assert set(masks) == want, masks
+    for name, size in masks.items():
+        assert h * -(-w // 8) < size <= h * -(-w // 8) + 128, (name, size)
+    assert os.listdir(work) == ["access.npy"]
+
+
 def test_a_walk_too_large_is_refused(tmp_path, monkeypatch):
     """A grid at once, or a block's window, of access.WALK_PX_MAX pixels or more is refused (the walk's int32
     indices); the search's block rule keeps every window under it."""
