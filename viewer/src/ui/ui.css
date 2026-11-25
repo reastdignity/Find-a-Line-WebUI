@@ -112,6 +112,9 @@
    its boxes out of a layer's zooms) */
 .ui .u-check[aria-disabled="true"], .ui .u-check.u-off { appearance: none; margin: 0; border: 1px solid var(--line);
   border-radius: var(--r-1); background: var(--surface-2); cursor: default; }
+/* In forced colours (Windows' high contrast) the off look's edge would be forced to CanvasText, an active box's
+   colour: the system's GrayText instead, as the browser draws a disabled box's edge (a system colour is kept) */
+@media (forced-colors: active) { .ui .u-check[aria-disabled="true"], .ui .u-check.u-off { border-color: GrayText; } }
 
 /* Chips */
 .ui .u-chips { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -3,7 +3,7 @@ for all": "Every switched-off box is drawn from the app's colours"). A box that 
 the browser or made by a newer Find-a-Line and never had the focus (natively disabled) and a box that went off under
 the focus (aria-disabled, its presses ignored) are drawn alike from the tokens (the kit's rule in ui/ui.css), in the
 light and the dark theme; the focus ring shows only on the box that has the focus; both differ from an active box (the
-browser's own box). The look's hook is the kit's class `u-off`, which only Compare puts on a box: no other checkbox of
+browser's own box), in forced colours too (the system's GrayText edge). The look's hook is the kit's class `u-off`, which only Compare puts on a box: no other checkbox of
 the app changes its look (Leaflet's layers control disables its own boxes by zoom, so `:disabled` is not matched).
 
 Playwright's Edge over the public app on a thread (test_rename_home_page's `rename_site`; test_compare_causes_page's
@@ -89,42 +89,55 @@ def _parse(color: str) -> tuple:
     return tuple(int(v) for v in m.groups())
 
 
+def _add_runs(view_clip, data):
+    """A's two other runs Compare cannot show: one too large for the browser (TOO_LARGE's stand-in), one whose store
+    is of a newer format (run.json's block one higher: runs.js lists it)."""
+    add_run(view_clip, data, RUN_TOO, NAME_TOO)
+    add_run(view_clip, data, RUN_NEW, NAME_NEW)
+    path = data / "runs" / RUN_NEW / "run.json"
+    meta = json.loads(path.read_text(encoding="utf-8"))
+    meta["store"]["format"] += 1
+    path.write_text(json.dumps(meta), encoding="utf-8")
+
+
+def _off_boxes(browser, site: str, device: dict):
+    """RUN_A's view with Compare open and both kinds of off box: the newer run's box switched by a script's press
+    while the focus is on RUN_B's box (natively disabled, never focused), then the too large run's box ticked with the
+    keyboard (focused, Space: off under the focus, aria-disabled); the mouse off the rows."""
+    page = browser.page(device, "a", TOO_LARGE % RUN_TOO)
+    page.set_default_timeout(WAIT_MS)
+    page.goto(f"{site}/?ui=c#run={RUN_A}")
+    page.wait_for_function("() => !!window.FINDALINE_VIEW")
+    open_compare(page)
+    page.locator(f".r-pop input[data-other='{RUN_B}']").focus()
+    page.evaluate("(id) => document.querySelector(`.r-pop input[data-other=\"${id}\"]`).click()", RUN_NEW)
+    settled(page, NAME_NEW)
+    page.locator(f".r-pop input[data-other='{RUN_TOO}']").focus()
+    page.keyboard.press("Space")
+    settled(page, NAME_TOO)
+    page.mouse.move(1, 1)  # no hover on a row
+    return page
+
+
 @pytest.mark.parametrize("theme", ["light", "dark"])
 def test_every_off_box_has_one_look(rename_site, view_clip, theme):
     """Compare's list with RUN_B (active, unticked), a run too large for the browser and a run of a newer store
     format. The newer run's box switched by a script's press while the focus is on RUN_B's box: off, natively
     disabled, never focused. The too large run's box ticked with the keyboard (focused, Space): off under the focus,
     aria-disabled. Both have the kit's off look: no native drawing, a 1 px solid edge of --line, the fill of
-    --surface-2, the corners of --r-1, 20 x 20 px, full opacity, and the same pixels; the ring (a 2 px solid
-    outline) only on the focused one. RUN_B's box is the browser's own: another appearance and other pixels. A
-    script's press and a script's change on either off box load nothing and leave both as they were. The measured
-    colours and the contrast between an off and an active box's edge are printed (no threshold)."""
+    --surface-2, the corners of --r-1, 20 x 20 px, full opacity; the ring (a 2 px solid outline) only on the focused
+    one. RUN_B's box is the browser's own: another appearance and other pixels. A script's press and a script's change
+    on either off box load nothing and leave both as they were (the newer run's store is refused before any request,
+    so the requests' count bites on the too large one). The measured colours and the contrast between an off and an
+    active box's edge are printed (no threshold)."""
     site, data = rename_site
-    add_run(view_clip, data, RUN_TOO, NAME_TOO)
-    add_run(view_clip, data, RUN_NEW, NAME_NEW)
-    path = data / "runs" / RUN_NEW / "run.json"  # its store's format one higher (runs.js lists run.json's block)
-    meta = json.loads(path.read_text(encoding="utf-8"))
-    meta["store"]["format"] += 1
-    path.write_text(json.dumps(meta), encoding="utf-8")
+    _add_runs(view_clip, data)
     with Browser(site) as browser:
-        page = browser.page({**DESKTOP, "color_scheme": theme}, "a", TOO_LARGE % RUN_TOO)
-        page.set_default_timeout(WAIT_MS)
-        page.goto(f"{site}/?ui=c#run={RUN_A}")
-        page.wait_for_function("() => !!window.FINDALINE_VIEW")
-        open_compare(page)
-        # the newer run's box: a script's press while the focus is on RUN_B's box (never focused itself)
-        page.locator(f".r-pop input[data-other='{RUN_B}']").focus()
-        page.evaluate("(id) => document.querySelector(`.r-pop input[data-other=\"${id}\"]`).click()", RUN_NEW)
-        settled(page, NAME_NEW)
-        # the too large run's box: ticked with the keyboard, off under the focus
-        page.locator(f".r-pop input[data-other='{RUN_TOO}']").focus()
-        page.keyboard.press("Space")
-        settled(page, NAME_TOO)
-        page.mouse.move(1, 1)  # no hover on a row
+        page = _off_boxes(browser, site, {**DESKTOP, "color_scheme": theme})
         at = page.evaluate(AT)
         held, never, active = (page.evaluate(LOOK, run) for run in (RUN_TOO, RUN_NEW, RUN_B))
         states = {run: page.evaluate(BOX_STATE, run) for run in (RUN_TOO, RUN_NEW, RUN_B)}
-        pixels = {run: _pixels(page, look["box"]) for run, look in ((RUN_TOO, held), (RUN_NEW, never), (RUN_B, active))}
+        pixels = {run: _pixels(page, look["box"]) for run, look in ((RUN_TOO, held), (RUN_B, active))}
         # a script's press and a script's change on either off box load nothing and leave it as it is
         asked = []
         page.on("request", lambda r: asked.append(r.url) if r.url.endswith(".arrow") else None)
@@ -151,7 +164,6 @@ def test_every_off_box_has_one_look(rename_site, view_clip, theme):
         assert look["size"] == [20, 20] and look["opacity"] == "1", (name, look)
     assert {k: held[k] for k in ("edge", "corners", "fill", "appearance", "opacity", "size")} == \
         {k: never[k] for k in ("edge", "corners", "fill", "appearance", "opacity", "size")}, (held, never)
-    assert pixels[RUN_TOO] == pixels[RUN_NEW], "the two off boxes are drawn differently"
     assert "u-off" in held["classes"].split() and "u-off" in never["classes"].split(), (held, never)  # the kit's hook
     # the ring only on the box with the focus
     assert held["focused"] and held["ring"] == ["solid", "2px"], held
@@ -168,6 +180,35 @@ def test_every_off_box_has_one_look(rename_site, view_clip, theme):
     assert off_edge != active_edge, (off_edge, active_edge)
     assert asked == [] and {run: (s["aria"], s["disabled"], s["checked"]) for run, s in scripted.items()} == \
         {RUN_TOO: ("true", False, False), RUN_NEW: (None, True, False)}, (asked, scripted)
+
+
+# A system colour as the page resolves it (forced colours keep a system colour an author gives)
+SYSTEM = """(name) => { const probe = document.createElement('span'); probe.style.color = name;
+  document.body.append(probe); const color = getComputedStyle(probe).color; probe.remove(); return color; }"""
+
+
+def test_off_boxes_in_forced_colours(rename_site, view_clip):
+    """Windows' forced colours (high contrast; Playwright's forced_colors "active"): both kinds of off box have the same
+    edge, the system's GrayText on every side (the browser drew a disabled box's edge so; without the kit's
+    forced-colours rule the off look's edge is forced to CanvasText, an active box's colour), and it differs from an
+    active box's edge (its pixels: the browser's own box); the box with the focus keeps its ring."""
+    site, data = rename_site
+    _add_runs(view_clip, data)
+    with Browser(site) as browser:
+        page = _off_boxes(browser, site, {**DESKTOP, "forced_colors": "active"})
+        forced = page.evaluate("() => matchMedia('(forced-colors: active)').matches")
+        gray, canvas = page.evaluate(SYSTEM, "GrayText"), page.evaluate(SYSTEM, "Canvas")
+        held, never, active = (page.evaluate(LOOK, run) for run in (RUN_TOO, RUN_NEW, RUN_B))
+        pixels = {run: _pixels(page, look["box"]) for run, look in ((RUN_TOO, held), (RUN_NEW, never), (RUN_B, active))}
+    assert forced, "forced colours not emulated"
+    assert held["edge"] == never["edge"] == [["1px", "solid", gray]] * 4, (gray, held["edge"], never["edge"])
+    ground = _parse(canvas)
+    edges = {run: _edge(pixels[run], ground) for run in pixels}
+    print(f"\nforced colours: GrayText {gray}, Canvas {canvas}; edge pixels: held {_hex(edges[RUN_TOO])}, never focused "
+          f"{_hex(edges[RUN_NEW])}, active {_hex(edges[RUN_B])}")
+    assert edges[RUN_B] not in (edges[RUN_TOO], edges[RUN_NEW]), edges
+    assert held["focused"] and held["ring"] == ["solid", "2px"], held
+    assert not never["focused"], never
 
 
 def test_the_off_look_is_compares_alone():
