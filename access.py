@@ -1060,24 +1060,36 @@ def _flat_lakes_rows(z, res: float, work: str, out: _Mask) -> None:
 
 def _open_ground_rows(z, water, filled, wet: _Mask, res: float, work: str, name: str, smoothed: bool) -> _Mask:
     """_open_ground of the whole grid (on the smoothed heights with `smoothed`), strip by strip, into a mask of the
-    work folder (a _Mask, returned); wet: the water with the flat lakes. The pass's mask is written first,
+    work folder (a _Mask, returned); wet: the water with the flat lakes. A strip's slope (on whole metres its smoothed
+    heights' slope) is computed only over the span of its columns that hold land with the source's own data (data and
+    not wet: the only pixels the mask can hold), grown by HALO columns each side for the neighbours a pixel's slope and
+    smoothing read (as the strips' rows); outside that span the mask is empty, as it would be (F). The pass's mask is
+    written first,
     then its regions found (_Regions) and each strip's verdicts written over its own rows in the same sweep (a strip
     is labelled before its rows are written, and no other strip's labels look at them): a piece of a region still
     growing below stays until its region is known, then a visit of its box takes it out if the region is not kept."""
     h, w = z.shape
     g = _Mask(os.path.join(work, f"access_{name}.npy"), (h, w))
     for r0, r1 in _strips(h, w):
-        if smoothed:
-            a, b = max(0, r0 - HALO), min(h, r1 + HALO)
-            za, da = _data_rows(z, water, filled, a, b)
-            s = slope_deg(_smoothed(za, da), res)[r0 - a:r1 - a]
-            data = da[r0 - a:r1 - a]  # _data_rows of rows r0..r1: the same pixels, read once
-            del za, da
-        else:
-            _, data = _data_rows(z, water, filled, r0, r1)
-            s = _slope_rows(z, r0, r1, res)
-        s = np.where(data, s, 90.0)
-        g.write(r0, r1, (s < OPEN_DEG) & ~wet.rows(r0, r1) & data)
+        a, b = (max(0, r0 - HALO), min(h, r1 + HALO)) if smoothed else (r0, r1)
+        za, da = _data_rows(z, water, filled, a, b)
+        data = da[r0 - a:r1 - a]  # _data_rows of rows r0..r1: the same pixels, read once
+        land = data & ~wet.rows(r0, r1)  # the only pixels the mask can hold: land with the source's own data
+        cols = np.flatnonzero(land.any(axis=0))
+        rows = np.zeros((r1 - r0, w), bool)
+        if len(cols):  # F: only the columns that hold such land, and HALO columns each side for their neighbours
+            c0, c1 = int(cols[0]), int(cols[-1]) + 1
+            e0, e1 = max(0, c0 - HALO), min(w, c1 + HALO)
+            if smoothed:
+                s = slope_deg(_smoothed(za[:, e0:e1], da[:, e0:e1]), res)[r0 - a:r1 - a, c0 - e0:c1 - e0]
+            else:  # _slope_rows on the crop: a row around the strip, the same central differences
+                a1, b1 = max(0, r0 - 1), min(h, r1 + 1)
+                s = slope_deg(np.asarray(z[a1:b1, e0:e1], np.float32), res)[r0 - a1:r1 - a1, c0 - e0:c1 - e0]
+            dd = data[:, c0:c1]
+            rows[:, c0:c1] = (np.where(dd, s, 90.0) < OPEN_DEG) & land[:, c0:c1]
+            del s, dd
+        g.write(r0, r1, rows)
+        del za, da, data, land, rows
     def big(pixels):
         return pixels * res * res >= OPEN_MIN_M2
 

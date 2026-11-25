@@ -857,6 +857,89 @@ def test_a_mask_as_bits(tmp_path, w):
     assert not list(tmp_path.iterdir())
 
 
+def _coast(seed, whole=False, h=64 * 5 + 7, w=203):
+    """A made-up coast at 5 m (1 ha = 400 pixels): hills and meadows; the sea on the left (water, its heights 0 m);
+    fallback-filled land on the right (filled); own-data land as islands in it, one at the grid's last column, one
+    over a strip's seam (rows 63/64); own-data land at the grid's first column cutting into the sea; a few pixels
+    without heights. Returns z, water, filled."""
+    rng = np.random.default_rng(seed)
+    z = ndimage.gaussian_filter(rng.normal(0, 1, (h, w)), 5) * 300 + 100
+    z += np.where(rng.random((h, w)) < 0.02, rng.uniform(5, 30), 0.0)  # steps: steep pixels
+    water = np.zeros((h, w), bool)
+    sea = int(rng.integers(15, 70))
+    water[:, :sea] = True
+    filled = np.zeros((h, w), bool)
+    fall = int(rng.integers(30, 90))
+    filled[:, w - fall:] = True
+    for _ in range(int(rng.integers(1, 5))):  # own-data islands in the fallback land
+        r, c = int(rng.integers(0, h - 10)), int(rng.integers(w - fall, w - 5))
+        filled[r:r + int(rng.integers(3, 40)), c:c + int(rng.integers(3, 30))] = False
+    r = int(rng.integers(0, h - 30))
+    filled[r:r + int(rng.integers(5, 30)), w - int(rng.integers(1, 12)):] = False  # at the last column
+    filled[58:70, w - fall + 10:w - fall + 25] = False  # over the seam of rows 63/64
+    r = int(rng.integers(0, h - 40))
+    water[r:r + int(rng.integers(5, 40)), :int(rng.integers(1, sea))] = False  # land at the first column
+    # a gentle beach along the shore (open ground up to the water) and water of rough heights: a crop that cut the
+    # water near the shore would change the shore's slope (its smoothed heights' too) and so the open ground
+    z[:, sea:sea + 25] = 1.0 + 0.02 * np.arange(25)[None, :] + rng.random((h, 25)) * 0.05
+    z[water] = rng.uniform(0, 15, int(water.sum()))
+    z[rng.random((h, w)) < 0.001] = np.nan
+    if whole:
+        z = np.round(z)
+    return z.astype(np.float32), water, filled
+
+
+def _cropped_against_whole(tmp_path, z, water, filled, smoothed):
+    """_open_ground_rows (cropped) and _open_ground of the whole grid, the same water as the wet mask."""
+    res = 5.0
+    data = np.isfinite(z) & ~(filled & ~water)
+    zs = access._smoothed(z, data) if smoothed else z
+    want = access._open_ground(np.where(data, access.slope_deg(zs, res), 90.0), water, data, res)
+    wet = access._Mask(str(tmp_path / "wet.npy"), z.shape)
+    wet.write(0, z.shape[0], water)
+    g = access._open_ground_rows(z, water, filled, wet, res, str(tmp_path), "og2" if smoothed else "og", smoothed)
+    got = g.rows(0, z.shape[0])
+    g.remove()
+    wet.remove()
+    return got, want
+
+
+@pytest.mark.parametrize("whole", [False, True], ids=["heights", "whole-metres-smoothed"])
+def test_the_open_ground_cropped_is_the_whole(tmp_path, monkeypatch, whole):
+    """F: the open-ground passes computed only over a strip's columns with own-data land, grown by HALO, = the open
+    ground of the grid at once at every pixel: own-data land as islands in fallback-filled land, at a strip's edge,
+    at the grid's first and last column, beside the sea and beside the fallback land, on heights and on whole metres
+    (the smoothed pass), 40 made-up coasts each in strips of 64 and 100 rows; the slopes are computed on crops (the
+    crop is real); no file left."""
+    widths, real = [], access.slope_deg
+    monkeypatch.setattr(access, "slope_deg", lambda z, res: widths.append(z.shape[1]) or real(z, res))
+    for rows in (64, 100):
+        for seed in range(40):
+            z, water, filled = _coast(seed, whole)
+            monkeypatch.setattr(access, "STRIP_PX", rows * z.shape[1])
+            got, want = _cropped_against_whole(tmp_path, z, water, filled, smoothed=whole)
+            assert np.array_equal(got, want), (rows, seed, int((got != want).sum()))
+            assert want.sum() > 400, seed  # open ground there
+    assert widths and min(widths) < 203 - 2 * access.HALO  # cropped
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("whole", [False, True], ids=["heights", "whole-metres"])
+def test_the_grid_in_blocks_on_a_coast(tmp_path, monkeypatch, whole):
+    """The grid in blocks with water and fallback-filled pixels (the flat lakes on heights untouched by F, the two
+    open grounds cropped) = the grid at once at every pixel, strips of 64 rows, blocks of 60 pixels."""
+    for seed in (1, 2):
+        z, water, filled = _coast(seed, whole)
+        one = access.access_grid(z, water, 5.0, filled, alpine=True)
+        monkeypatch.setattr(access, "STRIP_PX", 1)
+        work = tmp_path / f"w{seed}"
+        access.block_grid(z, water, 5.0, filled, str(work / "access.npy"), str(work), 60, alpine=True)
+        got = np.array(np.load(work / "access.npy", mmap_mode="r"))
+        monkeypatch.undo()
+        assert np.array_equal(got, one), (seed, int((got != one).sum()))
+        assert os.listdir(work) == ["access.npy"]
+
+
 def test_a_closed_mask_lets_its_map_go(tmp_path):
     """_Mask.close: the map is let go (Windows renames a mapped file only once no view of it is left) and the next read
     maps the file again, read only, with what was written."""
