@@ -498,11 +498,13 @@ class _Regions:
       verdict (a piece of a carried class not settled: "carried on as j"), class carried in -> verdict or "carried on
       as j", and with on_strip the records of the pieces still pending.
     - on_strip(regions, s, labels, final), if given, is called with each strip's labels and every piece's verdict
-      (final[label]; below 0: pending, its class carried on and not settled), so the caller writes what is known at
-      once; it may return the labels of more pieces to record (bool by label: the flat lakes' questions it leaves for
-      later). A pending piece touches the strip's first or last row (only those join other strips), and so does a
-      piece of a class that began above; their records (_REC) hold their box in the strip and their first pixel, so a
-      later visit labels that box alone.
+      (final[label]; below 0: pending) one strip late, once the strip below is labelled (from its own rows) and
+      joined: a piece whose region closed in the strip below, or was settled there, has its verdict, so pending are
+      only the pieces of regions that go on past the strip below. The caller writes what is known at once (the strip
+      above is held for it: one more strip's labels); it may return the labels of more pieces to record (bool by
+      label: the flat lakes' questions it leaves for later). A pending piece touches the strip's first or last row
+      (only those join other strips), and so does a piece of a class that began above; their records (_REC) hold
+      their box in the strip and their first pixel, so a later visit labels that box alone.
     - The backward sweep over the tables alone: a carried class takes the verdict of the class it joined below, in
       the pieces' tables and the records, in place.
     - Reading: `visit` labels the boxes of a strip's records again; `codes` and `kept` a whole strip (the same call on
@@ -517,7 +519,7 @@ class _Regions:
         self.mask, self.path = mask, path
         self.strips = list(strips if strips is not None else _strips(*mask.shape))
         self._tables = []  # per strip: its table's byte offset, pieces, classes carried in, classes
-        self._records = []  # per strip: its records' byte offset and count
+        self._records = [(0, 0)] * len(self.strips)  # per strip: its records' byte offset and count
         self.questions = {"pixels": [], "lowest": [], "highest": [], "first": [], "last": []}
         self._forward(judge, heights, settled, on_strip)
         self._backward()
@@ -533,6 +535,7 @@ class _Regions:
         c_pixels, c_first, c_last = np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros(0, np.int64)
         c_low, c_high = np.zeros(0, np.float32), np.zeros(0, np.float32)
         seam = np.zeros(w, np.int32)
+        held = None  # with on_strip: the strip above (its number, labels, pieces' verdicts, pixels), one strip late
         with open(self.path, "wb") as f:
             for s, (r0, r1) in enumerate(self.strips):
                 lab, n = self._label(s)
@@ -608,18 +611,10 @@ class _Regions:
                 self._tables.append((f.tell(), n, nc, k))
                 piece.tofile(f)
                 status[comp[:nc]].tofile(f)
-                records = np.zeros((0, _REC), np.int32)
                 if on_strip is not None:
-                    final = np.zeros(n + 1, np.int32)
-                    final[1:] = piece
-                    more = on_strip(self, s, lab, final)  # pieces the caller wants recorded too (bool by label)
-                    want = final < 0
-                    if more is not None:
-                        want |= more
-                    want[0] = False
-                    records = _records_of(lab, final, want, pixels)
-                self._records.append((f.tell(), len(records)))
-                records.tofile(f)
+                    if held is not None:  # the strip above: its pending pieces' classes are joined in this one
+                        self._finish(f, held, on_strip, given[comp[:nc]])
+                    held = (s, lab, piece, pixels)
                 c_pixels, c_first, c_last = cls_pixels[on], cls_first[on], cls_last[on]
                 if cls_low is not None:
                     c_low, c_high = cls_low[on], cls_high[on]
@@ -627,6 +622,29 @@ class _Regions:
                 if s < last:
                     seam[below] = number[comp[bottom[below].astype(np.int64) + (nc - 1)]] + 1
                 del lab, top, bottom, below, comp
+            if held is not None:
+                self._finish(f, held, on_strip, None)
+
+    def _finish(self, f, held, on_strip, joined):
+        """A strip's verdicts handed to on_strip, one strip late: joined (by the strip below's class carried in: the
+        verdict of its class there, or "carried on as j" again) gives most pending pieces theirs, so only the pieces
+        of regions that go on past the strip below (and not settled there) stay pending; those and the pieces the
+        caller names are recorded."""
+        s, lab, piece, pixels = held
+        final = np.zeros(len(piece) + 1, np.int32)
+        final[1:] = piece
+        if joined is not None:
+            pend = final < 0
+            if pend.any():
+                final[pend] = joined[-1 - final[pend]]
+        more = on_strip(self, s, lab, final)  # pieces the caller wants recorded too (bool by label)
+        want = final < 0
+        if more is not None:
+            want |= more
+        want[0] = False
+        records = _records_of(lab, final, want, pixels) if want.any() else np.zeros((0, _REC), np.int32)
+        self._records[s] = (f.tell(), len(records))
+        records.tofile(f)
 
     def _backward(self):
         into = None  # the strip below's classes carried in: their verdicts
@@ -662,27 +680,21 @@ class _Regions:
 
     def visit(self, s: int, records: np.ndarray):
         """The pieces of strip s that `records` name, labelled again within their boxes: per window of records whose
-        rows overlap, (first row, last row + 1, first column, last column + 1) of the grid, the window's labels and
-        each record's label in them, and those records. Only the boxes' rows and columns are read."""
+        boxes overlap (in rows, then in columns: chained), (first row, last row + 1, first column, last column + 1)
+        of the grid, the window's labels and each record's label in them, and those records. The windows do not
+        overlap; only the boxes' rows and columns are read."""
         if not len(records):
             return
         r00 = self.strips[s][0]
-        records = records[np.argsort(records[:, 1], kind="stable")]
-        start, reach = 0, int(records[0, 2])
-        for i in range(1, len(records) + 1):
-            if i < len(records) and records[i, 1] < reach:
-                reach = max(reach, int(records[i, 2]))
-                continue
-            group = records[start:i]
-            a, b = int(group[:, 1].min()), int(group[:, 2].max())
-            c, d = int(group[:, 3].min()), int(group[:, 4].max())
-            labels, _ = ndimage.label(self.mask.window(r00 + a, r00 + b, c, d), structure=_EIGHT)
-            ids = labels[group[:, 1] - a, group[:, 5] - c]
-            if not ids.all():
-                raise RuntimeError("a record's first pixel is not in the mask")
-            yield r00 + a, r00 + b, c, d, labels, ids, group
-            if i < len(records):
-                start, reach = i, int(records[i, 2])
+        for rows in _overlapping(records, 1, 2):
+            for group in _overlapping(rows, 3, 4):
+                a, b = int(group[:, 1].min()), int(group[:, 2].max())
+                c, d = int(group[:, 3].min()), int(group[:, 4].max())
+                labels, _ = ndimage.label(self.mask.window(r00 + a, r00 + b, c, d), structure=_EIGHT)
+                ids = labels[group[:, 1] - a, group[:, 5] - c]
+                if not ids.all():
+                    raise RuntimeError("a record's first pixel is not in the mask")
+                yield r00 + a, r00 + b, c, d, labels, ids, group
 
     def codes(self, s: int) -> np.ndarray:
         """The verdict of every pixel of strip s (int32: DROP outside the mask, KEEP, DROP, or ASK + q)."""
@@ -706,6 +718,19 @@ class _Regions:
 
     def remove(self):
         _remove(self.path)
+
+
+def _overlapping(records: np.ndarray, lo: int, hi: int):
+    """The records in groups whose intervals [records[:, lo], records[:, hi]) overlap, chained (sorted by lo)."""
+    records = records[np.argsort(records[:, lo], kind="stable")]
+    start, reach = 0, int(records[0, hi])
+    for i in range(1, len(records) + 1):
+        if i < len(records) and records[i, lo] < reach:
+            reach = max(reach, int(records[i, hi]))
+            continue
+        yield records[start:i]
+        if i < len(records):
+            start, reach = i, int(records[i, hi])
 
 
 _REC = 8  # a record's int32: the piece, its box in the strip (first row, last + 1, first column, last + 1), the column
@@ -943,7 +968,8 @@ def _flat_lakes_rows(z, res: float, work: str, out: _Mask) -> None:
         q = regions.questions
         tab = final == KEEP
         asked = np.unique(final[final >= ASK]) - ASK  # questions closed in this strip
-        now = np.array([j for j in asked.tolist() if q["first"][j] == s and q["pixels"][j] <= GATHER_PX], np.int64)
+        now = np.array([j for j in asked.tolist()  # all its pixels in this strip (it may have closed below)
+                        if q["first"][j] == s == q["last"][j] and q["pixels"][j] <= GATHER_PX], np.int64)
         if len(now):
             values = np.asarray(z[r0:r1], np.float32)
             count = np.array(q["pixels"], np.int64)

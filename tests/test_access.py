@@ -707,6 +707,25 @@ def test_the_tables_file_at_its_worst(tmp_path, monkeypatch):
         assert size / mask.size < 2, size / mask.size
 
 
+def test_a_strip_full_of_pending_pieces_stays_in_its_memory(tmp_path):
+    """Strips of 4 Mpx (1000 x 4000) whose every other column is a tooth one pixel wide over three strips, under its
+    region's size (never settled): half the first strip's pixels in pieces still pending once the strip below is
+    joined, so recorded and visited. Python's traced peak of the regions' work, its writes and visits, under 44 B per
+    pixel of a strip (about 170 MB at 4 Mpx); the teeth taken out by the visits."""
+    import tracemalloc
+    h, w = 3000, 4000
+    mask = np.zeros((h, w), bool)
+    mask[:, ::2] = True
+    tracemalloc.start()
+    try:
+        got, _ = _written_in_the_sweep(tmp_path, mask, 10_000)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert not got.any()
+    assert peak < 44 * 4_000_000, peak / 4e6
+
+
 def test_a_closed_mask_lets_its_map_go(tmp_path):
     """_Mask.close: the map is let go (Windows renames a mapped file only once no view of it is left) and the next read
     maps the file again, read only, with what was written."""
