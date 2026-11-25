@@ -2590,16 +2590,24 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
 
 
 def _seen_checksums(seen: Dict[str, set], entry: Dict):
-    """Add an entry's checksums (its `identity`, parallel to its paths; None: not known) to those seen per path."""
-    sha256 = (entry.get("identity") or {}).get("sha256") or [None] * len(entry["paths"])
-    for path, sha in zip(entry["paths"], sha256):
-        seen.setdefault(path, set()).update([sha] if sha else [])
+    """Add an entry's checksums (its `identity`, parallel to its paths) to those seen per path, None (not known: a
+    file adopted by hand, or changed while that read took it, sources.mosaic.read_window) too. An entry without
+    them (made before the data record) lists its paths and says nothing of them."""
+    identity = entry.get("identity")
+    if not isinstance(identity, dict) or "sha256" not in identity:
+        for path in entry["paths"]:
+            seen.setdefault(path, set())
+        return
+    for path, sha in zip(entry["paths"], identity["sha256"]):
+        seen.setdefault(path, set()).add(sha or None)
 
 
 def _merged_data() -> List[Dict]:
-    """src.used_data with the entries of several tiles merged per layer. The checksums of the paths (`identity`)
-    stay parallel to the united paths: a path met with two different checksums gets None (its file changed during
-    the run), a checksum one entry knows and another does not (None) is kept."""
+    """src.used_data with the entries of several tiles merged per layer (also one layer prepared twice in a run: a
+    fallback's terrain for the terrain and the surface). The checksums of the paths (`identity`) stay parallel to
+    the united paths: a path keeps a checksum only when every entry with `identity` that lists it gives that same
+    known one; two different ones (its file changed during the run) or a None in any (not known in that read) give
+    None. An entry without `identity` (made before the data record) takes no part."""
     merged: Dict[tuple, Dict] = {}
     seen: Dict[tuple, Dict[str, set]] = {}  # the checksums met per path, per merged entry
     united = set()  # the keys merged from entries with `identity`: their checksums set at the end
@@ -2628,7 +2636,7 @@ def _merged_data() -> List[Dict]:
     for key in united:
         sums, m = seen[key], merged[key]
         m["identity"] = {**m["identity"], "sha256": [next(iter(sums[p])) if len(sums.get(p, ())) == 1 else None
-                                                     for p in m["paths"]]}
+                                                     for p in m["paths"]]}  # {None}: None
     return list(merged.values())
 
 

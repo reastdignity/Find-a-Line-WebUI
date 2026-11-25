@@ -30,6 +30,12 @@ WORLD = f"osm/water-polygons/{EDITION}/water-polygons-split-4326"
 REVERSE = {"lat": 1.0, "lon": 2.0, "format": "jsonv2", "zoom": 3}
 
 
+def _drop_link(link):
+    """Remove a folder link a test made (regression.link: a junction on Windows, a symbolic link elsewhere, which
+    os.rmdir refuses: "Not a directory")."""
+    os.rmdir(link) if os.name == "nt" else os.unlink(link)
+
+
 def _write(root, name, data: bytes) -> str:
     path = os.path.join(root, *name.split("/"))
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -261,7 +267,7 @@ def test_a_gone_edition_and_a_link_in_the_world_folder_are_errors(real, tmp_path
         with pytest.raises(rc.RecordError, match="is a link"):
             rc.world_files(root, EDITION)
     finally:
-        os.rmdir(link)
+        _drop_link(link)
 
 
 @pytest.mark.parametrize("name", ["../land/dtm/a.tif", "/land/dtm/a.tif", "C:/real/land/dtm/a.tif",
@@ -533,7 +539,7 @@ def test_files_below_and_reverse_answers(real):
         with pytest.raises(rc.RecordError, match="is a link"):
             rc._files_below(root, "land/alias")
     finally:
-        os.rmdir(link)
+        _drop_link(link)
     assert rc.reverse_answers(root, 1.0, 2.0) == {"reverse": {json.dumps(REVERSE, sort_keys=True): None}}
     assert rc.reverse_answers(root, 9.0, 9.0) == {}
 
@@ -579,7 +585,7 @@ def test_out_is_never_the_real_cache_or_a_folder_of_others(real, tmp_path):
             with pytest.raises(rc.RecordError, match="real cache"):
                 rc.prepare_out(out, root)
     finally:
-        os.rmdir(to_real)
+        _drop_link(to_real)
     other = tmp_path / "other"
     other.mkdir()
     (other / "file.txt").write_text("x", encoding="utf-8")

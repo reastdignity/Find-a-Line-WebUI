@@ -440,9 +440,11 @@ def test_a_relative_slope_file_is_not_checked(tmp_path, monkeypatch):
 
 
 def test_an_immutable_read_that_fails_is_read_again(tmp_path, monkeypatch):
-    """F2: an immutable read that fails (here a first connection whose query raises, as a checkpoint tearing the
-    read would) is read once more read-only, whether or not a -wal is there now (that read leaves SQLite's -wal and
-    -shm: N2); a second failure is raised."""
+    """F2: an immutable read that fails (here a connection whose query raises, as a checkpoint tearing the read
+    would) is made again immutable, up to update.IMMUTABLE_TURNS reads, with no side file; at the bound the index is
+    read read-only (that read leaves SQLite's -wal and -shm: N2); a failure of that read is not tried again and
+    names the runs that read that folder's files as not checked (status-readonly's G2: the listing never ends
+    because one index cannot be read now)."""
     names = ["poland/nmt/a.tif", "poland/nmt/b.tif"]
     data, cache_dir = _cache(tmp_path, {p: p.encode() for p in names})
     _run(data, "r", {"data": [_entry(cache_dir, names)], "identity": VERSIONS})
@@ -460,18 +462,17 @@ def test_an_immutable_read_that_fails_is_read_again(tmp_path, monkeypatch):
         modes.append(mode)
         return Torn() if len(modes) <= fail[0] else real(db_path, mode, timeout)
     monkeypatch.setattr(update, "_read_only", read_only)
-    assert _changes(data)["r"].changed == 1 and modes == ["immutable=1", "mode=ro"]
-    index = os.path.join(cache_dir, "poland", "index.sqlite")  # N2: the read-only retry left SQLite's side files
-    assert os.path.exists(index + "-wal") and os.path.exists(index + "-shm")
+    index = os.path.join(cache_dir, "poland", "index.sqlite")
+    assert _changes(data)["r"].changed == 1 and modes == ["immutable=1", "immutable=1"]
+    assert not os.path.exists(index + "-wal") and not os.path.exists(index + "-shm")
+    modes[:], fail[0] = [], 3
+    assert _changes(data)["r"].changed == 1 and modes == ["immutable=1"] * 3 + ["mode=ro"]
+    assert os.path.exists(index + "-wal") and os.path.exists(index + "-shm")  # N2: the read-only read left them
     os.remove(index + "-wal")
     os.remove(index + "-shm")
-    modes[:], fail[0] = [], 2
-    try:
-        _changes(data)
-        raise AssertionError("a second failure is raised")
-    except sqlite3.DatabaseError:
-        pass
-    assert modes == ["immutable=1", "mode=ro"]
+    modes[:], fail[0] = [], 4
+    assert _changes(data)["r"].line() == "r: not checked (the index of poland cannot be read now: DatabaseError)"
+    assert modes == ["immutable=1"] * 3 + ["mode=ro"]
 
 
 def test_nominatim_answers_that_cannot_be_read(tmp_path, monkeypatch):
@@ -516,10 +517,16 @@ def test_nominatim_answers_that_cannot_be_read(tmp_path, monkeypatch):
 
 def test_sqlite_uris(tmp_path, monkeypatch):
     """F7: a drive path, a network path (\\\\server\\share: an empty authority, which SQLite takes; pathlib's
-    file://server/... it refuses), a Linux path, spaces, "%", "#", "?" and letters outside ASCII."""
-    assert update._uri(r"C:\a b\ł%#?\index.sqlite", "mode=ro") == "file:///C:/a%20b/%C5%82%25%23%3F/index.sqlite?mode=ro"
-    assert update._uri(r"\\box\share\cache\osm\index.sqlite", "immutable=1") == \
-        "file:////box/share/cache/osm/index.sqlite?immutable=1"
+    file://server/... it refuses), a Linux path, spaces, "%", "#", "?" and letters outside ASCII. The two Windows
+    forms are asked on Windows only: elsewhere a backslash is a letter of a name, kept (percent-encoded)."""
+    if os.name == "nt":
+        assert update._uri(r"C:\a b\ł%#?\index.sqlite", "mode=ro") == \
+            "file:///C:/a%20b/%C5%82%25%23%3F/index.sqlite?mode=ro"
+        assert update._uri(r"\\box\share\cache\osm\index.sqlite", "immutable=1") == \
+            "file:////box/share/cache/osm/index.sqlite?immutable=1"
+    else:
+        assert update._uri("/srv/a b/ł%#?/x\\y/index.sqlite", "mode=ro") == \
+            "file:///srv/a%20b/%C5%82%25%23%3F/x%5Cy/index.sqlite?mode=ro"
     monkeypatch.setattr(update.os.path, "abspath", lambda p: p)
     assert update._uri("/srv/data/cache/x y/index.sqlite", "mode=ro") == "file:///srv/data/cache/x%20y/index.sqlite?mode=ro"
     monkeypatch.undo()
@@ -529,8 +536,11 @@ def test_sqlite_uris(tmp_path, monkeypatch):
     _set(cache_dir, "poland/nmt/a.tif", sha256="2" * 64, fetched_at=AFTER)
     before = _listing(cache_dir)
     assert _changes(data)["r"].changed == 1 and _listing(cache_dir) == before
+    refused = "file://box/share/x.sqlite"  # pathlib's URI of \\box\share\x.sqlite: an authority, which SQLite refuses
+    if os.name == "nt":  # elsewhere that path is a relative one and has no URI
+        assert pathlib.Path(r"\\box\share\x.sqlite").as_uri() == refused
     with pytest.raises(sqlite3.OperationalError, match="authority"):
-        sqlite3.connect(pathlib.Path(r"\\box\share\x.sqlite").as_uri() + "?mode=ro", uri=True)
+        sqlite3.connect(refused + "?mode=ro", uri=True)
 
 
 def test_a_cache_on_a_network_path(tmp_path):
@@ -587,7 +597,7 @@ def test_listing_the_runs_writes_nothing(tmp_path, monkeypatch):
     first = _changes(data)
     assert _listing(cache_dir) == before
     assert sorted(first) == ["old"] + [f"run{k:02d}" for k in range(40)]  # the Nominatim row is gone everywhere
-    assert len(connects) == 3 and all("immutable=1" in c for c in connects), connects
+    assert len(connects) == 3 and all(c.endswith("?mode=ro&immutable=1") for c in connects), connects
     _nominatim(cache_dir, {("search", "Gozo"): "{}"})
     before, connects[:] = _listing(cache_dir), []
     assert len(_changes(data)) == 41 and _listing(cache_dir) == before and len(connects) == 4
@@ -600,7 +610,8 @@ def test_listing_the_runs_writes_nothing(tmp_path, monkeypatch):
         before, connects[:] = _listing(cache_dir), []
         changes = _changes(data)
         assert _listing(cache_dir) == before
-        assert [c for c in connects if "mode=ro" in c] == [c for c in connects if "/poland/" in c or "nominatim" in c]
+        assert [c for c in connects if c.endswith("?mode=ro")] == [c for c in connects
+                                                                    if "/poland/" in c or "nominatim" in c]
         assert len(connects) == 4
         assert changes["run00"].changed == 2 and changes["run01"].changed == 1  # and slovakia/t/gone.tif
     finally:

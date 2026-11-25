@@ -172,13 +172,17 @@ whole grid) count its files (docs/performance.md, "The access grid's memory"); `
 The data record (2026-11-24; the user's "do it once and correct"): what a search read, under the one key name
 `identity`, so that with every `identity` removed a run.json is what it was. Each `data` entry with `paths` holds
 `identity.sha256`, parallel to `paths`: the cache index's stored checksum of each file, read in `cache.touch`'s own
-lookup (`Layer.used`, cartoteca's and s3sheets' entries: `cache.identity_of`); the coastline's entry the world
+lookup (`Layer.used`, cartoteca's and s3sheets' entries: `cache.identity_of`) after the read and kept only where the
+note before the read agrees, the checksum and the file's identity on disk (`os.stat`) both (`mosaic.noted_before`,
+`read_window`: in `prepare_layer` for every builder's entries, in `filling.water_body_mask`; else null, the file
+changed while it was read); the coastline's entry the world
 file's edition or the OSM coastline tiles of the grid's box (`coast.identity`); a local file's entry its size and
 modification time (`cache.file_identity`); the `area` block the OSM theme tiles and Nominatim answers an area by
 coast, cliffs or name was built from (`area.Inputs`, carried by the area object: `osm.theme_files`,
 `osm.stored_answer`); the top level `v`, the versions of GDAL, PROJ and rasterio, `slope_file` and `mixed`
-(`_run_identity`). `_merged_data` keeps the checksums in step with the united paths (a path met with two different
-ones: null). A tiled search keeps the record in its run folder between sessions (`USED_FILE`: `data`, `mixed`,
+(`_run_identity`). `_merged_data` keeps the checksums in step with the united paths (also of a layer prepared twice in
+a run): a path keeps one only when every entry with `identity` that lists it gives that same one (two different
+ones or a null in any: null). A tiled search keeps the record in its run folder between sessions (`USED_FILE`: `data`, `mixed`,
 `area`, `slope_file`, `_session_record`); a resuming session that finds a tile of an earlier one compares its
 record with the kept one (`_record_differs`) and marks the run `mixed`; with no tile left it takes the kept record
 whole. One exit: `runs.without_identity` (`public_meta`, `_listed`, `country._credits`); a country tile's record

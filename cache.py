@@ -210,8 +210,9 @@ def data_dir(arg: Optional[str] = None) -> str:
     return os.path.abspath(arg or os.environ.get("FINDALINE_DATA") or os.path.dirname(os.path.abspath(__file__)))
 
 
-def check_layout(cache_dir: str):
-    """Stop with a clear message when the cache has another layout; mark a new cache."""
+def check_layout(cache_dir: str, mark: bool = True):
+    """Stop with a clear message when the cache has another layout; mark a new cache (mark False: a missing or empty
+    cache is left as it is, for a command that only reads: `cache status`)."""
     marker = os.path.join(cache_dir, "LAYOUT")
     if os.path.isdir(cache_dir) and os.listdir(cache_dir):
         found = open(marker).read().strip() if os.path.exists(marker) else "none"
@@ -219,6 +220,8 @@ def check_layout(cache_dir: str):
             sys.exit(f"The cache in {cache_dir} has another layout ({found}, expected {LAYOUT}). "
                      "Delete that folder (everything is downloaded again when needed), or keep only "
                      "what you need after moving it to the new layout (see cache.py).")
+        return
+    if not mark:
         return
     os.makedirs(cache_dir, exist_ok=True)
     with open(marker, "w") as f:
@@ -450,9 +453,21 @@ def forget(cache_dir: str, paths: Iterable[str]):
         db.close()
 
 
-def info(cache_dir: str, path: str) -> Optional[Dict]:
-    """The index row of a file, as a dict (None if it has none)."""
+def _dicts(db: sqlite3.Connection, query: str, args: Sequence = ()) -> List[Dict]:
+    """The rows a query on an index gives, as dicts."""
+    db.row_factory = sqlite3.Row
+    return [dict(r) for r in db.execute(query, args)]
+
+
+def info(cache_dir: str, path: str, read: Optional[Callable] = None) -> Optional[Dict]:
+    """The index row of a file, as a dict (None if it has none). read: a reading door, read(index file, ask) ->
+    ask(connection) or an empty answer without the file or its table (update._query: read-only, makes nothing),
+    instead of the index's writing connection (_connect: makes the folder, the file and the table, switches to WAL)."""
     top, inner = _split(cache_dir, path)
+    if read is not None:
+        found = read(os.path.join(cache_dir, top, "index.sqlite"),
+                     lambda db: _dicts(db, "SELECT * FROM files WHERE path = ?", (inner,))) or []
+        return found[0] if found else None
     with _connect(cache_dir, top) as db:
         db.row_factory = sqlite3.Row
         row = db.execute("SELECT * FROM files WHERE path = ?", (inner,)).fetchone()
@@ -460,14 +475,17 @@ def info(cache_dir: str, path: str) -> Optional[Dict]:
     return dict(row) if row else None
 
 
-def rows(cache_dir: str, top: str) -> List[Dict]:
-    """All index rows of a top-level folder; "path" is relative to cache_dir."""
+def rows(cache_dir: str, top: str, read: Optional[Callable] = None) -> List[Dict]:
+    """All index rows of a top-level folder; "path" is relative to cache_dir. read: a reading door, as info's."""
     if not os.path.exists(os.path.join(cache_dir, top, "index.sqlite")):
         return []
-    with _connect(cache_dir, top) as db:
-        db.row_factory = sqlite3.Row
-        found = [dict(r) for r in db.execute("SELECT * FROM files")]
-    db.close()
+    if read is not None:
+        found = read(os.path.join(cache_dir, top, "index.sqlite"), lambda db: _dicts(db, "SELECT * FROM files")) or []
+    else:
+        with _connect(cache_dir, top) as db:
+            db.row_factory = sqlite3.Row
+            found = [dict(r) for r in db.execute("SELECT * FROM files")]
+        db.close()
     for row in found:
         row["path"] = f"{top}/{row['path']}"
     return found
@@ -610,8 +628,9 @@ def touch(cache_dir: str, paths: Iterable[str],
     """Mark files as used now; return the range of their fetch times (oldest, newest). checksums: filled with each
     file's stored sha256 by its path relative to the cache (relative()), None where the index has none (a file
     adopted by hand), read in the same query as its fetch time, in the transaction of the update of last_used_at (a
-    run's record, identity_of). A limit: prepare_layer notes a layer's files after the mosaic read them, so a file
-    replaced between that read and this call is recorded as what the run read."""
+    run's record, identity_of). This is the note after the read: prepare_layer and the water mask note the files
+    before the read too (sources.mosaic.noted_before, with each file's identity on disk) and keep a checksum only
+    where both notes agree (read_window)."""
     by_top: Dict[str, List[str]] = {}
     for path in paths:
         top, inner = _split(cache_dir, path)
@@ -632,8 +651,9 @@ def touch(cache_dir: str, paths: Iterable[str],
 
 def stored_checksums(cache_dir: str, paths: Sequence[str]) -> List[Optional[str]]:
     """The stored sha256 of each file (paths relative to the cache, with /), in their order, None where the index
-    has no row or no checksum; reads only, one connection per top-level folder, none for a folder without an index
-    (the OSM tiles of a run's coastline and of its area: a run's record)."""
+    has no row or no checksum; writes no row (it opens the index through _connect, as every lookup does), one
+    connection per top-level folder, none for a folder without an index (a run's record: the OSM tiles of its
+    coastline and of its area, a layer's files before the read: sources.mosaic.noted_before)."""
     answers: List[Optional[str]] = [None] * len(paths)
     by_top: Dict[str, List[int]] = {}
     for k, path in enumerate(paths):

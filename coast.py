@@ -139,8 +139,9 @@ def _world_water(shapefile: str, bbox: Tuple[float, float, float, float], crs):
 
 
 def world_file(cache_dir: str) -> Optional[str]:
-    """The newest downloaded OSM water polygons shapefile of the whole world, or None."""
-    found = sorted(glob.glob(os.path.join(cache_dir, "osm", "water-polygons", "*", WORLD_SHAPEFILE)))
+    """The newest downloaded OSM water polygons shapefile of the whole world, or None. The cache folder's own name is
+    no pattern ("[" and "]" in a data folder's path)."""
+    found = sorted(glob.glob(os.path.join(glob.escape(cache_dir), "osm", "water-polygons", "*", WORLD_SHAPEFILE)))
     return found[-1] if found else None
 
 
@@ -165,10 +166,11 @@ def world_newer(cache_dir: str) -> bool:
 
 def identity(grid: Grid, cache_dir: str, source: str) -> Optional[Dict]:
     """The record of the coastline a run's sea mask was made from (its data entry's `identity`), derived after the
-    mask from the grid's box and the cache's index (never a hook on a read: theme answers are memoized and read in
-    threads): the world file's edition (its folder's name under osm/water-polygons/), or the OSM coastline tiles of
-    the grid's box (osm.theme_files, as _osm_coastline reads them) with their stored checksums; None for any other
-    source (the Copernicus mask is the water mask's own entry; no sea in the area)."""
+    mask from the grid's box and the cache's index (never a hook on a read: a hook inside osm.theme would serve every
+    caller of the themes, areas, cliffs and land cover too): the world file's edition (its folder's name under
+    osm/water-polygons/), or the OSM coastline tiles of the grid's box (osm.theme_files, as _osm_coastline reads
+    them) with their stored checksums; None for any other source (the Copernicus mask is the water mask's own entry;
+    no sea in the area)."""
     if source == SOURCE_WORLD:
         shapefile = world_file(cache_dir)
         return {"edition": os.path.basename(os.path.dirname(os.path.dirname(shapefile)))} if shapefile else None
@@ -179,7 +181,8 @@ def identity(grid: Grid, cache_dir: str, source: str) -> Optional[Dict]:
 
 
 def _world_files(folder: str):
-    return [p for p in glob.glob(os.path.join(folder, "**", "*"), recursive=True) if os.path.isfile(p)]
+    """The files under a world file's folder (its name is no pattern, as world_file's)."""
+    return [p for p in glob.glob(os.path.join(glob.escape(folder), "**", "*"), recursive=True) if os.path.isfile(p)]
 
 
 def world_polygons(cache_dir: str, update: Optional[str] = None) -> str:
