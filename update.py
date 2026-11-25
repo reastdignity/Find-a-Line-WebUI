@@ -387,7 +387,8 @@ def run_update(cache_dir: str, folder: Optional[str] = None, update: str = "stal
 
 
 def _size(folder: str) -> int:
-    """The bytes of a folder's files; a file deleted while it is walked counts 0 (_file_size)."""
+    """The bytes of a folder's files; a file whose size cannot be asked (deleted while it is walked, ...) counts 0
+    (_file_size)."""
     total = 0
     for root, _, files in os.walk(folder):
         total += sum(_file_size(os.path.join(root, f)) or 0 for f in files)
@@ -395,7 +396,8 @@ def _size(folder: str) -> int:
 
 
 def _file_size(path: str) -> Optional[int]:
-    """A file's size, None when it is gone (deleted while `status` runs)."""
+    """A file's size, None when it cannot be asked: gone (deleted while `status` runs), a link whose target is not
+    there (a drive that is not connected), or not allowed. `status` counts such a file as 0 bytes and goes on."""
     try:
         return os.path.getsize(path)
     except OSError:
