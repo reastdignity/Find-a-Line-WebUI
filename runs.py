@@ -586,7 +586,9 @@ def read_meta(path: str) -> Dict:
     2026-11-25), opened again after each of READ_PAUSES while Windows refuses it: two compute slots ending together,
     one listing the runs (write_index, under the runs lock) at the moment the other's run.json appeared (written
     outside the lock), ended that search as failed, its run saved. After the last pause the PermissionError is
-    raised; any other error at once."""
+    raised; any other error at once. The readers handed a run read through it too (web.profile_problem, has_store
+    and take_export; the quick lane's tasks, jobs.export_bytes, linestore.export; findaline.app_holds), so a
+    run.json replaced in place is waited for as a new one is; it may sleep, so never on the web's event loop."""
     for pause in (*READ_PAUSES, None):
         try:
             with open(path, encoding="utf-8") as f:

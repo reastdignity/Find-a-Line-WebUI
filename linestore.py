@@ -530,8 +530,7 @@ def export(run_path: str, fmt: str, out: str):
     import runs as rn
     if fmt not in EXPORTS:
         raise ValueError(f"no export of the format {fmt!r}")
-    with open(os.path.join(run_path, "run.json"), encoding="utf-8") as f:
-        meta = json.load(f)
+    meta = rn.read_meta(os.path.join(run_path, "run.json"))  # waits out Windows' moment after a replacement
     meta.pop("store", None)
     params = meta.get("params") or {}
     lines, _ = read(run_path, profiles=False)
