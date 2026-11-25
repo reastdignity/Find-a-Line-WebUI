@@ -549,6 +549,13 @@ def test_the_fixed_term_taken_off_an_emptied_start(tmp_path, made_up_search):
         if rows:  # a block sampled at all
             assert blocks["ws_less_private_last_block_less_fixed_b_per_grid_px"] == pa.per_px(
                 rows[-1]["ws_less_private_above_start"] - fixed["fixed_term_bytes"], got["plan"]["grid_px"])
+            # the exact file pages (WS less the private WS) beside: private pages faulted back are not among them
+            assert blocks["file_last_block_b_per_grid_px"] is not None
+        import psutil
+        own = psutil.Process().memory_info().rss
+        pws = pa.private_working_set(os.getpid())
+        assert pws is not None and 0 < pws <= own * 1.5
+        assert pa.memory_now(psutil.Process())["file"] is not None
 
 
 def test_the_rules_constants_for_one_run_only(tmp_path, made_up_search):

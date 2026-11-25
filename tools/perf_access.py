@@ -223,11 +223,50 @@ def proc_status(pid, root: str = PROC) -> Optional[Dict[str, int]]:
         return None
 
 
+_HANDLES: Dict[int, int] = {}
+
+
+def private_working_set(pid: int) -> Optional[int]:
+    """Windows: the process's private working set (PROCESS_MEMORY_COUNTERS_EX2.PrivateWorkingSetSize, Windows 10
+    1809 and later), so that the working set less it is its shared and file pages alone (private pages faulted back
+    after an emptied start count as private here, not as file pages: code review G1b-1). None elsewhere or when the
+    call fails."""
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class Counters(ctypes.Structure):
+        _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [
+            (name, ctypes.c_size_t) for name in (
+                "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
+                "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage",
+                "PrivateUsage", "PrivateWorkingSetSize")] + [("SharedCommitUsage", ctypes.c_uint64)]
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = _HANDLES.get(pid)
+    if handle is None:
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        handle = kernel32.OpenProcess(0x1000 | 0x0010, False, pid)  # QUERY_LIMITED_INFORMATION | VM_READ
+        if not handle:
+            return None
+        _HANDLES[pid] = handle
+    c = Counters()
+    c.cb = ctypes.sizeof(Counters)
+    kernel32.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD]
+    kernel32.K32GetProcessMemoryInfo.restype = wintypes.BOOL
+    if not kernel32.K32GetProcessMemoryInfo(handle, ctypes.byref(c), c.cb):
+        return None
+    return int(c.PrivateWorkingSetSize)
+
+
 def memory_now(proc: psutil.Process) -> Dict[str, Optional[int]]:
     """A process's memory now: rss (working set), private (Windows' private bytes; on Linux RssAnon), file (Linux
-    RssFile), and the OS's lifetime peaks (Windows peak_wset, peak_pagefile; Linux VmHWM)."""
+    RssFile; Windows the working set less the private working set: shared and file pages), and the OS's lifetime
+    peaks (Windows peak_wset, peak_pagefile; Linux VmHWM)."""
     m = proc.memory_info()
-    out = {"rss": m.rss, "private": getattr(m, "private", None), "file": None,
+    pws = private_working_set(proc.pid)
+    out = {"rss": m.rss, "private": getattr(m, "private", None), "file": None if pws is None else m.rss - pws,
            "os_peak_rss": getattr(m, "peak_wset", None), "os_peak_private": getattr(m, "peak_pagefile", None)}
     status = proc_status(proc.pid) if os.name != "nt" else None
     if status:
@@ -369,6 +408,9 @@ def summarise(samples: Sequence[Sequence], listings, events: Sequence[Tuple[floa
             fp = max(s[i["rss"]] - s[i["private"]] for s in inside if s[i["private"]] is not None)
             row["peak_ws_less_private"] = fp if row.get("peak_ws_less_private") is None else max(
                 row["peak_ws_less_private"], fp)
+        shared = [s[i["file"]] for s in inside if s[i["file"]] is not None]
+        if shared:  # the file pages exactly (Windows: WS less the private WS; Linux: RssFile)
+            row["peak_file"] = max(row.get("peak_file") or 0, max(shared))
         row["peak_disk"] = max(row["peak_disk"] or 0, max(s[i["disk"]] or 0 for s in inside))
         cgs = [s for s in inside if s[i["cg_current"]] is not None]
         if cgs:
@@ -389,6 +431,8 @@ def summarise(samples: Sequence[Sequence], listings, events: Sequence[Tuple[floa
         if "peak_ws_less_private" in row:
             start_fp = (base["rss"] - base["private"]) if base.get("private") is not None else None
             row["peak_ws_less_private_above_start"] = _above(row.pop("peak_ws_less_private"), start_fp)
+        if "peak_file" in row:
+            row["peak_file_above_start"] = _above(row.pop("peak_file"), base.get("file"))
         if "cg_peak" in row:
             row["cg_peak_above_start"] = _above(row["cg_peak"], (cg_base or {}).get("current"))
         if "cg_file_peak" in row:
@@ -1354,6 +1398,11 @@ def stage_report(stage: Dict, parts: Dict[str, Dict], pixels: int) -> Dict:
                 out["ws_less_private_at_level_b_per_grid_px"] = per_px(
                     (lv["rss"] - lv["private"]) - (st0["rss"] - st0["private"]), pixels)
             out["ws_less_private_last_block_b_per_grid_px"] = rows[-1]["ws_less_private_b_per_grid_px"]
+            out["file_last_block_b_per_grid_px"] = rows[-1].get("file_b_per_grid_px")  # exact file pages
+        files = [r["peak_file_above_start"] for k, r in parts.items()
+                 if k.startswith("grid-wide") and r.get("peak_file_above_start") is not None]
+        if files:  # the pass's file pages exactly, at their highest
+            out["file_pass_b_per_grid_px"] = per_px(max(files), pixels)
     return out
 
 
@@ -1471,6 +1520,8 @@ def block_rows(stage: Dict, parts: Dict[str, Dict]) -> List[Dict]:
         row["level_rss"] = _shift(r["peak_rss_above_start"], start["rss"], level and level["rss"])
         row["ws_less_private_above_start"] = r.get("peak_ws_less_private_above_start")
         row["ws_less_private_b_per_grid_px"] = per_px(row["ws_less_private_above_start"], stage.get("grid_px"))
+        row["file_above_start"] = r.get("peak_file_above_start")  # exact: WS less private WS (Windows), RssFile
+        row["file_b_per_grid_px"] = per_px(row["file_above_start"], stage.get("grid_px"))
         row["level_private"] = _shift(r["peak_private_above_start"], start["private"], level and level["private"])
         for key in ("stage", "level"):
             row[f"{key}_rss_b_per_window_px"] = per_px(row[f"{key}_rss"], window)
