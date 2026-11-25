@@ -165,11 +165,24 @@ def test_icons_are_the_marks_drawing():
             assert min(min(x, y) for x, y in drawn) >= int(edge) and max(max(x, y) for x, y in drawn) < size - int(edge)
 
 
-def _chromium(p):
+# Playwright's words when the browser it launches is not installed (`playwright install chromium` not run, as on CI:
+# "Executable doesn't exist at <path>")
+NOT_INSTALLED = "executable doesn't exist"
+
+
+def _launched(start):
+    """`start()` (a browser or a context launched): skipped only where Playwright's browser is not installed; any
+    other failure to start fails the test."""
     try:
-        return p.chromium.launch()
+        return start()
     except Exception as e:
-        pytest.skip(f"Playwright's Chromium is not available: {type(e).__name__}")
+        if NOT_INSTALLED in str(e).lower():
+            pytest.skip(f"Playwright's browser is not installed: {str(e).splitlines()[0]}")
+        raise
+
+
+def _chromium(p):
+    return _launched(lambda: p.chromium.launch())
 
 
 def _phone(p, profile, folder, phone: str):
@@ -177,10 +190,8 @@ def _phone(p, profile, folder, phone: str):
     installability error even for a page without a manifest) with its own profile (an off-the-record context answers
     "in-incognito"), as the phone `phone` of Playwright's device profiles."""
     options = {k: v for k, v in p.devices[phone].items() if k != "default_browser_type"}
-    try:
-        return p.chromium.launch_persistent_context(str(folder / profile), channel="chromium", **options)
-    except Exception as e:
-        pytest.skip(f"Playwright's full Chromium is not available: {type(e).__name__}")
+    return _launched(lambda: p.chromium.launch_persistent_context(str(folder / profile), channel="chromium",
+                                                                  **options))
 
 
 def test_icons_match_a_fresh_drawing():
