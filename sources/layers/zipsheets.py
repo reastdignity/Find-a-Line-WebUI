@@ -316,7 +316,7 @@ class ZipSheetTiles(ComposedLayer):
         if cache_dir:
             cache.record(cache_dir, path, "ok", url)
         for other in glob.glob(os.path.join(glob.escape(os.path.dirname(path)), f"{tile.sheet:03d}_*.tif")):
-            if os.path.normcase(other) != os.path.normcase(path):
+            if os.path.normcase(os.path.normpath(other)) != os.path.normcase(os.path.normpath(path)):
                 try:
                     os.remove(other)
                 except OSError:  # open in another process (Windows): left for a later prune

@@ -117,7 +117,7 @@ def config_dirs() -> list[str]:
 def live_sessions(configs: list[str]) -> set[str] | None:
     """The ids of the sessions whose process runs, from the config folders' sessions/<pid>.json; None
     when there is no such file at all (nothing is known, so no session counts as ended)."""
-    files = [p for folder in configs for p in glob.glob(os.path.join(folder, "sessions", "*.json"))]
+    files = [p for folder in configs for p in glob.glob(os.path.join(glob.escape(folder), "sessions", "*.json"))]
     if not files:
         return None
     live = set()

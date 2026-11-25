@@ -118,27 +118,43 @@ def test_cartoteca_cached_surveys_in_a_cache_with_brackets(root):
 
 
 def test_sha_per_tile_cached_in_a_cache_with_brackets(root):
-    """ShaPerTile.cached (metalink.py: _cached_tiles). A layer folder of one name: _cached_tiles compares each path
-    with path() as text, and in a folder with brackets glob gives the path back with the system's separators, so on
-    Windows a layer folder holding "/" (bavaria/dgm1) still finds nothing there (the comparison, not the listing)."""
+    """ShaPerTile.cached (metalink.py: _cached_tiles), a layer folder of two parts as every real one (bavaria/dgm1):
+    glob gives an escaped folder's paths back with the system's separators, so each is compared with path() through
+    os.path.normcase."""
     cache_dir = os.path.join(root, "cache")
-    layer = metalink.ShaPerTile("test_sha", UTM)
+    layer = metalink.ShaPerTile("test_sha/dgm1", UTM)
     tile = metalink.ShaTile(500, 5600, 2020, "abcdef12")
     _touch(layer.path(cache_dir, tile))
     assert layer.cached(UTM_GRID, cache_dir) == [tile]
 
 
 def test_package_versions_cached_in_a_cache_with_brackets(root):
-    """PackageVersions.cached, and forget_answers (the layer's 0.25 degree answers deleted). A layer folder of one
-    name, as for ShaPerTile: cached() compares each path with path() as text."""
+    """PackageVersions.cached (a layer folder of two parts, compared as ShaPerTile's), and forget_answers (the
+    layer's 0.25 degree answers deleted)."""
     cache_dir = os.path.join(root, "cache")
-    layer = packages.PackageVersions("test_pk")
+    layer = packages.PackageVersions("test_pk/dgm1")
     tile = packages.PackageTile(UTM, 500, 5600, 2020, "abcdef12", size=10)
     path = _touch(layer.path(cache_dir, tile))
     assert [layer.path(cache_dir, t) for t in layer.cached(UTM_GRID, cache_dir)] == [path]
     answer = _touch(os.path.join(cache_dir, "test_pk", "sheet-index", "dgm1", "50.00_7.00.json"), b"[]")
     packages.forget_answers(cache_dir, "test_pk", "dgm1")
     assert not os.path.exists(answer)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a folder typed in another case than on disk: Windows only")
+def test_cached_tiles_of_a_folder_typed_in_another_case(tmp_path):
+    """The data folder typed in another case than the disk spells it (maps[1] for Maps[1]): glob gives the
+    bracketed part back as the disk spells it, so ShaPerTile and PackageVersions compare through os.path.normcase
+    (layer folders of one part here: only the case differs)."""
+    (tmp_path / "Maps[1]").mkdir()
+    cache_dir = os.path.join(str(tmp_path), "maps[1]", "cache")
+    sha = metalink.ShaPerTile("test_sha", UTM)
+    tile = metalink.ShaTile(500, 5600, 2020, "abcdef12")
+    _touch(sha.path(cache_dir, tile))
+    assert sha.cached(UTM_GRID, cache_dir) == [tile]
+    package = packages.PackageVersions("test_pk")
+    _touch(package.path(cache_dir, packages.PackageTile(UTM, 500, 5600, 2020, "abcdef12", size=10)))
+    assert len(package.cached(UTM_GRID, cache_dir)) == 1
 
 
 def test_sheet_sets_cached_paths_in_a_cache_with_brackets(root):
@@ -218,12 +234,27 @@ def test_zip_sheets_in_a_cache_with_brackets(root):
     assert not os.path.exists(older) and os.path.exists(newer)
 
 
+def test_zip_sheets_renewed_keeps_the_file_it_wrote(root):
+    """ZipSheetTiles._renewed with a cache path holding a doubled separator: glob gives the other versions back
+    rebuilt (one separator), so the file just written is told apart through normpath and normcase, never deleted."""
+    cache_dir = root + os.sep + os.sep + "cache"
+    layer = ZipSheetTiles("Test", ["https://example.invalid/a.zip"], r"Sheet(\d+)\.txt",
+                          {1: (500_000, 5_600_000, 501_000, 5_601_000)}, UTM, "test_zs/dtm10", "k", 10.0)
+    older = _touch(os.path.join(cache_dir, "test_zs", "dtm10", "001_aaaa.tif"))
+    newer = _touch(os.path.join(cache_dir, "test_zs", "dtm10", "001_bbbb.tif"))
+    layer.index.cache_dir = None  # no row recorded
+    layer._renewed(newer, SimpleNamespace(sheet=1), None)
+    assert not os.path.exists(older) and os.path.exists(newer)
+
+
 # --- tools ------------------------------------------------------------------------------------------------------
 
-def test_end_zone_study_call_folders_in_a_folder_with_brackets(root):
+def test_end_zone_study_call_folders_in_a_folder_with_brackets(root, monkeypatch):
     """tools/end_zone_study.py call_folders (its pattern built from the folder: the guard does not see it): the
-    capture's call folders, in their order."""
-    sys.path.insert(0, os.path.join(REPO, "tools"))
+    capture's call folders, in their order. tools/ on sys.path and the module in sys.modules for this test only."""
+    monkeypatch.syspath_prepend(os.path.join(REPO, "tools"))
+    monkeypatch.setitem(sys.modules, "end_zone_study", None)  # what was there (or nothing) comes back afterwards
+    del sys.modules["end_zone_study"]
     import end_zone_study
     calls = [os.path.join(root, "capture", f"call-{n}") for n in (10, 2)]
     for call in calls:
@@ -233,23 +264,23 @@ def test_end_zone_study_call_folders_in_a_folder_with_brackets(root):
 
 # --- the guard --------------------------------------------------------------------------------------------------
 
-# The listings left as they are: (file, the first argument as ast.unparse gives it) -> why
+# The listings left as they are: (file, the pattern as ast.unparse gives it) -> (how many such calls, why)
 ALLOWED = {
     ("tools/clean_temp.py", "os.path.join(os.path.expanduser('~'), '.claude*')"):
-        "Claude Code's config folders: the pattern .claude* is meant",
-    ("tools/clean_temp.py", "os.path.join(folder, 'sessions', '*.json')"):
-        "a tool run by hand over Claude Code's config folders, left on purpose (E3's list)",
+        (1, "Claude Code's config folders: the pattern .claude* is meant"),
     ("tools/end_zone_study.py", "pattern"):
-        "built from glob.escape(folder) on the line before it",
+        (1, "built from glob.escape(folder) on the line before it"),
     ("tests/data/make_fixture.py", "os.path.join('cache', 'poland', kind, SHEET)"):
-        "a relative path of the fixture's maker",
+        (1, "a relative path of the fixture's maker"),
     ("docs/3d-view-research/scripts/r3/dem_sizes.py", "os.path.join(folder, '**', '*.tif')"):
-        "a research script, kept as it ran",
+        (1, "a research script, kept as it ran (left by the brief of the task)"),
 }
 
 HOW = ("glob.glob reads '[' in a folder's name as a pattern: in a data folder such as C:\\data\\[maps] it finds "
        "nothing. Wrap the folder part in glob.escape(...) (os.path.join(glob.escape(cache_dir), '*', 'x.tif')), "
-       "or name the call in ALLOWED of tests/test_glob_folders.py with its reason")
+       "give the folder as root_dir=, or name the call in ALLOWED of tests/test_glob_folders.py with its reason")
+IMPORTS = ("import glob only as `import glob` and call glob.glob(...): tests/test_glob_folders.py checks the "
+           "listings by that spelling")
 
 
 def _is_glob(node, name):
@@ -258,13 +289,32 @@ def _is_glob(node, name):
 
 
 def unescaped_listings(text):
-    """(line, first argument) of each glob.glob or glob.iglob call whose first argument holds no glob.escape."""
+    """(line, pattern) of each glob.glob or glob.iglob call whose pattern (the first argument, or pathname=) holds
+    no glob.escape; a call with root_dir= is accepted (the folder is taken literally there)."""
     found = []
     for node in ast.walk(ast.parse(text)):
-        if (_is_glob(node, "glob") or _is_glob(node, "iglob")) and node.args:
-            if not any(_is_glob(inner, "escape") for inner in ast.walk(node.args[0])):
-                found.append((node.lineno, ast.unparse(node.args[0])))
-    return found
+        if not (_is_glob(node, "glob") or _is_glob(node, "iglob")):
+            continue
+        keywords = {k.arg: k.value for k in node.keywords}
+        if "root_dir" in keywords:
+            continue
+        pattern = node.args[0] if node.args else keywords.get("pathname")
+        if pattern is None:
+            found.append((node.lineno, "<no pattern>"))
+        elif not any(_is_glob(inner, "escape") for inner in ast.walk(pattern)):
+            found.append((node.lineno, ast.unparse(pattern)))
+    return sorted(found)
+
+
+def other_imports(text):
+    """(line, the statement) of each import of glob spelt otherwise than `import glob`, which the guard cannot
+    follow: `from glob import ...`, `import glob as ...`."""
+    found = []
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.ImportFrom) and node.module == "glob" or isinstance(node, ast.Import) and any(
+                a.name == "glob" and a.asname not in (None, "glob") for a in node.names):
+            found.append((node.lineno, ast.unparse(node)))
+    return sorted(found)
 
 
 def test_the_guard_finds_a_listing_without_the_escape():
@@ -272,23 +322,34 @@ def test_the_guard_finds_a_listing_without_the_escape():
             "a = glob.glob(os.path.join(cache_dir, '*', 'x.tif'))\n"
             "b = glob.glob(os.path.join(glob.escape(cache_dir), '*', 'x.tif'))\n"
             "c = list(glob.iglob(runs + '/*'))\n"
-            "d = glob.escape(x)\n")
-    assert unescaped_listings(text) == [(2, "os.path.join(cache_dir, '*', 'x.tif')"), (4, "runs + '/*'")]
+            "d = glob.escape(x)\n"
+            "e = glob.glob(pathname=os.path.join(work, '*.npy'))\n"
+            "f = glob.glob(pathname=os.path.join(glob.escape(work), '*.npy'))\n"
+            "g = glob.glob('*/run.json', root_dir=runs)\n")
+    assert unescaped_listings(text) == [(2, "os.path.join(cache_dir, '*', 'x.tif')"), (4, "runs + '/*'"),
+                                        (6, "os.path.join(work, '*.npy')")]
+    assert other_imports(text) == []
+    text = "from glob import glob\nimport glob as g\nimport os, glob\nfrom glob import escape as e\n"
+    assert other_imports(text) == [(1, "from glob import glob"), (2, "import glob as g"),
+                                   (4, "from glob import escape as e")]
 
 
 def _tracked_python():
+    """The tracked Python files but the tests' own (tests/test_*.py); without git (not a checkout) the guard skips
+    and so checks nothing."""
     try:
         result = subprocess.run(["git", "ls-files", "*.py"], cwd=REPO, capture_output=True, encoding="utf-8",
                                 check=True)
     except (OSError, subprocess.CalledProcessError):
-        pytest.skip("not a git checkout")
+        pytest.skip("not a git checkout: the guard checks nothing here")
     names = [n for n in result.stdout.split("\n") if n]
     return [n for n in names if not (n.startswith("tests/") and os.path.basename(n).startswith("test_"))]
 
 
 def test_every_listing_escapes_its_folder():
-    """Every glob.glob and glob.iglob call of the tracked non-test code escapes its folder part (or is allowed)."""
-    seen, bad = set(), []
+    """Every glob.glob and glob.iglob call of the tracked non-test code escapes its folder part (or is allowed, as
+    many times as ALLOWED says), and glob is imported only as `import glob`."""
+    seen, bad, imports = {}, [], []
     for name in _tracked_python():
         path = os.path.join(REPO, name)
         if not os.path.exists(path):  # deleted in the working tree
@@ -297,10 +358,13 @@ def test_every_listing_escapes_its_folder():
             text = f.read()
         if "glob" not in text:
             continue
+        imports += [f"{name}:{line}: {statement}" for line, statement in other_imports(text)]
         for line, argument in unescaped_listings(text):
-            if (name, argument) in ALLOWED:
-                seen.add((name, argument))
-            else:
+            key = (name, argument)
+            seen[key] = seen.get(key, 0) + 1
+            if key not in ALLOWED or seen[key] > ALLOWED[key][0]:
                 bad.append(f"{name}:{line}: glob of {argument}")
+    assert not imports, IMPORTS + ":\n" + "\n".join(imports)
     assert not bad, HOW + ":\n" + "\n".join(bad)
-    assert seen == set(ALLOWED), f"ALLOWED names calls that are no more: {sorted(set(ALLOWED) - seen)}"
+    stale = sorted(key for key, (count, _) in ALLOWED.items() if seen.get(key, 0) != count)
+    assert not stale, f"ALLOWED names calls that are no more (or fewer): {stale}"

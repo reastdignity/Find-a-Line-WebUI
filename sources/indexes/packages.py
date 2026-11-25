@@ -501,7 +501,7 @@ class PackageVersions(Versions):
         bounds: Dict[str, Tuple[float, float, float, float]] = {}
         for path in glob.glob(os.path.join(glob.escape(cache_dir), self.folder, "epsg*", "*", "*.tif")):
             tile = self._of(path)
-            if tile is None or path != self.path(cache_dir, tile):
+            if tile is None or os.path.normcase(path) != os.path.normcase(self.path(cache_dir, tile)):
                 continue
             if tile.crs not in bounds:
                 bounds[tile.crs] = transform_bounds(grid.crs, tile.crs, *grid.bounds)

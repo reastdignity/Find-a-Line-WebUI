@@ -147,6 +147,6 @@ it does not see").
 - **PC-wide limits for Overpass and Nominatim**, and a contact in the User-Agent of a development machine.
 - **The data record's short windows that are left** (known-bugs.md, "The data record: what it does not see"): the
   OpenStreetMap tiles of a coastline or an area and the world file's edition are noted once, after their read.
-- **A data folder whose path holds `[`**: the world coastline file is found since 2026-11-24, every other listing
-  that starts at the data folder since 2026-11-25 (E3); left: on Windows the offline listing of four layer kinds (known-bugs.md, the
-  end of "What `cache status` still touches or misses").
+- **A data folder whose path holds `[`**: closed. The world coastline file is found since 2026-11-24; every
+  other listing that starts at the data, cache or runs folder, and the two comparisons of a listed path with a
+  built one, are mended since 2026-11-25 (known-bugs.md, the end of "What `cache status` still touches or misses").
