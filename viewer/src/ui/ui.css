@@ -103,11 +103,15 @@
 /* ... and its round twin for a choice of one (.u-radio: the maps' layers box's base maps; step 3d G6, Q4 a) */
 .ui .u-check, .ui .u-radio { width: 20px; height: 20px; flex: none; accent-color: var(--accent); }
 .ui .u-check:focus-visible, .ui .u-radio:focus-visible { box-shadow: none; outline: 2px solid var(--accent); outline-offset: 2px; }
-/* A box that is off but keeps the focus (aria-disabled, its presses ignored by its owner: a box given `disabled`
-   loses the focus to the page): drawn off from the tokens, with the ring above (a native box draws itself off only
-   when it is disabled). First use: Compare's row switched off under the focus (result/view/RunActions.tsx) */
-.ui .u-check[aria-disabled="true"] { appearance: none; margin: 0; border: 1px solid var(--line); border-radius: var(--r-1);
-  background: var(--surface-2); cursor: default; }
+/* A box that is off, drawn from the tokens (no native drawing; the ring above where it has the focus): a box that
+   keeps the focus (aria-disabled, its presses ignored by its owner: a box given `disabled` loses the focus to the
+   page), and a box its owner marks `u-off` (natively disabled, or kept off under the focus as above). Compare marks
+   every box of a run it cannot show `u-off` (the one kept under the focus is aria-disabled too), so every off box of
+   its list has one look (the user's answer 5 of 2026-11-25, "One look for all": result/view/RunActions.tsx). Never
+   `:disabled`: the app's other boxes keep the browser's own look when disabled (Leaflet's layers control disables
+   its boxes out of a layer's zooms) */
+.ui .u-check[aria-disabled="true"], .ui .u-check.u-off { appearance: none; margin: 0; border: 1px solid var(--line);
+  border-radius: var(--r-1); background: var(--surface-2); cursor: default; }
 
 /* Chips */
 .ui .u-chips { display: flex; flex-wrap: wrap; gap: 8px; }
