@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Segmented, useMedia, type Theme as UiTheme } from "../../ui/components";
 import { Logo } from "../../ui/icons";
 import { storedTheme, storeTheme } from "../../ui/choice";
+import { themeBars } from "../../ui/bars";
 import { COVERAGE, areaOf, loadShapes } from "../data";
 import { LANGS, areaName, ct, pickLang, rememberLang, resText, type Lang } from "../i18n";
 import { THEMES, applyPalette } from "../palette";
@@ -63,6 +64,7 @@ export function CoveragePage({shapesUrl, site}: {shapesUrl: string; site: "publi
   now.current = {lang, palette, selected, reduced};
 
   useLayoutEffect(() => { if (root.current) applyPalette(root.current, palette); }, [palette]);
+  useLayoutEffect(() => { themeBars(theme); }, [theme]);  // the browser's bars in the page's ground (ui/bars.ts)
   useEffect(() => {
     document.documentElement.lang = lang;
     document.title = ct(lang, "page.doc_title");
