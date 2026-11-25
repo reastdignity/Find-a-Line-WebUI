@@ -31,6 +31,20 @@ Commands:
   files at each part's peak and its own peak on disk. The split comes from wrapping access.py's private functions
   of today's pass (looked up by name; those missing are listed under "hooks" and the split is coarser); the grid at
   once and the blocks are compared pixel by pixel ("differ").
+  "blocks" is the grid as the search makes it (search._access_grid): on a tree whose block_grid takes `needed`
+  (E, wave 2b) the search area is passed as the search passes it (Data.mask; nothing with Data.partner), so the blocks
+  left out (access.NOT_COMPUTED, 255) are in the stage's seconds and memory; its JSON has the blocks computed
+  ("blocks"), those left out ("left_out") and the pixels left out, and the area's blocks' table apart as the part
+  "needed". The grid at once against it by rule (a), as the search reads it ("rule_a", also "compare_with_once"):
+  0 pixels differ where a block was computed, no pixel of the area is 255, and the 255s are exactly the blocks left
+  out. "full" (an --order entry of its own) is block_grid without `needed`, every block, not split and not to be
+  read for seconds: rule (b), "rule_b", compares it with the grid at once at every pixel.
+  The columns since the masks are bits (wave 2b, access._Mask: read and written by file calls, never mapped): the
+  masks' pages are no longer in the process's working set, so "WS" (the working set above the stage's start, the
+  rule's measure) and "WS less private" (the file pages) no longer hold them: they lie in the system's file cache,
+  which no column of the process shows. Their size is kept apart: the mark's files on disk per pixel of the grid
+  (the work folder's peak less its size at the stage's start, from the sidecar's listings), in the pass and in the
+  blocks ("needed": mark_files_pass_b_per_px, mark_files_blocks_b_per_px); on Linux the cgroup's file pages beside.
 - pieces: step 1, then the real grid-wide pass (access.block_grid, stopped before its first block) with
   access._region_areas wrapped: per mask (flat, open ground, smoothed open ground) the pieces ndimage.label gives
   strip by strip with the pass's strips (total, most in one strip, most labels in a strip's last row), and the
@@ -39,7 +53,8 @@ Commands:
   columns each side (mean, and the share of strips without heights: F); the share of blocks whose core holds a pixel
   of the search area (Data.mask: E) for the rule's block side and 2, 4 and 8 km; --anchors: the share holding an
   anchor (each tile's anchors as search._estimate_tiles finds them: E2). --capture DIR keeps the pass's final masks
-  (<name>-water.npy, -og.npy, -og2.npy) for `masks`.
+  (<name>-water.npy, -og.npy, -og2.npy) for `masks`, and each mask as its regions are found, always as bool .npy
+  (a tree that keeps its masks as bits has them unpacked: mask_as_bool).
 - masks: one mask kept three ways, each in a fresh child process: "memmap" (a memory-mapped bool .npy, as the pass
   keeps it today; one mapping open over all windows, as block_grid), "bits" (one bit per pixel, np.packbits by row,
   in the process's own memory), "file" (a plain uint8 file written and read with file calls, never mapped). Each
@@ -87,9 +102,11 @@ PROC = "/proc"
 # masks; a name missing (a later access.py) is listed under "hooks" and its part is not split
 # (until gate 0: _region_areas, _region_bounds and the label files; since wave 1 of 2026-11-24: _Regions' sweeps,
 # _spread_large for B)
+# (wave 2b: _blocks_needed, the search area's blocks, before the pass)
 HOOKS = ("_whole_metres_rows", "_flat_lakes_rows", "_region_areas", "_region_bounds", "_spread_flat",
          "_open_ground_rows", "_answers", "_Regions.__init__", "_Regions._backward", "_Regions.visit",
-         "_spread_large", "_Regions._label")
+         "_spread_large", "_Regions._label", "_blocks_needed")
+NOT_COMPUTED = 255  # access.NOT_COMPUTED (wave 2b): a pixel of a block left out
 GROUPS = {"access_flat.npy": "flat lakes", "access_og_g.npy": "open ground", "access_og2_g.npy": "smoothed open ground",
           "access_og.npy": "open ground", "access_og2.npy": "smoothed open ground"}
 # access._answers' parameters as the per-block hook mirrors them (another signature: the blocks are not split)
@@ -525,6 +542,56 @@ def compare_grids(a, b, first: int = 5) -> Dict:
     return {"differ": count, "first": where, "pixels": h * w}
 
 
+def compare_rule_a(once, blocks, area, first: int = 5) -> Dict:
+    """Rule (a), the grid in blocks as the search reads it: against the grid at once (None: not compared) only where
+    a block was computed (not NOT_COMPUTED), and the pixels NOT_COMPUTED, those of them in the search area (`area`,
+    bool or None: not counted) and the grid at once's own NOT_COMPUTED values (none expected: a value it never
+    holds). "differ" counts the computed pixels that differ; the rule holds when it and "left_out_in_area" are 0."""
+    h, w = blocks.shape
+    if once is not None and once.shape != blocks.shape:
+        raise ValueError(f"the grids differ in shape: {once.shape} and {blocks.shape}")
+    count, where, left, in_area, once_255 = 0, [], 0, 0, 0
+    for r0, r1 in strips(h, w):
+        b = np.asarray(blocks[r0:r1])
+        off = b == NOT_COMPUTED
+        left += int(off.sum())
+        if area is not None:
+            in_area += int((off & np.asarray(area[r0:r1], bool)).sum())
+        if once is not None:
+            o = np.asarray(once[r0:r1])
+            once_255 += int((o == NOT_COMPUTED).sum())
+            d = (o != b) & ~off
+            n = int(d.sum())
+            if n and len(where) < first:
+                rr, cc = np.nonzero(d)
+                where += [[int(r + r0), int(c)] for r, c in zip(rr[:first - len(where)], cc[:first - len(where)])]
+            count += n
+    return {"rule": "a", "differ": count if once is not None else None, "first": where, "pixels": h * w,
+            "computed_px": h * w - left, "left_out_px": left,
+            "left_out_in_area": in_area if area is not None else None, "once_not_computed": once_255}
+
+
+def mask_as_bool(path: str, shape: Tuple[int, int]) -> np.ndarray:
+    """A mask file of the pass as a bool grid of `shape`: a bool (or 0/1 uint8) .npy as it is, a .npy of packed bits
+    (wave 2b's access._Mask: uint8 rows of ceil(w / 8) bytes, np.packbits by row) unpacked."""
+    h, w = int(shape[0]), int(shape[1])
+    a = np.load(path)
+    if a.shape == (h, w):
+        return a.astype(bool, copy=False)
+    if a.dtype == np.uint8 and a.shape == (h, -(-w // 8)):
+        return np.unpackbits(a, axis=1, count=w).view(bool)
+    raise ValueError(f"{path}: {a.dtype} {a.shape} is neither a mask of {shape} nor its bits")
+
+
+def save_bool(dest: str, rows: Callable[[int, int], np.ndarray], shape: Tuple[int, int]) -> None:
+    """A bool .npy of `shape` written strip by strip from rows(r0, r1) with file calls (never mapped)."""
+    h, w = int(shape[0]), int(shape[1])
+    with open(dest, "wb") as f:
+        np.lib.format.write_array_header_1_0(f, {"descr": "|b1", "fortran_order": False, "shape": (h, w)})
+        for r0, r1 in strips(h, w):
+            f.write(np.ascontiguousarray(rows(r0, r1), bool).tobytes())
+
+
 # ---------------------------------------------------------------- masks: three ways, each in a child process
 
 def windows(h: int, w: int, block_px: int, margin: int):
@@ -817,6 +884,12 @@ class Search:
         d = self.data
         return d.elevation, d.water, self.plan.resolution, d.filled_pixels()
 
+    def needed(self):
+        """block_grid's `needed` as search._access_grid passes it (wave 2b, E): the search area (Data.mask), nothing
+        with partner anchors beyond the outline (Data.partner)."""
+        d = self.data
+        return d.mask if getattr(d, "partner", None) is None else None
+
     def close(self, keep: bool = False):
         self.data = None
         for name, value in getattr(self, "_patched", {}).items():
@@ -981,6 +1054,8 @@ class Marks:
         wrap("_Regions._backward", enter=lambda a, k: f"grid-wide: {of_regions(a, k)}: regions: backward")
         wrap("_spread_large", enter=large_enter, leave=large_leave)
         wrap("_spread_flat", enter=spread_enter, leave=lambda a, k: "grid-wide: flat lakes: after: write")
+        # E (wave 2b): the search area's blocks, read before the pass: a part of the stage of its own
+        wrap("_blocks_needed", enter=lambda a, k: "needed: the search area's blocks")
         owner, attr = _owner(access, "_Regions._label")
         real_label = getattr(owner, attr, None) if owner is not None else None
         if callable(real_label):
@@ -1133,8 +1208,22 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
         sidecar_events.mark(f"once {k}: save")
         np.save(path, grid)
         del grid
+    elif kind == "full":  # rule (b): every block, no `needed`, not split (its seconds not to be read)
+        sidecar_events.mark(f"full {k}")
+        path = os.path.join(s.work, f"full-{k}.npy")
+        done = access.block_grid(z, water, res, filled, path, s.work, block_px, alpine=True)
+        t1 = time.time()
+        out["untimed"] = True
+        out["block_px"], out["blocks"], out["left_out"] = block_px, done["blocks"], done.get("left_out", 0)
     else:
         path = os.path.join(s.work, "access.npy")  # search.ACCESS_FILE
+        import inspect
+        takes = "needed" in inspect.signature(access.block_grid).parameters
+        needed = s.needed() if takes else None
+        # E (wave 2b): the search area as search._access_grid passes it; a tree before E computes every block
+        extra = {"needed": needed} if takes else {}
+        out["needed_passed"] = "search area" if needed is not None else ("none (every block)" if takes else
+                                                                         "a tree without needed")
         before = set(work_files(s.work))
         start = len(sidecar_events.events)
         sidecar_events.windows = []
@@ -1147,12 +1236,15 @@ def run_stage(s: Search, sidecar_events: Marks, kind: str, k: int, access, block
             else:
                 sidecar_events.mark("grid-wide: whole-metre sample" if name == "grid-wide" else name)
         try:
-            done = access.block_grid(z, water, res, filled, path, s.work, block_px, alpine=True, on_part=on_part)
+            done = access.block_grid(z, water, res, filled, path, s.work, block_px, alpine=True, on_part=on_part,
+                                     **extra)
         finally:
             sidecar_events.unhook(access)
+            del needed, extra
         t1 = time.time()
         sidecar_events.mark(f"blocks {k}: after")
         out["block_px"], out["blocks"], out["window_px"] = block_px, done["blocks"], done["window_px"]
+        out["left_out"] = done.get("left_out", 0)  # blocks computed: "blocks"; left out (E): "left_out"
         out["whole_metres"] = bool(done["whole_metres"])
         out["windows"] = list(sidecar_events.windows)
         out["readings"] = dict(sidecar_events.readings)
@@ -1262,6 +1354,14 @@ def constant_needed(st: Dict, pixels: int, window_bytes: float = 50) -> Dict:
     if disks and st.get("work_bytes_at_start") is not None:
         out["mark_files_bytes"] = max(disks) - st["work_bytes_at_start"]
         out["mark_files_b_per_px"] = per_px(out["mark_files_bytes"], pixels)
+        # wave 2b: the masks are not mapped, so their bytes are in no working-set column; on disk, in the pass and in
+        # the blocks apart (the work folder's peak in those parts less its size at the stage's start)
+        for key, head in (("pass", "grid-wide"), ("blocks", "blocks: ")):
+            got = [r["peak_disk"] for label, r in st["parts"].items()
+                   if label.startswith(head) and r.get("peak_disk") is not None]
+            if got:
+                out[f"mark_files_{key}_bytes"] = max(got) - st["work_bytes_at_start"]
+                out[f"mark_files_{key}_b_per_px"] = per_px(out[f"mark_files_{key}_bytes"], pixels)
     return out
 
 
@@ -1358,9 +1458,12 @@ def run_stages(args) -> Dict:
     if args.block_px:
         out["rule"]["block_px_given"] = args.block_px
     block_px = args.block_px or out["rule"]["block_px"]
-    if any(x == "blocks" for x in out["order"]) and not block_px:
+    unknown = [x for x in out["order"] if x not in ("once", "blocks", "full")]
+    if unknown:
+        raise SystemExit(f"--order: once, blocks or full, not {unknown}")
+    if any(x in ("blocks", "full") for x in out["order"]) and not block_px:
         out["note"] = "the rule makes the grid at once (or leaves the mark out): no blocks without --block-px"
-        out["order"] = [x for x in out["order"] if x != "blocks"]
+        out["order"] = [x for x in out["order"] if x not in ("blocks", "full")]
     if out["order"]:
         warm_up()
     marks = Marks()
@@ -1424,13 +1527,21 @@ def run_stages(args) -> Dict:
     out["step1"]["work_after"] = raw[0][0]["work_after"]
     out["stages"] = reports[1:]
     out["samples"] = len(samples)
+    # after every stage's clock: the blocks by rule (a) (also without a grid at once: the pixels left out and those in
+    # the area), "full" by rule (b)
     once = [st for st in stages if st["stage"] == "once"]
-    if once:
-        for st, rep in zip(stages, out["stages"]):
-            if st["stage"] == "blocks":
-                rep["compare_with_once"] = compare_grids(np.load(once[0]["path"], mmap_mode="r"),
-                                                         np.load(st["path"], mmap_mode="r"))
-        gc.collect()
+    once_grid = np.load(once[0]["path"], mmap_mode="r") if once else None
+    area = s.data.mask if s.data is not None else None
+    for st, rep in zip(stages, out["stages"]):
+        if st["stage"] == "blocks":
+            rep["rule_a"] = compare_rule_a(once_grid, np.load(st["path"], mmap_mode="r"), area)
+            rep["left_out_px"] = rep["rule_a"]["left_out_px"]
+            if once_grid is not None:  # the comparison the judges read: rule (a)
+                rep["compare_with_once"] = rep["rule_a"]
+        elif st["stage"] == "full" and once_grid is not None:
+            rep["rule_b"] = dict(compare_grids(once_grid, np.load(st["path"], mmap_mode="r")), rule="b")
+    del once_grid, area
+    gc.collect()
     out["cg_events"] = cgroup_events()
     out["cg_final"] = cgroup_sample()
     out["work"] = s.work
@@ -1543,10 +1654,10 @@ def run_pieces(args) -> Dict:
             row = strip_pieces(_MaskRows(mask), strip_rows)
             row["true_pixels"] = int(sum(np.count_nonzero(mask.rows(r0, r1)) for r0, r1 in strip_rows))
             name = os.path.basename(mask.path)
-            if args.capture:  # the mask as its regions are found (before the regions' size), for a check
-                os.makedirs(args.capture, exist_ok=True)
+            if args.capture:  # the mask as its regions are found (before the regions' size), for a check: a bool
+                os.makedirs(args.capture, exist_ok=True)  # .npy from its rows (wave 2b's masks are bits in the file)
                 row["captured"] = os.path.join(args.capture, f"{args.name}-{name}")
-                shutil.copyfile(mask.path, row["captured"])
+                save_bool(row["captured"], mask.rows, mask.shape)
             judged = {"regions": 0, "not_dropped": 0}
 
             def counted(pixels, lowest, highest):
@@ -1592,9 +1703,12 @@ def run_pieces(args) -> Dict:
         out["captured"] = {}
         for name in ("water", "og", "og2"):
             p = os.path.join(s.work, f"access_{name}.npy")
-            if os.path.exists(p):
+            if os.path.exists(p):  # as a bool .npy whatever the tree keeps (wave 2b: bits, unpacked)
                 dest = os.path.join(args.capture, f"{args.name}-{name}.npy")
-                shutil.move(p, dest)
+                grid = mask_as_bool(p, (h, w))
+                save_bool(dest, lambda r0, r1: grid[r0:r1], (h, w))
+                del grid
+                os.remove(p)
                 out["captured"][name] = dest
     del data, z, water, filled, mask
     s.close(args.keep_work)
@@ -1794,7 +1908,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-work", action="store_true", help="keep the work folder")
     p.add_argument("--keep-grid", help="stages: copy the first blocks stage's finished access grid (.npy) here")
     p.add_argument("--keep-samples", action="store_true", help="stages: keep the sidecar's samples (<out>/samples)")
-    p.add_argument("--order", default="once,blocks", help="stages: the stages after step 1, e.g. blocks,once,blocks")
+    p.add_argument("--order", default="once,blocks", help="stages: the stages after step 1, e.g. blocks,once,blocks; "
+                                                          "full: every block without the search area (rule (b))")
     p.add_argument("--step1-only", action="store_true", help="stages: step 1 alone")
     p.add_argument("--empty-start", action="store_true",
                    help="stages: the working set emptied before each stage's start (Windows: EmptyWorkingSet)")

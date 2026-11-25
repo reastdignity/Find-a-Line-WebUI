@@ -90,6 +90,35 @@ def test_shares_of_heights_area_and_blocks():
     assert points == {"block_px": 50, "blocks": 6, "holding": 2, "share": round(2 / 6, 4)}
 
 
+def test_rule_a_and_the_masks_bits_by_construction(tmp_path):
+    """Rule (a) on hand-made grids: a pixel left out (255) is not compared, one that differs where computed is
+    counted, a 255 in the area is counted apart; a mask of packed bits (wave 2b's _Mask file) reads back as the bool
+    grid it was, and so does a bool one; save_bool writes a bool .npy."""
+    once = np.zeros((6, 10), np.uint8)
+    blocks = once.copy()
+    blocks[:, 7:] = pa.NOT_COMPUTED  # a block left out: 18 pixels
+    blocks[0, 0] = 3  # differs where computed
+    area = np.zeros((6, 10), bool)
+    area[:, :5] = True
+    a = pa.compare_rule_a(once, blocks, area)
+    assert (a["differ"], a["left_out_px"], a["left_out_in_area"], a["computed_px"], a["first"]) == (1, 18, 0, 42,
+                                                                                                    [[0, 0]])
+    area[2, 8] = True
+    assert pa.compare_rule_a(None, blocks, area)["left_out_in_area"] == 1
+    assert pa.compare_rule_a(None, blocks, area)["differ"] is None
+    rng = np.random.default_rng(5)
+    mask = rng.random((7, 13)) < 0.4
+    np.save(tmp_path / "bits.npy", np.packbits(mask, axis=1))
+    np.save(tmp_path / "bool.npy", mask)
+    assert (pa.mask_as_bool(str(tmp_path / "bits.npy"), mask.shape) == mask).all()
+    assert (pa.mask_as_bool(str(tmp_path / "bool.npy"), mask.shape) == mask).all()
+    pa.save_bool(str(tmp_path / "saved.npy"), lambda r0, r1: mask[r0:r1], mask.shape)
+    got = np.load(tmp_path / "saved.npy")
+    assert got.dtype == bool and (got == mask).all()
+    with pytest.raises(ValueError):
+        pa.mask_as_bool(str(tmp_path / "bits.npy"), (7, 30))
+
+
 def test_compare_counts_the_pixels_that_differ():
     rng = np.random.default_rng(5)
     a = rng.integers(0, 3, (300, 70)).astype(np.uint8)
@@ -394,10 +423,10 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
     grids equal to the grid at once, nothing left of the pass, the work folder removed."""
     import types
     out_dir = tmp_path / "out"
-    out = pa.main(["stages", "--out", str(out_dir), "--name", "s", "--order", "blocks,once,blocks",
+    out = pa.main(["stages", "--out", str(out_dir), "--name", "s", "--order", "blocks,once,blocks,full",
                    "--block-px", "60", *made_up_search])
     saved = json.load(open(out_dir / "s.json"))
-    assert saved["command"] == "stages" and saved["order"] == ["blocks", "once", "blocks"]
+    assert saved["command"] == "stages" and saved["order"] == ["blocks", "once", "blocks", "full"]
     for key in ("machine", "plan", "rule", "step1", "stages", "samples", "work", "argv"):
         assert key in saved, key
     assert saved["plan"]["grid_px"] == saved["plan"]["grid"][0] * saved["plan"]["grid"][1] > 100_000
@@ -407,7 +436,11 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
                 "work_after"):
         assert key in step1, key
     assert any(name.endswith("nmt.npy") for name in step1["work_after"])
-    assert [st["stage"] for st in saved["stages"]] == ["blocks", "once", "blocks"]
+    assert [st["stage"] for st in saved["stages"]] == ["blocks", "once", "blocks", "full"]
+    import access
+    takes_needed = hasattr(access, "NOT_COMPUTED")  # E (wave 2b): the blocks made with the search area
+    full = saved["stages"][3]  # rule (b): every block, without the area, against the grid at once at every pixel
+    assert full["untimed"] and full["left_out"] == 0 and full["rule_b"]["differ"] == 0
     for st in saved["stages"]:
         for key in ("s", "run", "start", "end", "parts", "peak_rss_above_start", "rss_b_per_grid_px"):
             assert key in st, key
@@ -418,7 +451,13 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
                 assert key in row, key
         if st["stage"] == "blocks":
             assert st["block_px"] == 60 and st["blocks"] > 9
-            assert st["compare_with_once"]["differ"] == 0
+            a = st["rule_a"]  # rule (a): 0 differ where computed, no pixel of the area left out
+            assert a["differ"] == 0 and a["left_out_in_area"] == 0 and a["once_not_computed"] == 0
+            assert st["compare_with_once"] == a and st["left_out_px"] == a["left_out_px"]
+            assert (a["left_out_px"] > 0) == (st["left_out"] > 0)
+            assert st["needed_passed"] == ("search area" if takes_needed else "a tree without needed")
+            if takes_needed:  # the circle of 900 m in its 2 km box: the corner blocks of 300 m hold none of it
+                assert st["left_out"] > 0 and "needed: the search area's blocks" in st["parts"]
             assert st["left_in_work"] == []
             assert st["grid_wide"]["s"] > 0 and st["blocks_part"]["largest_window_px"] == st["window_px"]
             assert "stage_rss_b_per_largest_window_px" in st["blocks_part"]
@@ -449,9 +488,15 @@ def test_stages_on_a_made_up_search(tmp_path, made_up_search):
                 import access
                 h, w = saved["plan"]["grid"]
                 expected = [(b - a) * (d - c) for a, b, c, d in pa.windows(h, w, 60, access.margin_px(5.0))]
-                assert st["windows"] == expected and len(st["blocks_list"]) == st["blocks"] == len(expected)
+                assert st["blocks"] + st["left_out"] == len(expected)
+                if not st["left_out"]:
+                    assert st["windows"] == expected
+                else:  # the blocks computed, in block_grid's order: a part of the layout's windows, in its order
+                    it = iter(expected)
+                    assert all(any(x == e for e in it) for x in st["windows"])
+                assert len(st["windows"]) == len(st["blocks_list"]) == st["blocks"]
                 assert "blocks: block 1" in st["readings"] and len(st["readings"]) == st["blocks"] + 1
-                assert all(r["window_px"] == e for r, e in zip(st["blocks_list"], expected))
+                assert all(r["window_px"] == e for r, e in zip(st["blocks_list"], st["windows"]))
                 # the level's figure exactly when the blocks got a sample (a part without one has no peak: the
                 # blocks of this small grid take a fraction of a second, and a busy machine may sample none)
                 b = st["blocks_part"]
