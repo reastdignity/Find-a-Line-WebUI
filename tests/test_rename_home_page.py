@@ -17,6 +17,7 @@ import socket
 import sys
 import threading
 import time
+from contextlib import contextmanager
 
 import pytest
 
@@ -201,6 +202,27 @@ FORM = """(sel) => { const f = document.querySelector(sel + ' .c-rename'), i = f
           focus: document.activeElement === i, selected: [i.selectionStart, i.selectionEnd]}; }"""
 NAME = "(sel) => document.querySelector(sel + ' .c-card-name').textContent"
 ON_MENU_BUTTON = "(sel) => document.activeElement === document.querySelector(sel + ' .c-card-menu')"
+# The form's own signal that its effect after a failure ran: the focus in the field, the caret collapsed at the end
+BACK_IN_FIELD = """(sel) => { const i = document.querySelector(sel + ' .c-rename input');
+  return !!i && !i.readOnly && document.activeElement === i && i.selectionStart === i.value.length
+    && i.selectionEnd === i.value.length; }"""
+
+
+@contextmanager
+def line_before_typing(page, form: str):
+    """For a failure whose line the test then types after, in the same field (`form`: a selector holding the
+    .c-rename form): the held answer is let go inside the block. Before it, once the request waits (the field
+    read-only), the field loses the focus, as a press elsewhere takes it; after it, the line drawn, the test waits for
+    the form's own signal that its effect after the failure ran (RenameForm: the focus back in the field, the caret
+    after what was typed). Preact runs that effect after the paint, a frame after the line (at most 35 ms + a task
+    without a frame): a fill in between had the whole name selected by Playwright, the caret then put at its end by
+    the effect, and its text appended ("Waiting nameTab\\there"). Without the blur the field would show the signal
+    already before the effect (the focus never left it, the caret at the end after the fill)."""
+    page.wait_for_function("(sel) => document.querySelector(sel + ' .c-rename input').readOnly", arg=form)
+    page.evaluate("(sel) => document.querySelector(sel + ' .c-rename input').blur()", form)
+    yield
+    page.wait_for_selector(f"{form} .c-rename [role=alert]")
+    page.wait_for_function(BACK_IN_FIELD, arg=form)
 
 
 def closed(page, run: str) -> bool:
@@ -366,16 +388,16 @@ def test_waiting_and_the_refusals(rename_site):
         waiting = page.evaluate(FORM, card(RUN_A))
         page.keyboard.press("Escape")
         still = page.evaluate("(sel) => !!document.querySelector(sel + ' .c-card-panel .c-rename')", card(RUN_A))
-        the_held(page, held).fulfill(status=409, content_type="application/json",
-                           body=json.dumps({"detail": "the run is in use: try again in a moment"}))
-        page.wait_for_selector(f"{card(RUN_A)} .c-rename [role=alert]")
+        with line_before_typing(page, card(RUN_A)):
+            the_held(page, held).fulfill(status=409, content_type="application/json",
+                                         body=json.dumps({"detail": "the run is in use: try again in a moment"}))
         in_use = page.evaluate(FORM, card(RUN_A))
         field.press("End")
         field.type("!")
         cleared = page.evaluate(FORM, card(RUN_A))
         page.keyboard.press("Enter")
-        the_held(page, held).fulfill(status=500, content_type="application/json", body=json.dumps({"detail": "made-up failure"}))
-        page.wait_for_selector(f"{card(RUN_A)} .c-rename [role=alert]")
+        with line_before_typing(page, card(RUN_A)):
+            the_held(page, held).fulfill(status=500, content_type="application/json", body=json.dumps({"detail": "made-up failure"}))
         failed = page.evaluate(FORM, card(RUN_A))
         page.unroute(f"**/api/runs/{RUN_A}")
         field.fill("Tab\there")
