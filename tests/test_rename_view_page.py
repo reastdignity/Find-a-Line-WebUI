@@ -453,3 +453,54 @@ def test_edit_and_run_again_has_the_circular_arrow_in_the_header(rename_site):
         pencil = page.evaluate("(sel) => document.querySelector(sel + ' svg').innerHTML", BUTTON)
     assert edit[0] == "Edit & run again" and f'd="{kit_icon("refresh")}"' in edit[1], edit
     assert f'd="{kit_icon("edit")}"' not in edit[1] and f'd="{kit_icon("edit")}"' in pencil, (edit, pencil)
+
+
+def test_the_header_keeps_its_height_when_the_rename_button_comes(rename_site):
+    """The Rename button is drawn only once the list of runs has answered. Before it (the answer held) and after it the
+    owner's desktop header is as high and the list under it starts as low: nothing under the header moves when the
+    button comes. A visitor's header on the run's map.html, which never has the button, has that height too. The button
+    keeps its 32 px, and its place in the name's line. With the keyboard's focus its ring is drawn inside it (the kit's
+    inner ring): none outside, where it would touch the name and cross the date's line."""
+    site, _ = rename_site
+    box = """() => { const top = document.querySelector('.c-result-top').getBoundingClientRect(),
+      cols = document.querySelector('.c-cols').getBoundingClientRect(), b = document.querySelector('.c-run-title .c-rename-btn');
+      const r = b && b.getBoundingClientRect(), n = document.querySelector('.c-run-title .c-run-name').getBoundingClientRect();
+      return {header: top.height, list: cols.top, button: r && [r.width, r.height], inside: r && r.top >= top.top && r.bottom <= top.bottom,
+              centred: r && Math.abs((r.top + r.bottom) / 2 - (n.top + n.bottom) / 2) <= 1}; }"""
+    held, answered = [], []
+
+    def lists(route):  # the page's requests for the user's runs: held until `answered` says to let them through
+        if route.request.method == "GET" and not answered:
+            held.append(route)
+        else:
+            route.continue_()
+    with Browser(site) as browser:
+        page = page_of(browser)
+        page.goto("about:blank")
+        page.route("**/api/runs", lists)
+        page.goto(f"{site}/?ui=c#run={RUN_A}")
+        view_of(page, RUN_A)
+        assert held, "the page asked for no list of runs"  # (its answers stay held: the owner is not known yet)
+        before = page.evaluate(box)
+        answered.append(True)
+        for route in held:
+            route.continue_()
+        page.wait_for_selector(BUTTON)
+        after = page.evaluate(box)
+        page.focus(BUTTON)
+        page.keyboard.press("Shift+Tab")
+        page.keyboard.press("Tab")  # the keyboard's way onto the button: its ring is drawn
+        ring = page.evaluate("(sel) => { const b = document.querySelector(sel), s = getComputedStyle(b); "
+                             "return {on: document.activeElement === b && b.matches(':focus-visible'), shadow: s.boxShadow, "
+                             "token: getComputedStyle(b.closest('.ui')).getPropertyValue('--focus-in').trim()}; }", BUTTON)
+        visitor = page_of(browser, who=None)
+        visitor.goto(f"{site}/runs/{RUN_A}/map.html")
+        view_of(visitor, RUN_A)
+        visitor.wait_for_load_state("networkidle")
+        other = visitor.evaluate(box)
+    assert before["button"] is None and other["button"] is None, (before, other)
+    assert after["button"] == [32, 32] and after["inside"] and after["centred"], after
+    assert before["header"] == after["header"] == other["header"], (before, after, other)
+    assert ring["on"] and "inset" in ring["shadow"] and ring["shadow"].count("rgb") == 1, ring  # one ring, inside
+    assert ring["token"].startswith("inset"), ring
+    assert before["list"] == after["list"] == other["list"], (before, after, other)

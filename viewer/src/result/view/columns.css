@@ -20,6 +20,14 @@
    edge, not the button's (the popover's holder is not positioned: the title is) */
 .ui .c-run-nameline { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .ui .c-run-nameline .r-popwrap { position: static; flex: none; }
+/* The Rename button (32 px) hangs 4 px into the header's padding above and below, so the name's line keeps its 24 px
+   and the header its height with and without the button (it is drawn only once the list of runs has answered: the
+   list, the map and the details under the header must not move then) */
+.ui .c-run-nameline .c-rename-btn { margin-block: -4px; }
+/* ... and its keyboard ring is drawn inside it (the kit's inner ring, as where a box would clip one): a ring 4 px
+   outside would touch the name before it and the window's top edge and cross the date under it */
+.ui .c-run-nameline .c-rename-btn:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .ui .c-run-nameline .c-rename-btn:focus-visible { outline-offset: -2px; } }
 /* The rename form (RunRename.tsx: a card's panel on Home, the view's box): the field, then Save and Cancel, the
    refusal's line under them */
 .ui .c-rename { display: flex; flex-direction: column; gap: 8px; margin: 0; }
