@@ -278,7 +278,7 @@ ALLOWED = {
 
 HOW = ("glob.glob reads '[' in a folder's name as a pattern: in a data folder such as C:\\data\\[maps] it finds "
        "nothing. Wrap the folder part in glob.escape(...) (os.path.join(glob.escape(cache_dir), '*', 'x.tif')), "
-       "give the folder as root_dir=, or name the call in ALLOWED of tests/test_glob_folders.py with its reason")
+       "or name the call in ALLOWED of tests/test_glob_folders.py with its reason")
 IMPORTS = ("import glob only as `import glob` and call glob.glob(...): tests/test_glob_folders.py checks the "
            "listings by that spelling")
 
@@ -290,14 +290,13 @@ def _is_glob(node, name):
 
 def unescaped_listings(text):
     """(line, pattern) of each glob.glob or glob.iglob call whose pattern (the first argument, or pathname=) holds
-    no glob.escape; a call with root_dir= is accepted (the folder is taken literally there)."""
+    no glob.escape. A call with root_dir= is checked like any other: glob ignores root_dir for an absolute pattern,
+    so it is no proof that the folder is taken as it is (no code uses it; one that does is named in ALLOWED)."""
     found = []
     for node in ast.walk(ast.parse(text)):
         if not (_is_glob(node, "glob") or _is_glob(node, "iglob")):
             continue
         keywords = {k.arg: k.value for k in node.keywords}
-        if "root_dir" in keywords:
-            continue
         pattern = node.args[0] if node.args else keywords.get("pathname")
         if pattern is None:
             found.append((node.lineno, "<no pattern>"))
@@ -325,9 +324,11 @@ def test_the_guard_finds_a_listing_without_the_escape():
             "d = glob.escape(x)\n"
             "e = glob.glob(pathname=os.path.join(work, '*.npy'))\n"
             "f = glob.glob(pathname=os.path.join(glob.escape(work), '*.npy'))\n"
-            "g = glob.glob('*/run.json', root_dir=runs)\n")
+            "g = glob.glob('*/run.json', root_dir=runs)\n"
+            "h = glob.glob(os.path.join(cache_dir, '*'), root_dir=work)\n")
     assert unescaped_listings(text) == [(2, "os.path.join(cache_dir, '*', 'x.tif')"), (4, "runs + '/*'"),
-                                        (6, "os.path.join(work, '*.npy')")]
+                                        (6, "os.path.join(work, '*.npy')"), (8, "'*/run.json'"),
+                                        (9, "os.path.join(cache_dir, '*')")]
     assert other_imports(text) == []
     text = "from glob import glob\nimport glob as g\nimport os, glob\nfrom glob import escape as e\n"
     assert other_imports(text) == [(1, "from glob import glob"), (2, "import glob as g"),

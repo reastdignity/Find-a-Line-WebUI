@@ -362,10 +362,11 @@ harness, `cache status` and `tools/record_check.py` compare by it. Known and lef
   by hand gets its index rows only from `cache update` (`status` names it), so until then a search's
   `--update stale` does not check it after a year (`coast.world_polygons`: no row, never stale); until 2026-11-24
   the first `cache status` adopted it. Since 2026-11-25 every listing of the code that starts at the data, cache
-  or runs folder takes that folder's name literally, `[` and `]` too, and the two places that compare a listed path
-  with a built one as text (`ShaPerTile._cached_tiles`, `PackageVersions.cached`) compare them through
-  `os.path.normcase`, as `glob` gives an escaped folder back with the system's separators and the disk's case
-  (`tests/test_glob_folders.py` guards the listings). The listings left unescaped start at no user's folder.
+  or runs folder takes that folder's name literally, `[` and `]` too, and the three places that compare a listed
+  path with a built one as text (`ShaPerTile._cached_tiles`, `PackageVersions.cached`, `ZipSheetTiles._renewed`)
+  compare them through `os.path.normcase`, as `glob` gives an escaped folder back with the system's separators and
+  the disk's case (`tests/test_glob_folders.py` guards the listings). The few listings left unescaped are named
+  there with their reasons: a pattern meant as one, a fixture's relative path, a research script.
 - A run made before the record is counted by the rule of before (fetch times) and marked approximate; a relative
   `--slope-file` is not checked; a resumed run marked because earlier tiles exist keeps its mark even if the
   marking session stopped before its own first tile.
