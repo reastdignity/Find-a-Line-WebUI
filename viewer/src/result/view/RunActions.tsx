@@ -111,7 +111,10 @@ const CAUSE_TEXT: Record<Cause, string> = {too_large: "ui.actions.other_too_larg
                                            failed: "ui.actions.other_failed"};
 const causeOf = (e: unknown): Cause => e instanceof TooLarge ? "too_large" : e instanceof NewerStore ? "newer" : "failed";
 
-interface OtherItem { run: RunInfo; km: number; status: "off" | "loading" | "on" | "error"; cause?: Cause }
+/** `held`: the row's box switched off while it had the focus. It then stays in the Tab order, announced as off
+ *  (aria-disabled) and drawn off, with its ring, and a press does nothing: a box given `disabled` loses the focus to
+ *  the page, and the keyboard its place in the list. Once the focus has left it, it is a disabled box as the others. */
+interface OtherItem { run: RunInfo; km: number; status: "off" | "loading" | "on" | "error"; cause?: Cause; held?: boolean }
 
 /** Compare: other runs with lines, nearest first (the ones within NEARBY_KM unfolded). The rows are made from
  *  the list of runs at each opening: the same rows while the list is the one they were made from, new rows once
@@ -134,25 +137,28 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
         .map(({run, km}) => ({run, km, status: model.others.has(run.id) ? "on" : "off"})));
     }, () => setFailed(true));
   };
-  const change = (item: OtherItem, status: OtherItem["status"], cause?: Cause) =>
-    setItems((all) => all && all.map((i) => i.run.id === item.run.id ? {...i, status, cause} : i));
+  const change = (item: OtherItem, status: OtherItem["status"], cause?: Cause, held?: boolean) =>
+    setItems((all) => all && all.map((i) => i.run.id === item.run.id ? {...i, status, cause, held} : i));
+  // the focus left a held box (not the window: the box keeps the page's focus then): a disabled box from now on
+  const release = (item: OtherItem) => { if (document.hasFocus()) change(item, item.status, item.cause, false); };
   const toggle = (item: OtherItem) => {
     if (item.status === "on" || item.status === "loading") { model.removeRun(item.run.id); change(item, "off"); return; }
     change(item, "loading");
     // its store's lines.arrow (load.ts loadOtherRun)
     loadOtherRun(item.run, base).then((lines) => { model.addRun(item.run, lines); change(item, "on"); }, (e) => {
       const cause = causeOf(e), at = document.activeElement;
-      // its box goes off under the focus: the focus moves to the list's box first (a box switched off loses it to
-      // the page, and the keyboard its place)
-      if (cause !== "failed" && at instanceof HTMLElement && at.dataset.other === item.run.id) at.closest<HTMLElement>(".r-pop")?.focus();
-      change(item, "error", cause);
+      change(item, "error", cause, cause !== "failed" && at instanceof HTMLElement && at.dataset.other === item.run.id);
     });
   };
   const note = (item: OtherItem) => item.status === "loading" ? " · " + t("ui.actions.loading")
     : item.status === "error" ? " · " + t(CAUSE_TEXT[item.cause ?? "failed"]) : "";
+  // a box is off where a new try cannot help: disabled, or `held` (above) with its presses ignored
+  const off = (item: OtherItem) => item.status === "error" && item.cause !== "failed";
   const row = (item: OtherItem) => <label class="r-check r-other" key={item.run.id} title={item.run.description}>
     <input type="checkbox" class="u-check" data-other={item.run.id} checked={item.status === "on" || item.status === "loading"}
-           disabled={item.status === "error" && item.cause !== "failed"} onChange={() => toggle(item)} />
+           disabled={off(item) && !item.held} aria-disabled={off(item) && item.held ? true : undefined}
+           onClick={(e) => { if (off(item)) e.preventDefault(); }} onChange={() => { if (!off(item)) toggle(item); }}
+           onBlur={() => { if (item.held) release(item); }} />
     <Swatch color={colorOf(item.run.id)} />
     <span class="u-grow">{item.run.name}<span class="u-small"> · {day(item.run.created)} · {item.km < 1 ? t("ui.actions.here")
       : num0(item.km) + " km"}{note(item)}</span></span>

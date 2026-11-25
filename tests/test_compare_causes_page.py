@@ -65,6 +65,19 @@ ROW = "(name) => [...document.querySelectorAll('.r-pop .r-other')].find((o) => o
 SETTLED = "([name, loading]) => { const o = (%s)(name); return !!o && !o.querySelector('.u-small').textContent.endsWith(loading); }" % ROW
 SHOWN = "() => [...window.FINDALINE_VIEW.view.model.others.keys()].sort()"
 DAY = re.compile(r" · [^·]+ · here")  # a row's small line without a cause
+# Where the focus is: a row's box by its run's id, the page's body, the list's box, or another control by its words
+AT = ("() => { const a = document.activeElement; return a === document.body ? 'body' : a.matches('.r-pop') ? 'the list' "
+      ": a.dataset.other || a.textContent.trim(); }")
+# A row's box by its run's id: how it is off (aria-disabled, disabled), ticked, and drawn (the ring, the look, its size),
+# with the token --surface-2 as its .ui root holds it
+BOX_STATE = """(id) => { const box = document.querySelector(`.r-pop input[data-other="${id}"]`);
+  const s = getComputedStyle(box), r = box.getBoundingClientRect();
+  return {aria: box.getAttribute('aria-disabled'), disabled: box.disabled, checked: box.checked, ring: box.matches(':focus-visible'),
+          outline: [s.outlineStyle, s.outlineWidth], appearance: [s.appearance, s.webkitAppearance], background: s.backgroundColor,
+          size: [r.width, r.height], surface2: getComputedStyle(box.closest('.ui')).getPropertyValue('--surface-2').trim()}; }"""
+ORDER = "() => [...document.querySelectorAll('.r-pop .r-other input')].map((i) => i.dataset.other)"  # the rows' boxes in order
+ON_COMPARE = ("() => document.activeElement.matches('.c-result-top .r-actions button') "
+              "&& document.activeElement.textContent.trim() === 'Compare'")
 
 
 def add_run(clip, data, run: str, name: str):
@@ -123,6 +136,35 @@ def back_to_view(page):
 
 def same_page(page) -> bool:
     return page.evaluate("() => window.samePage === true")
+
+
+def listed_first(data, *runs: str):
+    """run.json's time of `runs` moved later, the first the latest: the list of runs (newest first) has them in this
+    order before RUN_B (the copies share the clip's time, and the server's order of a tie may differ per process)."""
+    from datetime import datetime, timedelta
+    for days, run in enumerate(reversed(runs), 1):
+        path = data / "runs" / run / "run.json"
+        meta = json.loads(path.read_text(encoding="utf-8"))
+        meta["created"] = (datetime.fromisoformat(meta["created"]) + timedelta(days=days)).isoformat()
+        path.write_text(json.dumps(meta), encoding="utf-8")
+
+
+def answered(page):
+    """A request of the page sent and answered: one the page sent before it (a press's lines.arrow) has been seen."""
+    page.evaluate("() => fetch('/api/usage').then((r) => r.status)")
+
+
+def press_on(page, selector: str):
+    """A mouse press in the middle of the element (page.mouse: a locator's click would wait for an off box's label to be
+    enabled, Playwright's own check)."""
+    box = page.locator(selector).bounding_box()
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+
+def rgb(token: str) -> str:
+    """A token's colour as written ("#e5ebeb") in the form getComputedStyle gives a colour ("rgb(229, 235, 235)")."""
+    assert re.fullmatch(r"#[0-9a-fA-F]{6}", token), token
+    return "rgb(%d, %d, %d)" % tuple(int(token[i:i + 2], 16) for i in (1, 3, 5))
 
 
 def test_compare_says_why_a_run_cannot_be_shown(rename_site, view_clip):
@@ -265,9 +307,10 @@ def test_a_run_renamed_on_home_is_renamed(rename_site):
 
 def test_compare_keeps_its_rows_while_the_list_is_the_same(rename_site, view_clip):
     """Nothing changes in the page: Compare opened, RUN_B ticked (shown) and a run too large for the browser ticked
-    (its cause, its box off), closed and opened again: the same rows, RUN_B ticked and the other run with its cause and
-    its box off; the second opening asks for no list of runs (/runs/runs.js), the first for one at most (the view's own
-    load may have read it before)."""
+    (its cause, its box off: announced off while the press's focus is on it, aria-disabled, not disabled), closed and
+    opened again: the same rows, RUN_B ticked and the other run with its cause and its box off (now disabled); the
+    second opening asks for no list of runs (/runs/runs.js), the first for one at most (the view's own load may have
+    read it before)."""
     site, data = rename_site
     add_run(view_clip, data, RUN_TOO, NAME_TOO)
     lists = []
@@ -280,14 +323,19 @@ def test_compare_keeps_its_rows_while_the_list_is_the_same(rename_site, view_cli
             tick(page, name)
         page.wait_for_function("(id) => window.FINDALINE_VIEW.view.model.others.has(id)", arg=RUN_B)
         settled(page, NAME_B, NAME_TOO)
-        ticked = page.evaluate(ROWS)
+        ticked, held = page.evaluate(ROWS), page.evaluate(BOX_STATE, RUN_TOO)["aria"]
         close_compare(page)
         second = open_compare(page)
+        held_after = page.evaluate(BOX_STATE, RUN_TOO)["aria"]
         # a request sent after the opening and answered: a list asked for by the opening would have come before it
         page.evaluate("() => fetch('/api/usage').then((r) => r.status)")
         again, shown, kept = len(lists), page.evaluate(SHOWN), same_page(page)
     assert opened <= 1 and again == opened, lists
-    assert second == ticked, (second, ticked)
+    # (since the fix round: the box pressed off with the mouse keeps the focus, announced off by aria-disabled and not
+    # disabled, until the focus leaves it, then it is a disabled box: the design review's finding 2)
+    assert ticked[NAME_TOO] == {**second[NAME_TOO], "off": False} and (held, held_after) == ("true", None), \
+        (ticked, second, held, held_after)
+    assert second.keys() == ticked.keys() and second[NAME_B] == ticked[NAME_B], (second, ticked)
     assert second[NAME_B]["checked"] and not second[NAME_B]["off"] and DAY.fullmatch(second[NAME_B]["line"]), second
     assert second[NAME_TOO]["line"].endswith(" · too large for this browser") and second[NAME_TOO]["off"], second
     assert not second[NAME_TOO]["checked"], second
@@ -296,25 +344,87 @@ def test_compare_keeps_its_rows_while_the_list_is_the_same(rename_site, view_cli
 
 
 def test_the_keyboard_keeps_its_place_when_a_box_goes_off(rename_site, view_clip):
-    """A run too large for the browser ticked with the keyboard (Space on its box): its box goes off under the focus,
-    and the focus is then on Compare's box, not lost to the page; Tab goes on to a control of the box, and Esc closes
-    the box with the focus back on Compare's button."""
+    """Three other runs listed in this order: a third run, a run too large for the browser, RUN_B. The too large one
+    ticked with the keyboard (Tab from the third run's box to its own, Space): once its cause is written the focus is
+    still on its box, which is announced off (aria-disabled, unchecked) and not disabled, with the kit's ring (it
+    matches :focus-visible, a 2 px solid outline) and drawn off (no native look, the fill of --surface-2, 20 by 20 px).
+    A press does nothing: Space again leaves it unchecked, asks for no lines.arrow of that run and keeps the cause. The
+    next Tab reaches the next row's box (RUN_B's), not the list's first control; the box left is then a disabled box as
+    the others (no aria-disabled), and Shift+Tab passes it, to the third run's box. A mouse press on the row's words
+    does nothing either. Esc closes Compare with the focus back on its button."""
     site, data = rename_site
+    add_run(view_clip, data, RUN_C, NAME_C)
     add_run(view_clip, data, RUN_TOO, NAME_TOO)
-    at = "() => { const a = document.activeElement; return a === document.body ? 'body' : a.matches('.r-pop') ? 'box' : a.closest('.r-pop') ? 'in the box' : a.textContent.trim(); }"
+    listed_first(data, RUN_C, RUN_TOO)
+    arrows = []  # the requests of the too large run's lines.arrow
     with Browser(site) as browser:
         page = open_view(browser, site, TOO_LARGE % RUN_TOO)
+        page.on("request", lambda r: arrows.append(r.url) if urlparse(r.url).path == f"/runs/{RUN_TOO}/lines.arrow" else None)
         open_compare(page)
-        page.locator(".r-pop label.r-other", has_text=NAME_TOO).locator("input").focus()
+        order = page.evaluate(ORDER)
+        page.locator(f".r-pop input[data-other='{RUN_C}']").focus()
+        page.keyboard.press("Tab")
+        reached = page.evaluate(AT)
         page.keyboard.press("Space")
         settled(page, NAME_TOO)
-        row, focus = page.evaluate(ROWS)[NAME_TOO], page.evaluate(at)
+        at_off, off, row = page.evaluate(AT), page.evaluate(BOX_STATE, RUN_TOO), page.evaluate(ROWS)[NAME_TOO]
+        page.keyboard.press("Space")
+        answered(page)
+        at_pressed, pressed, sent = page.evaluate(AT), page.evaluate(BOX_STATE, RUN_TOO), len(arrows)
+        row_pressed = page.evaluate(ROWS)[NAME_TOO]
         page.keyboard.press("Tab")
-        tabbed = page.evaluate(at)
+        tabbed, left = page.evaluate(AT), page.evaluate(BOX_STATE, RUN_TOO)
+        page.keyboard.press("Shift+Tab")
+        back = page.evaluate(AT)
+        press_on(page, f".r-pop label.r-other:has(input[data-other='{RUN_TOO}']) .u-grow")
+        answered(page)
+        clicked, row_clicked, sent_after = page.evaluate(BOX_STATE, RUN_TOO), page.evaluate(ROWS)[NAME_TOO], len(arrows)
         page.keyboard.press("Escape")
         page.wait_for_selector(BOX, state="detached")
-        page.wait_for_function("() => document.activeElement.matches('.c-result-top .r-actions button') "
-                               "&& document.activeElement.textContent.trim() === 'Compare'")
-    assert row["off"] and row["line"].endswith(" · too large for this browser"), row
-    assert focus == "box", focus
-    assert tabbed == "in the box", tabbed
+        page.wait_for_function(ON_COMPARE)
+    assert order == [RUN_C, RUN_TOO, RUN_B], order
+    assert reached == RUN_TOO, reached
+    assert at_off == RUN_TOO, at_off  # still on its box: not the body, not the list's box
+    assert (off["aria"], off["disabled"], off["checked"]) == ("true", False, False), off
+    assert row["line"].endswith(" · too large for this browser") and WORDS["ui.actions.other_too_large"] == CAUSES["too_large"], row
+    assert off["ring"] and off["outline"] == ["solid", "2px"], off  # the kit's ring (ui.css .u-check:focus-visible)
+    assert "none" in off["appearance"] and off["background"] == rgb(off["surface2"]) and off["size"] == [20, 20], off
+    assert at_pressed == RUN_TOO, at_pressed
+    assert (pressed["aria"], pressed["disabled"], pressed["checked"]) == ("true", False, False), pressed
+    assert row_pressed == row and sent == 1, (row_pressed, arrows)
+    assert tabbed == RUN_B, tabbed  # the next row's box, not the list's first control (the third run's)
+    assert (left["aria"], left["disabled"], left["checked"]) == (None, True, False), left
+    assert back == RUN_C, back
+    assert (clicked["aria"], clicked["disabled"], clicked["checked"]) == (None, True, False), clicked
+    assert row_clicked["line"] == row["line"] and sent_after == 1, (row_clicked, arrows)
+
+
+def test_a_box_pressed_off_with_the_mouse_keeps_the_focus(rename_site, view_clip):
+    """A run too large for the browser ticked with the mouse (the press focuses its box): once its cause is written the
+    focus is still on its box, not on the page's body nor the list's box, and the box is announced off (aria-disabled,
+    unchecked), not disabled. A mouse press on the row's words then does nothing: unchecked, the cause kept, no
+    lines.arrow of that run asked for again. A press elsewhere in Compare's box (its heading) takes the focus away and
+    leaves Compare open: the row's box is then a disabled box as the others, its cause kept."""
+    site, data = rename_site
+    add_run(view_clip, data, RUN_TOO, NAME_TOO)
+    arrows = []  # the requests of the too large run's lines.arrow
+    with Browser(site) as browser:
+        page = open_view(browser, site, TOO_LARGE % RUN_TOO)
+        page.on("request", lambda r: arrows.append(r.url) if urlparse(r.url).path == f"/runs/{RUN_TOO}/lines.arrow" else None)
+        open_compare(page)
+        tick(page, NAME_TOO)
+        settled(page, NAME_TOO)
+        at_off, off, row = page.evaluate(AT), page.evaluate(BOX_STATE, RUN_TOO), page.evaluate(ROWS)[NAME_TOO]
+        press_on(page, f".r-pop label.r-other:has(input[data-other='{RUN_TOO}']) .u-grow")
+        answered(page)
+        words, row_words, sent = page.evaluate(BOX_STATE, RUN_TOO), page.evaluate(ROWS)[NAME_TOO], len(arrows)
+        page.click(f"{BOX} .r-others > b")
+        at_left, left, row_left = page.evaluate(AT), page.evaluate(BOX_STATE, RUN_TOO), page.evaluate(ROWS)[NAME_TOO]
+        still = page.is_visible(BOX)
+    assert at_off == RUN_TOO, at_off
+    assert (off["aria"], off["disabled"], off["checked"]) == ("true", False, False), off
+    assert row["line"].endswith(" · too large for this browser"), row
+    assert not words["checked"] and row_words["line"] == row["line"] and sent == 1, (words, row_words, arrows)
+    assert at_left != RUN_TOO and at_left != "body" and still, (at_left, still)
+    assert (left["aria"], left["disabled"], left["checked"]) == (None, True, False), left
+    assert row_left["line"] == row["line"], (row_left, row)
