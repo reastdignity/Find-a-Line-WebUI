@@ -203,8 +203,8 @@ class NewestPerSheet(Versions):
         """The cached files that could be used for this grid, and their resolution."""
         if self.sizes:
             res = self.res_for(grid)
-            return glob.glob(os.path.join(cache_dir, self.folder, f"{res:g}m", "*.tif")), res
-        return glob.glob(os.path.join(cache_dir, self.folder, "*.tif")), self.native_res
+            return glob.glob(os.path.join(glob.escape(cache_dir), self.folder, f"{res:g}m", "*.tif")), res
+        return glob.glob(os.path.join(glob.escape(cache_dir), self.folder, "*.tif")), self.native_res
 
     def cached(self, grid: Grid, cache_dir: str) -> list:
         """Cached sheets over the grid, newest first (when the index cannot be reached)."""
@@ -369,7 +369,7 @@ class ComposedBlocks(Versions):
                      self.block_m, int(match.group(2)), match.group(5))
 
     def _cached_paths(self, cache_dir: str) -> List[str]:
-        return glob.glob(os.path.join(cache_dir, self.folder, "epsg*", "*", "*.tif"))
+        return glob.glob(os.path.join(glob.escape(cache_dir), self.folder, "epsg*", "*", "*.tif"))
 
     def cached(self, grid: Grid, cache_dir: str) -> list:
         blocks = []

@@ -128,7 +128,7 @@ def capture(place: str, out: str, search_args: List[str], cache_dir: Optional[st
     with open(os.path.join(folder, "capture.json"), "w") as f:
         json.dump({"place": place, "args": search_args, "seconds": time.time() - started,
                    "returncode": result.returncode, "cache_linked": bool(cache_dir)}, f, indent=1)
-    calls = sorted(glob.glob(os.path.join(folder, "capture", "call-*")))
+    calls = sorted(glob.glob(os.path.join(glob.escape(folder), "capture", "call-*")))
     print(f"{place}: findaline.py exit {result.returncode} (1 also when it found no line), {len(calls)} call(s) "
           f"captured in {folder}")
     return 0 if calls else 1
@@ -176,7 +176,7 @@ def call_folders(folder: str) -> List[str]:
     """The call folders of a place folder, a capture folder or a call folder itself."""
     if os.path.exists(os.path.join(folder, "inputs.npz")):
         return [folder]
-    for pattern in (os.path.join(folder, "capture", "call-*"), os.path.join(folder, "call-*")):
+    for pattern in (os.path.join(glob.escape(folder), "capture", "call-*"), os.path.join(glob.escape(folder), "call-*")):
         found = sorted(glob.glob(pattern), key=lambda p: int(p.rsplit("-", 1)[1]))
         if found:
             return found

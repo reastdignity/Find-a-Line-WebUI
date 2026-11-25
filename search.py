@@ -2106,7 +2106,7 @@ def _open_run(plan: Plan) -> Dict:
     process killed while _progress wrote it before it wrote whole) is skipped: its run never resumes."""
     keys = _search_keys(plan)
     key = keys[0]
-    for path in sorted(glob.glob(os.path.join(plan.paths.runs, "*", "progress.json")), reverse=True):
+    for path in sorted(glob.glob(os.path.join(glob.escape(plan.paths.runs), "*", "progress.json")), reverse=True):
         try:
             with open(path, encoding="utf-8") as f:
                 state = json.load(f)
@@ -2120,7 +2120,7 @@ def _open_run(plan: Plan) -> Dict:
             if state["tile_core"] != plan.tile_core:
                 plan.tile_core = state["tile_core"]
                 plan.tiles = _tiles(plan.grid, plan.params, plan.resolution, plan.source.grid_origin, plan.tile_core)
-            done = len(glob.glob(os.path.join(folder, "tiles", TILE_FILE.format("*"))))
+            done = len(glob.glob(os.path.join(glob.escape(folder), "tiles", TILE_FILE.format("*"))))
             plan.emit("info", f"Resuming run {os.path.basename(folder)}: {done} of {len(plan.tiles)} tiles done")
             run = {"id": os.path.basename(folder), "path": folder, "name": state["name"],
                    "created": datetime.fromisoformat(state["created"]), "search": key,
@@ -2323,7 +2323,7 @@ def _access_columns(plan: Plan, lines: sh.LineTable, data: Data):
 def _remove_grids(work: str):
     """Remove the grids of step 1 from the work folder (its own files; the subfolders of the
     tiles, the profiles at tile edges and the saving stay as they are)."""
-    for path in glob.glob(os.path.join(work, "*.npy")):
+    for path in glob.glob(os.path.join(glob.escape(work), "*.npy")):
         src.filling.remove_grid(path)
 
 
