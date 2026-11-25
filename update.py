@@ -34,10 +34,11 @@ encoding (`cache migrate`: another checksum, fetched no later than the run read 
 fetch times, marked approximate. `status` as a whole reads every index and Nominatim's answers through _query's
 read-only connections (cache.rows and cache.info with read=_query): it changes no cached file, no index and no row,
 and makes no folder, file or LAYOUT; only SQLite's own side files beside an index are touched by SQLite's reader
-(_read_only: a -shm that is there is written; a -shm, or a -shm and a -wal, are made beside a killed writer's -wal
-and at _query's bound). It may run beside a search: an immutable read a writer may have torn is made again
-(_query: a stamp check with a margin of a clock tick; not sound on a network share), so each index's rows are those
-of one moment. An index that cannot be read now (a writer's lock, a hot journal) is named, never ends the command.
+(_read_only: a -shm that is there is written; a -shm, or a -shm and a -wal, are made beside a killed writer's -wal,
+at _query's bound, and for an index dated in the future, a clock set back or files copied with a later time, which
+is read read-only every time and left with a -shm and a -wal after each `status`). It may run beside a search: an
+immutable read a writer may have torn is made again (_query: a stamp check with a margin of a clock tick; not sound
+on a network share), so each index's rows are those of one moment. An index that cannot be read now (a writer's lock, a hot journal) is named, never ends the command.
 World water polygons put into the cache by hand (files without index rows) are named in one line; `update` adopts
 them (_adopt_world) before it checks.
 
@@ -386,9 +387,10 @@ def run_update(cache_dir: str, folder: Optional[str] = None, update: str = "stal
 
 
 def _size(folder: str) -> int:
+    """The bytes of a folder's files; a file deleted while it is walked counts 0 (_file_size)."""
     total = 0
     for root, _, files in os.walk(folder):
-        total += sum(os.path.getsize(os.path.join(root, f)) for f in files)
+        total += sum(_file_size(os.path.join(root, f)) or 0 for f in files)
     return total
 
 
@@ -479,9 +481,23 @@ def _read_only(db_path: str, mode: Optional[str] = None, timeout: float = 60) ->
     killed writer without its -shm (SQLite makes the -shm), and _query's read-only read at its bound (three
     immutable reads in a row a writer changed, or a file dated in the future) when no -wal is there (it makes both).
     And a -shm that is there (beside a -wal: a writer has the index open, or one left them) is written by SQLite's
-    read-only reader, which notes its place in it."""
+    read-only reader, which notes its place in it. The immutable open names mode=ro too: immutable=1 alone opens
+    read-write and creates a file that is gone (an index deleted since it was looked at); with mode=ro it raises
+    "unable to open database file" instead."""
     mode = mode or _mode(db_path)
-    return sqlite3.connect(_uri(db_path, mode), uri=True, timeout=timeout) if mode else None
+    uri = _uri(db_path, "mode=ro&immutable=1" if mode == "immutable=1" else mode) if mode else None
+    return sqlite3.connect(uri, uri=True, timeout=timeout) if uri else None
+
+
+def _open(db_path: str, mode: str, timeout: float) -> Optional[sqlite3.Connection]:
+    """_read_only, or None when the file is gone since it was looked at (deleted while `status` runs: no index, no
+    rows); any other failure to open is raised."""
+    try:
+        return _read_only(db_path, mode, timeout)
+    except sqlite3.OperationalError:
+        if os.path.isfile(db_path):
+            raise
+        return None
 
 
 def _stamp(db_path: str) -> Optional[Tuple[int, int, bool]]:
@@ -549,7 +565,9 @@ def _query(db_path: str, ask: Callable[[sqlite3.Connection], Dict], timeout: flo
             continue
         if state == "read-only":
             break
-        db = _read_only(db_path, "immutable=1", timeout)
+        db = _open(db_path, "immutable=1", timeout)
+        if db is None:  # deleted since _settled's look: no index
+            return {}
         try:
             found, error = ask(db), None
         except sqlite3.DatabaseError as e:
@@ -561,9 +579,9 @@ def _query(db_path: str, ask: Callable[[sqlite3.Connection], Dict], timeout: flo
                 return found
             if str(error).startswith("no such table"):
                 return {}
-    if not os.path.isfile(db_path):
+    db = _open(db_path, "mode=ro", timeout) if os.path.isfile(db_path) else None
+    if db is None:
         return {}
-    db = _read_only(db_path, "mode=ro", timeout)
     try:
         return ask(db)
     except sqlite3.DatabaseError as e:

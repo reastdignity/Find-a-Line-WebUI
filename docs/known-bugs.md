@@ -345,10 +345,11 @@ harness, `cache status` and `tools/record_check.py` compare by it. Known and lef
     two, which `status` used to do itself, opening every index for writing): on the real cache three `-shm` files
     beside an empty `-wal`, of unknown origin, got a new modification time and nothing else changed
     (`tests/test_status_readonly.py::test_a_wal_and_shm_left_by_a_killed_writer`);
-  - it makes a `-shm`, or a `-shm` and a `-wal`, in the two cases `update._read_only` names (a `-wal` without its
+  - it makes a `-shm`, or a `-shm` and a `-wal`, in the cases `update._read_only` names (a `-wal` without its
     `-shm`; `update._query`'s bound: a writer changed the index during three immutable reads in a row, then it is
     read read-only; none in the second code review's 40-s probes beside a busy writer, where reading read-only
-    after one such read made 15 a run).
+    after one such read made 15 a run; an index dated in the future, a clock set back or files copied with a later
+    time, is read read-only every time and left with a `-shm` and a `-wal` after each `status`).
   Not used: SQLite's `readonly_shm` (undocumented), and an empty `-wal` read as no WAL (a live connection that has
   only read, or has just checkpointed, shows one too). Beside a search an index's rows are read again when the
   stamp check of `update._query` sees a writer (the file's time or size, or a `-wal`). It rests on the file's
