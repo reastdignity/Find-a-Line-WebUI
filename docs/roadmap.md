@@ -369,8 +369,8 @@ started.
 - **Telling a person that the site can be added to a phone's home screen** (round 7's point 24: nothing on the site
   says so; an iPhone offers it only in its Share menu): a short how-to on the Account page would need its texts
   approved and a mock-up.
-- **What the home-screen icon opens**: the manifest's start is "/", so an icon added from a run's `map.html` opens
-  Home and one added from a share link opens the sign-in page, not the shared run. Whether a share link's visitor
+- **What the home-screen icon opens**: the manifest's start is "/", so an icon added from a run's `map.html` or from
+  a share link opens "/" (Home for a signed-in user, else the sign-in page), not the run. Whether a share link's visitor
   should get the run: the user's.
 - **The browser's own install offer**: Chrome and Edge offer to install the site by themselves (an icon in the
   desktop's address bar, "Install app" in Android's menu, possibly a bar at the bottom of a phone's screen after some

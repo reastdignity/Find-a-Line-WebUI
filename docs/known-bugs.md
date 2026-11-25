@@ -918,8 +918,9 @@ each a roadmap line in docs/roadmap.md, "Line volume round 7: open")
   chosen one (its `body`'s background follows the system, `coverage/page/page.css`, while `.ui.cov` follows the
   chosen theme). Older than the round.
 - **Until the bundle runs, the bars show the system's ground**: on the coverage page one paint came before its script
-  in 3 of 7 tries (only the body, in the system's colours); nothing can set the lines earlier without an inline
-  script or a server change.
+  in 3 of 7 tries (only the body, in the system's colours; the worker's count, not re-run,
+  `local/line-volume-7-2026-11-23/TH/report.md`); nothing can set the lines earlier without an inline script or a
+  server change.
 
 ## The UI measuring tools: known and left (2026-11-17)
 

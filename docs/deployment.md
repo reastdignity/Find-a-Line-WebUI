@@ -358,12 +358,12 @@ Ubuntu's logrotate rotates them daily and keeps 14, compressed):
 - `findaline.error.log`, level `error` and above (not nginx's default `warn`): failures of the
   upstream (the web service down, refusing, timing out, an invalid answer), with the client's
   address, the request line and the Referer **unmasked**. Requests under `/s/` (share links),
-  `/login/` and `/auth/` (sign-in), and `/cache/` (orthophoto tiles: a shared map asks for them with
-  its own address, token included, as the Referer) log only `crit`, which a proxied request never
-  reaches, so their addresses never appear there. A request of another path made from a shared
-  map's page would show the token in the Referer; the viewer makes none, but a browser may ask for
-  `/favicon.ico` with it, and for "Add to home screen" `/app/manifest.webmanifest` and its icons
-  (every page's head links them since line volume's round 7). Warnings (an answer buffered to a temporary file) and the refusals of the
+  `/login/` and `/auth/` (sign-in), and `/cache/` (orthophoto tiles, which a shared map asks for)
+  log only `crit`, which a proxied request never reaches, so their addresses never appear there.
+  A request a shared map's page makes carries at most the origin as its Referer, never the token
+  (the page's `Referrer-Policy: strict-origin`, which the app sets on every answer: web.py
+  `SECURITY_HEADERS`): its tiles, its `/favicon.ico`, and since line volume's round 7
+  `/app/manifest.webmanifest` and its icons (every page's head links them). Warnings (an answer buffered to a temporary file) and the refusals of the
   limits (`info`) are not logged.
 - `findaline.metrics.log`, one JSON line per request of the site on port 443, for the monitoring
   (section 15): the time, the route group (`api`, `events`, `patch` (the 3D view's terrain: slow,
