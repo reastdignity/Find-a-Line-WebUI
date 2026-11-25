@@ -530,10 +530,10 @@ def remove_tree(path: str, left: Optional[List[str]] = None) -> List[str]:
     if not os.path.lexists(path):
         return left
     if _is_link(path):
-        if os.path.isdir(path):
+        if os.name == "nt" and os.path.isdir(path):
             os.rmdir(path)  # a junction or a directory link: the link only
         else:
-            os.unlink(path)
+            os.unlink(path)  # a symbolic link; on Linux one to a folder too (rmdir refuses it: "Not a directory")
         return left
     if not os.path.isdir(path):
         try:

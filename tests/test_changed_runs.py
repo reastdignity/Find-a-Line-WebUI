@@ -517,10 +517,16 @@ def test_nominatim_answers_that_cannot_be_read(tmp_path, monkeypatch):
 
 def test_sqlite_uris(tmp_path, monkeypatch):
     """F7: a drive path, a network path (\\\\server\\share: an empty authority, which SQLite takes; pathlib's
-    file://server/... it refuses), a Linux path, spaces, "%", "#", "?" and letters outside ASCII."""
-    assert update._uri(r"C:\a b\ł%#?\index.sqlite", "mode=ro") == "file:///C:/a%20b/%C5%82%25%23%3F/index.sqlite?mode=ro"
-    assert update._uri(r"\\box\share\cache\osm\index.sqlite", "immutable=1") == \
-        "file:////box/share/cache/osm/index.sqlite?immutable=1"
+    file://server/... it refuses), a Linux path, spaces, "%", "#", "?" and letters outside ASCII. The two Windows
+    forms are asked on Windows only: elsewhere a backslash is a letter of a name, kept (percent-encoded)."""
+    if os.name == "nt":
+        assert update._uri(r"C:\a b\ł%#?\index.sqlite", "mode=ro") == \
+            "file:///C:/a%20b/%C5%82%25%23%3F/index.sqlite?mode=ro"
+        assert update._uri(r"\\box\share\cache\osm\index.sqlite", "immutable=1") == \
+            "file:////box/share/cache/osm/index.sqlite?immutable=1"
+    else:
+        assert update._uri("/srv/a b/ł%#?/x\\y/index.sqlite", "mode=ro") == \
+            "file:///srv/a%20b/%C5%82%25%23%3F/x%5Cy/index.sqlite?mode=ro"
     monkeypatch.setattr(update.os.path, "abspath", lambda p: p)
     assert update._uri("/srv/data/cache/x y/index.sqlite", "mode=ro") == "file:///srv/data/cache/x%20y/index.sqlite?mode=ro"
     monkeypatch.undo()
