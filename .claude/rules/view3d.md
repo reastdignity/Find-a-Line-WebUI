@@ -52,7 +52,10 @@ docs/3d-view-contract.md. Its server side lives in `search.py` (`patch_of_line`,
   own approved texts. `viewer/src/layers.ts` has no Leaflet (the 3D bundle imports it); Leaflet's layers are
   `baselayers.ts`. Its Permissions-Policy (`web.PAGE_PERMISSIONS`, chosen per path by `guard` as the CSP is) allows
   the accelerometer, gyroscope and magnetometer to its own origin for *Phone motion* (`views.ts`); every other page
-  keeps `SECURITY_HEADERS`' (all off). The readings never leave the browser, so the privacy page names none: code that
+  keeps `SECURITY_HEADERS`' (all off). The page has two addresses, `/view3d` and a share link's `/s/<token>/view3d`
+  (2026-11-26): its CSP, permissions and `no-store` follow both; link mode is read from the path (`sharelink.ts`), and
+  every computed fetch (patch, canopy, profile, reach) goes with `computedHeaders` and through `sharelink.ts`' wait
+  after a 429 (`checkBackoff`/`noteRefusal`): a new one too. The readings never leave the browser, so the privacy page names none: code that
   sends them changes it.
 
 ## Pitfalls

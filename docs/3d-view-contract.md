@@ -927,6 +927,43 @@ The user picked one option for each of three questions on a mock-up (docs/DESIGN
 - **The notes behind "About this view"** ("A: info button beside \"Data credits\""; after the reviews the user, 2026-11-20: "Keep that one sentence in the bar" and, of the credits, "Open as before"; after the design review's second look "Keep open, as you chose"). On phones (the phone level; a touch screen at most 600 px wide or at most 480 px high; never a mouse window at the full level, which keeps its lines under 600 px too) the notes that explain are not in the bar: the preview's note but for its safety sentence, the phone level's, the look hint, the anchors' hint, the valid lines' hint, "No imagery for this result" and the hatching's. The sentence "Check every line on the spot" has a key of its own (`ui.view3d.check_note`; `ui.view3d.preview_note` is without it) and stays in the bar on phones, one line of 12 px under the controls; on the desktop the two are one paragraph as before. A 44 px button "About this view" at the start of the credits' box (beside "Data credits", open or folded; the box shows there even without credits and keeps right of the tool strip) opens a box over the stage's bottom with the notes (`info.ts`: copies of the bar's notes with their classes, without the sentence, made while it is open, so the notes' own state and the views' rules decide what shows). The box is as wide as the credits may be (560 px) and as high as its notes; while it is open the credits' box is hidden where the box would overlap it (`visibility`: their place kept, so nothing placed by them moves), else they stand clear above it with the pressed button, and closing brings them back (the design review's P9: the box grew to the credits' top before, up to 439 px for three sentences). Its head stays while the notes scroll. The button says whether the box is open (`aria-expanded`), the focus goes to the box's "Close" and comes back; "Close", Escape, a press beside the box and Tab out of it close it, and it closes itself when the page stops showing it (a window widened past the phone's width). Escape closes the box first and nothing else: with "Lines from a point" on, the first Escape closes the box and the second switches the tool off (wave P above: "Escape switches the tool off"). What failed or answers a tap stays in the bar: the trees', the valid lines' and the saving's failures, "No other saved lines", the motion's refusal, reduced motion. Moved: the phone bar's "notes in small type" (waves 3 and 4) and wave F's "the look hint in place of the phone note, so the bar keeps its height": the bar has the sentence alone and is as high in every view for that reason (148.1 px at 390 px; the stage 454.9 px at 390 x 664 and 634.9 px at 390 x 844, 404.1 and 584.1 px before the branch; 15.6 px less than with the sentence in the box). Held sideways the stage is 232.9 px at 844 x 390 (217.3 before the branch) and 217.9 px at 667 x 375 (114 before). The credits' box (U1) is 44 px high on a touch phone when folded (36 before); open it is as high as its text, the info button drawn as high as its first line (28 px) with an invisible 44 px target (the design review's P10: 16 px less than with 8 px above and below the list). The data credits' default is as on main (round 2, point 6: open from 768 px), a phone held sideways at 844 x 390 included: open they take 560 x 139 px of the stage's 844 x 233 px there (60 % of its height, 40 % of its area; the found line and its pin lie under them at the first sight, and the user kept them open) and, opened by hand at 667 x 375, of its 667 x 218 px (64 % and 54 %); folded 167 x 44 px. The desktop keeps its lines; a touch tablet opens at the phone level and gets the button; the desktop's `?level=phone` too.
 - **The marks, after the code review** (2026-11-20; decision M of the section above). A press on a mark's own drawn box goes to that mark; the nearer centre decides only a press on no drawn box, between the marks whose targets hold it (`screen.ts` `pressedMark`: before, the nearer centre alone decided, and with a mouse a click 2 px inside a wide label's end went to the label beside it). A fan dot near the stage's edge keeps its whole target inside the stage. An anchor's handle keeps the press's offset from its centre while it is dragged (a press on the rim of its 44 px target moved the anchor by that offset too).
 
+## Share links (2026-11-26)
+The user: "I would like to have 3d view and all line profiles in the shared link." (docs/3d-view.md, "Where": the
+reversal). The user's answers: every line's profile computed on demand on a share page (D1); the link's 3D view keeps
+every tool, dragging, "Only valid lines" and trees, without Save, "Saved lines" and Report (D2); Measure too, no flag
+split (D3: `/s/runs.js` sends `{"profiles": true, "favourites": false}`); per-link rates of their own (D4); the quick
+lane serves signed-in users' tasks before a link's (D5); Esri and the ring as for users (D6); the Share panel and the
+privacy page unchanged (D7, D8).
+- **Two addresses of one page**: the app's `/view3d` and a share link's `/s/<token>/view3d` (web.py: the dependency
+  `link_run`, 404 for a dead, renewed or revoked link or a blocked owner; the 3D page's CSP and Permissions-Policy,
+  `Cache-Control: no-store`; the user meta `{"link": true}`, no token, no CSRF). The page is in **link mode** when its
+  path is a link's (`viewer/src/sharelink.ts` `shareToken`, the same reading as the header's token): Back goes to the
+  link's `map.html#line=…` (relative, the 2D page's own hash, the moved line after a drag); Copy link gives the link's
+  own 3D address; the data credits' notices are the relative `ATTRIBUTION.txt`; Save and the tool "Saved lines" are not
+  made (`createOthers` with `favourites: null`; the address's `&also=` lines are drawn). The 3D page has no Report on
+  either address.
+- **The header**: every computed request of a share page and of a link's 3D page carries `X-Findaline-Share: <token>`
+  (`sharelink.ts` `computedHeaders`): `/api/profile` (the 2D profile, Measure, the 3D profiles), `/api/patch` (also
+  `part=canopy`), `/api/reach`. The token is in no `/api` address. A present header decides on the server, whoever is
+  signed in (`run_or_link`): valid and naming the query's `run`, the request is the link's (limited, no administrator:
+  NASADEM refused as for users), else 404.
+- **Rates of a link** (`Limits`, the key `link:<run id>`, one budget for every visitor of a run's link; renewing the
+  link does not reset it): `link_profile_rate` `"30/minute;500/hour"` (`FINDALINE_LIMIT_LINK_PROFILE_RATE`, 429
+  `rate_link_profile`), `link_patch_rate` `"10/minute;120/hour"` (`FINDALINE_LIMIT_LINK_PATCH_RATE`, 429
+  `rate_link_patch`; the canopy counts as a patch), `link_reach_rate` `"12/minute;200/hour"`
+  (`FINDALINE_LIMIT_LINK_REACH_RATE`, 429 `rate_link_reach`); the texts `error.rate_link_*` of `locales/en.json`.
+- **After a 429** (users' and links' pages alike): every rate's 429 carries `Retry-After` (whole seconds; a user's
+  `quick_waiting` 5 s). The page asks nothing more of that kind (`profile`, `patch` with the canopy, `reach`) until it
+  has passed (60 s when an answer has none) and gives the server's text again where the error shows (`sharelink.ts`
+  `Backoff`: a deadline compared before a request, no timer). The one-request lanes (`reach.ts` `reachLane`,
+  `interact.ts` `profileQueue`) are unchanged. A reload of the page forgets the wait (it is kept in memory).
+- **The 2D share page**: `map/main.tsx` gives the result its 3D button only under a link (`view3d/page.ts`
+  `view3dLink("view3d")`, relative: `/s/<token>/view3d#run=…&line=…&also=…`); the app's result takes
+  `view3dLink("/view3d")`; a run's own `map.html` has none.
+- Tests: `tests/test_view3d_link.py` (Node units, the link's page in Playwright over stubbed and the app's answers,
+  the wait after a 429, and a real link end to end on the public app with its worker),
+  `tests/test_view_link.py::test_share_page_profiles_and_3d`, the server's in `tests/test_public.py`.
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then

@@ -96,6 +96,9 @@ catalogue), `browser-tests.md`.
   a change of that look changes both. The narrow desktop list on touch shares its columns by measured widths (39 /
   43 / 53 / 28 px): new words or units re-measure them (`test_list_at_1024_keeps_heads_and_values_apart`).
   `SpotActions.tsx` imports `report.ts`, which reads the page at load: the panels' Node bundle leaves it out.
+- `sharelink.ts` (no imports): `SHARE_HEADER` is `web.py`'s header, `VIEWER` is `web.VIEWER`, the 429 kinds are the
+  server's rates (`profile`, `patch`, `reach`); the result's `fetchProfile` (profiles and Measure) sends
+  `computedHeaders` and keeps the wait, as the 3D view's fetches do (view3d.md).
 
 ## Pitfalls
 
