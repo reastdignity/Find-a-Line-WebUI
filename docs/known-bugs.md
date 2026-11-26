@@ -508,7 +508,10 @@ had replaced the survey of 2022 (re-baselined on the survey of 2026).
   outage, on 2026-11-23), and the real cache holds none of its blocks (its one pass was on a scratch cache). It runs
   again when Het Waterschapshuis frees the address (a mail asks; the user's decision of 2026-11-23: wait for the
   answer) or its 12 blocks are fetched through another network. The islands' files are read through our own ranges
-  since 2026-11-24 (one connection, 54 requests a minute): that path has not met the real host yet.
+  since 2026-11-24 (one connection, 54 requests a minute): that path has not met the real host yet. Since
+  2026-11-26 it runs by name only and is in no set (`"by_name": true`, `"sets": []` in `tests/regression.json`; its
+  sets were `sources` and `nl`): "never ask that host from this network" was a rule for sessions only, and one
+  `--all` run of that day asked it once (refused). When the block is lifted the flag goes and the sets come back.
 - **R17 (the Malta extract against Overpass) has not completed since 2026-11-14.** Overpass answered 502 or 504 to
   nearly every try (55 skips of 68 runs seen in November). Its differences of 2026-10-27 and 2026-11-01 were OSM
   edits made after the extract; the three since the extract's update of 2026-11-07 were never traced to features.

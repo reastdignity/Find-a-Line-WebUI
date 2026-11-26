@@ -35,7 +35,8 @@ pytest that fails now and then (known-bugs.md names them).
 ## Reading a run
 
 - **Outcomes and exit codes**: `ok`; `DIFFERENT` (exit 1); `unverified` (exit 3: nothing different, but something
-  could not be checked; it is no pass); `skipped (reason)`. An entry run by name only (R17) is left out of `--all`.
+  could not be checked; it is no pass); `skipped (reason)`. An entry run by name only (R17, R70) is left out of
+  `--all`.
 - **The line under an entry that differs**: `same data, other result` points at the code; `data differs: ...`
   names what changed in the data; `same data where known (N files not known), other result` when some files have
   no checksum to compare; `data not known` when nothing could be compared. A library's version, the access mark
@@ -139,12 +140,14 @@ it does not see").
 | 2026-11-24 | The data record: run.json's `identity`, the harness's side file and line, `cache status` exact, the completeness check | tag `history/data-record-task` |
 | 2026-11-24 | Two follow-ups of the data record: a layer's files noted before the read too (a file replaced while it is read is not known); `cache status` reading only as a whole, also beside a running search; the world coastline file found in a data folder whose path holds `[` | tag `history/data-record-followups` |
 | 2026-11-25 | A data folder whose path holds `[`: every listing that starts at the data, cache or runs folder takes the folder's name as it is, the two comparisons of a listed path with a built one too; a test keeps new listings so (`tests/test_glob_folders.py`) | tag `history/glob-escape` |
+| 2026-11-26 | R70 by name only and in no set, until its provider lifts the block: neither `--all` nor a set can ask basisdata.nl from a blocked network (one `--all` run had) | one commit |
 
 ## Still open
 
 - **R17**: one run by name when Overpass answers, at most once a day: either its counts are stored again (OSM
   edits) or its two readers differ (a fault).
-- **R70**: waits for the provider's answer; the islands' new read path has not met the real host yet.
+- **R70**: waits for the provider's answer; the islands' new read path has not met the real host yet. Until then
+  it runs by name only and is in no set.
 - **PC-wide limits for Overpass and Nominatim**, and a contact in the User-Agent of a development machine.
 - **The data record's short windows that are left** (known-bugs.md, "The data record: what it does not see"): the
   OpenStreetMap tiles of a coastline or an area and the world file's edition are noted once, after their read

@@ -1918,10 +1918,8 @@
   "R70": {
     "place": "The Quill on Sint Eustatius, Caribbean Netherlands (a forested crater rim): the AHN's whole-island DTM and DSM of 2023 (0.5 m lidar, LOCAL_CS forced to EPSG:10745, Sint Eustatius DPnet long) read in 1 km blocks, on a 2 m grid",
     "args": "--lat 17.4783 --lon -62.9600 --radius 500 --min-length 20 --max-length 150",
-    "sets": [
-      "sources",
-      "nl"
-    ],
+    "sets": [],
+    "by_name": true,
     "expected": {
       "anchors": 30069,
       "open": 4699,
