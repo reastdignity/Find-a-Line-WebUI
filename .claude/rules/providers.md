@@ -141,7 +141,7 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   of 49.4° N the USA's box wins.
 - **Wallonia** (2026-11-23): SPW's province rasters are full-width strips (a tiled copy in `--work`), -9999 outside
   the province, edges on whole half-metres (origin (0, 0)); the provinces share a seam of identical pixels, hence
-  `overlap="agree"`. Cut at 1 m only, the mean of 2 x 2 (`Product.average`); measure seams and low values first
+  `overlap="agree"`. Cut at its own 0.5 m only, nothing averaged (2026-11-26); measure seams and low values first
   (`tools/raster_overlap.py`).
 - **geoportal orthophoto**: `ORTO/WMS/HighResolution` holds only sheets of 10 cm or finer (mostly towns) and answers
   elsewhere with a white JPEG (667 bytes), not an error; the gaps come from the base tiles (`OrthoService.base_url`:

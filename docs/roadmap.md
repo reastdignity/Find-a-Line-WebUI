@@ -1254,7 +1254,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   coastal DTM at Fair Head and Rio de Janeiro's 5 m DTM), Mexico (INEGI's 5 m lidar DTM/DSM), Tuscany (all sheets,
   credited per owner: MATTM's are CC BY-SA), Cyprus (the 2019 tiles reprojected by DLS: resampled twice), Estonia,
   Madeira (own mirror copy) and Valle d'Aosta (own copy of the one 9.85 GB ASC, the DSM later by hand). Batch 6:
-  Wallonia (0.5 m averaged to 1 m since 2026-11-22) and Hong Kong (0.5 m) as own copies. Mails drafted (local/mail-drafts.md 27-30): DAERA, IPP,
+  Wallonia (0.5 m; averaged to 1 m from 2026-11-22, its own 0.5 m again since 2026-11-26) and Hong Kong (0.5 m) as
+  own copies. Mails drafted (local/mail-drafts.md 27-30): DAERA, IPP,
   Valle d'Aosta, DLS.
 - **Wave 1, done 2026-11-15** (in main as one commit, its commits under tag `history/new-sources-5-w1`; R66-R73;
   every existing regression entry unchanged):
@@ -1425,8 +1426,10 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     decisions below). R91 Lion Rock (8 lines in 3 spots).
   - *Wallonia* (`wallonia`, built 2026-11-23): SPW's Relief de la Wallonie MNT and MNS 2021-2022 (lidar, 0.5 m,
     heights in the DNG), CC BY 4.0, credited with the records' "Source :" sentences; the ten province ZIPs fetched by
-    `tools/cdd_fetch.py` on the user's server, cut on the PC by `tools/mirror_tiles.py` at 1 m only, the mean of the
-    valid 0.5 m pixels of each 2 x 2 block (`Product.average`; the user, 2026-11-22), published with the row of U96
+    `tools/cdd_fetch.py` on the user's server, cut on the PC by `tools/mirror_tiles.py` at their own 0.5 m only,
+    nothing averaged (the user, 2026-11-26: "store native", "0.5 m only"; it replaced the decision of 2026-11-22, 1 m
+    only, the mean of each 2 x 2 block by `Product.average`, which no product uses now), the 1 m working grid
+    averaging 2 x 2 of the tiles' pixels as Luxembourg's; published with the row of U96, amended 2026-11-26
     (docs/mirror-hosting/spec.md); orthophoto SPW's ORTHO_LAST (CC BY 4.0); neighbours Luxembourg, North
     Rhine-Westphalia (with a border box of the Eifel) and the Netherlands. The cut, the publish, `check_source` and
     R94 (the Rochers de Freyr) wait: docs/new-sources-6/spec.md, section 2.
@@ -1477,7 +1480,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     file; the code reaches the server from GitHub (main and a push first, each on the user's word). Wallonia since:
     the server only fetched (all ten ZIPs, 2026-11-20); the cut and the publish run on the PC that holds the master
     (2026-11-21), at 1 m only, the mean of 2 x 2 (2026-11-22: "lets change, and cut it to 1m resolution", "1 m
-    only"); its catalogue entry and publishing row are built (spec, section 2). Portugal's catalogue entry is not.
+    only"), then at its own 0.5 m only (2026-11-26: "store native", "0.5 m only"); its catalogue entry and publishing row are built (spec, section 2). Portugal's catalogue entry is not.
   - On five open questions (2026-11-16: "1. a) and add it to repo anyway; 15+TB free", "2. a", "3. a", "4. a",
     "5. a"): the user copies `tools/cdd_fetch.py` to the server by hand (it is in the repository as well; the server
     folder has more than 15 TB free, so nothing is deleted for space); *Bremerhaven's surface model shifted half a

@@ -1147,8 +1147,8 @@ unless `tests/regression.py --mirror-url` names a data server.
 The public site reads the mirror's datasets through the data server once they are published there
 (the rollout: docs/mirror-hosting/spec.md, section 11): all six, the islets after Madeira. A dataset
 cut later needs its `PUBLISHABLE` row with the user's approval first. Portugal's is to be fetched and cut on the
-user's server (not built yet); Wallonia's was fetched there and is cut on the PC that holds the master at 1 m,
-its row approved 2026-11-22 (docs/new-sources-6/spec.md, section 2). Hong Kong
+user's server (not built yet); Wallonia's was fetched there and is cut on the PC that holds the master at its own
+0.5 m (2026-11-26), its row approved 2026-11-22 (at 0.5 m 2026-11-26) (docs/new-sources-6/spec.md, section 2). Hong Kong
 (`hong_kong`) is read from its provider and never a mirror dataset on today's terms (a copy needs
 CEDD's written yes).
 

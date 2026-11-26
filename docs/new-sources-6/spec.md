@@ -107,7 +107,9 @@ user's server, read through the hosted mirror. Changed on 2026-11-21: the server
 fetch's state files, 2026-11-20); the cut and the publish run on the PC that holds the master. On 2026-11-22: "lets
 change, and cut it to 1m resolution", and on which resolutions: "1 m only"; the publishing row: "Approve this
 wording". So both products are cut and published at 1 m only, each pixel the mean of the valid 0.5 m pixels of its
-2 x 2 block.
+2 x 2 block. Changed on 2026-11-26: on "1 m only", "store native", and on which levels: "0.5 m only"; the row at
+0.5 m: "Approve this wording". So both products are cut and published at their own 0.5 m pixels only, nothing
+averaged (`wallonia/dtm/0.5m`, `wallonia/dsm/0.5m`); searches, never finer than 1 m, read them onto their grid.
 
 **Data.** SPW, "Relief de la Wallonie - Modèle Numérique de Terrain (MNT) 2021-2022" (record
 https://geoportail.wallonie.be/catalogue/a004e570-99d6-4fe5-b83d-49b774409278.html) and "... Modèle Numérique de
@@ -164,6 +166,11 @@ starts again; each size must equal the list's.
    batch 6).
 3. The coverage area be-wal (Natural Earth's five Walloon provinces, `tools/coverage_shapes.py` `MERGED`), README's
    rows, `tools/raster_overlap.py` (the seams and low values of the inputs, for G1 and G2), the tests.
+4. Changed 2026-11-26 (the user's decision above): both products at 0.5 m with `average` 1, the cut's plain path
+   (tiles of 4000 px; the card and the row name no mean); the catalogue's `GridTiles` at native 0.5 m (cache folders
+   `...-0.5m-2km`, mirror `wallonia/dtm/0.5m` and `wallonia/dsm/0.5m`, tiles of an estimated 19.2 and 22.8 MB until
+   the cut measures them), the default resolution still 1 m: the mosaic averages the valid 0.5 m pixels of each 2 x 2
+   block, as for Luxembourg and the Netherlands. `Product.average` stays in the tool, used by no product.
 
 **Left.** G1 (`raster_overlap.py` on every neighbouring province pair of each model) and G2 (the low values per
 province; a floor only on the user's word after them, which changes the publishing row's sentence); the cut on the

@@ -34,7 +34,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 
 ## 2. What was decided
 
-### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17; U68 and U75-U80 2026-11-18/19; U86-U89 2026-11-21; U93, U94, U96 2026-11-22)
+### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17; U68 and U75-U80 2026-11-18/19; U86-U89 2026-11-21; U93, U94, U96 2026-11-22, U96 amended 2026-11-26)
 | Id | Question | The user's answer |
 | --- | --- | --- |
 | U1 | Who may download | "Any installation, anonymous" |
@@ -105,7 +105,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 | U89 | The door, revised (2026-11-21) | the user: "keep docker with sftp, but no door": the sftp container stays (gate, read-only, one mount), its port published on PUBLISH_ADDRESS, reached over the user's own VPN link; no sidecar (Husarnet's U68/U75-U80 and the WireGuard U81-U85 dropped) |
 | U93 | Keeping SWAG on the mirror's network across SWAG's updates (2026-11-22; an update had dropped the attachment and the mirror answered 502) | "1": a scheduled job on the home server attaches SWAG again when it is missing, every 5 minutes (the network in SWAG's platform template was tried and failed: on some Docker releases the default bridge cannot be combined with the mirror's network, README "SWAG") |
 | U94 | The numbers of A.5, C.3 and C.6 after M2 | kept as they are: "ok, do step 4" after M2's results and the planner's advice to keep them (the VPS's two connections had not met their mark at the time of the measurement) |
-| U96 | Wallonia's `PUBLISHABLE` row (2026-11-22) | "lets change, and cut it to 1m resolution", on which resolutions "1 m only", then "Approve this wording": the products `wallonia/dtm/1m` and `wallonia/dsm/1m` (each pixel the mean of the valid 0.5 m pixels of its 2 x 2 block) and the row as drafted: its title, CC BY 4.0 with SPW's sentence quoted, the changes sentence, "not endorsed by the Service public de Wallonie (SPW)", both "Source :" credits; a floor chosen later changes the changes sentence and is shown to the user again |
+| U96 | Wallonia's `PUBLISHABLE` row (2026-11-22, amended 2026-11-26) | "lets change, and cut it to 1m resolution", on which resolutions "1 m only", then "Approve this wording": the products `wallonia/dtm/1m` and `wallonia/dsm/1m` (each pixel the mean of the valid 0.5 m pixels of its 2 x 2 block) and the row as drafted: its title, CC BY 4.0 with SPW's sentence quoted, the changes sentence, "not endorsed by the Service public de Wallonie (SPW)", both "Source :" credits; a floor chosen later changes the changes sentence and is shown to the user again. **2026-11-26**, on "1 m only": "store native", on which levels "0.5 m only", then "Approve this wording": the products are `wallonia/dtm/0.5m` and `wallonia/dsm/0.5m` at their own 0.5 m pixels, nothing averaged (searches, never finer than 1 m, read them onto their grid); the title "Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW), as 2 km tiles" and the changes "cut into 2 km x 2 km Cloud Optimized GeoTIFFs on the 0.5 m EPSG:3812 grid, LERC within 5 mm; the value -9999 made no data"; the licence, the quote, the not-endorsed sentence and the credits as before |
 
 History, not in this branch: U81-U85 (2026-11-20/21), a WireGuard sidecar in place of Husarnet's for the door, was built and dropped (U86, U89).
 
@@ -450,7 +450,7 @@ U1, U5, U8, U10, U11, U12, U20; P21, P22, P23, P27.
   | The Desertas (DTM 5 m) | as Porto Santo's; approved by U55 (2026-11-17) | against: the same order's "MDT 5 m (folha)" at 37 € a sheet. The file's reference-system label (EPSG:3061) is replaced by the system its coast fits (PTRA08, EPSG:5016), nothing reprojected; the card names it (U56) |
   | The Selvagens (DTM 5 m) | as Porto Santo's; approved by U55 (2026-11-17) | against: the same order's "MDT 5 m (folha)" at 37 € a sheet |
 
-  Wallonia (batch 6; CC BY 4.0, "Il peut publier les données et l'œuvre dérivée à condition de citer les sources"; the terrain model's record also asks for "mention explicite des modifications", which its card does): its row approved 2026-11-22 (U96), products `dtm/1m` and `dsm/1m` averaged from 0.5 m. Not a row of the tool: Hong Kong (batch 6; **none found**: no sentence allows a changed copy on the internet), no row: not publishable (section 11, step 7).
+  Wallonia (batch 6; CC BY 4.0, "Il peut publier les données et l'œuvre dérivée à condition de citer les sources"; the terrain model's record also asks for "mention explicite des modifications", which its card does): its row approved 2026-11-22 (U96, amended 2026-11-26), products `dtm/0.5m` and `dsm/0.5m` at their own 0.5 m. Not a row of the tool: Hong Kong (batch 6; **none found**: no sentence allows a changed copy on the internet), no row: not publishable (section 11, step 7).
 
 Compared and not chosen for the transport: the tool's own tar over SSH with `sha256sum -c` (no new program; the
 planner's recommendation), a share with read-back, robocopy and rsync (no sha256).
@@ -872,15 +872,15 @@ Follow-ups, not part of the build's definition of done:
 6. After a number of good days the user names: `/srv/findaline-mirror` removed from the VPS.
 7. Batch 6 (planned in its own task, 2026-11-15) with the same tool when its tiles are cut: datasets at a native
    0.5 m (a "0.5m" folder: A.2's pattern serves it; tiles of an estimated 22 MB, about 6 s at a visitor's rate and
-   still within the in-memory download; Wallonia is cut at 1 m instead, the mean of 2 x 2: U96), several products
+   still within the in-memory download; Wallonia's are, since 2026-11-26: U96), several products
    under one dataset folder with one card, folders with a hyphen in their name. By that task's reading of the terms (2026-11-15): Wallonia, Valle d'Aosta's surface
    model, Saint Vincent, South Australia and the Australian Capital Territory can be published on a licence;
    New South Wales cannot be published
    until its owner answers; Hong Kong cannot, and is planned as an ordinary on-demand source, so it needs no
    mirror dataset. A dataset that cannot be published and is kept as an own copy would reach the site only by a
    local copy on the VPS, an exception to U4 that the user decides then. Each new dataset needs its
-   `PUBLISHABLE` row with the user's approval, and the storage for it (Wallonia at 1 m: est. about a quarter of the
-   90 GB per model estimated at 0.5 m; measured at the cut).
+   `PUBLISHABLE` row with the user's approval, and the storage for it (Wallonia at 0.5 m: est. about
+   90 GB per model; measured at the cut).
 
 ## 12. Definition of done
 
