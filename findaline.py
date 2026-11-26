@@ -26,7 +26,6 @@ remove-old --dry-run|--yes` (runs_main) lists or deletes the runs saved before t
 """
 
 import gc
-import json
 import os
 import sys
 from typing import Dict, List, Optional
@@ -129,11 +128,9 @@ def main(params: pm.SearchParams, options: pm.CliOptions, paths: search.Paths):
         sys.exit(str(e))
 
     # A run opens through the app (docs/line-volume/spec-store.md 1.2: no page of the latest run, no index.html
-    # since store wave 4); --html is accepted for one release (store U10) and only says so
+    # since store wave 4; --html, kept for one release by store U10, is gone since line volume's round 7)
     # (a data folder given by --data-dir is named too: `view` would look in the default one)
     view = f"findaline.py view {result.meta['id']}" + (f' --data-dir "{paths.data}"' if options.data_dir else "")
-    if options.html:  # the command once, on the line below
-        print("--html is no longer used: maps open through the app.")
     print(f"View it: {view}")
     if not options.no_plot:
         mp.mapify(shown, plan.area)
@@ -227,8 +224,7 @@ def app_holds(port: int, folder: str) -> Optional[bool]:
         probe.settimeout(2)
         if probe.connect_ex(("127.0.0.1", port)) != 0:
             return None
-    with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
-        mine = json.load(f)
+    mine = rn.read_meta(os.path.join(folder, "run.json"))  # waits out Windows' moment after a replacement
     session = requests.Session()
     session.trust_env = False  # no proxy for this computer's own port
     try:

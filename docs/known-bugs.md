@@ -88,6 +88,17 @@ Before calling a failure of it a regression, run it alone on a clean checkout of
 In the same evening's first full pytest `tests/test_web.py::test_search_panel_estimate_rate` (headless Edge) timed
 out once, with other sessions running under the test lock; alone it passed 4 of 4.
 
+## `test_the_worker_tells_the_estimate` passes or fails by the checkout's path
+
+`tests/test_sample_estimate.py::test_the_worker_tells_the_estimate` failed on 2026-11-23 in the worktree of line
+volume's round 7 server work, on that branch and on `main`'s code (b1434458) alike, at the same path: its job meant
+to be refused by the 2 % sample's estimate ended "failed" with `too_many_lines_early` (the early check during the pair
+search) instead of `too_many_lines_estimate`. At another path the same code passed, and so did each of the branch's
+commits there. The sample is seeded by the search's hash, which holds the clip's file path, so the anchors the sample
+counts change with the folder the repository is checked out in, and with them whether this case's estimate refuses.
+Not mended: the test's case sits near the refusal's edge for some paths. Run it in another checkout before calling a
+failure of it a regression.
+
 ## `test_quick_lane` fails at some times with "disk I/O error"
 
 `tests/test_web.py::test_quick_lane` failed on 2026-11-17 in a full pytest of the ui-shots-waits branch with
@@ -177,12 +188,70 @@ longest hold measured; then the error as before). On Windows only: on every othe
 refusal is raised at once, as before. Shown through `list_runs` itself while another process saved 3 000 new runs
 with `cache.replacing`: the code as it was (`main` b248ddb5) raised PermissionError in 1 774 of the 3 000 rounds;
 the mended code in none, having waited in 1 711 of them, once each (10 ms).
-`tests/test_units.py::test_a_listing_waits_for_a_run_json_windows_refuses` makes the refusal with a fake `open`. Not
-covered: the other readers of a run.json (`runs.run_state`, the web's export checks and its bounds check of a
-profile or a 3D view, `web.profile_problem`, which takes a file it cannot open for a run without profiles; the quick
-lane's tasks, `linestore.export`, `findaline.py`, `update.py`), which read runs saved earlier. A red
-`test_two_jobs_computing_at_once` on Windows with this error after 2026-11-24 is new: the hold then outlasted the
-pauses, or it came at another reader.
+`tests/test_units.py::test_a_listing_waits_for_a_run_json_windows_refuses` makes the refusal with a fake `open`.
+
+**Mended for `cache status` too** (the user's choice of 2026-11-24, the option worded "Mend `cache status` as
+well"). Until then this entry said of every other reader of a run.json that it reads runs saved earlier. That was
+wrong for the two that go through the runs folder, as the listing does. `update.changed_runs` (its one caller
+`update.status`, the command `findaline.py cache status`) opened each run.json it found, and a refusal ended the
+command with the PermissionError. Shown through `changed_runs` itself while another process saved 3 000 new runs
+with `cache.replacing`: the code as it was (`main` 47d46aa4) raised PermissionError in 1 091 of the 3 000 rounds;
+the mended code in none in two runs, having waited in 755 and in 892 of them, once each (10 ms). It reads through
+the listing's waiting read now (`runs.read_meta`: the same pauses, on Windows only);
+`tests/test_units.py::test_cache_status_waits_for_a_run_json_windows_refuses` makes the refusal with a fake `open`.
+Since the data record (the same day) a run.json still refused after the last pause no longer ends the command: that
+run is named as not checked ("its run.json cannot be read") and the other runs are listed (the user's choice of
+2026-11-24); and a run folder taken away between the listing and the read (a run being removed, `runs.park_run`),
+which ended the command with a FileNotFoundError, is no run any more and is left out. Only that: a run.json missing
+while its folder is there, or while the runs folder cannot be reached (Windows reports a lost network drive as "not
+found" too), is named as not checked, so a drive that drops never reads as "nothing changed".
+`runs.run_state` (the command `findaline.py runs remove-old`) needed no mending: it takes a run.json it cannot open
+for a run to skip ("cannot read now"), never for an old one.
+
+**Mended for the readers handed a run** (the user's choice "d" of 2026-11-24, the option worded "those readers wait
+too: they read through the same waiting function"). They are the web's `has_store` and `take_export` (an export),
+`web.profile_problem` (the public site's bounds check of a profile, a 3D view or a reach), the quick lane's tasks (a
+profile, a 3D view's terrain or canopy, a reach, an export: `jobs.export_bytes`, `linestore.export`) and the commands
+`findaline.py export` and `view` (`findaline.app_holds`). They opened run.json bare, safe only while a saved run's
+run.json was written once (`runs.save_results`): whatever replaces it in place puts each of them where the listing
+was. They read it through `runs.read_meta` now (the same pauses, on Windows only; after the last pause each answers
+as before for a file it cannot open), the web's three in a worker thread (`run_in_threadpool`), never on the event
+loop. Shown on the development PC (2026-11-24) with one run.json of 31 KB replaced in place 3 000 times by
+`cache.replacing`, from another thread of the readers' process and from another process, while four of them
+(`profile_problem`, `export_bytes`, an export's POST and its GET) went round without pause, twice each: the code as
+it was (`main` c9add3ce) answered wrongly in 15 to 71 of 317 to 351 calls per reader, every wrong answer a refused
+open; the mended code in none, having waited in 356 calls, after at most three pauses (84 ms). A bare open retried
+every 0.5 ms read a refused replacement after 13 to 15 ms at the median and 204 ms at the longest (twelve runs of
+3 000 moves): a replacement is held longer than a new file (29 ms above), so the 1.58 s of pauses are about 8 times
+the longest replacement measured. `tests/test_run_readers_wait.py` makes the refusal with a fake `open`.
+What it costs: a run.json that can never be opened (a permission denied, not a folder of that name, which `isfile`
+turns away first) answers 1.58 s later than before with the same answer, on Windows only (`/api/reach` stops at its
+first check, so 1.58 s too; in the quick lane, one task at a time, the next task waits as long).
+Not covered:
+- **A run.json absent for a moment** (the user's answer 9 of 2026-11-25: "Known limit", the option worded "Write it
+  into the known bugs with the measurement. Nothing more is built."). In 2 of those twelve probe runs, one from a thread and one from a
+  process, the name was not there at all about once per move (`FileNotFoundError` 2 910 and 2 375 times,
+  `os.path.isfile` False as often); in the other ten, in four further cases and in every reader's run, never. Its
+  cause, how long it lasts and its error code were not caught; the writer saw no error. `read_meta` does not wait for
+  it, nor do the `isfile` checks of `list_runs` and of the web's `may_open` (behind `run_access`): a reader meeting it answers as for a missing file
+  (`profile_problem` no profiles, an export's POST a 500 and its GET a file named by the run id, the quick lane's
+  task a 500, `export` and `view` a traceback; a listing leaves the run out, an access check answers 404). Windows
+  only; the public site runs on Linux.
+- `runs.run_state` (`runs remove-old`) still opens it bare: a refusal is "cannot read now", the run skipped, never
+  removed.
+- `view`'s second read: `app_holds` asks the local app for the run's run.json, which the local app's static files
+  (Starlette's `StaticFiles` at `/runs`) open bare; a refusal there makes `view` take the app for another program
+  ("Port answers, but not with this run"), read from the code, not run.
+**The rename of a run** (line volume's round 7: the public site's `POST /api/runs/<id>`, `runs.rename_run`) is such a
+writer: it replaces a saved run's run.json in place (`cache.replacing`, under the runs lock, the last of its
+three files), so on Windows the readers above meet it as they meet a saving. Its own read of the run.json goes
+through `runs.read_meta` too (the user's answer 10 of 2026-11-25, "Yes, it waits too"): it waits up to 1.58 s under
+the runs lock, then answers 409 ("the run is in use"); `tests/test_rename_read_waits.py`. Its own moves are refused
+while a reader holds the file: the route answers 409 and the rename is left half done ("Line volume, round 7"
+below). On the development PC (2026-11-24), with listings going round without pause in another thread of its
+process, 1 039 of 3 000 renames were refused so (PermissionError; the listing of then, without its pauses).
+A red `test_two_jobs_computing_at_once` on Windows with this error after 2026-11-24 is new: the hold then outlasted
+the pauses, or it came at another reader.
 
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
@@ -269,6 +338,82 @@ are right. A search of local files (`--elevation-file`) could not resume at all 
 a tile edge. Since the fix the record is kept in the run's folder (`data_used.json`) and read back. The runs saved
 so: a run folder with `progress.json` and `tiles/` whose run.json has `"data": []`. They are not repaired; search
 again to get a run that names its data and credits.
+
+## The data record: what it does not see (2026-11-24)
+
+A run records what data it read (run.json's `identity` keys: docs/code-map/search.md), and the regression
+harness, `cache status` and `tools/record_check.py` compare by it. Known and left:
+- **Content replaced while a search reads it.** Closed since 2026-11-24 for a layer's files and the water mask's:
+  each file is noted before the mosaic reads it and after (`mosaic.noted_before`, `cache.touch`), each note its
+  stored checksum and its identity on disk (`os.stat`'s inode, time in ns, size), and a file whose two notes differ
+  is not known (`mosaic.read_window`); a layer prepared twice in a run (a fallback's terrain for the terrain and the
+  surface) never covers such a null (`search._merged_data`). A file written again with the same content while a
+  layer reads it (a tile fetched again unchanged, or encoded again by another process) is not known too: files are
+  never hashed for the record. Left (every writer moves the new file in first and writes its row after, hashing
+  the file and waiting for the index's lock):
+  - a file moved in before the note before the read whose row lands after the note after it (a writer's gap longer
+    than the layer's whole read): the old checksum is recorded although the new bytes were read, `cache status`
+    calls the file changed, the regression harness (its stored record holds the old one too) "same data";
+  - a writer killed between its move and its row (a cancelled download, a stopped `cache update`): the new bytes
+    stay under the old row for good, and every later run, `cache status` and the harness say "same".
+
+  The OSM tiles of the coastline and of an area and the world file's edition are noted once, after their read: the
+  coastline's tiles are read by `osm.theme` in `coast.sea_mask` and noted by `coast.identity` in step 1 after the
+  sea mask, an area's by `osm.theme` in `area._near` or `from_spec` and noted by `area.Inputs.identity` once the
+  area is built, the world file's edition asked again (`coast.world_file`) after the sea mask read it; a file
+  replaced in between is recorded as read. A Nominatim answer is noted in the function that read it
+  (`area.region`, right after `osm.search`).
+- **A real change read as "re-encoded" by `cache status`**, in narrow cases: other content stamped in the same
+  second as the entry's newest fetch, a writer's fetch time taken before it waited for the index's lock, a clock set
+  back. The run is still listed; only the word is wrong.
+- **A file replaced by hand** without the index being told reads "same": the index's stored checksum is compared,
+  a file is never hashed again.
+- **The order of overlapping files** of one layer is the code's (the first written wins), not recorded.
+  `NewestPerSheet`'s order is total since this change (the name as the last key); no tied overlapping pair of
+  sheets was in the real cache's stored answers then (8 indexes, 242 778 sheets), an area holding one could give
+  other lines than before.
+- **Checksums across machines.** A float tile is written again in the cache's encoding: its bytes may differ under
+  another GDAL or rasterio for the same values, so a record made on one machine can read "data differs" on another
+  (the record holds the versions, and the harness names a change of them). On one PC two caches that downloaded
+  apart gave equal checksums (60 of 60 files, 2026-11-24).
+- **What steers a search and is recorded only by its outcome**: Nominatim's answer for the country of a search's
+  centre (the source's id is recorded) and, for two kinds of layer, an index answer (the files are recorded): the
+  same record gives the same result, but a cache built from a record alone is not always enough to run the search
+  again (docs/regression-tests.md, "The completeness check").
+- **A filler or neighbour that read its files and filled no pixel** is left out of the record, as of the credits.
+- **What `cache status` still touches or misses.** Since 2026-11-24 it changes no cached file, no index and no row
+  and makes no folder, but SQLite's own side files beside an index are not left alone by SQLite's reader:
+  - it writes into a `-shm` that is there (it notes its place there), which is the case beside an index a search
+    has open, beside a `-wal` that still holds rows, and beside an empty `-wal` with its `-shm` left behind (by a
+    writer that was killed, made by a test, or by the read-only read below; the next writer's close removes the
+    two, which `status` used to do itself, opening every index for writing): on the real cache three `-shm` files
+    beside an empty `-wal`, of unknown origin, got a new modification time and nothing else changed
+    (`tests/test_status_readonly.py::test_a_wal_and_shm_left_by_a_killed_writer`);
+  - it makes a `-shm`, or a `-shm` and a `-wal`, in the cases `update._read_only` names (a `-wal` without its
+    `-shm`; `update._query`'s bound: a writer changed the index during three immutable reads in a row, then it is
+    read read-only; none in the second code review's 40-s probes beside a busy writer, where reading read-only
+    after one such read made 15 a run; an index dated in the future, a clock set back or files copied with a later
+    time, is read read-only every time and left with a `-shm` and a `-wal` after each `status`).
+  Not used: SQLite's `readonly_shm` (undocumented), and an empty `-wal` read as no WAL (a live connection that has
+  only read, or has just checkpointed, shows one too). Beside a search an index's rows are read again when the
+  stamp check of `update._query` sees a writer (the file's time or size, or a `-wal`). It rests on the file's
+  modification time moving when a WAL is written into it, by at least a clock tick (NTFS up to 15.6 ms, ext4 and
+  xfs a jiffy), so a file written less than `STAMP_MARGIN_NS` (0.1 s) ago is waited out first (at most 0.1 s a
+  read, 0.3 s an index); measured on local NTFS. Not covered on FAT32 (2 s steps); not sound on a network share
+  (the Windows client caches a file's details for seconds; a cache shared between machines is not supported). An
+  index that cannot be read at the moment (a writer's lock over the timeout, a hot journal of a rollback-journal
+  index) is named with the error's class, and the runs that read its files as not checked. A world file put there
+  by hand gets its index rows only from `cache update` (`status` names it), so until then a search's
+  `--update stale` does not check it after a year (`coast.world_polygons`: no row, never stale); until 2026-11-24
+  the first `cache status` adopted it. Since 2026-11-25 every listing of the code that starts at the data, cache
+  or runs folder takes that folder's name literally, `[` and `]` too, and the three places that compare a listed
+  path with a built one as text (`ShaPerTile._cached_tiles`, `PackageVersions.cached`, `ZipSheetTiles._renewed`)
+  compare them through `os.path.normcase`, as `glob` gives an escaped folder back with the system's separators and
+  the disk's case (`tests/test_glob_folders.py` guards the listings). The few listings left unescaped are named
+  there with their reasons: a pattern meant as one, a fixture's relative path, a research script.
+- A run made before the record is counted by the rule of before (fetch times) and marked approximate; a relative
+  `--slope-file` is not checked; a resumed run marked because earlier tiles exist keeps its mark even if the
+  marking session stopped before its own first tile.
 
 ## The square rule: a tiled search's line limit counts a pair of squares twice
 
@@ -426,7 +571,10 @@ squares, which the 1 km blocks divide). Older than wave A; not changed.
 Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the access mark), none fixed:
 - **Compare says "· no lines" for a store it refuses or cannot read** (a store of a newer format, a body too large,
   a server error): the run has lines. The result page and `map.html` show the right text; Compare does not. Needs a
-  store format that does not exist yet, or a server error.
+  store format that does not exist yet, or a server error. **Mended in line volume's round 7** (A7, 2026-11-24):
+  Compare names the cause after the row's words ("too large for this browser", "made by a newer Find-a-Line",
+  "could not be loaded": `RunActions.tsx` `CAUSE_TEXT`), its box off for the first two
+  (`tests/test_compare_causes_page.py`).
 - **Nothing cleans an orphan "running" tiled folder**: a tiled run interrupted and never resumed keeps its work
   folder, for example a run interrupted under one choice of the access mark (marked or left out) whose search then
   runs under the other. As for any interrupted tiled run whose hash never returns.
@@ -474,14 +622,22 @@ read by share links, the result view then behind `?view=b`), none fixed:
   Firefox; the focus rules are tested in Chromium only. **Brought to R1 and R2 in round 6** (2026-11-22) in the
   states `tools/ui_shots.py` measures: no text under 12 px outside the credits, no control under the bound in the
   first view or with a line. The filter editor and More filters, which no state measures, are not; what is left is in
-  "Line volume, round 6" below.
+  "Line volume, round 6" below. **They have states since round 7** (`c-view-editor`, `c-view-more`,
+  `c-view-more-end`, 2026-11-24): the first two measured on the clip's run in the light theme, on the phones no control under 44 px
+  and no text under 12 px outside the map's credits, for the controls that run draws; the checkboxes, the water
+  select, Rigging of richer runs and a set chip are not measured, and on a phone part of More filters' middle is in
+  no picture (the iPhone's 20 of 33 controls, the Pixel's 12).
 
 ## Line volume, round 5 (store wave 4): known and left (2026-11-18)
 
 Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15, a0c511ac, a86b86e8), none fixed:
 - **Compare's list of other runs goes stale from Home on:** Home's mini maps load the list of runs (`runs.js`, once
   per page) for every run card, so a run finished in the same tab is not offered by Compare until a reload (it opens
-  and draws through the store's probe); before, the same happened from the first opened result.
+  and draws through the store's probe); before, the same happened from the first opened result. **Mended in line
+  volume's round 7** (A7, 2026-11-24): the app reads the list again when it knows the list changed (a search saved
+  its run, a run renamed or deleted on the page: `result/load.ts` `forgetRunList`), and Compare makes its rows anew
+  then (`tests/test_compare_causes_page.py`). On a run's own `map.html` the list still stays as first loaded (round
+  4's entry above).
 - **Two more cdd_fetch tests race on the CI's runners** (the same fake server as the two above):
   `test_fetch_resumes_and_records_every_file` on Linux in both runs since 74de19ae (CI 44170732371 and 44243858723:
   the fake's concurrent connections 2, not 1; read only: the fake counts a request as active until its handler
@@ -550,7 +706,8 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   `test_a_later_server_on_the_same_port_serves_its_own_file` holds it.
 - **`tools/perf_country.py` decodes all 29 columns of a store** (`linestore.read`) though it uses 10: about 350 B a
   line at its peak plus the Arrow table, so a machine smaller than the one that made a very large run may not read it
-  back; a column selection in `linestore.read` would cut it.
+  back; a column selection in `linestore.read` would cut it. **Mended in line volume's round 7** (A4,
+  `read(columns=)`): it decodes its `STORE_COLUMNS` alone; the file is still read whole (the Arrow table stays).
 - **`runs remove-old`:** two removals finishing the same `runs/_removing-<id>` at once may report it "Left on disk"
   although it is gone (cosmetic); the first scan's folder sizes run under the runs lock; a search cancelled or killed
   while "saving results" leaves a folder without `run.json` that nothing removes (older than store wave 4), as does a
@@ -561,7 +718,10 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   notice of its own, so from disk without the bundle it stays blank.
 - **Wave 4's second deploy:** a `runs/_viewer/index.css` installed before stays there (`install_viewer` adds files and
   never deletes; nothing loads it); a run's `map.html` whose store cannot be loaded shows one sentence and no way back
-  to the app (as before wave 4; roadmap "Later").
+  to the app (as before wave 4). **Mended in line volume's round 7** (A6, 2026-11-24): a Back button
+  ("Find-a-Line", to "/") while the run loads and when it failed, and "Try again" where a new try can help (not for a
+  run too large or of a newer format; a share link's visitor gets "Try again" and a sentence, no Back:
+  `tests/test_failed_result_page.py`).
 
 ## Line volume, round 6 (the result view as the default): known and left (2026-11-22)
 
@@ -656,8 +816,10 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
   time the status against the zoom at 852 x 393), `test_view_link.py::test_sheet_moves` (the iPhone in WebKit),
   `test_shell_c_view_map.py::test_phone_controls_apart`, `test_lan_app.py::test_smoke_over_https`,
   `test_view_frame.py::test_measured_points_lie_under_the_numbers[412]`,
-  `test_access_view.py::test_legend_lists_the_three_marks`, `test_shell_c_flows.py::test_shell_c_intros`. Run them
-  alone before calling a failure a regression.
+  `test_access_view.py::test_legend_lists_the_three_marks`, `test_shell_c_flows.py::test_shell_c_intros`,
+  `test_keyboard_app.py::test_place_map_coverage_legend` (line volume's round 7: its 30 s wait for the search panel
+  timed out once in a full run while another full run shared the PC, 2026-11-25; 3 of 3 alone on the branch and on
+  its base). Run them alone before calling a failure a regression.
 - `test_view_gaps.py::test_no_page_zoom_outside_the_map`'s double-tap step tests nothing in Chromium (its pinch step
   does).
 - `test_store_share.py` (and `test_thumb_store.py`) still check that `runs.js` is asked at most once by the browser's
@@ -665,6 +827,93 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
   counts the requests sent (`page.on("request")`) since round 6's closing fixes.
 - **`tools/lan_app.py`** (the LAN test of gate 2): `make_clip` has no test. While it serves, the local app's other routes stay open on the network (an estimate, a place's lookup,
   deleting a search or a run of the scratch folder, the rigs and the admin routes).
+
+## Line volume, round 7: known and left (2026-11-25)
+
+Found in round 7's reviews and checks (renaming a run, the size on Home, the screenshot states of the filters,
+`linestore.read` of chosen columns); none fixed. The user's answers of 2026-11-25 are quoted.
+
+**Renaming a run** (the public site only)
+- **The result view's header at tablet widths** (the user's answer 6: "Known bug, design later"; a header layout for
+  those widths is on the roadmap, a mock-up first). An owner's header measured on the development PC (2026-11-25, the
+  clip's run and an owner's search, a window 800 px high; before = the stack without the rename's page half): the
+  name was cut from 768 to 880 px before this round (0 px wide at 768, 31 at 800, 51 at 820, 111 at 880; whole from
+  930), and with the Rename button it is cut up to 930 px (0, 0, 15 and 75 px; 125 at 930, whole from 1024). With a
+  coarse pointer (a touch screen at a desktop's width) the header grows once the button comes: 10 px from 880 px up
+  (61 to 71 px), 12 px below (113 to 125 px at 768 and 800, 95 to 107 at 820), and at 768 px the button lies over
+  "Edit & run again" by 24 by 8 px. With a mouse the header keeps its height (`margin-block: -4px`, DESIGN.md row
+  81).
+- **Today's result page has no Rename button**: the page a run opens with `?view=today`, or when the view cannot show
+  it (a store saved before the view's columns). It shows the new name; Home's menu renames (the planner's decision of
+  2026-11-24).
+- **Home's "Favourite lines" keeps a renamed run's old name** until Home is shown again (the user's answer 7: "Known
+  bug"; `Trip.tsx` keeps the names it was drawn with; remounting it after a rename would also reset its sort).
+- **An administrator who opens another user's renamed run** in the app sees the name it was saved under (the store's
+  head): the administrator's list of runs does not name that run, and `load.ts` puts the listed name over the head's
+  only for a run the list names. A share link and the run's `map.html` take the name from the page's title, which a
+  rename rewrites. Older and close by: an administrator's result view of another user's run shows "Edit & run again"
+  (`AppC.tsx` finds the search in the administrator's list of every job), which the server refuses (`own_job`: 404).
+- **A rename left half done**: the three files are replaced one by one (ATTRIBUTION.txt, map.html, run.json last), so
+  a failure (409 on Windows, a file held open) leaves every list with the old name while ATTRIBUTION.txt and map.html
+  may hold the new one; a second rename to the same name repairs it, one to yet another name leaves ATTRIBUTION.txt's
+  first line naming the first try (a rename rewrites that line only when it names run.json's name; the planner's
+  decision of 2026-11-23).
+- **Names that display as blank pass**: a name needs one character that is not a space, a mark or a format character,
+  but a letter or symbol that draws nothing (U+3164, U+2800) is one, so a card can show an empty name (only the
+  owner's own run); a name may also start or end with a joiner (U+200C, U+200D).
+- **Home's Share and Delete panels show an empty line** for a failure without words (a gateway's error with no text);
+  the rename's form shows "The run was not renamed. Try again in a moment." there (the user's answer 1).
+- **`Popover` adds its Esc listener after the paint** (`common.tsx`): an Esc right after the box opens can do nothing
+  (a test saw it once in four runs: the worker's count, not re-run, `local/line-volume-7-2026-11-23/PG/report.md`).
+- **A card's menu low on a phone** (the mock-up's point 25 a): the page scrolls so that the whole menu stands above the
+  bottom bar, and the point the menu's button was pressed at then lies on a menu item: a second press there (a double
+  tap, or a press meant to close the menu) presses that item ("Delete…" only opens its question; "Open the result"
+  opens the run).
+- **Compare's rows write the day as "2026-11-24"**, the view's head "24 Nov 2026" (`day()`, older than the round).
+- **`tools/ui_metrics.py` skips every control with `aria-disabled`**: Compare's box kept off under the focus is counted
+  by neither R2's count nor axe (its 20 by 20 px is asserted in `tests/test_compare_causes_page.py`).
+- **`runs.list_runs` sorts runs of the same saving time** in the folder's order, which can differ from one process
+  to another.
+
+**The size on Home and the loading line** (`viewer/src/size.ts`)
+- **A total under 5 000 bytes reads "0.00 of 0.00 MB"** while it loads (two decimals below 50 000 bytes: the user's
+  answer 3, "Two decimals"). Left as built (the planner's decision of 2026-11-25): no run's store is that small (the
+  smallest `linestore.write` makes, no lines and an empty head, is 9 092 bytes, measured again on 2026-11-25:
+  lines.arrow 5 922, profiles.arrow 3 170; and a search without lines saves no run); only an answer that is no store could be (a portal's or a proxy's page of 200 under 5 000 bytes), until its
+  read fails as "could not be loaded" (read from the code, not tried).
+- **Home's card rounds exact halves both ways** (`toFixed` of a double, older than the round's two-decimal line):
+  150 000 bytes read "0.1 MB", 250 000 "0.3 MB", 350 000 "0.3 MB", 850 000 "0.8 MB". From 999.95 GB a size reads
+  "1000.0 GB" (no run is that large).
+- **A `store.bytes` edited by hand** is passed on by `/api/runs` as it is: a negative one shows no size on the card
+  (`sizeText` gives none), a huge one a huge size.
+- **The 3D view's terrain line** counts in 10^6 bytes now, but with one decimal at every size and never in GB
+  ("Downloading the terrain… 12.3 of 45.6 MB"), while the run's line takes the card's cut.
+- **The loading bar has no accessible name** (axe's `aria-progressbar-name` on the loading page): the kit's
+  `Progress`, older than the round.
+
+**`linestore.read` of chosen columns** (A4; no caller meets either, the code review's two findings, confirmed by a
+run)
+- A selection that matches nothing (`columns=[]`, or only optional columns the store lacks) returns a table without
+  columns, whose `len()` raises `StopIteration`.
+- `columns="length"` (a string, not a list) raises a ValueError that names its letters as unknown columns.
+
+**The result view's filters** (seen while A3 took its screenshot states; the user's answer 8: "Known bugs + roadmap",
+each a roadmap line in docs/roadmap.md, "Line volume round 7: open")
+- **The pressed main chip is not marked while its editor is open** (only `aria-expanded=true`), whereas More filters'
+  chip turns `u-on`.
+- **A range's empty track is invisible in the editor's grey box**: it has the box's own colour, so "Length from" at its
+  low end shows a lone thumb with no track (light and dark).
+- **At half height a phone's sheet opens the editor under the screen's edge**: the states raise the sheet to full
+  first for that reason.
+- `tools/ui_shots.py`: with all three main filters set, `c-view-editor`'s chip selector matches nothing and the state
+  ends at its wait's 10 s deadline, a picture without the editor (the comment at `VIEW_EDIT_CHIP`; no pass reaches
+  it: the storage starts empty and no page before the state sets a filter). `c-view-report` once showed a "Failed to
+  fetch" banner over its picture in a whole pass and none when shot alone (2026-11-24; it runs before the new states).
+
+**The coverage page** (seen in round 7's checks)
+- **The coverage page differs by one pixel column** at the right edge when the system's theme is crossed with the
+  chosen one (its `body`'s background follows the system, `coverage/page/page.css`, while `.ui.cov` follows the
+  chosen theme). Older than the round.
 
 ## The UI measuring tools: known and left (2026-11-17)
 

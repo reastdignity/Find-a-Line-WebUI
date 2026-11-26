@@ -310,6 +310,31 @@ def test_store_access_mark_kind(tmp_path):
         linestore.lines_table(lines, {})
 
 
+def test_read_of_chosen_columns(tmp_path):
+    """linestore.read(columns=[...]) (A4): only the LineTable's columns named, each bit for bit the full read's (a pair
+    such as anchor1 whole, the count of the square rule, a view column); a name the store lacks is left out as an
+    optional column; a name no store knows raises; the head and the profiles as without it."""
+    rng = np.random.default_rng(14)
+    lines = _hard_lines(2000, False, True, rng)
+    lines.profiles = {k: p for k, p in _profiles(2000, rng).items() if k < 50}
+    view = {"spot": np.arange(2000), "top": np.zeros(2000), "by_spot": np.arange(2000)[::-1].copy()}
+    linestore.write(str(tmp_path), lines, {"run": {"id": "x"}}, view)
+    full, head = linestore.read(str(tmp_path))
+    names = ["length", "anchor1", "height_mean", rn.STANDS_FOR, "by_spot", "lift_needed", "access1"]
+    chosen, chosen_head = linestore.read(str(tmp_path), columns=names)
+    assert chosen_head == head and chosen.profiles == full.profiles
+    # lift_needed and access1: not in this store (no end columns, no access mark)
+    assert set(chosen.columns) == {"anchor1", "length", "height_mean", rn.STANDS_FOR, "by_spot"}
+    for name, values in chosen.columns.items():
+        assert values.dtype == full.columns[name].dtype and values.tobytes() == full.columns[name].tobytes(), name
+    alone, _ = linestore.read(str(tmp_path), profiles=False, columns=["a1_xy"])
+    assert set(alone.columns) == {"a1_xy"} and alone.profiles == {} and len(alone) == 2000
+    with pytest.raises(ValueError, match="no column of a store: nothing"):
+        linestore.read(str(tmp_path), columns=["length", "nothing"])
+    with pytest.raises(ValueError):
+        linestore.read(str(tmp_path), columns=["len"])  # the store's name, not the LineTable's
+
+
 def test_store_written_whole_or_not_at_all(tmp_path, monkeypatch):
     """linestore.write writes under temporary names and gives both files their names only when both are whole:
     a failure between the two files (profiles.arrow's table) leaves neither name, nor a temporary file."""

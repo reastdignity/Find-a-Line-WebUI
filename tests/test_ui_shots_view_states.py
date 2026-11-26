@@ -1,6 +1,6 @@
 """tools/ui_shots.py's states of the result view added in step 3d (VIEW_STATES: the features joined in step 3c, the
-lists of wave B's workers and of the screenshot gate) and the pin of today's page in every other page: the pure parts
-(the pictures are taken by hand: .claude/rules/viewer.md)."""
+lists of wave B's workers and of the screenshot gate) and line volume's round 7 (A3: the filters' panels open), and the
+pin of today's page in every other page: the pure parts (the pictures are taken by hand: .claude/rules/viewer.md)."""
 import json
 import os
 import re
@@ -26,11 +26,16 @@ COVERED = {
     "X1 shore": "c-view-box-shore",
     "card open": "c-view-card", "card folded": "c-view-card-folded", "boxes": "c-view-boxes", "chips": "c-view-boxes",
     "rails": "c-view-rails", "map.html": "c-view-map", "map.html line": "c-view-map-line", "share link": "c-view-shared",
+    # round 7's PG: the header's Rename box open, a refused name in it, its button's focus ring, Compare's causes (a desktop)
+    "PG rename": "c-view-rename", "PG rename refused": "c-view-rename-refused", "PG rename focus": "c-view-rename-focus",
+    "PG Compare's causes": "c-view-compare-causes",
     # C4's (step 3d: the spot stepper, the sort's direction, the star's picker on a phone)
     "C4 stepper, desktop": "c-view-stepper", "C4 stepper, phone at half": "c-view-stepper-half",
     "C4 stepper, phone low": "c-view-stepper-low", "C4 Previous off": "c-view-stepper-first",
     "C4 Next off": "c-view-stepper-last", "C4 smallest first": "c-view-sort-asc",
     "C4 picker, phone": "c-view-picker-low",
+    # round 7's A3: a main filter's editor open, More filters open, More filters scrolled to its end (every device)
+    "A3 editor": "c-view-editor", "A3 More filters": "c-view-more", "A3 More filters' end": "c-view-more-end",
 }
 SHORE = {"c-view-boxes", "c-view-chips-held", "c-view-box-coarser", "c-view-box-shore", "c-view-link-centre"}
 CLICKS = {ui_shots.VIEW_DESKTOP, ui_shots.VIEW_PHONE, ".r-card .r-fold"}  # the only steps that are clicks
@@ -44,13 +49,16 @@ def test_every_listed_state_has_its_page():
 def test_the_states_open_the_view():
     """Each state is a page of the view (the flag "b"; the app's result, a run's map.html or a share link's page),
     waits for the view first, needs the view's columns (the coast boxes' an uncertain shore), and is made of scripts,
-    waits and only the clicks that keep a state to one kind of device."""
+    waits and only the clicks that keep a state to one kind of device; keys only in c-view-rename-focus (Shift+Tab and
+    Tab: the keyboard's focus ring follows only a person's key)."""
+    keys = {"key:Shift+Tab", "key:Tab"}
     for name, (ui, hash_, steps, *who) in ui_shots.VIEW_STATES.items():
         assert ui_shots.PAGES[name] == (ui, hash_, steps, *who) and ui_shots.VIEWS[name] == "b", name
         assert (ui, hash_) in (("c", "#run={run}"), ("map", ""), ("map", "#line={line}"), ("shared", "#line={line}")), name
         assert steps[0] == ui_shots.VIEW_READY and ui_shots.page_family(name) == "view-b", name
         assert ui_shots.NEEDS[name] == (("view", "shore") if name in SHORE else "view"), name
-        assert all(s.startswith(("js:", "wait:")) or s in CLICKS for s in steps), name
+        assert all(s.startswith(("js:", "wait:")) or s in CLICKS or (name == "c-view-rename-focus" and s in keys)
+                   for s in steps), name
         assert "localStorage.setItem('findaline.view', \"b\")" in ui_shots.page_storage(name), name
     assert ui_shots.LAYOUTS["c-view-rails"] == ui_shots.LAYOUTS["c-result-rails"]
     # the clip's run (the view's columns, no shore) leaves out the coast boxes' states before any load; a coastal run
@@ -63,7 +71,8 @@ def test_the_states_open_the_view():
     # a desktop's state: a phone finds no header's middle; a phone's: a desktop has no pill
     desktop = [n for n, p in ui_shots.VIEW_STATES.items() if ui_shots.VIEW_DESKTOP in p[2]]
     phone = [n for n, p in ui_shots.VIEW_STATES.items() if ui_shots.VIEW_PHONE in p[2]]
-    assert set(desktop) == {"c-view-other-run", "c-view-card", "c-view-card-folded", "c-view-rails", "c-view-stepper"}
+    assert set(desktop) == {"c-view-other-run", "c-view-card", "c-view-card-folded", "c-view-rails", "c-view-stepper",
+                            "c-view-rename", "c-view-rename-refused", "c-view-rename-focus", "c-view-compare-causes"}
     assert set(phone) == {"c-view-chips-held", "c-view-box-coarser", "c-view-box-shore", "c-view-stepper-half",
                           "c-view-stepper-low", "c-view-picker-low"}
     assert ui_shots.select_pages("c-view-") and set(ui_shots.VIEW_STATES) <= set(ui_shots.select_pages("c-view"))
@@ -94,10 +103,16 @@ def test_todays_pages_are_pinned():
 
 def test_the_owners_header_has_edit_and_run_again():
     """G3: c-view-share's page gets a finished job of its run in the app's list (answered in the page, after the storage
-    of its init script), so the header has "Edit & run again"; no other page has the stub."""
-    assert set(ui_shots.PAGE_SCRIPTS) == {"c-view-share"}
-    assert ui_shots.page_storage("c-view-share").endswith(ui_shots.VIEW_JOB_STUB)
-    assert all(ui_shots.VIEW_JOB_STUB not in ui_shots.page_storage(n) for n in ui_shots.PAGES if n != "c-view-share")
+    of its init script), so the header has "Edit & run again"; so do round 7's (PG) view states of the owner's header:
+    the Rename box, a refused name in it, Compare's causes (its stub last, after its runs' script); no other page has
+    the stub. The other init scripts are round 7's (PG: tests/test_ui_shots_round7.py)."""
+    owners = ("c-view-share", "c-view-rename", "c-view-rename-refused", "c-view-rename-focus", "c-view-compare-causes")
+    assert set(ui_shots.PAGE_SCRIPTS) == {*owners, "c-card-menu-search", "c-card-menu-low", "map-failed",
+                                          "map-failed-shared", "map-too-large", "c-run-failed", "c-run-loading",
+                                          "c-run-loading-gb"}
+    for name in owners:
+        assert ui_shots.page_storage(name).endswith(ui_shots.VIEW_JOB_STUB), name
+    assert all(ui_shots.VIEW_JOB_STUB not in ui_shots.page_storage(n) for n in ui_shots.PAGES if n not in owners)
     assert "pathname !== '/api/jobs'" in ui_shots.VIEW_JOB_STUB and "init.method !== 'GET'" in ui_shots.VIEW_JOB_STUB
     assert "Edit & run again" in ui_shots.PAGES["c-view-share"][2][1]
 
@@ -125,3 +140,52 @@ def test_c4s_states():
     assert "wait:window.FINDALINE_VIEW.view.desc === false" in sort
     assert "js:" + ui_shots.VIEW_PRESS % ".vl-tree .vl-dir" in sort
 
+
+# A step that changes the model's filters, which the page keeps in the browser ("findaline.filters") for the pass's
+# later pages: a filter set or cleared, the kinds of lines shown, "Clear all"
+FILTERS_CHANGED = re.compile(r"setFilters|clearFilters|setState|\.vl-clear")
+
+
+def test_the_filters_panels_open():
+    """A3 (line volume's round 7): a main filter's editor (the first chip's, Length) and More filters open on every
+    device, each by its chip's press after a phone's sheet is raised to full (the stop of the list: at half the editor
+    runs on under the screen's edge) and waited for open. That is all they do: no step of theirs changes a filter, and
+    no page of the pass before them does (they show the chips and lines a run opens with), so they stand before
+    c-view-note, the first state that sets one; c-view-sort-asc stays last."""
+    editor, more = ui_shots.PAGES["c-view-editor"][2], ui_shots.PAGES["c-view-more"][2]
+    half, press = "js:" + ui_shots.VIEW_HALF, "js:" + ui_shots.VIEW_PRESS
+    assert editor == [ui_shots.VIEW_READY, half, half, press % ui_shots.VIEW_EDIT_CHIP, ui_shots.VIEW_EDITOR]
+    assert more == [ui_shots.VIEW_READY, half, half, press % ui_shots.VIEW_MORE_CHIP, ui_shots.VIEW_MORE]
+    # the first chip of the bar that opens an editor (Length's: no filter is set, so it is one button); the editor
+    # waited for under its pressed chip, More filters' section in the list's flow under the chips
+    assert ui_shots.VIEW_EDIT_CHIP == ".vl-filters .u-chips > .u-chip[aria-expanded]"
+    assert "[aria-expanded=true]" in ui_shots.VIEW_EDITOR and ".vl-filters .r-editor" in ui_shots.VIEW_EDITOR
+    assert ui_shots.VIEW_MORE_CHIP == ".vl-filters .u-chip.u-add" and "> section.r-more" in ui_shots.VIEW_MORE
+    pages = list(ui_shots.PAGES)
+    changing = [n for n in pages if any(FILTERS_CHANGED.search(s) for s in ui_shots.page_steps(ui_shots.PAGES[n][2]))]
+    assert {"c-view-note", "c-view-none", "c-view-sort-asc"} <= set(changing)
+    assert (pages.index("c-view-editor") < pages.index("c-view-more") < pages.index("c-view-more-end")
+            < min(pages.index(n) for n in changing))
+    names = list(ui_shots.VIEW_STATES)
+    assert names.index("c-view-more-end") + 1 == names.index("c-view-note") and names[-1] == "c-view-sort-asc"
+
+
+def test_more_filters_end():
+    """A3's third state: More filters open as in c-view-more, then the element that scrolls them moved (a desktop's
+    list body, a phone's sheet body) until the section's end is in view, and waited for until its last control lies
+    wholly inside that body and the screen with nothing over it: a state that does not get there ends at the wait's
+    deadline. Scrolling is all it adds (no filter changes)."""
+    more, end = ui_shots.PAGES["c-view-more"][2], ui_shots.PAGES["c-view-more-end"][2]
+    assert end == more + ["js:" + ui_shots.VIEW_MORE_SCROLL, ui_shots.VIEW_MORE_END]
+    assert not any(FILTERS_CHANGED.search(s) for s in end)
+    assert ui_shots.VIEW_MORE == "wait:!!" + ui_shots.VIEW_MORE_SECTION
+    for step in (ui_shots.VIEW_MORE_SCROLL, ui_shots.VIEW_MORE_END):
+        assert ui_shots.VIEW_MORE_SECTION in step and "closest('.u-sheet-body, .vl-body')" in step
+    assert "scrollTop +=" in ui_shots.VIEW_MORE_SCROLL
+    assert ui_shots.VIEW_MORE_END.startswith("wait:") and "querySelectorAll('input, select, button')].pop()" in \
+        ui_shots.VIEW_MORE_END
+    assert "r.top >= o.top && r.bottom <= Math.min(o.bottom, innerHeight)" in ui_shots.VIEW_MORE_END
+    # nothing over it: the element at its centre is it, a part of it or holds it (a range takes the pointer on its thumb
+    # only: its row is hit)
+    assert "document.elementFromPoint(" in ui_shots.VIEW_MORE_END
+    assert "!!at && (at.contains(c) || c.contains(at))" in ui_shots.VIEW_MORE_END

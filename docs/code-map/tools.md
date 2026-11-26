@@ -259,7 +259,23 @@ phone's sheet at full height for the list's states: `VIEW_HALF` twice); their st
 favourites' halos, a measured line, Compare's other run, a selected line with its card or dock, the star's folders,
 the closed profile, the list's stars and help, the spot stepper, the sort's direction, the empty state, the coast
 states `c-view-boxes`, `-chips-held`, `-box-coarser`, `-box-shore`, `-link-centre` with `--run` of a coastal run:
-`tools/ui_coast_run.py`); `tests/test_ui_shots_view_states.py`.
+`tools/ui_coast_run.py`); `tests/test_ui_shots_view_states.py`. Line volume's round 7 (A3) added `c-view-editor`
+(Length's editor open under the chips), `c-view-more` (More filters open) and `c-view-more-end` (More filters scrolled
+to its end: the list's body on a desktop, the sheet's body on a phone; a wait proves the section's last control wholly
+in view), on every device with a phone's sheet at full, right before `c-view-note`: they change no filter, and the
+states after them set filters the pass keeps (`findaline.filters`).
+
+Line volume's round 7 (renaming a run, the failed and loading pages, Compare's causes): Home's `c-card-menu`,
+`c-card-menu-search` (an owner's card with its search: "Edit & run again" in the menu), `c-card-menu-low` (a low
+card's menu on a phone, the page scrolled), `c-card-rename`, `c-card-rename-refused` (named `c-card-*`, so a part
+`c-home` picks Home alone); the view's `c-view-rename`, `c-view-rename-refused`, `c-view-rename-focus` (the button's
+ring after a real Shift+Tab and Tab: a step `key:<key>` presses a key through Playwright's keyboard, then the settled
+wait; only this state has key steps) and `c-view-compare-causes` (three runs Compare cannot show, the owner's header:
+a job stub); the page family "run-wait" (`RUN_WAITS`, drawn once the box shows a failure's sentence or a bar of a
+known amount): `map-failed`, `map-failed-shared`, `map-too-large`, `c-run-failed` (the app's view of a run whose
+store the server answers with 404), `c-run-loading`, `c-run-loading-gb` (a store that keeps loading, of a total in MB or GB). They set,
+share, delete or store nothing; only the two `-refused` states send a name, one the server refuses
+(`tests/test_ui_shots_round7.py`).
 
 ## `tools/ui_coast_run.py`
 
@@ -301,6 +317,23 @@ again", an OSM download: 403 with a plain reason); its page is a scratch build o
 store goes out gzipped with its size before compression (`compressing`), as the public site sends it; the Esri key
 only with `--esri`. Ctrl+C or Ctrl+Break stops it. Open points: docs/known-bugs.md ("Line volume, round 6")
 (`tests/test_lan_app.py`, `tests/test_lan_gzip.py`).
+
+## `tools/record_check.py`
+
+Run by hand: the completeness check of the data record (docs/regression-tests.md, "The completeness check of the data
+record"). `record_check.py <entry> ... [--out <folder>] [--keep] [--also <cache path>] [--reverse] [--copy]`: per
+regression entry a scratch cache built only from its stored record (`tests/regression-data.json`) by a hard link per
+file (a copy only with `--copy`), each file with a recorded checksum checked against it first (`build`: a file gone,
+other bytes or a name not relative to the cache is a `RecordError` naming it), the files' index rows, the "missing"
+marks of the folders the record touches, the recorded Nominatim answers only; the empty mirror stand-in
+(`mirror_stand_in`) and dummy keys. A file written in place (`written_in_place`: databases, locks, `LAYOUT`...) is
+never linked (`place_file`), and `shared_with_real` checks it after the build. Then `tests/regression.py <entry>
+--cache <scratch> --cold --no-seed --keep` (`harness_command`) with the network blocked (`block_env`, every proxy
+variable; checked first for requests, urllib and GDAL over http and https by `check_block`). The verdict from the
+run log's line (ok, data "same", no tile downloaded), the requests tried per host, the first error lines and whether
+the run's own record equals the stored one. The real cache is only read (`update._query`); the scratch folder is
+removed whatever stops an entry, links as links, a read-only link by the delete that ignores the attribute
+(`remove_tree`, `delete_ignoring_read_only`) (`tests/test_record_check.py`).
 
 ## `tools/shots_diff.py`
 
@@ -426,7 +459,8 @@ steep share × relief, and the samples' 1 km cells with their edge fraction; `vi
 at another grid) and `estimate` (country totals: strata of the steep share, the relief below 0.5 %, lines per km² from
 the cells, a bootstrap over the places; times from `time_model` per band and grid; `inputs.json` names the strata,
 machines, data and services); a run's lines (`read_lines`) from its lines.npz (`profile --lean` until store wave 4;
-`--lean` is accepted and does nothing since), its store (`linestore.read`'s columns in memory, grouped and in
+`--lean` is accepted and does nothing since), its store (`linestore.read`'s columns in memory, since line volume's
+round 7 only `STORE_COLUMNS`, the ones it uses, decoded (`read(columns=)`), grouped and in
 lines.csv's order: length, clearance, height and the first anchor's coordinates unrounded, so a line at a band's or
 cell's edge may take another key than its lines.csv's rounding) or the lines.csv of a run saved before the store,
 `lines_from` in compare's, cube's and relief's results; a lines.csv over 200 MB packed once into

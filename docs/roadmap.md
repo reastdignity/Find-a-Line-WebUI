@@ -28,15 +28,15 @@ Planned features and the decisions already made for them. Nothing here is implem
 | Monitoring (2026-10-31) | Telegraf (a container with the host's network) → VictoriaMetrics → Grafana (opened through an SSH tunnel only), alerts to ntfy, statistics kept without a time limit, aggregates only; users by country from the browser's time zone and from the searched areas; the area searched shown to each user and its total on the sign-in page ([monitoring.md](monitoring.md)). |
 | Advice of a refusal for too many lines (2026-11-14) | The four refusals (`too_many_lines*`) name only the changes that apply to the refused search, at most four, in the measured order (no-fall zone and A-frames off, no-fall zone off, the formula instead of sag, anchor height difference 5 m or halved, A-frames off, anchor steepness +10°), then a smaller area or shorter lines; the highest point and the drop are no longer offered, a higher prominence is not offered (strong but blunt, not judged). Measured on 15 refused searches, each change alone (line-volume P4): ended within the limits / median lines kept: zone and A-frames off 9 / 8 %, zone off 7 / 17 %, formula 6 / 40 %, height difference 5 m 5 / 39 %, halved 5 / 52 %, A-frames off 4 / 54 %, steepness +10° 4 / 61 %, longest line halved 3 / 45 %, half the area 2 / 72 %, highest point 20 m and drop 20 m 1 each with 96-100 % kept. No heavy lane for now: no lane holds the goal case (one slot about 4.0 M lines of a circle, 1.3 M of a tiled area), the square rule does (built in the same task). When the refused search has the square rule off, the advice offers it first (`--same-line-square 5`; the user's closing answer of the line-volume task, 2026-11-14). |
 | Country layer (2026-11-12) | The layer's profile is the `lead` profile (S 30-300 m at 1 m, M 300-1000 m at 2 m, L1 1000-2000 m at 3 m, L2 2000-5000 m at 5 m), chosen by the user after both profiles were counted on all of Slovakia (docs/performance.md, "Round 5", "The recount: two profiles of Slovakia"). Cube v2 is finished as planned. Slovakia's v2 cube is interim: correct for today's search, counted again when the line-volume task's rules land. No further country is counted (Czechia's first band included) until that task's anchor and identity decisions are made. |
-| The same line: the square rule (2026-11-14) | `--same-line-square M` (off by default; the Advanced form's "One line per pair of anchor squares"): while the pair search runs, of all valid lines between the same two anchor squares one is kept: the one that needs the least rigging (no no-fall zone and no A-frames, then no A-frames), then the highest mean height, the longest, a fixed order of the anchors. The squares are M pixels wide and at least M metres (5: 5 m at 1 m, 10 m at 2 m), a lattice from (0, 0) of the grid's CRS; a kept line knows how many found lines it stands for (`stands_for`), the run how many were found; the line limit and the memory check count kept lines. The user's decisions at the line-volume task's gate 3 (G-01 a, G-02 a, G-03, G-14 a). Measured in the target rig (sag, fall zone 6 m, no-fall zone 5 m, A-frames 2 m; line-volume P3a): squares of 5 m keep 1.2-4.2 % of the lines of 1 m searches, and the goal case, the whole Gozo coast, finishes with 503 651 of 24 480 100 lines in 90 s and 2.9 GB (refused before); the price at 5 m is 3-7 % of the spots without a line of their own (each with a kept line within 8 m), a spot's best-clearance line dropped in 15-24 % of the spots (more when the mean height decides inside a pair) and 11-14 of 592 known highlines losing their match within tolerance (the truth check's first pass; its pass at the fall zone of 6 m with the rule on: 283 matched against 306, recall 16 % against 17 %, docs/truth-check.md "The square rule"). Open, specified and not built: the ranges of a kept line's copies (G-03 b, with the new store), a second step after the grouping that respects the spot (2 m squares in the search, then 5 m with the spot: two thirds fewer emptied spots, does not fit the country count), the rule always on in the Basic form (G-11 a), an estimate before the search, the country layer's use of the rule (its count mode has a sink of its own: a running best per key and a merge of the tiles by key would do it; squares of 2, 5 and 10 m nest in the cube's 50 m cells). |
+| The same line: the square rule (2026-11-14) | `--same-line-square M` (off by default; the Advanced form's "One line per pair of anchor squares"): while the pair search runs, of all valid lines between the same two anchor squares one is kept: the one that needs the least rigging (no no-fall zone and no A-frames, then no A-frames), then the highest mean height, the longest, a fixed order of the anchors. The squares are M pixels wide and at least M metres (5: 5 m at 1 m, 10 m at 2 m), a lattice from (0, 0) of the grid's CRS; a kept line knows how many found lines it stands for (`stands_for`), the run how many were found; the line limit and the memory check count kept lines. The user's decisions at the line-volume task's gate 3 (G-01 a, G-02 a, G-03, G-14 a). Measured in the target rig (sag, fall zone 6 m, no-fall zone 5 m, A-frames 2 m; line-volume P3a): squares of 5 m keep 1.2-4.2 % of the lines of 1 m searches, and the goal case, the whole Gozo coast, finishes with 503 651 of 24 480 100 lines in 90 s and 2.9 GB (refused before); the price at 5 m is 3-7 % of the spots without a line of their own (each with a kept line within 8 m), a spot's best-clearance line dropped in 15-24 % of the spots (more when the mean height decides inside a pair) and 11-14 of 592 known highlines losing their match within tolerance (the truth check's first pass; its pass at the fall zone of 6 m with the rule on: 283 matched against 306, recall 16 % against 17 %, docs/truth-check.md "The square rule"). Open, specified and not built: the ranges of a kept line's copies (G-03 b, with the new store; measured and dropped on 2026-11-23, line volume's round 7), a second step after the grouping that respects the spot (2 m squares in the search, then 5 m with the spot: two thirds fewer emptied spots, does not fit the country count), the rule always on in the Basic form (G-11 a), an estimate before the search, the country layer's use of the rule (its count mode has a sink of its own: a running best per key and a merge of the tiles by key would do it; squares of 2, 5 and 10 m nest in the cube's 50 m cells). |
 | Sag model's fall zone (2026-11-14) | 6 m by default (3 m before): the user's words at the line-volume task's gate 2, "set the default to 6m for sag and formula" (the formula already keeps 6 m below its limit, built in: unchanged; the no-fall zone at the ends, `--end-zone`, untouched). The task's measurement: with sag alone, 6 m keeps 3-35 % of the lines 3 m finds in its four cases, with a 5 m no-fall zone and 2 m A-frames 39-75 %. Stored sag requests of the web app without the value keep 3 m (migration 17 of jobs.sqlite); runs keep their own; Slovakia's cube was counted at 3 m until its recount. |
 | Basic search form (2026-11-14, line volume) | Specified, built next ([spec-search.md](line-volume/spec-search.md) section 1): a tab "Basic · Advanced", Basic opened at every visit; 'My rig' sets the rigging (several named rigs saved with the account, at most 10, the privacy wording approved by the user), five goals replace today's three presets (Advanced adds "Custom"), Basic's radius 500 m, a size word before Start; Basic always uses the square rule at 5 (G-11 a); 'Sea cliffs' loses its wall-angle limit after a count (a fault). |
 | Size of a search before it runs (2026-11-14, line volume) | The web worker counts a 2 % sample of the anchors before the full pair search and refuses a search well above the line limit at once; the form's size word stays a hint (G-04 a; [spec-search.md](line-volume/spec-search.md) section 2). The command line and the regression set never sample. With the square rule on, an estimator of kept lines is measured first. |
 | Ease of access to the anchors (2026-11-14, line volume) | A mark of three states per anchor (can walk to it, cannot, cannot tell), no limit, nothing left out (G-09 a; [spec-search.md](line-volume/spec-search.md) section 3); where it shows: a mock-up first. **Built 2026-11-16** (`--access`, on in the web form): the three states read "easy access", "cannot tell", "hard access" (the user's words); the grid of a large area is computed in blocks; a search too wide for the grid runs without the mark and says so (the user: no search is refused for a mark that filters nothing). Its parts in the result view come with that view. |
 | Fewer, better anchors (2026-11-14, line volume) | Today's anchors stay (G-07 a). Lip anchors (K-26 'Rim anchors: the lip, steep pixel or not') are measured first with four truth-check passes; they become a search option only if they keep at least 98 % of the matched known lines (the user's closing answer; [spec-search.md](line-volume/spec-search.md) section 4). **Measured 2026-11-15: not taken.** Lip anchors keep 69.95 % of the known lines today's anchors match in the target rig (561 of 802) and 70.94 % with the square rule at 5 (537 of 757). |
 | No cap and no heavy lane in the search (2026-11-14, line volume) | No cap of lines per spot in the search: the square rule decides what is stored, the page shows the best (G-12 a); if searches are still refused, K-13 'Beaten by a margin, not by a hair' is the cap to take. No heavy lane for large searches (G-05 a): no lane holds the goal case, the square rule does; the refusal advice was re-ranked instead. |
-| A run's files (2026-11-14, line volume) | One Arrow store per run read by the page as columns (G-06 a); `lines.csv` and `lines.geojson` are exports made for each download, none kept; the text files and opening a map from disk (`file://`) end, `findaline.py view` opens a run through the app; brotli at saving (by pyarrow's own codec, no new package: the user's choice of 2026-11-15 after the packages were compared); old runs are removed, not converted, on the public site and on the PC, when the text files end, only on the user's word at that time after a `--dry-run` list ([spec-store.md](line-volume/spec-store.md) sections 1, 2, 4). The regression set's checksums stay: they are taken of the CSV export, the same bytes as today's `lines.csv`. |
-| Ranges of a kept line (2026-11-14, line volume) | With the square rule a kept line carries the least and the most of six values over the lines it stands for: length, clearance, highest point, A-frames needed with and without the no-fall zone, and the mean height (G-03 b; the user's closing answer); a filter on them never misses a found line; every other filter tests the kept line ([spec-store.md](line-volume/spec-store.md) section 3). |
+| A run's files (2026-11-14, line volume) | One Arrow store per run read by the page as columns (G-06 a); `lines.csv` and `lines.geojson` are exports made for each download, none kept; the text files and opening a map from disk (`file://`) end, `findaline.py view` opens a run through the app; brotli at saving (by pyarrow's own codec, no new package: the user's choice of 2026-11-15 after the packages were compared); old runs are removed, not converted, on the public site and on the PC, when the text files end, only on the user's word at that time after a `--dry-run` list ([spec-store.md](line-volume/spec-store.md) sections 1, 2, 4). The regression set's checksums stay: they are taken of the CSV export, the same bytes as today's `lines.csv`. **Changed 2026-11-23** (line volume's round 7, the user's "Size on Home only" and "No, keep asking the server"): brotli at saving and run files cached as immutable are not built; only the run's size on Home's card is (below, "Line volume round 7: open"). |
+| Ranges of a kept line (2026-11-14, line volume) | With the square rule a kept line carries the least and the most of six values over the lines it stands for: length, clearance, highest point, A-frames needed with and without the no-fall zone, and the mean height (G-03 b; the user's closing answer); a filter on them never misses a found line; every other filter tests the kept line ([spec-store.md](line-volume/spec-store.md) section 3). **Dropped 2026-11-23** (line volume's round 7, the user: "Drop the ranges", after the measured gain and cost: "Line volume round 7: open" below): filters test the kept line; G-03 b stands as the count (`stands_for`) only. |
 | "Best" and the tight mark (2026-11-14, line volume) | A spot's best line is the one with the highest mean height (the user: "mean", "Use mean"); clearance stays the test and a number in every row; a line under 1 m of clearance gets a mark, nothing is hidden (G-10 a; [spec-view.md](line-volume/spec-view.md) part A). |
 | The result view (2026-11-14, line volume) | Mock-up 2, version 7, accepted: levels Auto, Area, Spots, Lines with "Best 10 / 30 / 100 / All"; numbered best lines; "Lines from here" for a press on an anchor; a list of numbered rows over a tree of sectors; spots fixed at saving (no regrouping in the page); at most 5 000 strokes drawn (D-11 d, D-12 a, G-08 a, G-12 a; [spec-view.md](line-volume/spec-view.md) part B). |
 | "Top level only" (2026-11-14, line volume) | A filter of the result view, on at the start (G-08 a, the user: "default on"), by K-17 'Higher wins on a face' (the user's closing answer, as the mock-up). The user's note: K-18 'Higher wins unless clearance loses' kept 590 of the 592 matched known lines against K-17's 589, so it "might be useful for increasing % of lines found from slack map": a candidate to measure when the share of known lines found is worked on. |
@@ -255,11 +255,11 @@ how a result is organised), built the low-effort part and specified the rest.
   on the PC and on the server on the user's word; then wave 4's second deploy in `main` (the end of the page's reader
   of `data.js`; on the server on the user's word). Next: brotli and caching, the ranges, renaming a run, step 3c after
   the UX session's pilot, 3d. Later: a way back to the app from a run's `map.html` whose store cannot be loaded (one
-  sentence today; the app's result page has its Home button); `RunActions`' unused `runFolder` / `folder` prop (left
-  for the UX session's pass on the result view);
-  `--html` removed after one release (store U10: accepted and ignored since a0c511ac); a way to remove a tiled
-  search stopped part-way (a folder without `run.json`, which `runs remove-old` skips); `linestore.read` of chosen
-  columns (`tools/perf_country.py`, docs/known-bugs.md).
+  sentence today; the app's result page has its Home button; *done in round 7, A6*); `RunActions`' unused
+  `runFolder` / `folder` prop (left for the UX session's pass on the result view; *gone since its pilot*);
+  `--html` removed after one release (store U10: accepted and ignored since a0c511ac; *done in round 7, A8*); a way
+  to remove a tiled search stopped part-way (a folder without `run.json`, which `runs remove-old` skips);
+  `linestore.read` of chosen columns (`tools/perf_country.py`, docs/known-bugs.md; *done in round 7, A4*).
 - **State on 2026-11-22** (round 6, tag `history/view-3c`): the result view's steps 3c and 3d are built and the view is a
   run's page by default (`VIEW_DEFAULT`, on the user's word after gate 2's iPhone checks; today's page stays behind
   `?view=today` and for the runs the view cannot show). Step 3c joined today's features (the run's actions, the
@@ -272,6 +272,17 @@ how a result is organised), built the low-effort part and specified the rest.
   it decided and left: docs/DESIGN.md rows 100 to 130, docs/line-volume/spec-view.md B.2 and B.10 ("as built in round
   6"), docs/known-bugs.md ("Line volume, round 6"), and the list below. Open: 2d, 2e, 2g. The UX task's G6 put the
   view's own closes, links and legend on the control family (DESIGN.md rows 131 to 136).
+- **State on 2026-11-25** (round 7; the user's words in `local/line-volume-7-2026-11-23/user-inputs.md`): 2g built,
+  renaming a run on the public site (Home's card menu and panel, the desktop result view's button; the name rule, the
+  audit event without the name, the two privacy sentences the user approved); 2d reduced by the user to the run's size
+  on Home's card ("Size on Home only") and the loading line counted in 10^6 bytes; 2e measured and dropped ("Drop the
+  ranges"); with them the extras A3 (`tools/ui_shots.py` states of the filter editor and More filters), A4
+  (`linestore.read` of chosen columns), A6 (a way back from a run that cannot load), A7 (Compare's causes and its
+  list) and A8 (`--html` removed);
+  the readers handed a run read its run.json through `runs.read_meta` too (the user's "d" of 2026-11-24; a squash of
+  its own, `run-readers-wait`), as the rename's own read does. What it
+  decided: [spec.md](line-volume/spec.md) section 6.9; the looks: docs/DESIGN.md rows 22, 81, 98, 100, 108 and
+  R9; left: docs/known-bugs.md ("Line volume, round 7") and the list below. None of the specification's steps is open.
 
 ### Line volume round 6: open (2026-11-22)
 From the gates and reviews of round 6, each with its source (the user's answers are in
@@ -303,7 +314,9 @@ From the gates and reviews of round 6, each with its source (the user's answers 
   the providers, costs disk), E ask the providers for cache headers.
 - **A cut store download resumed**: since gate 2 a run's store cut while the page was hidden starts again whole once
   the page is visible (`result/load.ts`); asking only for the bytes not yet in (a range) would save a slow phone's
-  minutes; the gzip on the wire (nginx, the LAN tool) needs a plan for it.
+  minutes; the gzip on the wire (nginx, the LAN tool) needs a plan for it. Round 7's A2, left here by the user ("Leave
+  on the roadmap"): a range of a compressed answer cannot be decoded in pieces, so a resume needs its own design (the
+  bytes as stored, or a compression a range can start in): larger than it looked.
 - **Profiles asked ahead** (after gate 2's finding 2, which was the scrolling: fixed by the scrollers' layer): a step
   through a spot's lines draws the map once now; on a slow link a step's `/api/profile` round trip (an area's run
   keeps profiles only for each spot's first line) could still be saved by asking the next and the previous lines'
@@ -312,12 +325,52 @@ From the gates and reviews of round 6, each with its source (the user's answers 
   text is rewritten): on what is now the default page a first-timer gets no result intro (the final design check,
   heuristic 10).
 - **ui_shots states for the filter editor and More filters** (wave A's A4 proposed them): their R1 and R2 leftovers
-  are measured by no state today (docs/known-bugs.md, "Line volume, round 6").
+  are measured by no state today (docs/known-bugs.md, "Line volume, round 6"). *States added in round 7 (A3):
+  `c-view-editor`, `c-view-more`, `c-view-more-end`; on a phone part of More filters' middle is in none of them.
+  Measured 2026-11-24 on the clip's run (light; the editor and `c-view-more`): on the phones no control under 44 px
+  and no text under 12 px outside the map's credits, for the controls that run draws; the checkboxes, select and
+  Rigging of richer runs and a set chip are not measured.*
 - **The long list in the phone's sheet, its proper fix** (docs/known-bugs.md, "The phone's sheet moves in steps with a
   long list"; the user: "create a bug report for fixing it properly"): A the tree opened only around the selected row
   with about 60 rows a sector (recommended; the button's words the user's), B a virtual list (compare the libraries
   first), C one hidden name a row instead of four. The positioned rows (the user's variant 41) are the mitigation in
   place.
+
+### Line volume round 7: open (2026-11-25)
+From round 7's measurements, reviews and the user's answers (`local/line-volume-7-2026-11-23/user-inputs.md`); none
+started.
+- **The ranges of a kept line: measured, not taken** (2e; the user, 2026-11-23: "Drop the ranges"). The server half
+  was built and accepted on the specification's six cases (BAH, GZp, MGp, KOB, BEL, DOL, the square rule at 5 m): no
+  found line missed under 311 filters. What it would give, measured on four of them (KOB, BAH, GZp, MGp): with a strict
+  "Clearance at least" (its limit at the kept lines' 95th or 99th percentile) 16 to 62 % more spots shown than
+  today's test of the kept line, with "A-frame at most" without the zone up to 40 % more at middle limits (the 90th
+  percentile), with the other filters 0 to 17 %; and rows whose own value contradicts the filter. What it costs:
+  `lines.arrow` 30 to 34 % larger after gzip 5 with the seven columns today's filters read, 51 to 57 % with all twelve
+  (28 and 48 B a kept line raw), on every run with the square rule (every Basic search). The branch is kept under the
+  tag `history/line-ranges` (never merged; `linestore.read` of chosen columns was taken out of it, A4).
+- **Brotli at saving: not built** (2d; the user: "Size on Home only"). nginx already gzips the store at level 5 (about
+  2.3 times smaller, its configuration's comment says); the specification's own figures put brotli 5 about 10 % under
+  gzip 6 (part P5's BAH store of 99.6 MB: 32.4 against 36.0 MB), against a second copy on disk (35 to 45 % more a
+  run, estimate), a second way to send a file and its compression at every saving.
+- **Run files cached as immutable: not built** (2d; the user: "No, keep asking the server"). A reopen already asks
+  the server once and gets "not changed" without data when the browser kept its copy (read in Starlette's code; not
+  tried through the real nginx); immutable would save that one request and skip the server's access check.
+- **The warning before opening a heavy run** (A1; spec-store.md 4.2's T-34): left out of round 7 (the user's choice
+  of the extras); it needs the user's limit (how large a run is "heavy").
+- **A header layout for tablet widths** (the user's answer 6, 2026-11-25: "Known bug, design later"): from 768 to
+  930 px the result view's header cuts the run's name (older, made worse by the Rename button), and with a coarse
+  pointer it grows when the button comes (docs/known-bugs.md, "Line volume, round 7", with the measured widths). A
+  mock-up first. A touch desktop's grid tried in round 7 was worse than today's layout from about 880 to 929 px and
+  at 768 px (its review), and was not taken (the planner's decision of 2026-11-25).
+- **The three faults of the result view's filters** (the user's answer 8: "Known bugs + roadmap"; docs/known-bugs.md,
+  "Line volume, round 7"): mark the pressed main chip while its editor is open (as More filters' chip turns `u-on`);
+  draw a range's empty track inside the editor's grey box; open the editor in sight at a phone's half height (raise
+  the sheet, or scroll the editor in). Each a design look first.
+- **A share link's "too large" page has no next step** (round 7's A6 kept it: Back is not offered to a share link's
+  visitor, and "Try again" cannot help).
+- **"Update Find-a-Line to open it." shows on the public site too** (a store of a newer format), where the visitor
+  cannot update anything.
+- **One form of a date per screen**: Compare's rows write "2026-11-24", the view's head "24 Nov 2026".
 
 ### Step 3c of the result view: the design review's list (2026-11-17)
 The design reviewer read the whole view (docs/design-review.md) on its tree before the last fix rounds: nothing
@@ -354,7 +407,8 @@ texts), and one was not a defect. With step 3c, beside today's features and the 
 - The 44 px rule on touch (R2) and the smallest text (R1): the view's controls and text listed in docs/known-bugs.md
   (the user: "2. a"). *Done in the states `tools/ui_shots.py` measures, but for the kit's chip and the measured profile's
   two fields; the filter editor and More filters (today's components, no ui_shots state) are left: known-bugs.md,
-  "Line volume, round 6".*
+  "Line volume, round 6". They have states since round 7 (`c-view-editor`, `c-view-more`, `c-view-more-end`), with
+  the same qualifier as the list above.*
 
 ### An access grid that needs less memory (the user, 2026-11-16)
 The access mark's grid covers the search's whole grid. In blocks it needs about 12 B per pixel of the whole grid and
@@ -1760,7 +1814,7 @@ The top level of `cache/` stays one folder per country or per global dataset, so
 | Updates | Never during a search. `--update stale|all` or `findaline cache update [folder] [--point/--bbox]`; `findaline cache status` lists folders with size, last use and stale tiles. Missing tiles are re-checked by `update` like any other (after 90 days). Checks never stop a search: offline or on errors the cached data is used with a warning. |
 | OSM | Themes (coastline, cliffs, crags...) in `osm/themes/<theme>/<tile>.geojson` on a fixed 0.25° grid, filled from Overpass by default. `findaline osm download <country>` adds a Geofabrik extract in `<country>/osm-extract/`; when present, themes are built from it and `findaline osm update` applies the daily diffs. Fallbacks as today: world water polygons, then Overpass, then the Copernicus mask. |
 | Tile encoding | Decided and built 2026-11-06: every float elevation tile is cached as LERC_ZSTD with an error bound of 5 mm (`sources.layer.MAX_Z_ERROR`), the providers' float files too (their sha256 is checked on the downloaded bytes first); integer files and the Slovak mirror's tiles (LERC already; its averaged 2 m and 5 m tiles lossless) stay as they are. About 40 % less disk; a study of 9 regression places lost or added no spot, the full set 4 lost and 4 added spots of one or two lines at 0-1 cm of clearance, and every `lines.csv` checksum changed (re-baselined; counted on 2026-11-05: 55 of the 64 entries moved). Migration automatic: a search re-encodes the old tiles it reads before reading them, `cache migrate` the rest; paths, `cache/LAYOUT` and the index's schema unchanged, so older code reads a migrated cache. |
-| Runs | Each run records the data it used (`data` in `run.json`: folder, number of files, oldest and newest fetch time, survey years of sheets); `cache status` lists runs computed on data that has changed since. |
+| Runs | Each run records the data it used (`data` in `run.json`: folder, number of files, oldest and newest fetch time, survey years of sheets) and, since the data record (2026-11-24), each file's sha256 from the index and the other inputs (`identity`); `cache status` lists runs computed on data that has changed since, one line per run (`update.changed_runs`, the user's C5 "Exact now"): exact for a run with the record (a file changed when it or its row is gone or the index's checksum differs; another checksum with a fetch time no later than its entry's `fetched.newest`, taken when the run read the file, counts as re-encoded, `cache migrate`, and as changed without such a time; a checksum missing on either side "not known"; a run.json that cannot be read is named as not checked, and only a run whose folder is gone since the runs were listed, a run being removed, is left out; the world coastline file's edition, the coastline's and the area's OSM tiles, Nominatim's answers, local files by size and modification time "may have changed", a resumed search whose sessions read different data), a run made before by fetch times and marked approximate; read-only, one connection per index. |
 
 **Layout**
 ```
@@ -1923,7 +1977,7 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 
 ## Resampling to the working resolution (measured 2026-10-26)
 - **What is cached**: only the data as the services deliver it (Polish sheets at 1 m, Malta tiles at `fetch_res` 1 m, Spain at 5 m, swisstopo files at 0.5 and 2 m); the same files serve every working resolution. The two fixed conversions on download (MDS05's 5.0045 m grid to 5 m, Malta 2018 served at 1 m by the WCS) do not depend on the chosen resolution. Bringing the data onto the working grid happens in every search, into `work/<id>/` (`nmt.npy`, `nmpt.npy`, masks), deleted when the search ends.
-- **Updates**: `cache update` / `--update` replaces source files only, so nothing derived needs to be invalidated; the next search builds its mosaics from the new files. Saved runs record the files they used (`run.json`), and `cache status` lists the runs whose files were fetched again or replaced since; they are not recomputed automatically.
+- **Updates**: `cache update` / `--update` replaces source files only, so nothing derived needs to be invalidated; the next search builds its mosaics from the new files. Saved runs record the files they used (`run.json`), and `cache status` lists the runs whose files changed since (by their checksums; runs made before the data record by fetch times, marked approximate); they are not recomputed automatically.
 - **Cost** (cached data, numba warm, one process; time of `build_mosaic`, split into tiles copied onto the grid and tiles resampled):
 
   | Search | Without downloads | Resampling | Share |

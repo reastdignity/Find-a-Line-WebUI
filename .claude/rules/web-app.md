@@ -56,9 +56,9 @@ tests that start Edge).
   depend on it. Locally the one user is `LOCAL` and `FINDALINE_LIMIT_*` apply as before (`web.unlimited` is False
   without `--public`).
 - `web.RUN_FILES` (the files of a run the public site serves) and what `search.save_run` writes (`map.html`,
-  `ATTRIBUTION.txt`, the store `lines.arrow`, `profiles.arrow`; since store wave 4's item 5 nothing of the text files
-  of runs of before): a new file a map needs goes into both, a file with the owner's details (`run.json`) or work
-  state (`progress.json`, `tiles/`) into neither. `web.SIZED_FILES` (the store's two files) carry
+  `ATTRIBUTION.txt`, the store `lines.arrow`, `profiles.arrow`): a new file a map needs goes into both, a file with the
+  owner's details (`run.json`) or work state (`progress.json`, `tiles/`) into neither; one holding the run's name, into
+  `runs.rename_run` too (run.json, ATTRIBUTION.txt's first line, map.html). `web.SIZED_FILES` (the store's two files) carry
   `web.SIZE_HEADER`, the name `viewer/src/download.ts` `SIZE_HEADER` reads (`tests/test_viewer.py::test_body_sized`). An export (`jobs.quick_export`) lives only in
   `work/exports/` as `<run id>-<token>.<ext>` until its one GET deletes it: never in a run folder, `RUN_FILES` or a
   run's `bytes`; `web.EXPORT_NAME` follows `jobs.EXPORT_TOKEN_BYTES`, `EXPORT_EXTENSIONS` (`tests/test_export.py`).
@@ -77,7 +77,7 @@ tests that start Edge).
   lines.geojson) and reads
   `YEAR_TEXT` where no run exists (the about page); a new place that shows a credit fills it too. Every state-changing
   endpoint of the public site records an `audit` event (`web.record`), refusals by a quota or rate too (`queue`,
-  `within_rate`, `Jobs.use`). The about page is built from `sources.SOURCES` credits (and their layers'), so a new
+  `within_rate`, `Jobs.use`); `run_rename` never holds the name (the page says so). The about page is built from `sources.SOURCES` credits (and their layers'), so a new
   source needs no change there.
 - A removed job (`jobs.removed_at`) stays counted: the daily quota, the usage, the area searched and the metrics never
   filter on it, and the privacy page says so (`test_removing_searches`, `test_removed_searches_still_counted`).
@@ -95,7 +95,7 @@ tests that start Edge).
   only `RUN_FILES` of a run the request's user may open, `_viewer/` for anyone, served from the code's `viewer/dist`,
   never from `runs/_viewer`, which the worker writes; 404 for everything else, an empty path part too; Starlette's
   path checks, ETag and Range); `/runs/runs.js` is generated per user (own runs) and `/runs/index.html` redirects to
-  the app (the public worker writes no runs.js: `Plan.index_runs`; no runs/index.html is written since store wave 4). The owners are the table `runs` of `jobs.sqlite`
+  the app (the public worker writes no runs.js: `Plan.index_runs`). The owners are the table `runs` of `jobs.sqlite`
   (the worker adds the row when a job saves its run; at the start of `web --public`, `Jobs.adopt_runs` gives runs
   without a row or owner to the first administrator of `FINDALINE_ADMINS`, whose user row is made then if needed).
   Locally `/runs` is the plain folder as before (tests put their test pages there). Share links: `/s/<token>/<file>`
@@ -113,9 +113,9 @@ tests that start Edge).
   `base_url`.
 - **The web worker** runs each phase in a `spawn` process; its stdout becomes `info` events, and
   `progress.TEXT_INTERVAL` is set to infinity there (progress goes as events). A `spawn` process makes its own
-  streams, in the Windows code page when they are redirected (a local app started with its output in a pipe or file):
-  no "²", and the quick lane's bars printed `fill_water`'s "sea 0.31 km²" as text, a `UnicodeEncodeError` (a
-  `ValueError`, answered as the request's 400) in every 3D view and profile of a run with water filling. The worker's
+  streams, in the Windows code page when redirected (a local app's output in a pipe or file): the quick
+  lane's "sea 0.31 km²" raised a `UnicodeEncodeError` (a `ValueError`: a 400) in every 3D view and profile of a run
+  with water filling. The worker's
   process targets call `progress.utf8_output()` as `findaline.py` does, and `run_quick` and `run_phase` answer a
   `UnicodeError` as an internal error (`tests/test_web.py::test_quick_lane_output_in_utf8`, with
   `PYTHONIOENCODING=cp1250` on every OS). Every script that prints does the same in its `if __name__ == "__main__":`
@@ -143,7 +143,8 @@ tests that start Edge).
   JSON; the worker repeats the bounds (`search._check_params` in `plan_search`). A bound that needs the resolution
   takes the parsed one.
 - **Heavy work and network only in the worker**: the web process validates and queues; estimates and profiles go to
-  the quick lane; it never imports `search` or `numba` (`tests/test_public.py` checks it), so it needs no numba cache.
+  the quick lane; it never imports `search` or `numba` (`test_public.py` checks it). `runs.read_meta` may
+  sleep: in a plain `def` route or `run_in_threadpool`, never on the event loop.
   A check that can refuse cheaply (rates, quotas: `Jobs.precheck`) comes before validating a request.
 - **Every waiting loop has a deadline**: `web.quick` waits at most `QUICK_WAIT_MAX` (the lane's time limit per task
   ahead) and stops when the client goes away (a task awaiting `http.disconnect`: `Request.is_disconnected` never sees

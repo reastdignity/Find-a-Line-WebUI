@@ -1183,6 +1183,8 @@ class TileWork:
                 "io": {"read": read1 - read0, "write": written1 - written0},
                 "threads": threads, "threads_max": getattr(sink, "most", threads), "peak_memory": _peak_memory(),
                 "commit": self.commit,
+                # the data entries as a run's, with the record of the data read (`identity`: C2, "Keep them"),
+                # which nothing built from the tiles carries (_credits, the cube: runs.without_identity)
                 "data": json.loads(json.dumps(src.used_data)), "started": started, "finished": _now()}
         path = self.tile_path(band.name, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -2126,7 +2128,7 @@ def profile(country_id: str, data_dir: str) -> int:
     country = Country.from_config(read_state(folder)["config"])
     gib = 2 ** 30
     for band in country.bands:
-        paths = sorted(glob.glob(os.path.join(folder, "tiles", band.name, "*.npz")))
+        paths = sorted(glob.glob(os.path.join(glob.escape(folder), "tiles", band.name, "*.npz")))
         if not paths:
             continue
         metas = [_tile_meta(p) for p in paths]
@@ -2161,7 +2163,7 @@ def profile(country_id: str, data_dir: str) -> int:
         print(f"  file reads of a tile (MB, through the system's cache) {_quantiles([m['io']['read'] / 1e6 for m in profiled])}; "
               f"writes {_quantiles([m['io']['write'] / 1e6 for m in profiled])}; what reaches the disks: the "
               "last run's timeline below (these see no memory-mapped grid)")
-    timelines = sorted(glob.glob(os.path.join(folder, "logs", "samples-*.csv")))
+    timelines = sorted(glob.glob(os.path.join(glob.escape(folder), "logs", "samples-*.csv")))
     if timelines:
         _profile_timeline(timelines[-1])
     return 0
@@ -2203,7 +2205,9 @@ def _tile_meta(path: str) -> Dict:
 
 def _credits(metas: List[Dict], area_spec: str, year: int) -> List[Dict]:
     """The credits of the data the tiles used: merged per layer as search._merged_data does, years
-    filled, each once (search._credits), and OSM for an outline from OpenStreetMap."""
+    filled, each once (search._credits), and OSM for an outline from OpenStreetMap. Only the credits leave: the
+    tiles' record of the data read (`identity`) never reaches the cube (runs.without_identity)."""
+    import runs
     import search
     import sources as src
     saved = list(src.used_data)
@@ -2216,7 +2220,9 @@ def _credits(metas: List[Dict], area_spec: str, year: int) -> List[Dict]:
     if area_spec.startswith("osm:"):
         credits.append(src.OSM_CREDIT.as_dict())
     unique: Dict[str, Dict] = {}
-    for credit in credits:
+    # A guard: no credit holds `identity` today (a credit is a source's licence text); it keeps the tiles' record of
+    # the data read out of the cube should a credit ever carry one
+    for credit in runs.without_identity(credits):
         unique.setdefault(json.dumps(credit, sort_keys=True), credit)
     return list(unique.values())
 

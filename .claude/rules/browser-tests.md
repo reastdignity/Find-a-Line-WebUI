@@ -15,6 +15,11 @@ paths:
   - "tests/test_disk_notice.py"
   - "tests/test_view_*.py"
   - "tests/test_access_view.py"
+  - "tests/test_rename_*_page.py"
+  - "tests/test_failed_result_page.py"
+  - "tests/test_compare_*_page.py"
+  - "tests/test_home_size_page.py"
+  - "tests/test_tiny_run_loading_page.py"
 ---
 # Tests that start a browser
 

@@ -300,8 +300,7 @@ def profile_problem(folder: str, points: List[float], admin: bool = False,
     the run's --max-length, or of a run without a box, is no line of the run: patch_line)."""
     import runs as rn
     try:
-        with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
-            meta = json.load(f)
+        meta = rn.read_meta(os.path.join(folder, "run.json"))  # waits out Windows' moment after a replacement
         max_length = float(meta["params"]["max_length"])
         box = rn._bbox(meta)
         source = meta.get("source", {}).get("id")
@@ -1617,16 +1616,24 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             return rn.list_runs(runs_dir)
         return rn.list_runs(runs_dir, (jobs.runs_of(user.id) if user else set()) | jobs.demo_runs())
 
+    def store_bytes(run: Dict) -> Optional[int]:
+        """A run's size as stored for Home's card: run.json's store.bytes (lines.arrow and profiles.arrow as
+        written, linestore.write; the number the page's loading line counts up to), None without a store block."""
+        store = run.get("store")
+        size = store.get("bytes") if isinstance(store, dict) else None
+        return size if isinstance(size, int) and not isinstance(size, bool) else None
+
     @app.get("/api/runs")
     def list_runs(user: ac.User = Depends(current_user)):
-        """The user's runs and the demo runs (locally all)."""
+        """The user's runs and the demo runs (locally all), each with its size as stored ("bytes")."""
         shared = jobs.shared_runs(user.id) if public else set()
         mine = jobs.runs_of(user.id) if public else None
         demo = jobs.demo_runs() if public else set()
         return {"public": bool(public),  # whether runs can be shared (by a link)
                 "runs": [{k: r.get(k) for k in ("id", "name", "created", "summary", "has_map")}
                          | {"description": rn.params_summary(r), "shared": r["id"] in shared,
-                            "own": mine is None or r["id"] in mine, "demo": r["id"] in demo}
+                            "own": mine is None or r["id"] in mine, "demo": r["id"] in demo,
+                            "bytes": store_bytes(r)}
                          for r in runs_of(user)]}
 
     @app.post("/api/runs/{run}/demo")
@@ -1666,6 +1673,25 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         record("run_delete", user, run)
         return {"ok": True}
 
+    @app.post("/api/runs/{run}")
+    def rename_run(body: Dict, run: str = Depends(own_run), user: ac.User = Depends(current_user)):
+        """Rename an own run on the public site ({"name"}: runs.run_name's rule): run.json's name, ATTRIBUTION.txt's
+        first line and map.html's title (runs.rename_run); its id, folder, store, share link and favourites stay.
+        The audit event never holds the name. Answers the name as stored."""
+        if not public:
+            raise HTTPException(404, "runs are renamed on the public site")
+        try:
+            name = rn.run_name(body.get("name") if isinstance(body, dict) else None)
+            rn.rename_run(runs_dir, run, name)
+        except KeyError:
+            raise HTTPException(404, "no such run")
+        except ValueError as e:
+            raise HTTPException(400, error_detail(e))
+        except OSError:
+            raise HTTPException(409, "the run is in use: try again in a moment")
+        record("run_rename", user, run)
+        return {"ok": True, "name": name}
+
     @app.delete("/api/runs/{run}/share")
     def unshare_run(run: str = Depends(own_run), user: ac.User = Depends(current_user)):
         """Revoke the share link of an own run."""
@@ -1681,9 +1707,9 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     exports_dir = jb.exports_folder(data_dir)
 
     def has_store(run_id: str) -> bool:
-        """Whether a run has a store to export from (run.json's block "store": linestore.write wrote it)."""
-        with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
-            return bool(json.load(f).get("store"))
+        """Whether a run has a store to export from (run.json's block "store": linestore.write wrote it). Read
+        through runs.read_meta (it may wait, so off the event loop: run_in_threadpool)."""
+        return bool(rn.read_meta(os.path.join(runs_dir, run_id, "run.json")).get("store"))
 
     @app.post("/api/runs/{run}/export")
     async def export_run(body: Dict, client: Request, run: str = Depends(run_access),
@@ -1725,8 +1751,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
                 os.remove(path)
             return None
         try:
-            with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
-                title = json.load(f).get("name")
+            title = rn.read_meta(os.path.join(runs_dir, run_id, "run.json")).get("name")  # may wait: off the loop
         except (OSError, ValueError):  # the run deleted or being rewritten: its id names the file
             title = None
         stem = title.strip() if isinstance(title, str) and title.strip() else run_id
@@ -2472,8 +2497,8 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          f"marked removed with the time. A removed search still counts toward your searches of the day, the area "
          f"searched and the site's statistics, and administrators can still see it. Your totals of searched area are "
          f"counted from these."),
-        ("Runs", "The results of your searches (lines, maps, parameters, the place's name from OpenStreetMap) and "
-         "their size. Kept until you delete them in Runs. A share link is stored as a SHA-256 hash only; it can be "
+        ("Runs", "The results of your searches (lines, maps, parameters, the place's name from OpenStreetMap or the "
+         "name you give) and their size. Kept until you delete them in Runs. A share link is stored as a SHA-256 hash only; it can be "
          "renewed or revoked. A file made for a download is kept on the server until it is fetched, for one hour "
          "at most."),
         ("Favourite lines", f"The lines you mark as favourites on a map: the run, the line's anchors and its values "
@@ -2492,7 +2517,8 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
         ("Quotas", f"How many km² your searches covered (counted as pixels at their resolution), how many MB they "
          f"downloaded and how many uncached Nominatim requests they made, with the time; deleted after {2 * jb.DAY / 86400:g} days. Request rates are counted in memory only."),
         ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started, cancelled and removed, "
-         f"share links made, renewed and revoked, deleted runs, exports of a run's lines made (CSV or GeoJSON: the "
+         f"share links made, renewed and revoked, runs renamed (not their names) and deleted, exports of a run's "
+         f"lines made (CSV or GeoJSON: the "
          f"format, not the content), the demo flag, favourite lines marked, unmarked and moved, "
          f"folders of favourites made, changed and deleted (not their names), rigs saved, changed and deleted (not "
          f"their names or values), changes of your account's country, problem reports sent (not their "

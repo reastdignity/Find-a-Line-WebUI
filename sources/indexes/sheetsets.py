@@ -214,7 +214,7 @@ class SheetSets(Versions):
         return None
 
     def _cached_paths(self, cache_dir: str) -> List[str]:
-        return glob.glob(os.path.join(cache_dir, self.folder, "**", "*.tif"), recursive=True)
+        return glob.glob(os.path.join(glob.escape(cache_dir), self.folder, "**", "*.tif"), recursive=True)
 
     def _named(self, cache_dir: str, sheets: List[SheetSet]) -> Dict[Tuple[str, int, int], set]:
         """The keys the owners' cached answers name for each of these sheets (no request; a sheet whose owner's

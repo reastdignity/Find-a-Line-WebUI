@@ -1131,7 +1131,7 @@ def cluster_folders(out: str, clusters: Optional[Sequence[str]] = None) -> List[
     out = os.path.abspath(out)
     if clusters:
         return [os.path.join(out, name) for name in clusters]
-    return sorted(f for f in glob.glob(os.path.join(out, "*")) if os.path.isdir(f) and (
+    return sorted(f for f in glob.glob(os.path.join(glob.escape(out), "*")) if os.path.isdir(f) and (
         os.path.exists(os.path.join(f, "known.json")) or os.path.isdir(os.path.join(f, "capture"))))
 
 

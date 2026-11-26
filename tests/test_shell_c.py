@@ -1588,7 +1588,8 @@ def test_shell_c_public(tmp_path, clip_run, monkeypatch):
         assert "the run and the line" in r["fromLine"]["attached"] and r["fromLine"]["closed"], r
         sent = Jobs(str(data)).reports()
         assert [(s["category"], s["context"].get("line") is not None, bool(s["context"]["user_agent"])) for s in sent] ==             [("water", True, True), ("interface", False, True)], sent
-        assert r["menu"] == ["Open the result", "Share…", "Report a problem…", "Delete…"], r
+        # ("Rename…" after "Share…": line volume's round 7)
+        assert r["menu"] == ["Open the result", "Share…", "Rename…", "Report a problem…", "Delete…"], r
         assert r["link"].startswith(f"{site}/s/") and r["shared"] == "shared", r
         assert r["actions"][:4] == ["Measure", "Compare", "Share", "Download"], r
         assert r["resultLink"].startswith(f"{site}/s/") and r["resultLink"] != r["link"], r

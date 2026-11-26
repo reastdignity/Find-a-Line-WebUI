@@ -25,7 +25,8 @@ head (VIEW_HEAD: `sectors`, `box`, `lengths`); the format stays 1 (a reader take
 
 write(run_path, lines, head, view) writes both files and gives the block run.json keeps as "store";
 read(run_path) gives the lines back as a helpers.LineTable (with the profiles as dicts of
-helpers.line_profile, the view's columns by their names) and the head; export(run_path, fmt, out) writes lines.csv or lines.geojson from the
+helpers.line_profile, the view's columns by their names; read(run_path, columns=[...]) only the columns
+named) and the head; export(run_path, fmt, out) writes lines.csv or lines.geojson from the
 store through mapping.group_lines and runs.save_results, the bytes the run's own files hold.
 
 Plain numpy and pyarrow at import: runs (Python's round() of a column, runs.round_floats) only inside
@@ -473,18 +474,26 @@ def _profile_dicts(table: pa.Table) -> Dict[int, Dict]:
     return out
 
 
-def read(run_path: str, profiles: bool = True):
+def read(run_path: str, profiles: bool = True, columns: Optional[List[str]] = None):
     """(helpers.LineTable, head) of a run's store: the columns write took, the decoded values (NaN for a
     null, -0.0 where it was), the result view's columns (VIEW, as their types) by their names when the store
     has them (not a store saved before view B1), the profiles as dicts of helpers.line_profile (profiles=False:
-    none)."""
+    none). columns: only these of the LineTable's names are decoded and returned (a pair such as "anchor1"
+    whole); a name the store lacks is left out, as a column the run does not have; a name no store knows raises
+    ValueError. The head as without it; the file is read whole all the same."""
     import helpers as sh
+    wanted = None
+    if columns is not None:
+        wanted = set(columns)
+        unknown = wanted - {column for _, column, *_ in COLUMNS} - {name for name, _ in VIEW}
+        if unknown:
+            raise ValueError(f"no column of a store: {', '.join(sorted(unknown))}")
     table, meta = _read_file(os.path.join(run_path, LINES_FILE))
     zeros = meta.get("negative_zero") or {}
-    columns: Dict[str, np.ndarray] = {}
+    decoded: Dict[str, np.ndarray] = {}
     pairs: Dict[str, List[np.ndarray]] = {}
     for name, column, index, decimals, _ in COLUMNS:
-        if name not in table.schema.names:
+        if name not in table.schema.names or (wanted is not None and column not in wanted):
             continue
         field = table.schema.field(name)
         if decimals not in (None, "bool", "count", "mark"):  # float64 as it is where no integer held the values
@@ -492,16 +501,16 @@ def read(run_path: str, profiles: bool = True):
             decimals = int(places) if places is not None else None
         values = _decoded(table.column(name), decimals, zeros.get(name) or [])
         if index is None:
-            columns[column] = values
+            decoded[column] = values
         else:
             pairs.setdefault(column, [None, None])[index] = values
     for column, (first, second) in pairs.items():
-        columns[column] = np.column_stack([first, second])
+        decoded[column] = np.column_stack([first, second])
     for name, kind in VIEW:
-        if name in table.schema.names:
-            columns[name] = table.column(name).combine_chunks().to_numpy(zero_copy_only=False).astype(
+        if name in table.schema.names and (wanted is None or name in wanted):
+            decoded[name] = table.column(name).combine_chunks().to_numpy(zero_copy_only=False).astype(
                 kind.to_pandas_dtype())
-    lines = sh.LineTable(columns)
+    lines = sh.LineTable(decoded)
     if profiles:
         table, _ = _read_file(os.path.join(run_path, PROFILES_FILE))
         lines.profiles = _profile_dicts(table)
@@ -521,8 +530,7 @@ def export(run_path: str, fmt: str, out: str):
     import runs as rn
     if fmt not in EXPORTS:
         raise ValueError(f"no export of the format {fmt!r}")
-    with open(os.path.join(run_path, "run.json"), encoding="utf-8") as f:
-        meta = json.load(f)
+    meta = rn.read_meta(os.path.join(run_path, "run.json"))  # waits out Windows' moment after a replacement
     meta.pop("store", None)
     params = meta.get("params") or {}
     lines, _ = read(run_path, profiles=False)

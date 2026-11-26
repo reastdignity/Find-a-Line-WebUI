@@ -2882,6 +2882,48 @@ def test_a_listing_waits_for_a_run_json_windows_refuses(tmp_path, monkeypatch):
     assert bool(pauses) == (os.name == "nt") and sum(pauses) < 5  # a listing never waits long (the runs lock)
 
 
+def test_cache_status_waits_for_a_run_json_windows_refuses(tmp_path, monkeypatch):
+    """`findaline.py cache status` (update.changed_runs) goes through every run of the runs folder, as runs.list_runs
+    does, so it can meet a run.json at the moment another process saves that run, which Windows refuses for a moment
+    (PermissionError: the command ended with it). It reads through the listing's waiting read (runs.read_meta): the
+    file is opened again after each of runs.READ_PAUSES. A run.json still refused after the last pause is a run.json
+    that cannot be read: that run is named as not checked and the listing goes on (since the data record, one
+    run.json never hides the other runs; before it the error was raised)."""
+    import json
+
+    import runs
+    runs_dir = tmp_path / "runs"
+    for second, name in enumerate(("one", "two")):
+        (runs_dir / name).mkdir(parents=True)
+        (runs_dir / name / "run.json").write_text(json.dumps(  # a data file the cache has not: a run on changed data
+            {"id": name, "created": f"2026-11-24T10:00:0{second}+00:00", "data": [{"paths": ["no/such.tif"]}]}),
+            encoding="utf-8")
+    refused = []  # the errors the next opens of a run.json meet
+
+    def opened(path, *args, **more):
+        if os.path.basename(path) == "run.json" and refused:
+            raise refused.pop(0)(13, "Permission denied", str(path))
+        return open(path, *args, **more)
+
+    for module in (update, runs):  # the name as each module sees it, wherever changed_runs opens the file
+        monkeypatch.setattr(module, "open", opened, raising=False)
+    monkeypatch.setattr(runs, "READ_PAUSES", (0.0, 0.001, 0.002), raising=False)
+    cache_dir = str(tmp_path / "cache")
+    refused[:] = [PermissionError] * 3
+    changes = update.changed_runs(cache_dir, str(runs_dir))
+    assert [(c.name, c.changed, c.files, c.approximate) for c in changes] == [("one", 1, 1, True), ("two", 1, 1, True)]
+    assert refused == []  # all three met, then read
+    refused[:] = [PermissionError] * 4  # the first run's read: once and after each of the three pauses, then given up
+    changes = update.changed_runs(cache_dir, str(runs_dir))
+    assert [(c.name, c.unreadable, c.changed) for c in changes] == [("one", True, 0), ("two", False, 1)]
+    assert changes[0].line() == "one: its run.json cannot be read (not checked)"
+    assert refused == []  # none left for the second run: it is read and counted beside the one that is named
+    refused[:] = [PermissionError] * 9
+    changes = update.changed_runs(cache_dir, str(runs_dir))
+    assert [(c.name, c.unreadable) for c in changes] == [("one", True), ("two", True)]
+    assert len(refused) == 1  # each run: four tries, no more
+
+
 def test_labels_topics_and_presets():
     """Every field the web may set has a label, a unit and a hint in the message catalogue
     (locales/en.json), and every choice of a choice field a label; every such field belongs to one

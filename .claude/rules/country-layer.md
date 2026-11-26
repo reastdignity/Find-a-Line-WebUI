@@ -92,6 +92,11 @@ docs/country-precompute/contract.md; the measurements: docs/country-precompute.m
   country: the page counts `layerState.ts` `activeCubes`, and `_partition` neither cuts it nor cuts by it;
   `area.geojson` is written once, so `_partition` reaches only a country set up after its neighbour (a country set up
   before keeps its outline, and `_say_overlaps` warns).
+- A tile's record (its meta's `data`) keeps the run's `identity` (C2: which data it was counted on); nothing built
+  from the tiles carries it: `_credits` passes its credits through `runs.without_identity`, the cube, country.json,
+  compare.json, the status texts and `web.Countries` take no entry
+  (`tests/test_country.py::test_no_record_leaves_the_tiles`). `search._merged_data` sets the checksums once per
+  layer at its end.
 - `country._renew` only before a cube's first tile (`Manifest.started`), after "Start?": a resume never renews;
   its note `index_renewed` in country.json stays outside `config_hash` and the tiles' meta.
 - `tests/cube_oracle.py` is `Cube.cells`/`Cube.histogram` of b45b950 frozen, the oracle the lean code's answers are

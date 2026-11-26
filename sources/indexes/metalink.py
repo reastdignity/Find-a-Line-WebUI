@@ -293,9 +293,9 @@ class ShaPerTile(Versions):
 
     def _cached_tiles(self, cache_dir: str) -> List[ShaTile]:
         tiles = []
-        for path in glob.glob(os.path.join(cache_dir, self.folder, "*", "*.tif")):
+        for path in glob.glob(os.path.join(glob.escape(cache_dir), self.folder, "*", "*.tif")):
             tile = self._of(path)
-            if tile is not None and path == self.path(cache_dir, tile):
+            if tile is not None and os.path.normcase(path) == os.path.normcase(self.path(cache_dir, tile)):
                 tiles.append(tile)
         return tiles
 

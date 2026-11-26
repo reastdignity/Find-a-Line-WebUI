@@ -501,6 +501,11 @@ def read_lines(run: Optional[str]) -> Dict[str, np.ndarray]:
     return _read_store(run)
 
 
+# The store's columns _read_store reads (linestore.read(columns=)): its own and those mapping.group_lines reads
+STORE_COLUMNS = ("length", "clearance", "height_max", "water_m", "a1_xy", "a2_xy", "angle1", "angle2", "prom1",
+                 "prom2", "over_obstacles")
+
+
 def _read_store(run: str) -> Dict[str, np.ndarray]:
     """read_lines of a run's store: linestore.read's columns in lines.csv's order (the module docstring says at
     which precision), as --lean's lean_save_results took them."""
@@ -509,7 +514,7 @@ def _read_store(run: str) -> Dict[str, np.ndarray]:
     import runs as rn
     with open(os.path.join(run, "run.json"), encoding="utf-8") as f:
         params = json.load(f).get("params") or {}
-    lines, _ = linestore.read(run, profiles=False)
+    lines, _ = linestore.read(run, profiles=False, columns=list(STORE_COLUMNS))  # the ones used: no other decoded
     groups = mp.group_lines(lines, params["group_distance"], params.get("group_by", "clearance"))
     order, number, is_rep, _ = rn.row_order(groups, 0, len(groups.members), rn.rep_positions(groups))
     c = lines.columns

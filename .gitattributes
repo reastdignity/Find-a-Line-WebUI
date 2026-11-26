@@ -12,3 +12,5 @@ viewer/src/coverage/shapes.json text eol=lf
 deploy/** text eol=lf
 # Recorded answers of services are served and compared byte for byte (tests/test_parts.py)
 tests/data/recorded/** -text
+# The regression baselines' data records are written with LF and compared byte for byte (tests/regression.py write_data)
+tests/regression-data.json text eol=lf

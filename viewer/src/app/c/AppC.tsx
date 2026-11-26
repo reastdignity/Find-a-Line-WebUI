@@ -11,6 +11,7 @@ import { storedTheme } from "../../ui/choice";
 import { useUsage } from "../../search";
 import { api, type RunListed, type Schema, type Usage } from "../api";
 import { useJobs } from "../useJobs";
+import { forgetRunList } from "../../result/load";
 import { AccountBody, AccountMenu, AdminPage, OsmPage } from "./Account";
 import { Home, type RunsState } from "./Home";
 import { NewSearch } from "./NewSearch";
@@ -97,11 +98,13 @@ export function AppC() {
   useEffect(() => { api.schema().then(setSchema, (e) => setError(e.message)); }, []);
   useEffect(() => { if (route.page !== "home") setHighlight(""); }, [route.page]);
 
-  // A search that ends saves a run: list the runs again, the quotas too
+  // A search that ends saves a run: list the runs again, the quotas too; the result pages' list of runs is read
+  // again by its next reader (Compare offers the new run)
   const done = jobs.jobs.filter((j) => j.status === "done").map((j) => j.id).join();
   const first = useRef(true);
   useEffect(() => {
     if (first.current) { first.current = false; return; }
+    forgetRunList();
     runs.reload();
     usage.refresh();
   }, [done]);

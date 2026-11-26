@@ -99,7 +99,7 @@ def _paths(cache_dir: str, folder: str, rid: str) -> Tuple[str, str, str]:
 
 def extracts(cache_dir: str) -> List[Tuple[str, str]]:
     """(region id, path of the .osm.pbf) of the downloaded extracts."""
-    found = glob.glob(os.path.join(cache_dir, "*", "osm-extract", "*.osm.pbf"))
+    found = glob.glob(os.path.join(glob.escape(cache_dir), "*", "osm-extract", "*.osm.pbf"))
     return sorted((_rid(os.path.basename(p)[:-len(".osm.pbf")]), p) for p in found)
 
 
