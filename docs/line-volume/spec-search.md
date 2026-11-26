@@ -338,7 +338,8 @@ text of 2026-11-14, the user's words of round 3 decided (`spec.md` 6.5). What is
   heights) once on the whole grid, strip by strip, their regions with no label array of the grid and their masks as
   bits in files (since 2026-11-26; memory-mapped before); every block from its window of 533 m and 6 pixels around it,
   and only the blocks whose core holds a pixel of the search area (the others are never read: every anchor lies in
-  the area). The answers are the whole grid's (0 pixels differed on the Gozo coast, the Tatras circle and R83).
+  the area; with partner anchors beyond the outline, the count mode across a border, every block). The answers are
+  the whole grid's (0 pixels differed on the Gozo coast, the Tatras circle and R83).
   Blocks need 4 B per pixel of the grid, 0.14 GB for the grid-wide pass and 50 B per pixel of a block's window
   (`search.ACCESS_AREA_BYTES`, `ACCESS_FIXED_BYTES`, `ACCESS_WINDOW_BYTES`; blocks at least 500 m wide; 12 B and no
   fixed term until 2026-11-26: docs/performance.md, "Less memory for the grid in blocks"). The measure needs 533 m
@@ -354,8 +355,10 @@ text of 2026-11-14, the user's words of round 3 decided (`spec.md` 6.5). What is
   the box around the area is larger than about 34.2 by 34.2 km at 1 m data, about 69.1 km at 2 m (computed from the
   rule for a compute slot of 4.95 GB; about 20.0 and 40.5 km until 2026-11-26).
 - **Cost** (measured, exclusive; `docs/performance.md` "The access grid's memory"): at once about 0.25-0.35 s per
-  megapixel, in blocks about 0.4 s. The whole Gozo coast search in a VPS slot's memory: 44.0 s without the option,
-  91.7 s with it (the grid in six blocks); its peak 3 636 MB against 2 869 MB. A Basic point search: about 1 s more.
+  megapixel; in a VPS slot's memory the Gozo coast's access stage 37.9 s in blocks, three of its four computed
+  (2026-11-26, the rule as built). The whole Gozo coast search in a slot: 44.0 s without the option, 91.7 s with it,
+  its peak 3 636 MB against 2 869 MB (2026-11-15, the grid in six blocks under the rule of before). A Basic point
+  search: about 1 s more.
 - **When:** a search option, off by default on the command line; the web form sends it on (U-8 a): every Basic
   search, and Advanced's ticked field "Mark anchors you can walk to". "Search a cell" of the highline layer opens
   Advanced with the mark on (the user, 2026-11-16). Runs made without the option show no mark; a search stored

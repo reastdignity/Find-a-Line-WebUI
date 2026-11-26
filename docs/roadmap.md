@@ -429,7 +429,8 @@ batch reads only its regions' strips and boxes (their records), not the whole gr
 ### Blocks without an anchor (E2): a possible option (the user, 2026-11-24)
 The grid in blocks computes every block whose core holds a pixel of the search area (E); the grid is read only at
 the anchors, so a block with area but no anchor could be left out too. The user: "ok skip E2 for now - save it as
-possible option in the future". Counted (2026-11-24, `tools/perf_access.py`; blocks with the area -> with an anchor):
+possible option in the future". Counted (2026-11-24, `tools/perf_access.py`; blocks with the area, then those with an
+anchor):
 
 | Block side | The Gozo coast (126 Mpx) | The Tatras circle (43.6 Mpx) | The coasts of Malta and Gozo (1 217 Mpx) |
 | --- | --- | --- | --- |
@@ -449,9 +450,10 @@ step 2 once more (over the coasts of Malta and Gozo's 19 tiles 47.9 s, indicativ
 255), never a wrong mark.
 
 ### The access grid: what the task of 2026-11 leaves
-- **The mask loops' fresh arrays:** the two open-ground mask loops take 45 million first-touch faults on the coasts
-  of Malta and Gozo (about 150 B of fresh arrays per pixel of the grid a pass), so their seconds follow the
-  machine's free pages; buffers kept across strips might remove them (not tried).
+- **The mask loops' fresh arrays:** the two open-ground mask loops took 45 million first-touch faults on the coasts
+  of Malta and Gozo (about 150 B of fresh arrays per pixel of the grid a pass), counted on wave 2a's code before the
+  strips were cropped, so their seconds followed the machine's free pages; on the final code they take 22.3 s against
+  the base's 76.4 to 76.7, their faults not counted. Buffers kept across strips might remove them (not tried).
 - **`_Mask.window` reads its rows whole** (ceil(width / 8) bytes a row): on a wide grid in small blocks about 2.8
   times a mask's window bytes, about 100 GB from the file cache at 36 000 pixels wide in blocks of 500 m (computed).
   Reading only a window's byte range of each row would remove it (not tried).

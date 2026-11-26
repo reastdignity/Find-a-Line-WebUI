@@ -3920,7 +3920,7 @@ grid in blocks, and with every block computed), and on R83's grid and the six pr
 
 What was built, in this order:
 - **K, the whole-metre sample:** `_whole_metres_rows` copies each strip's picked heights; they were views that kept
-  every strip's heights alive to the end (the Gozo coast's private peak 3.12 -> 0.92 B/px).
+  every strip's heights alive to the end (the Gozo coast's private peak from 3.12 to 0.92 B/px).
 - **A, the regions in strips** (`access._Regions`): the open ground's and the flat lakes' regions found strip by strip,
   a strip's int32 labels joined across the seam with the classes carried from the strip above
   (`connected_components` over the pieces), a backward sweep over the pieces' tables (`access_regions.bin`) for the
@@ -3948,25 +3948,26 @@ Exclusive lane only. The base is 1c8c839f (before the task), wave 1 3731fbfc (K,
 code ad9c4031 (int32 labels). Gate 2's batch (2026-11-25, 18:17 to 20:13) ran the base, wave 2a and the final code
 side by side, three runs a tree on the small cases; wave 1's figures are gate 1's (2026-11-24), whose seconds ran
 slower: its own base runs stand beside them, and its file pages are gate 1's measure (the working set less the
-private bytes; gate 2's measure, the working set less the private working set, reads the same or up to 0.3 higher).
-The pass = the grid-wide pass; the stage = the pass and the blocks; the file pages at the last block of the row's runs
-(for the final code on the Gozo coast at 1 m, of its run with every block computed); the mark's files = the work
-folder's access files at their highest in the pass / in the blocks.
+private bytes; gate 2's measure, the working set less the private working set, reads the same or up to 0.28 higher
+on the rows below, read from gate 2's tables). Every cell of a row is the range of the row's runs with the search
+area passed (three a tree at gate 2, two on the wide box), nothing else mixed in; the wide box's run with every block
+computed and its run in a slot have rows of their own. The pass = the grid-wide pass; the stage = the pass and the
+blocks; the mark's files = the work folder's access files at their highest in the pass / in the blocks.
 
 | Case and tree | The pass, s | The stage, s | The pass's working set, B/px | The pass's private, MiB | File pages at the last block, B/px | The mark's files, B/px |
 | --- | --- | --- | --- | --- | --- | --- |
 | Gozo coast 1 m, base | 9.66-9.82 | 43.72-44.26 | 8.14 | 361-368 | 6.00-6.07 | 8.00 / 4.00 |
 | wave 1 (gate 1; its base 11.7, 11.8 / 50.7, 51.8 s) | 12.5, 12.9 | 51.5, 52.0 | 4.73, 4.86 | 110-112 | 5.96-5.98 | 4.00 at most |
 | wave 2a | 9.09-9.13 | 43.25-43.60 | 4.72-4.87 | 111-113 | 6.01-6.05 | 3.00 / 4.00 |
-| final (2 of 6 blocks left out by E) | 6.53-6.62 | 39.77-39.93 | 2.66-2.75 | 92-96 | 3.04 | 0.38 / 1.38 |
+| final (2 of 6 blocks left out by E) | 6.53-6.62 | 39.77-39.93 | 2.66-2.73 | 92-94 | 3.04-3.05 | 0.38 / 1.38 |
 | Gozo coast 2 m, base | 3.53-3.60 | 7.73-7.78 | 11.51-12.75 | 204-206 | 5.11-5.27 | 7.00 / 3.00 |
 | wave 1 (gate 1; its base 4.2, 4.6 / 9.0, 9.4 s) | 5.9, 6.0 | 10.7, 10.7 | 6.64, 6.69 | 82-91 | 4.8-5.0 | 3.00 at most |
 | wave 2a | 2.57-2.58 | 6.71-6.77 | 6.66-7.54 | 86-114 | 5.01-5.16 | 2.14 / 3.00 |
-| final | 2.49-2.59 | 6.60-6.71 | 4.41-5.12 | 79-112 | 3.01-3.21 | 0.39 / 1.25 |
+| final | 2.49-2.59 | 6.60-6.71 | 4.67-5.12 | 87-100 | 3.01-3.21 | 0.39 / 1.25 |
 | Tatras circle, base | 2.42-2.44 | 16.24-16.35 | 8.37-8.42 | 134-157 | 5.19-5.24 | 7.00 / 3.00 |
 | wave 1 (gate 1; its base 3.1, 3.0 / 18.9, 18.6 s) | 3.4, 3.5 | 18.9, 19.4 | 5.89 | 80 | 4.6-4.9 | 3.00 at most |
 | wave 2a | 2.13-2.27 | 16.02-16.26 | 5.84-5.98 | 80-84 | 5.00-5.25 | 2.04 / 3.00 |
-| final | 2.14-2.17 | 15.95-16.19 | 3.54-3.70 | 69-78 | 3.04-3.28 | 0.29 / 1.25 |
+| final | 2.14-2.17 | 15.95-16.19 | 3.54-3.67 | 69-78 | 3.04-3.28 | 0.29 / 1.25 |
 | Wide box under 18.04 GB, base (two runs) | 100.1 | 383.1, 383.3 (30 blocks) | 8.02 | 4 018-4 043 | 6.01 | 8.00 / 4.00 |
 | wave 1 (gate 1, one run; its base 124.2 / 447.6 s) | 139.0 | 458.6 | 4.09 | 133 | 5.94-5.98 | 4.00 at most |
 | wave 2a (wave 2a's batch, one run; its base 126.08 / 457.9 s) | 132.73 | 459.5 | file pages 4.00 | 138 | | |
@@ -3979,12 +3980,13 @@ folder's access files at their highest in the pass / in the blocks.
   slower: each strip labelled twice, about 0.5 s a mask per 126 Mpx. Wave 2a brought the pass to the base's on the
   three small cases (the judged parts, its own batch: the Gozo coast at 1 m 11.48, 11.49 s against 12.32, 11.85).
 - On the wide box after wave 2a the whole pass stayed 5 to 9 % above the base's: its two mask loops (the same code in
-  both trees) take 45 million first-touch faults (about 150 B of fresh arrays per pixel of the grid a pass), and after
+  both trees) took 45 million first-touch faults (about 150 B of fresh arrays per pixel of the grid a pass; counted on
+  wave 2a's code, before F cropped the strips), and after
   the wide box's step 1 the machine had no free pages (0 to 2 GB free at the lowest), while the base handed itself
   some by its own waste (4 GB freed after the whole-metre sample, a labels file of 4.9 GB deleted before the second
   loop). With 4 GiB of the process's own memory written and freed before each loop the same loops took 101.6 s
   against the base's 97.8 and 101.1 (one pair). With C and F the two loops take 22.3 s against the base's 76.4 to
-  76.7.
+  76.7 (the final code's faults were not counted).
 - E on the wide box: 13 of 30 blocks left out, the cheap ones over the sea (75 s of the blocks, not the 138 s computed
   beforehand); F saved 54 s of the mask loops (96 computed). The stage 249 s against 383 s (225 s computed).
 - The base's own wide-box pass read 100 s in gate 2's evening batch against 126 to 127 s at noon, with about the same
@@ -4002,8 +4004,8 @@ come back): the rule does not count them, as the 12 before did not.
   3.04 B/px of file pages: step 1's water and covered grids (1 B each) and the mark's own grid (1 B); the masks, bits
   read by file calls, are in no working set. The window's own memory stays inside its 50 B (on the wide box in a slot
   0.25 B/px of the grid at the last block and 0.43 at the stage's highest, against 0.57 allowed). The readings, every
-  block computed, (the stage's highest working set - 50 B x the largest window) per pixel of the grid: 2.87 on the
-  wide box in a slot (182 blocks, windows of 13.76 Mpx), 2.36 under 18.04 GB (30 blocks, 68.69 Mpx). As the windows
+  block computed, (the stage's highest working set less 50 B times the largest window) per pixel of the grid: 2.87 on
+  the wide box in a slot (182 blocks, windows of 13.76 Mpx), 2.36 under 18.04 GB (30 blocks, 68.69 Mpx). As the windows
   shrink towards the rule's smallest their room goes and the need tends to the file pages: about 3.05 (read from the
   composition, not measured at the limit). 4 leaves 1.13 B/px over the largest reading and about 0.95 (24 %) over that
   floor (3.5 was the other candidate: 0.63 and about 0.45).
@@ -4018,16 +4020,18 @@ come back): the rule does not count them, as the 12 before did not.
   | Tatras, 43.6 Mpx | 154 to 161 MB (3.54 to 3.70 B/px) | 73 to 81 MB | 0.68 to 0.85 |
   | Gozo coast 2 m, 31.5 Mpx | 139 to 161 MB (4.41 to 5.12 B/px) | 83 to 105 MB (117 MB from an emptied start) | 3.40 to 4.11 |
 
-  ("At the rule's least budget": (the pass's working set - 50 B x the smallest window) per pixel; the smallest window
-  is 124.5 MB at 1 m, 31.7 MB at 2 m, a few MB on coarser data, computed from the rule.) With 0.14 GB beside the
+  ("At the rule's least budget": (the pass's working set less 50 B times the smallest window) per pixel; the smallest
+  window is 124.5 MB at 1 m, 31.7 MB at 2 m, a few MB on coarser data, computed from the rule; the ranges are gate 2's
+  report's, over the runs with the area and the one with every block.) With 0.14 GB beside the
   per-pixel term (the bound the pass's own memory was tested against; the highest reading 117 MB) the pass is covered
   on every case by a constant of 2.1 or more. Its price: 0.5 km of the limit (computed).
 - **What the fixed term does to small grids** (computed from the rule): blocks cost less than the grid at once only
-  from (0.14 GB + 50 B x the smallest window) / 46 B pixels, about 3.0 Mpx on coarse data, 3.7 Mpx at 2 m, 5.7 Mpx
-  at 1 m; a smaller grid is made at once or left without the mark. And for a grid in blocks under 17.5 Mpx the least
-  need grew (4 B a pixel and 0.14 GB against 12 B): at a budget of a quarter of a GB a search marked before can now be
-  left out (a grid of 10 Mpx at 1 m: 0.30 GB against 0.24 GB). In a compute slot neither occurs: there a grid under
-  99 Mpx is made at once.
+  from (0.14 GB and 50 B times the smallest window) / 46 B pixels, about 3.0 Mpx on coarse data, 3.7 Mpx at 2 m,
+  5.7 Mpx at 1 m; a smaller grid is made at once or left without the mark. And for a grid in blocks under 17.5 Mpx the
+  least need grew (4 B a pixel and 0.14 GB against 12 B; a grid of 10 Mpx at 1 m: 0.30 GB against 0.24 GB). Over the
+  code review's 20 000 plans: grids in blocks up to 17.43 Mpx at budgets up to 0.69 GB are now left out where they
+  were marked, and grids from 17.52 Mpx are marked where they were left out. In a compute slot nothing is newly left
+  out (a grid in blocks there has over 99 Mpx), and grids of about 402 to 1 171 Mpx at 1 m are newly marked.
 - **`ACCESS_DISK_BYTES` 2: the mark's files.** At their highest 0.29 to 0.39 B/px in the pass (the bits and the
   regions' tables) and 1.25 on float, 1.38 on whole metres in the blocks (the grid 1, the bits 0.25 or 0.375); made-up
   worst cases of the pass, not real grids: 1.83 as built by the code reviewer (its worst tables 1.33, the bits 0.375,
@@ -4042,12 +4046,13 @@ come back): the rule does not count them, as the 12 before did not.
 
   Step 1's own memory passes a slot at 31.0 to 34.4 km at 1 m when lakes or gaps are filled (gate 0; no check counts
   it): what 3.5 would add over 4 lies beyond that ceiling today.
-- **Linux** (cgroup v1 in Docker Desktop on this PC; every block computed; gate 2): measured on the three small cases,
-  where the cgroup's peak above the stage's start stays under what the rule counts (the Gozo coast at 1 m: 2.73 GB
-  against 3.94 GB counted with 4); the cache above the start on the Gozo coast at 1 m 1.38 B/px (the base: 8.00), the
-  mark's files. Squeezed to the run's anonymous memory and 0.4 GB (a limit of 3.32 GB) the stage finished, not killed,
-  in 39.5 s against 37.5 s. No wide grid ran on Linux: the per-pixel constant is Windows's, computed for Linux, where
-  the mark's files in the cache add 1.38 B/px.
+- **Linux** (cgroup v1 in Docker Desktop on this PC; every block computed): on the Gozo coast at 1 m through the rule
+  as built (the confirming run g1-f, below) the cgroup's peak above the stage's start is 3.26 GB against 4.43 GB
+  counted; at gate 2 the cgroup's peaks of the three small cases stayed far under the count too (0.33 to 2.73 GB). The
+  cache above the start on the Gozo coast at 1 m 1.38 B/px (the base: 8.00), the mark's files. Squeezed to the run's
+  largest anonymous memory and 0.4 GB the stage finished, not killed: 39.20 s against 37.64 s at a limit of 3.98 GB
+  (the close), 39.5 s against 37.5 s at 3.32 GB (gate 2). No wide grid ran on Linux: the per-pixel constant is
+  Windows's, computed for Linux, where the mark's files in the cache add 1.38 B/px.
 
 #### Measured and not taken: int64 labels
 The labels of a strip as int64 (one expression of `_Regions._label`), on gate 2's batch: the pass 0.1 to 0.15 s
@@ -4062,17 +4067,58 @@ the full fuzz stay as they are.
   blocks about 2.8 times a mask's window bytes. At 36 000 pixels wide in blocks of 500 m at 1 m, 7.1 MB read a mask
   a call and about 100 GB from the file cache over all blocks (the code review, computed). The wide box's 182 blocks
   in a slot took 400 s against 284 s for 30 blocks: 21 % more window pixels in all, and this.
-- The wide box's mask loops still allocate fresh arrays (the 45 million first-touch faults above), so their seconds
-  follow the machine's free pages.
+- The wide box's two mask loops took 45 million first-touch faults on wave 2a's code (above), so their seconds
+  followed the machine's free pages; on the final code they take 22.3 s against the base's 76.4 to 76.7, their faults
+  not counted.
 - No wide grid of float heights was measured (the cache holds none of that size). By its composition its last block
   holds the same three grids; the two float cases read 3.01 to 3.25 B/px there, the excess a fixed 10 MB.
 - E leaves nothing out when the search area reaches into every block (the Tatras circle: 4 of 4). Blocks without an
   anchor (E2) would skip at most 17 % of E's blocks, and only at the smallest blocks: the roadmap.
 
-#### Confirming runs at the close
-*To be filled by the planner after agent M's runs through the rule as built: the three small cases, Linux on the Gozo
-coast at 1 m, a box just inside the new limit in a slot (every block computed, and once as a search runs it), and the
-wide box's plan in a slot (left out).*
+#### Confirming runs at the close (2026-11-26)
+Through the rule as built (4 B a pixel of the grid, 0.14 GB, 50 B a pixel of a window; no option of the tool), on
+dcdc6a70 (the constants' commit with the tool), the base 1c8c839f beside on the small cases, exclusive lane. Every
+line fixed before the runs holds. Measured unless marked.
+- **The pixels:** 0 differ wherever a block was computed, on every run; with every block computed the whole grid
+  against the grid at once: 0 of 126 049 755 (the Gozo coast at 1 m), 31 518 242 (at 2 m) and 43 573 201 (the
+  Tatras), and 0 on R83's grid and the six private cases. The box below left 946 539 950 pixels out, none of the area.
+- **The rule covers what the stage holds** (the stage's highest working set above its start against 4 B times the
+  grid's pixels, 0.14 GB and 50 B times the run's largest window):
+
+  | Run | Held | Counted |
+  | --- | --- | --- |
+  | Gozo coast 1 m (two runs with the area, one with every block) | 3.43-3.44 GB | 4.43 GB |
+  | Gozo coast 2 m (the same) | 0.50-0.51 GB | 0.95 GB |
+  | Tatras circle (the same) | 0.66-0.67 GB | 1.25 GB |
+  | The box just inside the limit: every block / with the area | 3.61 / 3.59 GB | 4.95 GB |
+  | Linux, Gozo coast 1 m (the cgroup's peak above the start) | 3.26 GB | 4.43 GB |
+  | Linux, the same squeezed | 0.39 GB | 4.43 GB |
+
+- **The box just inside the limit:** the coasts of Malta and Gozo in a narrower box, 1 148.7 Mpx at 1 m (the rule's
+  limit in a slot: 1 171 Mpx, computed), in a slot of 4.95 GB: 1 225 blocks of 985 px, the largest window 4.26 Mpx.
+  With every block computed the stage held 3.61 GB against 4.95 GB counted; (its highest working set less 0.14 GB and
+  50 B times the window) per pixel of the grid 2.84, beside the constant 4; file pages at the last block 3.00; the
+  pass 38.3 s, the blocks 855.1 s, the stage 893.4 s. As a search runs it (the area passed): 210 blocks computed and
+  1 015 left out, the stage 236.3 s (the pass 38.0 s, the blocks 197.9 s). Another session's test app ran beside the
+  first of these runs from 09:03 to 09:20 (a build during its step 1, then idle).
+- **The wide box (1 217 Mpx) in a slot:** the mark left out, 5.13 GB needed against 4.95 GB (the plan).
+- **The small cases with the rule's own blocks**, two runs a tree (the base's blocks sized by its rule of 12 B):
+
+  | Case, tree | Blocks: side, computed / left out | The pass, s | The blocks, s | The stage, s |
+  | --- | --- | --- | --- | --- |
+  | Gozo coast 1 m, base | 7 210 px, 6 / 0 | 10.02, 9.66 | 36.79, 34.26 | 46.81, 43.92 |
+  | Gozo coast 1 m, final | 8 199 px, 3 / 1 | 6.54, 6.49 | 31.39, 31.40 | 37.96, 37.92 |
+  | Gozo coast 2 m, base | 2 980 px, 6 / 0 | 3.51, 3.50 | 4.26, 4.22 | 7.77, 7.72 |
+  | Gozo coast 2 m, final | 3 285 px, 6 / 0 | 2.52, 2.55 | 4.17, 4.40 | 6.70, 6.96 |
+  | Tatras circle, base | 3 342 px, 4 / 0 | 2.55, 2.43 | 14.18, 13.75 | 16.73, 16.18 |
+  | Tatras circle, final | 3 791 px, 4 / 0 | 2.13, 2.34 | 14.26, 14.87 | 16.40, 17.21 |
+
+  On the Tatras the final code's stage is not below the base's: its two runs read 16.40 and 17.21 s against the
+  base's 16.73 and 16.18 (the pass faster, the blocks not).
+- The pass's private bytes 74 to 111 MiB (the highest the Gozo coast at 2 m with every block); the mark's files at
+  most 1.38 B/px (the Gozo coast at 1 m and the box), 1.25 on the Gozo coast at 2 m and the Tatras. Linux squeezed
+  to the run's largest anonymous memory (3.58 GB) and 0.4 GB: finished, not killed, 39.20 s against 37.64 s. The
+  tool's test passed ten runs of ten.
 
 ## The memory constant (2026-11-15, tag `history/memory-constant`)
 
