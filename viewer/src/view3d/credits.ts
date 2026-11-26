@@ -6,6 +6,9 @@
 import { creditsHtml, esriHtml, orthoHtml } from "../layers";
 import type { Credit, Ortho } from "../types";
 
+/** A share link's 3D view: the run's ATTRIBUTION.txt beside the page (/s/<token>/ATTRIBUTION.txt, web.RUN_FILES). */
+export const LINK_NOTICES = "ATTRIBUTION.txt";
+
 /** The ids and order of the entries in the page's credits box (low first). */
 export const DATA_CREDITS = "data", IMAGERY_CREDITS = "imagery";
 export const DATA_ORDER = 1, IMAGERY_ORDER = 2;
@@ -20,11 +23,12 @@ function isCredit(c: unknown): c is Credit {
   return !!v && typeof v === "object" && typeof v.attribution === "string" && typeof v.licence === "string";
 }
 
-/** The data credits of the meta's `attribution` (the run head's), null when it holds none. */
-export function dataCredits(attribution: unknown, runId: string): string | null {
+/** The data credits of the meta's `attribution` (the run head's), null when it holds none; `link`: on a share
+ *  link's 3D view (the notices relative to the page, LINK_NOTICES). */
+export function dataCredits(attribution: unknown, runId: string, link = false): string | null {
   const credits = Array.isArray(attribution) ? attribution.filter(isCredit) : [];
   return credits.length ? creditsHtml(credits.map((c) => ({...c, url: typeof c.url === "string" ? c.url : ""})),
-                                      noticesUrl(runId)) : null;
+                                      link ? LINK_NOTICES : noticesUrl(runId)) : null;
 }
 
 /** The credits of the imagery shown, null for the shaded terrain. */

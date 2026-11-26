@@ -7,6 +7,7 @@
 
 import { download } from "../download";
 import { detailMessage, t } from "../i18n";
+import { checkBackoff, computedHeaders, noteRefusal, type Backoff, BACKOFF } from "../sharelink";
 import { inflate, splitAnswer } from "./decode";
 import type { PageRequest } from "./page";
 
@@ -89,19 +90,25 @@ export async function decodeReach(answer: ArrayBuffer): Promise<Reach> {
   return {meta, mask};
 }
 
-/** One GET of the reach (default: download.ts' XMLHttpRequest, like the patch's). */
+/** One GET of the reach (default: download.ts' XMLHttpRequest, like the patch's); `header` gives an answer's header
+ *  (Retry-After of a 429; a stand-in may leave it out). */
 export type ReachGet = (url: string, headers: Record<string, string>) =>
-    Promise<{status: number; body: ArrayBuffer}>;
+    Promise<{status: number; body: ArrayBuffer; header?(name: string): string | null}>;
 
 const xhrGet: ReachGet = (url, headers) => download(url, "arraybuffer", {headers});
 
-/** Ask /api/reach for `url`: the decoded answer; a refusal or a failure rejects with the server's message. */
-export async function fetchReach(url: string, get: ReachGet = xhrGet): Promise<Reach> {
-  const answer = await get(url, {[REACH_HEADER]: "1"});
+/** Ask /api/reach for `url` (a share link's token in the header): the decoded answer; a refusal or a failure rejects
+ *  with the server's message; while a 429's wait lasts it rejects with that text at once, nothing asked
+ *  (sharelink.ts; `backoff` for tests). */
+export async function fetchReach(url: string, get: ReachGet = xhrGet, backoff: Backoff = BACKOFF): Promise<Reach> {
+  checkBackoff("reach", backoff);
+  const answer = await get(url, computedHeaders({[REACH_HEADER]: "1"}));
   if (answer.status !== 200) {
     let data: {detail?: unknown} = {};
     try { data = JSON.parse(new TextDecoder().decode(answer.body)); } catch { /* not JSON */ }
-    throw new ReachError(detailMessage(data.detail, String(answer.status)));
+    const text = detailMessage(data.detail, String(answer.status));
+    noteRefusal("reach", answer.status, answer.header?.("Retry-After"), text, backoff);
+    throw new ReachError(text);
   }
   return decodeReach(answer.body);
 }

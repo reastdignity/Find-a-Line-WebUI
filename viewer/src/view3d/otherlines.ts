@@ -39,8 +39,9 @@ export interface OthersOptions {
   page?: PageRequest;
   /** `save.ts` `currentOf`: the key of the line shown. */
   current: Current;
-  /** `createSave`'s answer: the user's favourites of the run. */
-  favourites: Favourites;
+  /** `createSave`'s answer: the user's favourites of the run; null on a share link's 3D view (no account): no tool
+   *  "Saved lines" made, the address's lines alone. */
+  favourites: Favourites | null;
   /** Where the note "no other saved line in this view" goes (before `before` of `parent`, null: last). */
   notes: {parent: HTMLElement; before: Element | null};
 }
@@ -70,10 +71,14 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
   return e;
 }
 
+/** No favourites (a share link's 3D view): none known, none saved. */
+const NO_FAVOURITES: Favourites = {saved: new Set(), known: () => false, onChange() { /* never changes */ }};
+
 /** The other lines of `scene`, made active through `edit`; `root` is the page's root (data-others). */
 export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root: HTMLElement,
                              options: OthersOptions): Others {
-  const page = options.page ?? currentPage(), { current, favourites, notes } = options;
+  const page = options.page ?? currentPage(), { current, notes } = options;
+  const favourites: Favourites = options.favourites ?? NO_FAVOURITES;
   const found = page.line ? canonicalKey(page.line) : null;
   const address = page.also.slice(0, OTHERS_MAX);
   const kept: string[] = [];                    // lines that were the active one, the newest first
@@ -94,9 +99,10 @@ export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root:
   note.setAttribute("role", "status");
   notes.parent.insertBefore(note, notes.before);
 
-  const tool = scene.tools.add({id: "others", label: t("ui.view3d.others"), icon: OTHERS_ICON, order: 4, toggle: true,
-                                onClick() { favouritesOn = !favouritesOn; refresh(); }});
-  tool.element.classList.add("v3-hidden");  // offered once the run has another favourite
+  const tool = options.favourites === null ? null : scene.tools.add({
+    id: "others", label: t("ui.view3d.others"), icon: OTHERS_ICON, order: 4, toggle: true,
+    onClick() { favouritesOn = !favouritesOn; refresh(); }});
+  tool?.element.classList.add("v3-hidden");  // offered once the run has another favourite
   root.dataset.others = "0";
 
   /** The key of the line shown when it is a known line: the found line's, or the one taken from outside; else null. */
@@ -159,8 +165,8 @@ export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root:
     if (active) skip.add(active);
     // the offer: another favourite than the line shown
     const others = favourites.known() && [...favourites.saved].some((k) => !skip.has(canonicalKey(k)));
-    tool.element.classList.toggle("v3-hidden", !others);
-    tool.setPressed(favouritesOn);
+    tool?.element.classList.toggle("v3-hidden", !others);
+    tool?.setPressed(favouritesOn);
     const candidates: Candidate[] = [
       ...kept.map((key): Candidate => ({key, source: "kept"})),
       ...address.map((key): Candidate => ({key, source: "address"})),
@@ -264,7 +270,7 @@ export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root:
     for (const m of materials.values()) m.dispose();
     container.remove();
     note.remove();
-    tool.remove();
+    tool?.remove();
   });
   return {
     drawn: () => shown.map((b) => b.placed.key),

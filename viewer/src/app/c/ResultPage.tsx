@@ -10,7 +10,7 @@ import type { Line } from "../../types";
 import type { ResultModel } from "../../result/model";
 import { orthoForApp } from "../../result/load";
 import { ResultColumns } from "../../result/view/ResultColumns";
-import { OTHERS_MAX, alsoParam } from "../../view3d/page";
+import { view3dLink } from "../../view3d/page";
 import { editHash, go, runHash } from "./route";
 import { t } from "../../i18n";
 
@@ -18,10 +18,9 @@ import { t } from "../../i18n";
 const linkOf = (model: ResultModel, l: Line) => location.origin + hrefWithoutUi() + runHash(model.runOf(l), model.lineLink(l));
 /** The line's 3D view (web.py /view3d), with the hash of the run's page and, for a spot of several lines, the
  *  others of the spot in the model's order (`&also=`, at most OTHERS_MAX: the 3D view draws them besides the line);
- *  a line alone in its spot gets the link it always had. */
-export const view3dOf = (model: ResultModel, l: Line) =>
-  "/view3d" + runHash(model.runOf(l), model.lineLink(l)) +
-  alsoParam(model.alsoOf(l, OTHERS_MAX).map((m) => model.lineLink(m)));
+ *  a line alone in its spot gets the link it always had (view3d/page.ts view3dLink, which a share link's map takes
+ *  too). */
+export const view3dOf: (model: ResultModel, l: Line) => string = view3dLink("/view3d");
 
 /** What the result page gets: the run, the route's line (`nav` changes with every navigation), the job to
  *  edit and run again (none for a run without one), the layout. */

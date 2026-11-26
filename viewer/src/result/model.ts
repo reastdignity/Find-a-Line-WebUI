@@ -24,6 +24,7 @@ import { hasSavedList, saveList, savedList, sortKey, sortRows, type ListState, t
 import { colorOf, localPlane } from "../others";
 import { nextPaint } from "../paint";
 import { timed } from "../perf";
+import { checkBackoff, computedHeaders, noteRefusal } from "../sharelink";
 import { ACCESS, emptyColumns, lineAt, LineCursor, type Line, type LineColumns, type LineValues, type OtherRun,
          type Profile, type RunData, type RunHead, type RunInfo, type ViewColumns } from "../types";
 import type { OnProgress } from "./load";
@@ -103,12 +104,18 @@ export interface ResultApi {
   profile(runId: string, line: string): Promise<Profile>;
 }
 
-/** web.py /api/profile, with the header it wants. */
+/** web.py /api/profile, with the headers it wants (a share link's page: its token, sharelink.ts); none sent while a
+ *  429's wait lasts (its text again). */
 export async function fetchProfile(runId: string, line: string): Promise<Profile> {
+  checkBackoff("profile");
   const response = await fetch("/api/profile?run=" + encodeURIComponent(runId) + "&line=" + line,
-                               {headers: {"X-Findaline-Profile": "1"}});
+                               {headers: computedHeaders({"X-Findaline-Profile": "1"})});
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(detailMessage(body.detail, response.statusText || "error"));
+  if (!response.ok) {
+    const text = detailMessage(body.detail, response.statusText || "error");
+    noteRefusal("profile", response.status, response.headers.get("Retry-After"), text);
+    throw new Error(text);
+  }
   return body as Profile;
 }
 

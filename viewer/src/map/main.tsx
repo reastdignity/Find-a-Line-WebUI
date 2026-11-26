@@ -31,8 +31,10 @@ import { RunLoading } from "../result/view/RunLoading";
 import { Button, DESKTOP, Screen, useMedia } from "../ui/components";
 import { storedTheme } from "../ui/choice";
 import type { Line, RunData } from "../types";
+import { lineHash, shareToken } from "../sharelink";
+import { view3dLink } from "../view3d/page";
 
-const hashOf = (_runId: string, line: string | null) => line ? "#line=" + encodeURIComponent(line) : "";
+const hashOf = (_runId: string, line: string | null) => lineHash(line);
 const here = () => location.href.replace(/#.*$/, "");
 
 /** "Copy link": this map with the line, or the map of the other run the line is from. */
@@ -43,6 +45,10 @@ function linkOf(model: ResultModel, l: Line): string {
 
 /** A share link's page (/s/<token>/map.html): its visitor has no app to go back to. */
 const shared = () => location.pathname.startsWith("/s/");
+
+/** A line's 3D view: on a share link's page only, the link's own (view3d#run=…&line=…, relative: /s/<token>/view3d,
+ *  which asks with the link's token); the owner's /runs/<id>/map.html and a map from disk have none. */
+const view3dOf = shareToken() !== null ? view3dLink("view3d") : undefined;
 
 /** The way back: the app on its server, none on a share link. */
 function backOf(runId: string): BackAction | undefined {
@@ -73,7 +79,7 @@ function RunMap({data}: {data: RunData}) {
   const show = others ? undefined : (["measure", "share", "download"] as const).slice();
   return <Screen theme={storedTheme()}>
     <ResultColumns data={data} runId={data.run.id} line={route.line} nav={route.nav} wide={wide} back={backOf(data.run.id)}
-                   hashOf={hashOf} linkOf={linkOf} base="../" folder="" show={show} />
+                   hashOf={hashOf} linkOf={linkOf} view3dOf={view3dOf} base="../" folder="" show={show} />
   </Screen>;
 }
 
