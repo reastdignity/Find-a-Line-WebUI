@@ -77,7 +77,7 @@ link of the query's `run` (`run_of_link`), else 404; without it `current_user` f
 `link_<kind>_rate` on `link:<run id>` (`rate_key_of`), 429 `rate_link_<kind>`; `refused` audits it with no user and
 the run as the target; its quick tasks have `user_id` NULL and `jobs.QUICK_ORDER` claims users' first; the
 answers are counted by caller, `quick_answers[(result, caller)]`); every rate's 429 carries `Retry-After`
-(`retry_after`: past the limiter's window reset); `/view3d`: the 3D view's page `VIEW3D_HTML`, visitors and accounts
+(`retry_after`: past the limiter's window reset; a rate of 0 its window); `/view3d`: the 3D view's page `VIEW3D_HTML`, visitors and accounts
 not approved sent to `/`, and `/s/<token>/view3d` (`link_run`: 404 for a dead link) the same page with the user meta
 `{"link": true}` for a share link's visitors; both addresses (`view3d_page`) get its CSP from
 `page_csp` (the ring's origins, `ortho_origins`, only while `settings.ViewSettings.ring` is on), its

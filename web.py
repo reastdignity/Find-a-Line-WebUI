@@ -1427,9 +1427,11 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     def retry_after(spent, rate: str, key: str) -> int:
         """Whole seconds (at least 1) until every rate of `spent` lets one more request through: past its window
         stats' reset time (the sliding window counter's next free slot; at that instant the count is still
-        the old one, so the whole second after it), at most its window."""
+        the old one, so the whole second after it), at most its window; a rate of 0 (an operator's "closed",
+        which never lets one through) its window."""
         now = strategies.time.time()  # the clock its reset times come from
-        return max(min(int(item.get_expiry()),
+        return max(int(item.get_expiry()) if item.amount == 0 else
+                   min(int(item.get_expiry()),
                        math.floor(max(0.0, rate_limiter.get_window_stats(item, rate, key).reset_time - now)) + 1)
                    for item in spent)
 

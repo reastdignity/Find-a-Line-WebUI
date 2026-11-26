@@ -937,18 +937,18 @@ def test_share_link_visitors_compute(run_people, tmp_path, monkeypatch):
     administrator (nasadem stays refused with the existing codes) and gets nothing else: no export, favourites,
     report or list of runs."""
     a, b, admin, anonymous = run_people["a"], run_people["b"], run_people["admin"], run_people["anonymous"]
-    jobs, ids = run_people["jobs"], run_people["ids"]
+    ids = run_people["ids"]
     meta = json.loads((tmp_path / "runs" / RUN_A / "run.json").read_text("utf-8"))
     lat, lon = meta["area"]["lat"], meta["area"]["lon"]
     token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
     kinds = ("profile", "patch", "canopy", "reach")
     for kind in kinds:  # without the header: as before
         assert _computed(anonymous, kind, RUN_A, lat, lon).status_code == 401, kind
+        assert _computed(run_people["pending"], kind, RUN_A, lat, lon).status_code == 403, kind
+        assert _computed(b, kind, RUN_A, lat, lon).status_code == 404, kind
     for path in ("/api/profile?line=1,2,3,4", "/api/patch?line=1,2,3,4", "/api/reach?line=1,2,3,4&anchor=1,2&as=1"):
         assert anonymous.get(path).status_code == 401, path  # the session before the run, as before
         assert run_people["pending"].get(path).status_code == 403, path
-        assert _computed(run_people["pending"], kind, RUN_A, lat, lon).status_code == 403, kind
-        assert _computed(b, kind, RUN_A, lat, lon).status_code == 404, kind
     for who in ("anonymous", "a", "b", "pending", "blocked", "admin"):  # on to the (missing) worker: 503
         for kind in kinds if who == "anonymous" else ("profile", "patch", "reach"):  # within the link's 10 patches
             answer = _computed(run_people[who], kind, RUN_A, lat, lon, token)
@@ -1005,7 +1005,6 @@ def test_share_link_visitors_compute(run_people, tmp_path, monkeypatch):
                                                   a.app.state.quick_answers, a.app.state.route_counts)).decode()
     for secret in (token, renewed, again, b_token):
         assert secret not in rows and secret not in exposition
-    assert not [q for q in jobs._db().execute("SELECT request FROM quick").fetchall() if token in q[0]]
     local = tmp_path / "local"  # the local app has no share links: the header gets 404, never an error
     local.mkdir()
     with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
@@ -1014,15 +1013,79 @@ def test_share_link_visitors_compute(run_people, tmp_path, monkeypatch):
         assert client.get(f"/s/{token}/view3d").status_code == 404
 
 
+def test_share_link_tasks_in_the_lane(run_people, tmp_path, monkeypatch):
+    """A share link's request past the worker's check (a lease; the lane stood in for by answering quick_take): its
+    task has user_id NULL, not unlimited, and a request without the token; the users' one-waiting rule does not
+    apply to it (a signed-in user whose own task waits still asks through the link), while the same user without the
+    header gets quick_waiting; its waits are counted as caller "link" in findaline_quick_answers for ok, busy and
+    gone, a user's as "user"."""
+    import metrics
+    from prometheus_client import generate_latest
+    from prometheus_client.parser import text_string_to_metric_families
+    a = run_people["a"]
+    jobs, ids = a.app.state.jobs, run_people["ids"]
+    meta = json.loads((tmp_path / "runs" / RUN_A / "run.json").read_text("utf-8"))
+    lat, lon = meta["area"]["lat"], meta["area"]["lon"]
+    token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    jobs.register("stand-in-worker")
+    own = jobs.quick_add("estimate", {}, ids["a"], one_waiting=True)  # a's own task waits (nobody answers it)
+    rows, answering = [], {"on": True}
+
+    def take(task_id):  # the lane: the task's row as it waits, then an answer (or none: it keeps waiting)
+        if task_id == own:
+            return None
+        row = jobs._db().execute("SELECT * FROM quick WHERE id = ?", (task_id,)).fetchone()
+        if row is not None and not [r for r in rows if r["id"] == task_id]:
+            rows.append(dict(row))
+        if not answering["on"]:
+            return None
+        jobs._db().execute("DELETE FROM quick WHERE id = ?", (task_id,)).connection.commit()
+        return {"code": 200, "body": {"stand_in": True}}
+    monkeypatch.setattr(jobs, "quick_take", take)
+    for who in ("anonymous", "a"):
+        answer = _computed(run_people[who], "profile", RUN_A, lat, lon, token)
+        assert answer.status_code == 200 and answer.json() == {"stand_in": True}, (who, answer.text)
+    assert [(r["kind"], r["user_id"], r["unlimited"]) for r in rows] == [("profile", None, 0)] * 2
+    assert all(token not in r["request"] and json.loads(r["request"])["run"] == RUN_A for r in rows)
+    refused = _computed(a, "profile", RUN_A, lat, lon)  # a without the header: a user, whose task waits
+    assert refused.status_code == 429 and refused.json()["detail"]["code"] == "quick_waiting"
+    jobs._db().execute("DELETE FROM quick WHERE id = ?", (own,)).connection.commit()
+    answer = _computed(a, "profile", RUN_A, lat, lon)
+    assert answer.status_code == 200 and rows[-1]["user_id"] == ids["a"]
+    # busy: no answer within the wait (its limit made short); gone: the client went away
+    answering["on"] = False
+    monkeypatch.setattr(web, "QUICK_WAIT_MAX", 0.3)
+    busy = _computed(run_people["anonymous"], "patch", RUN_A, lat, lon, token)
+    assert busy.status_code == 504 and busy.json()["detail"]["code"] == "busy"
+
+    async def gone_at_once(receive):
+        return None
+    monkeypatch.setattr(web, "_disconnect", gone_at_once)
+    assert _computed(run_people["anonymous"], "reach", RUN_A, lat, lon, token).status_code == 503
+    assert token not in json.dumps(rows)
+    exposition = generate_latest(metrics.registry(str(tmp_path), a.app.state.limits, str(tmp_path),
+                                                  a.app.state.quick_answers, a.app.state.route_counts)).decode()
+    counted = {(s.labels["result"], s.labels["caller"]): s.value
+               for family in text_string_to_metric_families(exposition) for s in family.samples
+               if s.name == "findaline_quick_answers_total"}
+    assert {k: v for k, v in counted.items() if v} == {("ok", "link"): 2, ("busy", "link"): 1, ("gone", "link"): 1,
+                                                        ("ok", "user"): 1}
+    assert token not in exposition
+    jobs.unregister("stand-in-worker")
+
+
 def test_share_link_rates(tmp_path, clip_run, settings, account_settings, providers, monkeypatch):
     """The link's rates (Limits.link_<kind>_rate, the user's D4): one budget for every visitor of a link, whoever is
     signed in, and none of theirs; two links do not share one; over it 429 with rate_link_<kind>, its text and
-    Retry-After, after which one more passes; a user's own 429 carries Retry-After too; refusals of a link are
-    audited with no user and the run as the target, never the token."""
+    Retry-After: the whole seconds until the spent rate lets one more through (a minute's rate in mid-window, an
+    hour's), one second early still refused; a user's own 429 the same; a rate of 0 its window's length; refusals of a
+    link are audited with no user and the run as the target, never the token."""
     import audit
     from jobs import Jobs
     from settings import Limits
     clock = _hold_rate_clock(monkeypatch)
+    hour = clock.now // 3600 * 3600
+    clock.now = hour + 10 * 60 + 21  # 21 s into a minute, 621 s into an hour: no rate's wait is its window
     for run_id, name in ((RUN_A, "A's run"), (RUN_B, "B's run")):
         copy_run(clip_run, tmp_path, run_id, name)
     people_ids = {who: session_of(tmp_path, account_settings, who)[0] for who in ("a", "b")}
@@ -1033,7 +1096,7 @@ def test_share_link_rates(tmp_path, clip_run, settings, account_settings, provid
     jobs.set_share(RUN_A, ac.digest(token))
     jobs.set_share(RUN_B, ac.digest(b_token))
     limits = Limits.load(public=True).model_copy(update={
-        "link_profile_rate": "3/minute", "link_patch_rate": "2/minute", "link_reach_rate": "2/minute",
+        "link_profile_rate": "3/minute", "link_patch_rate": "2/minute", "link_reach_rate": "100/minute;2/hour",
         "profile_rate": "2/minute"})
     app = _public_app(tmp_path, settings, account_settings, providers, limits=limits)
     people = _clients(app, tmp_path, account_settings, ("a", "b"))
@@ -1048,16 +1111,15 @@ def test_share_link_rates(tmp_path, clip_run, settings, account_settings, provid
     detail = refused.json()["detail"]
     assert refused.status_code == 429 and detail["code"] == "rate_link_profile"
     assert detail["message"] == "Too many profiles on this link in a short time. Try again later."
-    wait = int(refused.headers["retry-after"])
-    assert 1 <= wait <= 60
+    assert refused.headers["retry-after"] == "40"  # the minute's 39 s left, and the second after the turn
     assert status(anonymous, "profile", b_token, RUN_B) == 503  # another link: its own budget
-    # The users' own budgets are untouched by their requests through the link
+    # The users' own budgets are untouched by their requests through the link; their 429 counts the same way
     assert [status(a, "profile", None), status(a, "profile", None)] == [503, 503]
     mine = _computed(a, "profile", RUN_A, lat, lon)
     assert mine.status_code == 429 and mine.json()["detail"]["code"] == "rate_profile"
-    assert 1 <= int(mine.headers["retry-after"]) <= 60
+    assert mine.headers["retry-after"] == "40"
     assert status(b, "profile", None, RUN_B) == 503
-    # Patches (the canopy is a patch) and reaches: their own budgets
+    # Patches (the canopy is a patch) and reaches: their own budgets; the reaches' is spent by the hour
     assert [status(anonymous, "patch"), status(b, "canopy")] == [503, 503]
     over = _computed(a, "patch", RUN_A, lat, lon, token)
     assert (over.status_code, over.json()["detail"]["code"]) == (429, "rate_link_patch")
@@ -1067,12 +1129,17 @@ def test_share_link_rates(tmp_path, clip_run, settings, account_settings, provid
     assert (over.status_code, over.json()["detail"]["code"]) == (429, "rate_link_reach")
     assert over.json()["detail"]["message"] == ("Too many reach calculations on this link in a short time. "
                                                 "Try again later.")
-    assert "retry-after" in over.headers
-    # Retry-After is honest: a second early the link is still refused, at it one more passes
-    clock.now += wait - 1
-    assert status(anonymous, "profile") == 429
+    reach_at, reach_wait = clock.now, int(over.headers["retry-after"])
+    assert reach_wait == 3600 - 621 + 1  # to the hour's turn, not the minute's
+    # Retry-After is honest and tight: a second early still refused, at it one more passes
+    clock.now += 40 - 1
+    assert status(anonymous, "profile") == 429 and status(a, "profile", None) == 429
     clock.now += 1
-    assert status(anonymous, "profile") == 503
+    assert status(anonymous, "profile") == 503 and status(a, "profile", None) == 503
+    clock.now = reach_at + reach_wait - 1
+    assert status(anonymous, "reach") == 429
+    clock.now += 1
+    assert status(anonymous, "reach") == 503
     # Refusals: one row per link and kind, no user, the run as the target, never the token
     rows = [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "refused"]
     links = [(e["user_id"], e["target"], e["detail"]["reason"]) for e in rows if e["user_id"] is None]
@@ -1083,35 +1150,16 @@ def test_share_link_rates(tmp_path, clip_run, settings, account_settings, provid
     assert token not in json.dumps(rows)
     for client in (a, b, anonymous):
         client.close()
-
-
-def test_quick_lane_users_first(tmp_path):
-    """The quick lane (the user's D5, "Users first"): a waiting task of a user is claimed before every waiting task
-    of a share link's visitor (user_id NULL on the public site), then by id; quick_ahead counts in that order
-    (every running task, the users' waiting before it, a link's the users' and the links' before it); a link has
-    no one-waiting rule; locally (every task NULL) the order is by id as before."""
-    from jobs import Jobs, QuotaExceeded
-    jobs = Jobs(str(tmp_path))
-    link_1 = jobs.quick_add("profile", {"run": "r"}, None, one_waiting=True)
-    link_2 = jobs.quick_add("patch", {"run": "r"}, None, one_waiting=True)  # no rule for a link
-    user_1 = jobs.quick_add("profile", {"run": "s"}, 7, one_waiting=True)
-    user_2 = jobs.quick_add("profile", {"run": "s"}, 8, one_waiting=True)
-    with pytest.raises(QuotaExceeded):
-        jobs.quick_add("profile", {"run": "s"}, 7, one_waiting=True)  # the users' rule stays
-    assert [jobs.quick_ahead(t) for t in (user_1, user_2, link_1, link_2)] == [0, 1, 2, 3]
-    assert jobs.quick_claim("w")["id"] == user_1
-    assert [jobs.quick_ahead(t) for t in (user_2, link_1, link_2)] == [1, 2, 3]  # the running one counts
-    user_3 = jobs.quick_add("estimate", {}, 9, one_waiting=True)  # a user who comes later still goes first
-    assert jobs.quick_ahead(user_3) == 2 and jobs.quick_ahead(link_1) == 3
-    claimed = []
-    while (task := jobs.quick_claim("w")) is not None:
-        claimed.append(task["id"])
-    assert claimed == [user_2, user_3, link_1, link_2]
-    (tmp_path / "local").mkdir()
-    local = Jobs(str(tmp_path / "local"))
-    tasks = [local.quick_add("estimate", {}) for _ in range(3)]
-    assert [local.quick_ahead(t) for t in tasks] == [0, 1, 2]
-    assert [local.quick_claim("w")["id"] for _ in tasks] == tasks
+    # A rate of 0 (computing closed): Retry-After is its window, never a second, users' and links' alike
+    closed = limits.model_copy(update={"link_profile_rate": "0/hour", "profile_rate": "0/minute"})
+    app = _public_app(tmp_path, settings, account_settings, providers, limits=closed)
+    people = _clients(app, tmp_path, account_settings, ("a",))
+    with TestClient(app, base_url=URL) as anonymous, people["a"] as a:
+        for _ in range(2):
+            link = _computed(anonymous, "profile", RUN_A, lat, lon, token)
+            assert (link.status_code, link.headers["retry-after"]) == (429, "3600")
+            user = _computed(a, "profile", RUN_A, lat, lon)
+            assert (user.status_code, user.headers["retry-after"]) == (429, "60")
 
 
 def test_share_link_3d_page(run_people, tmp_path):
