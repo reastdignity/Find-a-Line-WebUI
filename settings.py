@@ -61,10 +61,9 @@ PUBLIC = {
     "estimate_rate": "20/minute;300/hour", "profile_rate": "30/minute;500/hour", "job_rate": "10/minute;60/hour",
     "place_rate": "10/minute;100/hour", "report_rate": "3/minute;20/day", "time_zone_rate": "5/minute;20/day",
     "patch_rate": "10/minute;120/hour", "reach_rate": "12/minute;200/hour", "export_rate": "4/minute;30/hour",
-    # a share link's, all its visitors together
-    "link_profile_rate": "30/minute;500/hour",  # placeholder until M0
-    "link_patch_rate": "10/minute;120/hour",    # placeholder until M0
-    "link_reach_rate": "12/minute;200/hour",    # placeholder until M0
+    # a share link's, all its visitors together: a user's values (the user's choice of 2026-11-26)
+    "link_profile_rate": "30/minute;500/hour", "link_patch_rate": "10/minute;120/hour",
+    "link_reach_rate": "12/minute;200/hour",
     "queue_max": 50, "free_disk_gb_min": 20,
 }
 # Limits on request values: field of Limits -> (parameter of SearchParams, "min" or "max")

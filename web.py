@@ -532,6 +532,11 @@ class LinkVisitor:
 def rate_key_of(caller) -> str:
     """The key of a caller's rates and refusals: a user's id, a link's `link:<run id>` (never the token)."""
     return caller.rate_key if isinstance(caller, LinkVisitor) else str(caller.id)
+
+
+# The Retry-After of a user's quick_waiting 429 (their other quick task waits; a page asks one at a time): short, so
+# a page that waits as long as it says loses no time, and long enough to stay far from fail2ban's 100 refusals
+QUICK_WAITING_RETRY = 5
 TIME_ZONE_CHARS_MAX = 100  # of an IANA time zone's name (the longest are about 30)
 EVERYONE_SECONDS = 300     # the sign-in page's total of everyone's searched area is counted again after it
 QUICK_RESULTS = ("ok", "no_worker", "busy", "gone")  # how a wait for the quick lane ended (metrics.py)
@@ -1506,8 +1511,9 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             raise HTTPException(503, no_worker)
         try:
             task = await run_in_threadpool(jobs.quick_add, kind, request, user.id, unlimited(user), public is not None)
-        except QuotaExceeded as e:
-            raise HTTPException(e.status, error_detail(e))
+        except QuotaExceeded as e:  # quick_waiting: the user's other task ends in seconds, not a rate's window
+            raise HTTPException(e.status, error_detail(e), headers={"Retry-After": str(QUICK_WAITING_RETRY)}
+                                if e.code == "quick_waiting" else None)
         gone = None
         try:
             if limits.quick_seconds:

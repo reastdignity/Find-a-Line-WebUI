@@ -1003,6 +1003,12 @@ def test_share_link_visitors_compute(run_people, tmp_path, monkeypatch):
     for secret in (token, renewed, again, b_token):
         assert secret not in rows and secret not in exposition
     assert not [q for q in jobs._db().execute("SELECT request FROM quick").fetchall() if token in q[0]]
+    local = tmp_path / "local"  # the local app has no share links: the header gets 404, never an error
+    local.mkdir()
+    with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
+        for kind in kinds:
+            assert _computed(client, kind, "x", lat, lon, token).status_code == 404, kind
+        assert client.get(f"/s/{token}/view3d").status_code == 404
 
 
 def test_share_link_rates(tmp_path, clip_run, settings, account_settings, providers, monkeypatch):
@@ -2892,6 +2898,7 @@ def test_public_time_limits_and_one_waiting_estimate(tmp_path, settings, account
         jobs.quick_add("estimate", {}, people["a"].user_id, one_waiting=True)
     answer = people["a"].post("/api/estimate", json={"params": POINT})
     assert answer.status_code == 429 and answer.json()["detail"]["code"] == "quick_waiting"
+    assert answer.headers["retry-after"] == str(web.QUICK_WAITING_RETRY)  # seconds, not a rate's window
     jobs.quick_add("estimate", {}, None, one_waiting=True)  # the local app: no such rule
     jobs.quick_add("estimate", {}, people["b"].user_id, one_waiting=True)
     for client in people.values():

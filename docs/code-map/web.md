@@ -66,7 +66,19 @@ the deflated heights after checking their sha256, rate `patch_rate`, its own ngi
 `part=canopy` the block of trees and buildings of the same grid, `search.canopy_of_line`, 400 `patch_no_surface`
 without a surface model; `/api/reach`: the reach of one anchor, `search.reach_of_anchor`, the header
 `X-Findaline-Reach`, the patch's checks and `reach_anchor`, its own rate `reach_rate`, framed by `patch_body` as the
-patch; `/view3d`: the 3D view's page `VIEW3D_HTML`, visitors and accounts not approved sent to `/`, its CSP from
+patch; share links (`POST /api/runs/<id>/share` makes or renews one, shown once; `DELETE` revokes it): `/s/<token>/<file>`
+is a `RunFiles` over `run_of_link`, `/s/_viewer/` the viewer, `/s/runs.js` the flags without `FINDALINE_RUNS` (the
+map shows its own run only), `/s/index.html` redirects to `/`; a share link's visitor asks these three with the link's
+token in `X-Findaline-Share` (`SHARE_HEADER`, never in
+a URL; `run_or_link`, their one access rule: a present header decides whoever is signed in, its token must be the
+link of the query's `run` (`run_of_link`), else 404; without it `run_access` and `current_user`), as a `LinkVisitor`
+(no id, not an administrator: `profile_problem` refuses `ADMIN_SOURCES`; limited: `within_rate` keys the link's rates
+`link_<kind>_rate` on `link:<run id>` (`rate_key_of`), 429 `rate_link_<kind>`; `refused` audits it with no user and
+the run as the target; its quick tasks have `user_id` NULL and `jobs.QUICK_ORDER` claims users' first; the
+answers are counted by caller, `quick_answers[(result, caller)]`); every rate's 429 carries `Retry-After`
+(`retry_after`: past the limiter's window reset); `/view3d`: the 3D view's page `VIEW3D_HTML`, visitors and accounts
+not approved sent to `/`, and `/s/<token>/view3d` (`link_run`: 404 for a dead link) the same page with the user meta
+`{"link": true}` for a share link's visitors; both addresses (`view3d_page`) get its CSP from
 `page_csp` (the ring's origins, `ortho_origins`, only while `settings.ViewSettings.ring` is on), its
 Permissions-Policy from `PAGE_PERMISSIONS` (the phone's motion sensors), `no-store`, or of two points measured on the
 map: `search.profile_of_line`) and `/api/place` (the place box: `osm.places`) answered by the worker's quick lane;
@@ -229,7 +241,8 @@ with its own registry (`registry`), reading `jobs.sqlite` (also `service_request
 `audit.sqlite` through read-only connections at each scrape (aggregates only, totals counted from the rows),
 `work/cache-sizes.json`, `work/housekeeping.json` and `work/coverage.json` (written by `Scheduler.housekeeping`; their
 metrics absent before its first round), the free disk and the web app's own counts: the quick lane
-(`app.state.quick_answers`, `web.QUICK_RESULTS`), the requests per route template, method and status class
+(`app.state.quick_answers` by result and caller, `web.QUICK_RESULTS`, `QUICK_CALLERS`: `user`, or `link` for a share
+link's visitor), the requests per route template, method and status class
 (`web.RouteCounts` in the `guard` middleware, `web.route_template`; `unmatched` without a route, methods outside
 `HTTP_METHODS` as `other`, the event stream left out of the time) and the open event streams (`EventHub.listeners`);
 F19: Mpx and seconds by resolution, seconds and CPU seconds per step (`findaline_compute_step_[cpu_]seconds`), per

@@ -476,8 +476,10 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
   The size of a search and each user's quotas have public values the same way: the largest
   radius, resolution, area and bounding box (`..._RADIUS_MAX=3500`, `..._RESOLUTION_MAX=30`,
   `..._AREA_KM2_MAX=50`, `..._BBOX_KM_MAX=75`), searches, km² and MB a day per user
-  (`..._DOWNLOAD_MB_DAY_MAX=10000`) and the request rates (`..._JOB_RATE=10/minute;60/hour`);
-  README's table lists all of them. `FINDALINE_3D_RING` stays unset (off): the 3D view's coarse
+  (`..._DOWNLOAD_MB_DAY_MAX=10000`) and the request rates (`..._JOB_RATE=10/minute;60/hour`), also those of
+  a share link's visitors, all of a link together (`..._LINK_PROFILE_RATE=30/minute;500/hour`,
+  `..._LINK_PATCH_RATE=10/minute;120/hour`, `..._LINK_REACH_RATE=12/minute;200/hour`: a user's values, settings
+  of their own); README's table lists all of them. `FINDALINE_3D_RING` stays unset (off): the 3D view's coarse
   ring of terrain from Mapterhorn's tiles is switched on only once its maintainer agrees (README,
   *The 3D view of a line*); `web` reads it at its start.
 - `.env` (compose itself): `WORKER_CPUS` (the number of cores minus one, a whole number: it is

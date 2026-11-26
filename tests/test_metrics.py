@@ -319,15 +319,18 @@ def test_no_personal_data_in_labels(data):
     own small set (statuses, phases, codes, actions, alpha-2 countries, cache folders, the catalogue's
     layers, roles, steps, classes of resolution)."""
     data_dir, ids = data
-    text = scrape(data_dir, Limits.load(public=True), str(data_dir), dict.fromkeys(metrics.QUICK_RESULTS, 0),
-                  route_counts(), lambda: 0)
+    import web
+    assert (metrics.QUICK_RESULTS, metrics.QUICK_CALLERS) == (web.QUICK_RESULTS, web.QUICK_CALLERS)  # copies
+    quick = {(result, caller): 0 for result in metrics.QUICK_RESULTS for caller in metrics.QUICK_CALLERS}
+    text = scrape(data_dir, Limits.load(public=True), str(data_dir), quick, route_counts(), lambda: 0)
     for secret in (SECRET["title"], SECRET["name"], SECRET["run"], "secret text", str(data_dir), "worker-1"):
         assert secret not in text, secret
     allowed = {
         "version": re.compile(r"[\w.+-]+"), "status": re.compile(r"queued|ready|downloading|computing|done|failed|"
                                                                    r"cancelled|pending|approved|blocked|[1-5]xx"),
         "phase": re.compile(r"waiting|download|ready|compute"), "error": re.compile(r"[a-z0-9_]*"),
-        "result": re.compile("|".join(metrics.QUICK_RESULTS)), "country": re.compile(r"[a-z]{2}|unknown"),
+        "result": re.compile("|".join(metrics.QUICK_RESULTS)), "caller": re.compile("|".join(metrics.QUICK_CALLERS)),
+        "country": re.compile(r"[a-z]{2}|unknown"),
         "window": re.compile(r"15m|24h"), "action": re.compile("|".join(audit.ACTIONS)),
         "kind": re.compile(r"rate|quota|other"), "folder": re.compile(r"[\w.-]+"),
         "host": re.compile(r"[a-z0-9.-]+"), "outcome": re.compile("|".join(servicecounts.OUTCOMES)),
