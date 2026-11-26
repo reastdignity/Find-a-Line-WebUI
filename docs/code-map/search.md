@@ -157,11 +157,13 @@ grid, `Data.access`, after the cheap refusals (one grid: in `_lines` after the a
 tiled search: in `search_lines` after `_estimate_tiles`): at once (`access.access_grid`, in memory) when
 `ACCESS_WINDOW_BYTES` per pixel of the grid fit `_access_budget` (`Plan.memory`, else the memory free), else in
 blocks (`access.block_grid`, `_access_block_px`: the largest square block whose window fits what
-`ACCESS_AREA_BYTES` per pixel of the grid leave, at least `ACCESS_BLOCK_MIN_M`, under 2^31 pixels; the same
-answers), `ACCESS_FILE` (`access.npy`) in the work folder for blocks and for a tiled search (removed with step 1's
-grids), each tile's window copied by `_tile_data` (a tile reads one grid's answers); `_check_access` (from
-`plan_search`, against `_access_budget`) leaves the mark out of a search whose `access_memory` (the grid at once, or
-the grid-wide pass and the smallest block's window) does not fit: `Plan.access_skipped` "memory" (`Plan.access_on`
+`ACCESS_AREA_BYTES` per pixel of the grid and `ACCESS_FIXED_BYTES` (the grid-wide pass's own) leave, at least
+`ACCESS_BLOCK_MIN_M`, under 2^31 pixels; the same answers; `needed=Data.mask`, so only the blocks with a pixel of the
+search area are computed, without it with `Data.partner`), `ACCESS_FILE` (`access.npy`) in the work folder for blocks
+and for a tiled search (removed with step 1's grids), each tile's window copied by `_tile_data` (a tile reads one
+grid's answers); `_check_access` (from `plan_search`, against `_access_budget`) leaves the mark out of a search whose
+`access_memory` (the grid at once, or in blocks the two terms and the smallest block's window) does not fit:
+`Plan.access_skipped` "memory" (`Plan.access_on`
 false: no stage, no columns, no disk counted), the coded note `access_skipped`, run.json's and the heads'
 `access_skipped`, `progress.json`'s too (a tiled run resumes only for the same choice); `_lines` after
 `line_coordinates` calls `_access_columns`: `access1`, `access2` (uint8, `access.at` of the anchors' pixels, the
@@ -408,10 +410,15 @@ the module's docstring has the whole measure): `access_grid(z, water, res, fille
 pixel, `CAN` 2 ("easy access"), `UNSURE` 1 ("cannot tell"), `CANNOT` 0 ("hard access"); a filled pixel or a shore face
 gets the answer of the data around it (its standing ground), as in the study; `at(grid, pixels)` refuses pixels
 outside the grid; `access_grid` and the blocks share `_answers` (the local part, the grid-wide judgements given);
-`block_grid(z, water, res, filled, path, work, block_px)`: the grid-wide judgements once on the whole grid in strips
-(`_whole_metres_rows`, `_flat_lakes_rows`, `_open_ground_rows` on the heights and the smoothed heights; masks and
-int32 labels memory-mapped in `work`, removed after), then every block from its window of `margin_px(res)`
-(`MARGIN_M` + 6 pixels): the whole grid's answers; a grid or window of 2^31 pixels refused (`_check_size`: the
+`block_grid(z, water, res, filled, path, work, block_px, needed=None)`: the grid-wide judgements once on the whole
+grid in strips (`_whole_metres_rows`; `_flat_lakes_rows` on float heights, with exact percentiles of a large region
+by selection; `_open_ground_rows` on the heights and on whole metres the smoothed heights, each strip cropped to its
+own-data land and `HALO`); their regions by `_Regions` (a strip's int32 labels joined across the seams, the pieces'
+tables in `access_regions.bin`; no label array of the grid); the masks (`_Mask`: one bit a pixel, uint8 rows in .npy
+files of `work`, read and written through one handle, never mapped; removed after, their handles let go on a
+failure, the result grid too); then every block from its window of `margin_px(res)` (`MARGIN_M` + 6 pixels): the
+whole grid's answers; with `needed` (the search area) only the blocks whose core holds a pixel of it (`_blocks_needed`),
+the others `NOT_COMPUTED` (255), which `at` refuses; a grid or window of 2^31 pixels refused (`_check_size`: the
 walk's int32 indices). numba kernels (`_walk`, an indexed Dijkstra; `_stands_near`,
 parallel, each pixel its own answer: the answers never depend on the threads), compiled by `warmup`; never imported
 by the web process (`tests/test_access_search.py`). Tests: `tests/test_access.py` (made-up terrain),
