@@ -492,8 +492,8 @@ def share_site(tmp_path, view_clip, account_settings):
 def test_share_page(share_site, device):
     """A share link's page (/s/<token>/map.html) behaves as the map's: #line= opens the line in view; a selection
     writes #line=… in place, none leaves no hash; a hashchange opens the new link; a line "Top level only" alone hides
-    turns the chip off; a link to no line of the run gets today's note, and so does a line outside the run (a share
-    page asks no profiles); a line other filters hide gets today's note, whose "clear filters" opens it; Back and
+    turns the chip off; a link to no line of the run gets today's note; a line outside the run is measured (a share
+    page asks profiles since 2026-11-26, D1/D3: as the map's); a line other filters hide gets today's note, whose "clear filters" opens it; Back and
     Forward open the links again."""
     from playwright.sync_api import sync_playwright
     context = DESKTOP if device == "desktop" else PHONE
@@ -520,13 +520,14 @@ def test_share_page(share_site, device):
             missing = _wait(page, "s.note !== null")
             assert missing["note"] == [NOT_HERE, None] and missing["selected"] == lifted["selected"], missing
             assert missing["hash"] == f"#line={top['link']}", missing
-            # a line outside the run: no profile asked (FINDALINE_APP.profiles is false there), today's note, no hash
+            # a line outside the run: measured (the server's /s/runs.js sends profiles: true), no note, the link kept
             page.keyboard.press("Escape")
             page.evaluate("() => window.FINDALINE_VIEW.view.model.setNote(null)")
             page.evaluate("(hash) => { location.hash = hash; }", hash_of(OUTSIDE))
-            outside = _wait(page, "s.note !== null && s.hash === ''")
-            assert outside["note"] == [NOT_HERE, None] and outside["measuredLink"] is None, outside
-            assert outside["selected"] is None and page.evaluate("() => PROFILE_ASKS") == []
+            outside = _wait(page, "s.measured !== null")
+            assert outside["note"] is None and outside["measuredLink"] == OUTSIDE and outside["measured"] == 80, outside
+            assert outside["selected"] is None and outside["hash"] == f"#line={OUTSIDE}", outside
+            assert page.evaluate("() => PROFILE_ASKS") == ["49.5000000,19.1000000,49.5004000,19.1005000"]
             # hidden by another filter: today's note; its "clear filters" opens the line
             page.evaluate("() => window.FINDALINE_VIEW.view.model.setNote(null)")
             page.evaluate(LONGER, a["len"])

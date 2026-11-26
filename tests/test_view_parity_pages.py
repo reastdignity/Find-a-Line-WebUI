@@ -1310,8 +1310,9 @@ WHO = """() => { const v = window.FINDALINE_VIEW, t = window.FINDALINE_RESULT;
 def test_share_page_in_the_view(public, device):
     """S1, S2, S4, S7, S10 (today's test_store_share::test_share_links_read_the_store_in_edge,
     test_public::test_signed_in_app_and_shared_map_in_edge, test_disk_notice::test_share_link_hides_the_notice) on
-    a share link's page in the view, as on today's page of the same link: the flags {profiles: false, favourites:
-    false}, no Measure, Compare, Share or Download, no way back, the run's lines; the run read from its store only, the
+    a share link's page in the view, as on today's page of the same link: the flags {profiles: true, favourites:
+    false} (since 2026-11-26: every line's profile and Measure on a link, D1 and D3), Measure and no Compare, Share or
+    Download, no way back, the run's lines; the run read from its store only, the
     only list /s/runs.js (FINDALINE_RUNS undefined), nothing of /runs/ or another run asked; the disk notice never
     shown; "Copy link" gives the share page's own address with the line; a shared run without a store says
     ui.result.store_failed after its store's two 404s; no CSP violation. Today's page is opened by `?view=today`."""
@@ -1345,8 +1346,8 @@ def test_share_page_in_the_view(public, device):
             browser.close()
     view, today, old = r["view"], r["today"], r["old"]
     assert view["page"] == "view" and today["page"] == "today", (view["page"], today["page"])
-    assert view["app"] == today["app"] == {"profiles": False, "favourites": False}, ("S4", view["app"], today["app"])
-    assert view["actions"] == today["actions"] == [] and view["back"] == today["back"] == [], ("S4", view, today)
+    assert view["app"] == today["app"] == {"profiles": True, "favourites": False}, ("S4", view["app"], today["app"])
+    assert view["actions"] == today["actions"] == [WORDS["ui.actions.measure"]] and view["back"] == today["back"] == [], ("S4", view, today)
     assert view["lines"] > 0 and today["lines"] > 0, ("S4", view["lines"], today["lines"])
     assert view["files"] == ["lines.arrow", "profiles.arrow"] and view["lists"] == ["/s/runs.js"], ("S1", view)
     assert view["runs"] is True and view["others"] == [], ("S1", view)
@@ -1408,7 +1409,8 @@ def test_share_action_in_the_view(public):
     link = r["renewed"]["link"]
     assert link.startswith(f"{site}/s/") and link.endswith("/map.html") and SHARE_A not in link, ("S8", link)
     assert r["statuses"] == [404, 200], ("S8: the old link ends, the new opens", r["statuses"])
-    assert r["opened"]["page"] == "view" and r["opened"]["lines"] > 0 and r["opened"]["actions"] == [], ("S8", r["opened"])
+    # a link's page offers Measure since 2026-11-26 (D3), nothing else
+    assert r["opened"]["page"] == "view" and r["opened"]["lines"] > 0 and r["opened"]["actions"] == [WORDS["ui.actions.measure"]],         ("S8", r["opened"])
     assert r["opened"]["csp"] == [] and r["openedErrors"] == [], ("X1/X2 (S8's new link)", r["opened"]["csp"], r["openedErrors"])
     stopped, status = r["stopped"]
     assert stopped["buttons"] == ["Make a link"] and status == 404, ("S8: stopped", r["stopped"])

@@ -478,6 +478,8 @@ PAGES = {
     "map": ("map", "", None),
     "map-line": ("map", "", ".r-rows .r-row"),  # a spot selected: its details and profile
     "map-shared": ("shared", "", None),
+    # a share link's page with a spot selected by its visitor: its details with "3D view" (since 2026-11-26)
+    "map-shared-line": ("shared", "", ".r-rows .r-row", "visitor"),
     # line volume's round 7 (PG): a run's map.html, a share link's page and the app's page whose store could not be
     # loaded; the app's page while the run downloads (RUN_WAITS)
     "map-failed": ("map", "", RUN_FAILED_BACK),
@@ -566,6 +568,11 @@ PAGES = {
     "view3d-others": ("/view3d", VIEW3D + "&also={also}", [VIEW3D_READY, CARD_FOLDED, OTHERS_SHOWN]),
     # a phone held sideways (844 x 390, touch: the bar's controls in one row, docs/DESIGN.md row 37; phones only)
     "view3d-sideways": ("/view3d", VIEW3D, [VIEW3D_READY, CARD_FOLDED, "sideways:844x390", VIEW3D_READY]),
+    # a share link's 3D view (/s/<token>/view3d, its visitor without a session: no Save, no "Saved lines"; Back to the
+    # link's map), and "Only valid lines" there (2026-11-26)
+    "view3d-shared": ("/s/{share}/view3d", VIEW3D, VIEW3D_READY, "visitor"),
+    "view3d-shared-valid": ("/s/{share}/view3d?level=full", VIEW3D, [VIEW3D_READY, CARD_FOLDED, TOOL("valid"), REACH_SHOWN],
+                            "visitor"),
 }
 
 # The layout of C's result kept in localStorage ("findaline.layout", result/view/layout.ts) for a page; every other
@@ -1538,7 +1545,7 @@ def page_storage(name: str) -> str:
 def page_url(site: dict, ui: str, hash_: str) -> str:
     """A page's address on the site (`site`: url, run, share, line, also, border)."""
     start = {"map": f"/runs/{site['run']}/map.html", "shared": f"/s/{site['share']}/map.html"}.get(
-        ui, ui if ui.startswith("/") else f"/?ui={ui}")
+        ui, ui.format(share=site["share"]) if ui.startswith("/") else f"/?ui={ui}")
     return f"{site['url']}{start}{hash_.format(run=site['run'], line=site['line'], also=site['also'], border=site['border'])}"
 
 
@@ -1551,7 +1558,7 @@ def page_family(name: str) -> str:
     if name in VIEWS:
         return "view-b"
     ui, hash_ = PAGES[name][:2]
-    if ui.startswith("/view3d"):  # also "/view3d?level=..."
+    if ui.split("?")[0].endswith("/view3d"):  # also "/view3d?level=..." and a share link's "/s/{share}/view3d"
         return "view3d"
     if ui.startswith("/coverage"):
         return "coverage"

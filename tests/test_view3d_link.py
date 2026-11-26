@@ -154,9 +154,10 @@ def _link_page() -> tuple:
 
 def _link_context(browser, port: int, asked: list, refuse_reach: list | None = None):
     """A context without cookies in which /s/<TOKEN>/view3d is the link's 3D page and everything else the local app's
-    (its /api answers the clip's run: the link's server side is the server worker's); `asked` gets every /api request
-    as [path and query, its X-Findaline-Share or None, the time]; while `refuse_reach` holds a count, a reach is
-    answered 429 with Retry-After: 2 and the server's words."""
+    (its /api answers the clip's run; the local app answers a request with X-Findaline-Share 404, so the header is
+    taken off on the way: the link's server side is test_public's and test_share_link_end_to_end's); `asked` gets
+    every /api request as the page sent it, [path and query, its X-Findaline-Share or None, the time]; while
+    `refuse_reach` holds a count, a reach is answered 429 with Retry-After: 2 and the server's words."""
     import time
     from test_web import CSP_STUB
     page_html, csp = _link_page()
@@ -166,14 +167,14 @@ def _link_context(browser, port: int, asked: list, refuse_reach: list | None = N
         status=200, body=page_html, headers={"content-type": "text/html; charset=utf-8", "content-security-policy": csp,
                                              "cache-control": "no-store"}))
 
-    def reach(route):
-        if refuse_reach and refuse_reach[0] > 0:
+    def api(route):
+        if refuse_reach and refuse_reach[0] > 0 and "/api/reach" in route.request.url:
             refuse_reach[0] -= 1
             route.fulfill(status=429, headers={"content-type": "application/json", "retry-after": "2"},
                           body=json.dumps({"detail": {"code": "rate_link_reach", "params": {}, "message": REACH_TEXT}}))
         else:
-            route.continue_()
-    ctx.route(f"http://127.0.0.1:{port}/api/reach*", reach)
+            route.continue_(headers={k: v for k, v in route.request.headers.items() if k.lower() != "x-findaline-share"})
+    ctx.route(f"http://127.0.0.1:{port}/api/**", api)
 
     def seen(request):
         from urllib.parse import urlsplit
@@ -319,5 +320,139 @@ def test_link_view3d_waits_after_a_429(clip_data, monkeypatch):
             page.wait_for_function("() => document.getElementById('view3d').dataset.reach === '1'", timeout=WAIT * 4)
             assert len(reaches()) >= 2 and all(a[1] == TOKEN for a in asked), asked
             assert page.evaluate(failed) is None and page.errors == []
+        finally:
+            browser.close()
+
+
+# --- end to end: a real share link on the public app with its worker ----------------------------------------------
+
+@pytest.fixture
+def link_site(clip_data, tmp_path, monkeypatch):
+    """The public app (uvicorn in a thread) with a worker of its quick lane over a copy of the clip's data folder, the
+    clip's run owned by user "a"; yields (site, run id, the owner's headers for the API, the Jobs)."""
+    import shutil
+    import socket
+    import threading
+    import time
+
+    import uvicorn
+
+    import accounts as ac
+    import web
+    from jobs import Jobs, Scheduler
+    from settings import AccountSettings, PublicSettings
+    from test_patch import _offline_env
+    from test_public import ACCOUNTS, session_of
+    for key, value in {**_offline_env(), **ACCOUNTS}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("ESRI_API_KEY", raising=False)
+    account_settings = AccountSettings.load()
+    source, meta = clip_data
+    data = tmp_path / "data"
+    shutil.copytree(source, data)
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    site = f"http://localhost:{port}"
+    jobs = Jobs(str(data))
+    user_id, cookie, csrf = session_of(data, account_settings, "a")
+    jobs.add_run(meta["id"], user_id, 1)
+    scheduler = Scheduler(jobs, public=True)
+    scheduler.start()
+    app = web.create_app(str(data), public=PublicSettings(public_url=site, trusted_proxy="127.0.0.1",
+                                                          contact="admin@example.org"), accounts=account_settings)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 30
+        while not server.started:
+            assert time.monotonic() < deadline, "the server did not start"
+            time.sleep(0.05)
+        owner = {"cookie": f"{ac.SESSION_COOKIE}={cookie}", "x-findaline-token": csrf, "origin": site}
+        yield site, meta["id"], owner, jobs
+    finally:
+        server.should_exit = True
+        scheduler.stop()
+        thread.join(10)
+
+
+@edge
+def test_share_link_end_to_end(link_site):
+    """A link made by its owner (POST /api/runs/<run>/share) opened in a context without cookies: a line outside the
+    run (no saved profile) is measured by the server with the link's header; the selected line's "3D view" opens
+    /s/<token>/view3d, which draws the patch and the profile, takes a drag of an anchor and goes Back to the link's
+    map with the moved line; every /api request carries the token in X-Findaline-Share only. Revoked by the owner: the
+    map and the 3D page answer 404."""
+    import urllib.request
+    from urllib.parse import quote, urlsplit
+    from playwright.sync_api import sync_playwright
+    from test_shell_c_view_map import FLAG
+    from test_web import WAIT
+    site, run, owner, jobs = link_site
+    def owners(method: str) -> dict:  # the owner's request of the run's share link (Share's), its JSON answer
+        request = urllib.request.Request(f"{site}/api/runs/{quote(run, safe='')}/share", method=method, headers=owner)
+        direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # the offline env's dead proxy left out
+        with direct.open(request, timeout=30) as answer:
+            return json.loads(answer.read())
+    url = owners("POST")["url"]
+    token = urlsplit(url).path.split("/")[2]
+    asked: list = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            ctx = browser.new_context(viewport={"width": 1280, "height": 820})
+            ctx.add_init_script(FLAG)
+            ctx.on("request", lambda r: asked.append([urlsplit(r.url).path + "?" + urlsplit(r.url).query,
+                                                      r.headers.get("x-findaline-share")])
+                   if urlsplit(r.url).path.startswith("/api/") else None)
+            page = ctx.new_page()
+            page.errors = []
+            page.on("pageerror", lambda e: page.errors.append(str(e)[:300]))
+            page.goto(url)
+            page.wait_for_function("() => !!window.FINDALINE_VIEW", timeout=WAIT * 2)
+            assert page.evaluate("() => window.FINDALINE_APP") == {"profiles": True, "favourites": False}
+            # a line beside the run's first (its second anchor moved by about 5 m): measured by the server
+            first = page.evaluate("() => { const m = window.FINDALINE_VIEW.view.model; return m.lineLink(m.lineAt(0)); }")
+            lat1, lon1, lat2, lon2 = (float(v) for v in first.split(","))
+            outside = f"{lat1},{lon1},{lat2 + 0.00004},{lon2}"
+            page.evaluate("(hash) => { location.hash = hash; }", "#line=" + quote(outside, safe=""))
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.measured || !!window.FINDALINE_VIEW.view.model.note",
+                                   timeout=WAIT * 4)
+            assert page.evaluate("() => window.FINDALINE_VIEW.view.model.measuredLink") == outside, \
+                page.evaluate("() => window.FINDALINE_VIEW.view.model.note && window.FINDALINE_VIEW.view.model.note.text")
+            assert any(a[0].startswith("/api/profile") for a in asked), asked
+            # the first line's 3D view, by its button
+            page.evaluate("() => { const v = window.FINDALINE_VIEW.view; v.select(v.spotOf(0), 0); }")
+            page.wait_for_selector(".r-view3d", timeout=WAIT)
+            href = page.evaluate("() => document.querySelector('.r-view3d').href")
+            assert urlsplit(href).path == f"/s/{token}/view3d", href
+            page.goto(href)
+            page.wait_for_function("() => document.getElementById('view3d')?.dataset.ready === '1'", timeout=WAIT * 6)
+            assert page.evaluate("() => document.getElementById('view3d').dataset.profileError ?? null") is None
+            tools = page.evaluate("() => [...document.querySelectorAll('.v3-tool')].map((b) => b.dataset.tool)")
+            assert "save" not in tools and "others" not in tools, tools
+            page.evaluate(FRAMES)
+            box = page.evaluate("() => { const r = document.querySelectorAll('.v3-handle')[1].getBoundingClientRect();"
+                                " return [r.left + r.width / 2, r.top + r.height / 2]; }")
+            page.mouse.move(box[0], box[1])
+            page.mouse.down()
+            page.mouse.move(box[0] + 25, box[1] + 10, steps=6)
+            page.mouse.up()
+            page.wait_for_function("() => ['checked', 'error'].includes(document.getElementById('view3d').dataset.edit)",
+                                   timeout=WAIT * 4)
+            assert page.evaluate("() => document.getElementById('view3d').dataset.edit") == "checked"
+            back = page.evaluate("() => document.querySelector('.v3-back').href")
+            assert urlsplit(back).path == f"/s/{token}/map.html" and urlsplit(back).fragment.startswith("line="), back
+            page.click(".v3-back")
+            page.wait_for_function("() => !!window.FINDALINE_VIEW", timeout=WAIT * 2)
+            kinds = {a[0].split("?")[0] for a in asked}
+            assert {"/api/profile", "/api/patch"} <= kinds, kinds
+            assert all(a[1] == token and token not in a[0] for a in asked), asked
+            assert page.errors == []
+            # revoked: the map and the 3D page are gone
+            assert owners("DELETE") == {"ok": True}
+            assert page.goto(url).status == 404
+            assert page.goto(href).status == 404
         finally:
             browser.close()
