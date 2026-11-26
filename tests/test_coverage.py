@@ -163,6 +163,6 @@ def test_contrast_crop():
     assert np.isnan(cut[0]).all() and np.isnan(cut[:, 0]).all() and cut[1, 1] == values[0, 0]
 
 
-@pytest.mark.parametrize("res,level", [(0.5, 1), (1, 1), (2, 2), (5, 2), (10, 3), (30, 3)])
+@pytest.mark.parametrize("res,level", [(0.5, 1), (1, 1), (2, 2), (5, 2), (10, 2), (12, 3), (30, 3)])
 def test_level_of(res, level):
     assert coverage_data.level_of(res) == level

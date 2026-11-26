@@ -27,11 +27,11 @@ export function storyScenes(story: Story, length: Length, place: string, lang: L
     contrast: [S(1.1, sceneTitle(ct(lang, "media.hook"), ct(lang, `place.${place}`))), contrast(place, 4),
       contrast(others[0] || place, 3, 2), contrast(others[1] || place, 3, 2),
       S(2.6, sceneVerify, 1), S(2, sceneSummary, 1, map)],
-    fill: [S(1.1, sceneTitle(ct(lang, "media.fill.title"), null)), S(depth === 0 ? 5 : 7.5, tour, 0, map),
+    fill: [S(1.1, sceneTitle(ct(lang, "media.fill.title"), null)), S(depth === 0 ? 5 : depth === 1 ? 8.5 : 10, tour, 0, map),
       S(1.6, sceneSummary, 1, map)],
     timeline: [S(1, sceneTitle(ct(lang, "media.timeline.title"), ct(lang, "media.timeline.start"))),
       S(depth === 0 ? 6 : 8, sceneTimeline(depth), 0, map), S(1.6, sceneSummary, 2, map)],
-    mix: [contrast(place, 3.4), contrast(others[0] || place, 3, 2), S(2.4, sceneVerify, 2), S(depth === 0 ? 4 : 6, tour, 0, map),
+    mix: [contrast(place, 3.4), contrast(others[0] || place, 3, 2), S(2.4, sceneVerify, 2), S(depth === 0 ? 4 : 7, tour, 0, map),
       S(1.4, sceneSummary, 1, map)],
   }[story].filter(s => depth >= s.min);
   list.push(S(1.6, sceneEnd([...new Set(list.flatMap(s => s.credit ? [s.credit] : []))])));
