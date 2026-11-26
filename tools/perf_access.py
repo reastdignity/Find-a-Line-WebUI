@@ -864,16 +864,25 @@ class Search:
         import search
         self.search = search
         # the names patched for this search, restored by close() (a second search in the process starts clean)
+        # a tree whose rule holds the fixed term itself (search.ACCESS_FIXED_BYTES, since the close of the task)
+        self.tree_fixed = hasattr(search, "ACCESS_FIXED_BYTES")
         self._patched = {name: getattr(search, name) for name in ("available_memory", "ACCESS_AREA_BYTES",
-                                                                  "_access_budget")}
+                                                                  "_access_budget", "ACCESS_FIXED_BYTES")
+                         if hasattr(search, name)}
         if args.memory:
             search.available_memory = lambda: int(args.memory)  # before plan_search: _check_access and the tiles
-        self.area_fixed = int(getattr(args, "area_fixed", None) or 0)
+        option = getattr(args, "area_fixed", None)
+        self.area_fixed = None if option is None else int(option)  # --area-fixed as given (None: not given)
         if getattr(args, "area_bytes", None) is not None:  # the rule with another per-pixel constant, this run only
             search.ACCESS_AREA_BYTES = float(args.area_bytes)
-        if self.area_fixed:  # and a fixed term: the budget less it, for the check and for the blocks' side
+        if self.area_fixed is not None and self.tree_fixed:  # the tree's own fixed term replaced, this run only
+            search.ACCESS_FIXED_BYTES = self.area_fixed
+        elif self.area_fixed:  # a tree before it: the budget less the term, for the check and for the blocks' side
             real_budget = search._access_budget
             search._access_budget = lambda plan: real_budget(plan) - self.area_fixed
+        # the fixed term the rule counts in this run: the tree's (an option overrides it), or the option on a tree
+        # before it
+        self.fixed = int(search.ACCESS_FIXED_BYTES) if self.tree_fixed else int(self.area_fixed or 0)
         searches, options = pm.parse_cli(list(args.search) + ["--no-plot", "--yes", "--ortho", "never"])
         if len(searches) != 1:
             raise SystemExit("one search only")
@@ -907,8 +916,9 @@ class Search:
         out = {"budget": int(s._access_budget(plan)), "access_memory": int(s.access_memory(plan)),
                "access_skipped": plan.access_skipped, "at_once": block is None, "block_px": block,
                "margin_px": margin, "ACCESS_AREA_BYTES": s.ACCESS_AREA_BYTES, "area_fixed": self.area_fixed,
+               "ACCESS_FIXED_BYTES": getattr(s, "ACCESS_FIXED_BYTES", None), "fixed_counted": self.fixed,
                "ACCESS_WINDOW_BYTES": s.ACCESS_WINDOW_BYTES, "ACCESS_DISK_BYTES": s.ACCESS_DISK_BYTES}
-        if self.area_fixed:
+        if self.area_fixed and not self.tree_fixed:
             out["budget"] += self.area_fixed  # the budget given; the rule's check used it less the fixed term
             out["access_memory"] += self.area_fixed
         if block:
@@ -918,7 +928,7 @@ class Search:
             out["window_px_max"] = min(h, block + 2 * margin) * min(w, block + 2 * margin)
             # what the rule counts for this search in blocks: the constant per pixel of the grid, the fixed term and
             # the window bytes per pixel of its window
-            out["counts_bytes"] = int(s.ACCESS_AREA_BYTES * self.pixels + self.area_fixed
+            out["counts_bytes"] = int(s.ACCESS_AREA_BYTES * self.pixels + self.fixed
                                       + s.ACCESS_WINDOW_BYTES * out["window_px_max"])
         return out
 
@@ -2025,7 +2035,9 @@ def parser() -> argparse.ArgumentParser:
                    help="stages: the tiles' estimate (search._estimate_tiles) between step 1 and the stages")
     p.add_argument("--block-px", type=int, help="stages, compare, masks: the blocks' side instead of the rule's")
     p.add_argument("--area-bytes", type=float, help="the rule with this search.ACCESS_AREA_BYTES (this run only)")
-    p.add_argument("--area-fixed", type=int, help="and this fixed term of the rule in bytes (this run only)")
+    p.add_argument("--area-fixed", type=int, help="the rule's fixed term in bytes, this run only: the tree's "
+                                                  "search.ACCESS_FIXED_BYTES replaced (a tree before it: its budget "
+                                                  "less the term)")
     p.add_argument("--anchors", action="store_true", help="pieces: the share of blocks holding an anchor too")
     p.add_argument("--capture", help="pieces: keep the pass's final masks in this folder")
     p.add_argument("--mask", help="masks: the mask (.npy, one byte a pixel)")

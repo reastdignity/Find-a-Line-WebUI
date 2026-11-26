@@ -414,12 +414,19 @@ peaks and where they fell, and the unique sets' peak (`peak_tree_uss_mb`, the me
 `--cores`, `--memory`, `--worker` for a compute slot's shape (the search's own plan only); a refusal as its code, a
 missing record or run as a warning; `tests/test_perf_slot_memory.py`, which also pins `perf_country.py`'s copy of
 `LINE_BYTES`);
-`perf_access.py` (the access grid's memory and seconds, docs/performance.md "The access grid's memory": `plan` the
-rule's answer without data, `stages` step 1 then the grid at once and in blocks in a chosen order, sampled every 20 ms
-by a sidecar process (numba's kernels hold the GIL) with the grid-wide pass split by wrapping access.py's private
-functions (those found listed under "hooks"), the cgroup's memory in a container; `pieces` the masks' pieces strip by
-strip, the shares of heights, area and blocks; `masks` one mask memory-mapped, bit-packed and in a plain file, each in
-a child process; `compare` the pixels that differ; `tests/test_perf_access.py`, which relies only on
+`perf_access.py` (the access grid's memory and seconds, docs/performance.md "The access grid's memory"; another
+tree's code through `PERF_ACCESS_REPO`: `plan` the rule's answer without data (what it counts: `ACCESS_AREA_BYTES` x
+pixels + `ACCESS_FIXED_BYTES` + 50 B x the largest window; `--area-bytes`, `--area-fixed` replace them for one run),
+`stages` step 1 then the grid at once ("once"), in blocks as the search makes them ("blocks": the search area passed
+as `search._access_grid` passes it, `--every-block` without it) or every block unsplit ("full"), in a chosen order,
+sampled every 20 ms by a sidecar process (numba's kernels hold the GIL): the working set, the private bytes, the file
+pages exactly (Windows: less the private working set), the work folder's files on disk, the cgroup's memory and cache
+in a container; the grid-wide pass split per pass into mask, regions and after by wrapping access.py's private
+functions (those found listed under "hooks"), every block apart; the grid at once against the blocks by rule (a)
+(where computed, the area's pixels never left out) and rule (b) (every pixel); `--empty-start`, `--keep-grid`;
+`pieces` the masks' pieces strip by strip, the shares of heights, area and blocks, `--capture` the masks as bool
+grids; `masks` one mask memory-mapped, bit-packed and in a plain file, each in a child process; `compare` the pixels
+that differ, `--files A B --rule a|b` for two kept grids; `tests/test_perf_access.py`, which relies only on
 `access_grid`, `block_grid` and `_answers`);
 `perf_profile.py --tracemalloc` the heap per stage; `perf_window_reads.py` (the bytes, requests, seconds and memory of
 a window layer's blocks over a circle on an empty scratch cache, each mode in a child process: `blocks`, `group=<m>`,

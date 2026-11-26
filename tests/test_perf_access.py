@@ -562,14 +562,25 @@ def test_the_rules_constants_for_one_run_only(tmp_path, made_up_search):
     """plan with --area-bytes and --area-fixed: the rule's answer with them (recorded), and search's names as before
     once the command ends (a second command in the process starts from the tree's constants)."""
     import search
-    before = (search.ACCESS_AREA_BYTES, search._access_budget, search.available_memory)
+    names = ("ACCESS_AREA_BYTES", "_access_budget", "available_memory", "ACCESS_FIXED_BYTES")
+    before = [getattr(search, n, None) for n in names]
     out = pa.main(["plan", "--out", str(tmp_path / "out"), "--name", "r", "--memory", "3000000", "--area-bytes", "7",
                    "--area-fixed", "1000", *made_up_search])
     r = out["rule"]
     assert r["ACCESS_AREA_BYTES"] == 7 and r["area_fixed"] == 1000 and r["budget"] == 3_000_000
+    assert r["fixed_counted"] == 1000  # the tree's ACCESS_FIXED_BYTES replaced, or a tree before it: the budget less
+    if hasattr(search, "ACCESS_FIXED_BYTES"):
+        assert r["ACCESS_FIXED_BYTES"] == 1000
     if r["block_px"]:
         assert r["counts_bytes"] == int(7 * out["plan"]["grid_px"] + 1000 + 50 * r["window_px_max"])
-    assert (search.ACCESS_AREA_BYTES, search._access_budget, search.available_memory) == before
+    assert [getattr(search, n, None) for n in names] == before
+    # without the options the tree's own constants count, the fixed term among them
+    plain = pa.main(["plan", "--out", str(tmp_path / "out"), "--name", "p", "--memory", "3000000", *made_up_search])
+    q = plain["rule"]
+    assert q["area_fixed"] is None and q["fixed_counted"] == getattr(search, "ACCESS_FIXED_BYTES", 0)
+    if q["block_px"]:
+        assert q["counts_bytes"] == int(search.ACCESS_AREA_BYTES * plain["plan"]["grid_px"] + q["fixed_counted"]
+                                        + search.ACCESS_WINDOW_BYTES * q["window_px_max"])
 
 
 def test_pieces_and_compare_on_a_made_up_search(tmp_path, made_up_search):
