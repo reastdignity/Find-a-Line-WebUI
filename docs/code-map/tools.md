@@ -280,6 +280,15 @@ store the server answers with 404), `c-run-loading`, `c-run-loading-gb` (a store
 share, delete or store nothing; only the two `-refused` states send a name, one the server refuses
 (`tests/test_ui_shots_round7.py`).
 
+## `tools/home_screen_icons.py`
+
+Run by hand (line volume's round 7, B8): the site's home-screen icons in `viewer/home-screen/` (`apple-touch-icon.png`
+180 px, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`): the logo's mark (`viewer/src/ui/logo/mark.svg`) on
+white in the light theme's colours, drawn by Playwright's Chromium (group `ui`), saved opaque by Pillow; beside
+`viewer/src`, not in it (tests read every file there as text); `viewer/build.mjs` copies them into dist. Run again
+after a change of the mark, its `.u-l*` rules in `ui.css` or `--ink`/`--clear` (`tests/test_home_screen.py` compares
+the files with a fresh drawing).
+
 ## `tools/ui_coast_run.py`
 
 Run by hand: a coastal run for `ui_shots.py`'s coast states of the result view: a copy of the Żabi Koń clip's run of a

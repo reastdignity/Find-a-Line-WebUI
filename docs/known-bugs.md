@@ -834,7 +834,7 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
 ## Line volume, round 7: known and left (2026-11-25)
 
 Found in round 7's reviews and checks (renaming a run, the size on Home, the screenshot states of the filters,
-`linestore.read` of chosen columns); none fixed. The user's answers of 2026-11-25 are quoted.
+`linestore.read` of chosen columns, the home-screen app); none fixed. The user's answers of 2026-11-25 are quoted.
 
 **Renaming a run** (the public site only)
 - **The result view's header at tablet widths** (the user's answer 6: "Known bug, design later"; a header layout for
@@ -913,10 +913,23 @@ each a roadmap line in docs/roadmap.md, "Line volume round 7: open")
   it: the storage starts empty and no page before the state sets a filter). `c-view-report` once showed a "Failed to
   fetch" banner over its picture in a whole pass and none when shot alone (2026-11-24; it runs before the new states).
 
-**The coverage page** (seen in round 7's checks)
+**The home-screen app and the bars** (B8; the installed app on a real iPhone is the user's check: on the LAN on
+2026-11-26, signing in and Rename after a deploy)
+- **CI has no Playwright**: the browser tests of the home-screen app (`tests/test_home_screen.py`: the fresh drawing
+  of the icons, the installability in Chromium, a `map.html` from disk) and of the bars (`tests/test_theme_bars.py`
+  but its Node unit) skip there and run on a developer's PC only.
+- **On an iPhone the installed app's status bar takes the chosen theme only at the app's start** (iOS 18, the user's
+  check of 2026-11-26): it shows the ground of the theme chosen in the app when the app starts; a change in Account
+  shows after the app is closed and opened again. Three other ways of colouring it were tried (a fresh theme-color
+  line, the page's own background, both: tag `history/bars-variants`), all alike. Safari's tab and Android not tried.
+  DESIGN.md row 137.
 - **The coverage page differs by one pixel column** at the right edge when the system's theme is crossed with the
   chosen one (its `body`'s background follows the system, `coverage/page/page.css`, while `.ui.cov` follows the
   chosen theme). Older than the round.
+- **Until the bundle runs, the bars show the system's ground**: on the coverage page one paint came before its script
+  in 3 of 7 tries (only the body, in the system's colours; the worker's count, not re-run,
+  `local/line-volume-7-2026-11-23/TH/report.md`); nothing can set the lines earlier without an inline script or a
+  server change.
 
 ## The UI measuring tools: known and left (2026-11-17)
 
