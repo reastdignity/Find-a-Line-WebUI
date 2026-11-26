@@ -66,7 +66,7 @@ GIF_FPS = 15             # the README's GIF: 15 frames a second, scaled to GIF_W
 GIF_WIDTH = 900
 POSTER_DPI = 300         # the A3 poster: 3508 x 4961 px are 297 x 420 mm
 # README's assets: the GIF of each theme and the static maps of these views (FAL_MEDIA's `gh-<view>`)
-README_VIEWS = ("world", "europe", "na", "oceania")
+README_VIEWS = ("world", "europe", "na", "caribbean", "sa", "asia", "oceania", "africa")
 LOAD_SECONDS = 60
 
 
@@ -326,11 +326,12 @@ class MediaPage:
         return self
 
     def _compare(self):
-        """The tool's lists of stories, lengths and formats must be the page's."""
+        """The tool's lists of stories, lengths, formats, groups and README views must be the page's."""
         info = self.info
         if (tuple(info["stories"]) != STORIES or info["lengths"] != LENGTHS
                 or {k: tuple(v) for k, v in info["formats"].items()} != FORMATS
-                or {s["group"] for s in info["statics"]} != set(GROUPS)):
+                or {s["group"] for s in info["statics"]} != set(GROUPS)
+                or {s["name"] for s in info["statics"] if s["group"] == "readme"} != {f"gh-{v}" for v in README_VIEWS}):
             raise Failure(f"the media page offers other stories, lengths, formats or groups: {info}")
 
     def __exit__(self, *exc):

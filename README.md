@@ -3,7 +3,7 @@ This is an application that finds topographically valid highlines. It downloads 
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-dark.gif">
-  <img src="docs/images/coverage-light.gif" alt="Where Find-a-Line sees in detail: the countries and regions with 1 m and 2–5 m lidar data on a world map, everywhere else 30 m">
+  <img src="docs/images/coverage-light.gif" alt="Where Find-a-Line sees in detail: the countries and regions with 1 m and 2–10 m data on a world map, everywhere else 30 m">
 </picture>
 
 Where the data is detailed and what that means for the lines it finds: the [coverage map](https://findaline.lukawski.org/coverage) (no sign-in needed; *Coverage map* below).
@@ -200,16 +200,20 @@ The elevation models of Slovakia, Madeira (with Porto Santo, the Desertas and th
 **Publishing (the operator).** `python tools/mirror_publish.py` puts a dataset of the master (`FINDALINE_MIRROR`) onto the data server, over SFTP with [rclone](https://rclone.org) 1.76 or newer (on `PATH`, or named by `FINDALINE_RCLONE`), each command with `--config <file>`, the rclone config file that holds the remote `findaline-mirror` (its top `findaline-mirror:/mirror` is `<root>` on the server): `verify <folder>` (the master's) or `verify --config <file> findaline-mirror:/mirror/public/v1/tiles/<dataset>`, `publish <dataset> --config <file> --to findaline-mirror:/mirror` (the master from `FINDALINE_MIRROR`, or `--mirror <folder>`), `unpublish <dataset> --config <file> --to findaline-mirror:/mirror` (a takedown), `clean --config <file> --to findaline-mirror:/mirror` (the trash of replaced datasets, 7 days) and `stats --config <file> --from findaline-mirror:/mirror/logs` (requests, bytes, refusals and client versions per day; never an address); `--help` says the rest. The remote is an SFTP remote in that config file of its own (rclone writes into the file it is given, so keep it private) with `shell_type = unix`, `hashes = sha256`, `sha256sum_command = sha256sum` and a `known_hosts_file` holding the server's host key (the whole section, with the publishing door it reaches: [deploy/mirror/README.md](deploy/mirror/README.md), "The publishing account"). `<root>` is one mount on the server (its `staging/`, `public/` and `trash/` on one file system: the tool moves a dataset by renames, and the door refuses a rename it cannot do instead of copying). A publish hashes the whole master first, also when it resumes, and refuses a dataset without its approved row in `PUBLISHABLE`, one already published (unless `--same-values`: a re-encoding with the same values), and a server with less free space than it needs plus 10 GB (rclone reads the free blocks, which on Linux include those reserved for root: a copy can still stop on a nearly full disk, leaving the public folder untouched). A recut with other values is a new edition under a new folder name; to replace a dataset otherwise, `unpublish` it, then `publish` it. A first publish of a dataset leaves "directory not found" lines in rclone's log (`--log`): the tool checks folders before it makes them; they are no fault. `publish` and `verify` of a master folder print a note when a dataset's own `README.md` is missing or differs from the card the tool serves (the server always gets the tool's card); `python tools/mirror_tiles.py cut <dataset> --work <folder> --out <mirror>` rewrites it for a finished dataset and cuts nothing (Slovakia's card only by `tools/sk_tiles.py`'s cut, average and recompress, beside their own work). `stats` and `clean` are a monthly item ([docs/deployment.md](docs/deployment.md), section 17).
 
 ### Coverage map
-`/coverage` of the web app (on the public site [findaline.lukawski.org/coverage](https://findaline.lukawski.org/coverage), open without signing in, linked from the sign-in, about and search pages) shows on a map where the data is detailed, in words for people who never met an elevation model: *very detailed* (1 m or finer: single boulders and ledges), *detailed* (2–5 m: walls and towers, small details smoothed) and *rough* (the global 30 m: only big cliffs), hatched where only parts of a country or region have it; a card per country or region tells whether trees and buildings are known, the survey's years, the provider and what is good to know (heights in whole metres, lines shorter than about 30 m unreliable, gaps filled from coarser data). It has three views (a flat map, a map with the app's base layers, a globe), English and Polish, and the quality also as everyday sizes or stars. The place map of a new search shows the same areas with *Data coverage*.
+`/coverage` of the web app (on the public site [findaline.lukawski.org/coverage](https://findaline.lukawski.org/coverage), open without signing in, linked from the sign-in, about and search pages) shows on a map where the data is detailed, in words for people who never met an elevation model: *very detailed* (1 m or finer: single boulders and ledges), *detailed* (2–10 m: walls and towers, small details smoothed) and *rough* (the global 30 m: only big cliffs), hatched where only parts of a country or region have it; a card per country or region tells whether trees and buildings are known, the survey's years, the provider and what is good to know (heights in whole metres, lines shorter than about 30 m unreliable, gaps filled from coarser data). It has three views (a flat map, a map with the app's base layers, a globe), English and Polish, and the quality also as everyday sizes or stars. The place map of a new search shows the same areas with *Data coverage*.
 
 <p>
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-europe-dark.png"><img src="docs/images/coverage-europe-light.png" alt="Detailed elevation data in Europe" width="100%"></picture>
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-na-dark.png"><img src="docs/images/coverage-na-light.png" alt="Detailed elevation data in North America" width="49%"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-caribbean-dark.png"><img src="docs/images/coverage-caribbean-light.png" alt="Detailed elevation data in the Caribbean" width="49%"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-sa-dark.png"><img src="docs/images/coverage-sa-light.png" alt="Detailed elevation data in South America" width="49%"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-asia-dark.png"><img src="docs/images/coverage-asia-light.png" alt="Detailed elevation data in East Asia" width="49%"></picture>
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-oceania-dark.png"><img src="docs/images/coverage-oceania-light.png" alt="Detailed elevation data in Oceania" width="49%"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/coverage-africa-dark.png"><img src="docs/images/coverage-africa-light.png" alt="Detailed elevation data in Africa (Réunion and Mayotte)" width="49%"></picture>
 </p>
 
 - The map is generated from the catalogue: each source that colours it declares a `coverage` (`Coverage` in [sources/source.py](sources/source.py): its provider, the areas, partial or not, the survey, notes), `uv run tools/coverage_data.py` writes [viewer/src/coverage/coverage.json](viewer/src/coverage/coverage.json) from it (`--check` in the tests), and `uv run tools/coverage_shapes.py` the outlines of the countries and regions from [Natural Earth](https://www.naturalearthdata.com) (public domain; a part of a country its source does not cover, such as France's overseas regions or Svalbard, stays at 30 m). Change a source's coverage or add one, then run both and `node build.mjs` in `viewer/`.
-- *Is 30 m enough?* At nine famous places (Żabi Koń, the Matterhorn, Preikestolen, the Bastei, the Verdon's Imbut, Half Dome, Delicate Arch, the Stawamus Chief, Aoraki) the same national lidar was searched at 1 m and averaged to 30 m (anchors from 40.5°, the first version's rule for 30 m; lines of 30–150 m in a circle of 400 m): the 1 m data shows 1730 highline spots, 30 m finds 685 of them (4 in 10), and 34 of the 127 spots found at 30 m are not there in the 1 m data (a 30 m spot counts as real when a 1 m line has both anchors within 45 m). `uv run tools/coverage_contrast.py search --data-dir <folder>` and `write` make [docs/coverage/contrast/](docs/coverage/contrast/) (hillshades, spots and the check), which the animations show.
+- *Is 30 m enough?* At nine famous places (Żabi Koń, the Matterhorn, Preikestolen, the Bastei, the Verdon's Imbut, Half Dome, Delicate Arch, the Stawamus Chief, Aoraki) the same national lidar was searched at 1 m and averaged to 30 m (anchors from 40.5°, the first version's rule for 30 m; lines of 30–150 m in a circle of 400 m): the 1 m data shows 2010 highline spots, 30 m finds 794 of them (4 in 10), and 26 of the 107 spots found at 30 m are not there in the 1 m data (a 30 m spot counts as real when a 1 m line has both anchors within 45 m). `uv run tools/coverage_contrast.py search --data-dir <folder>` and `write` make [docs/coverage/contrast/](docs/coverage/contrast/) (hillshades, spots and the check), which the animations show.
 - Animations and images for social media and this README: `tools/coverage_media.py` renders them from the same drawing code in headless Chromium and encodes them with the ffmpeg of imageio-ffmpeg (group `ui`; Node and `npm ci` in `viewer/` build the page): MP4 videos of four stories (the 30 m against 1 m contrast, the map filling up, how the map grew, a mix) at 10, 18 and 26 seconds, 4:5 and 9:16, light and dark, English and Polish, optionally with music; the README's GIFs and images; a carousel, Stories and an A3 poster.
 
   ```
@@ -492,52 +496,59 @@ python findaline.py --lat 50.1559508 --lon 19.7562722 --resolution 2
 The terminal shows the settings, the progress of every step and finally the spots found (shortened):
 
 ```
-Centre: 50.155951, 19.756272 (WGS84) / N 254576, E 554008 (PL-1992)
-Radius: 1000m, resolution: 2m (1001 x 1001 px)
+Centre: 50.155951, 19.756272 (WGS84) / E 554008, N 254576 (EPSG:2180)
+Data: geoportal.gov.pl (the centre is in PL) - GUGiK (Poland): NMT and NMPT sheets of 1 m or finer, newest survey, PL-EVRF2007-NH
+Radius: 1000m, resolution: 2m (1301 x 1301 px)
 Length constraints: 30m - 1000m
 Anchor height difference: at most 5% of the length and 50m
 Slope threshold: 45 degrees
 NMPT (trees/buildings): mark
 Clearance model: maximum elevation formula
 ...
-Found 8371 potential anchors to evaluate
-Anchors with an open direction: 1000 of 8371
+Found 8900 potential anchors to evaluate
+Anchors with an open direction: 1261 of 8900
 ...
-Found 691 valid lines in 66 spots (lines with both anchors within 20m are grouped, ...)
+Found 1248 valid lines in 109 spots (lines with both anchors within 20m are grouped, ...)
 GPS Coordinates (lat, lon):
-  Spot 1: 102m, min. clearance 4.6m
-    38 similar lines, 95-103m
-    Anchor 1: 50.156485, 19.755093
-    Anchor 2: 50.155991, 19.756290
-  Spot 2: 169m, min. clearance 3.8m
-    22 similar lines, 168-174m
-    Anchor 1: 50.155290, 19.756279
-    Anchor 2: 50.154057, 19.754887
+  Spot 1: 102m, min. clearance 8.0m
+    137 similar lines, 90-113m
+    Anchor 1: 50.156507, 19.755129
+    Anchor 2: 50.155960, 19.756268
+  Spot 2: 101m, min. clearance 5.8m
+    30 similar lines, 95-113m
+    Anchor 1: 50.156774, 19.755637
+    Anchor 2: 50.155960, 19.756268
   ...
 Run "Żabi Koń, Gaj Kobylański" saved to ...
-View it: findaline.py view 2026-10-23_174205_Zabi-Kon-Gaj-Kobylanski
+View it: findaline.py view 2026-11-24_201625_Zabi-Kon-Gaj-Kobylanski_03e989eef7547ac3
 ```
 
 On a 24-core PC the line search took a fraction of a second (plus a few seconds to compile the search code on the very first run); the first run in an area also downloads about 100 MB of elevation data and a few thousand orthophoto tiles.
 
-Of the 66 spots, 16 have clearance over the trees as well (pink); the other 50 only over the terrain (orange). The interactive map (`findaline.py view`) shows them all:
+Of the 109 spots, 24 are clear over the trees as well (pink, *Clear*); the other 85 only over the terrain (orange, *Over trees or buildings*). `findaline.py view` opens the run in the app: the spots in a list, the best ones in view numbered on the map:
 
-![Map of the lines around Żabi Koń](docs/images/zabi-kon-overview.jpg)
+![The run around Żabi Koń in the app](docs/images/zabi-kon-overview.jpg)
 
-Clicking a line opens its details and the terrain profile. Spot 1 is a 102 m line from the slope north-west of the rock to the top of Żabi Koń, with 4.6 m to spare below the safety limit (dashed red). The sag estimator shows the webbing would sag about 5.6 m below the straight line between the anchors with an 80 kg athlete in the middle (2.5 kN pretension):
+Selecting a line opens its details and the terrain profile. The terminal's Spot 1 (*Spot 3.1* in the app) is a 102 m line from the slope north-west of the rock to the top of Żabi Koń, with 8.0 m to spare below the safety limit (dashed red). The sag estimator shows the webbing would sag about 5.6 m below the straight line between the anchors with an 80 kg athlete in the middle (2.5 kN pretension):
 
-![Profile of the 102 m line to Żabi Koń](docs/images/zabi-kon-profile.png)
+![The 102 m line to Żabi Koń with its profile](docs/images/zabi-kon-profile.png)
 
-With the geoportal orthophoto you can check the rocks and trees at the anchors (zoomed in to a 10 m scale):
+With the geoportal orthophoto as the map (the layers' button) you can check the rocks and trees at the anchors:
 
-![Orthophoto around Żabi Koń](docs/images/zabi-kon-ortho.jpg)
+![The same line over the orthophoto](docs/images/zabi-kon-ortho.jpg)
 
-The same results as CSV (`findaline.py export 2026-10-23_174205_Zabi-Kon-Gaj-Kobylanski --format csv`), one row per line, for example (selected columns):
+*3D view* shows the line over the terrain with the orthophoto draped on it, the webbing sagging under the athlete:
+
+![The 102 m line in the 3D view](docs/images/zabi-kon-3d.jpg)
+
+The pictures are made by `uv run tools/ui_shots.py --readme --run <the run's folder> --line <its anchors> --data-dir <its data folder>`.
+
+The same results as CSV (`findaline.py export 2026-11-24_201625_Zabi-Kon-Gaj-Kobylanski_03e989eef7547ac3 --format csv`), one row per line, for example (selected columns):
 
 | group | representative | group_size | length_m | clearance_m | clearance_nmpt_m | anchor1_lat | anchor1_lon | anchor2_lat | anchor2_lon |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | True | 38 | 101.5 | 4.56 | 4.55 | 50.156485 | 19.7550932 | 50.1559914 | 19.7562897 |
-| 2 | True | 22 | 169.3 | 3.78 | 1.86 | 50.1552897 | 19.7562786 | 50.1540572 | 19.7548869 |
+| 1 | True | 137 | 101.6 | 8.03 | 8.03 | 50.1565072 | 19.7551285 | 50.15596 | 19.7562682 |
+| 2 | True | 30 | 101.1 | 5.81 | 5.81 | 50.1567738 | 19.7556369 | 50.15596 | 19.7562682 |
 
 ### More examples
 ```

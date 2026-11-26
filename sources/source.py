@@ -60,7 +60,7 @@ class Coverage:
     areas: Tuple[str, ...] = ()
     partial: bool = False   # its level is reached in parts of its areas only (drawn hatched)
     rest: Tuple[float, ...] = ()  # the coarser resolutions (metres) of the rest of its areas: a mix
-    level: Optional[int] = None   # 1 (≤ 1 m), 2 (2-5 m); None: from the default resolution
+    level: Optional[int] = None   # 1 (≤ 1 m), 2 (2-10 m); None: from the default resolution
     survey: str = ""        # years ("2018", "2017–2023" with an en dash), a code of "survey.<code>", "" unknown
     trees: Optional[str] = None   # "yes", "no", "part", "surface" (only a surface model); None: "yes" with a
                                   # surface layer, else "no"

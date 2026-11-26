@@ -43,7 +43,9 @@ def test_the_views_states():
     assert ui_shots.VIEWS and set(ui_shots.VIEWS) <= set(ui_shots.PAGES) and set(ui_shots.VIEWS.values()) == {"b"}
     for name in set(ui_shots.VIEWS) - set(ui_shots.VIEW_STATES):  # step 3d's: tests/test_ui_shots_view_states.py
         ui, hash_, steps = ui_shots.PAGES[name][:3]
-        assert (ui, hash_) == ("c", "#run={run}") and steps[0] == ui_shots.VIEW_READY == "wait:window.FINDALINE_VIEW", name
+        # the README's line pages open their line by the address (--readme: the view selects it)
+        assert ui == "c" and hash_ in ("#run={run}", "#run={run}&line={line}"), name
+        assert steps[0] == ui_shots.VIEW_READY == "wait:window.FINDALINE_VIEW", name
         assert ui_shots.NEEDS[name] == "view" and all(step.startswith(("js:", "wait:")) for step in steps), name
         assert "localStorage.setItem('findaline.view', \"b\")" in ui_shots.page_storage(name)
     assert "view" in ui_shots.LACKS

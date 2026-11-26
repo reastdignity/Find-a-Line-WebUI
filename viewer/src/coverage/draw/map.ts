@@ -8,13 +8,23 @@ import type { Level } from "../types";
 import { rrect, type Box, type Ctx } from "./canvas";
 import type { View, World } from "./world";
 
-/** The boxes (west-south, east-north) the cameras of the views frame. */
+/** The boxes (west-south, east-north) the cameras of the views frame (the user's picks of 2026-11-24: Europe wide
+ *  enough for Madeira, the Canaries and Cyprus; Africa close on Réunion and Mayotte; East Asia on Japan and Hong
+ *  Kong). */
 export const BOXES: Record<View, [[number, number], [number, number]]> = {
-  world: [[-170, -58], [190, 80]], europe: [[-11, 35], [33, 71.5]], na: [[-168, 16], [-52, 71]],
-  oceania: [[138, -48], [180, -10]],
+  world: [[-170, -58], [190, 80]], europe: [[-18, 27], [35, 71.5]], na: [[-168, 16], [-52, 71]],
+  caribbean: [[-86, 9], [-59, 27]], sa: [[-82, -56], [-34, 13]], asia: [[108, 16], [146, 44]],
+  oceania: [[138, -48], [180, -10]], africa: [[22, -32], [68, 0]],
 };
 
 export interface Camera { lon: number; lat: number; k: number }
+
+/** A small area's dot: its radius is the box's width over DOT_DIVISOR times the fourth root of the zoom (6.7 px on
+ *  the README's world, 1600 px wide, about the old 10 px on a continent); up to MERGE_K of zoom (the world and the
+ *  first moments of a flight from it) dots that would touch become one, in the best level's colour (the user's
+ *  pick of 2026-11-24, option C of the mock-up). */
+const DOT_DIVISOR = 240;
+const MERGE_K = 1.2;
 
 const baseScales = new Map<number, number>();
 /** The scale of Equal Earth showing the whole sphere `w` wide. */
@@ -43,11 +53,15 @@ export function camFor(view: View, box: Box): Camera {
   return cam;
 }
 
-/** Between two cameras: the centre linearly, the zoom on a log scale (an even flight). */
-export const lerpCam = (a: Camera, b: Camera, t: number): Camera => ({
-  lon: a.lon + (b.lon - a.lon) * t, lat: a.lat + (b.lat - a.lat) * t,
-  k: Math.exp(Math.log(a.k) + (Math.log(b.k) - Math.log(a.k)) * t),
-});
+/** Between two cameras: the centre linearly the short way round (Oceania to North America over the Pacific, not
+ *  back over Africa), the zoom on a log scale (an even flight). */
+export const lerpCam = (a: Camera, b: Camera, t: number): Camera => {
+  const dLon = ((b.lon - a.lon) % 360 + 540) % 360 - 180;
+  return {
+    lon: a.lon + dLon * t, lat: a.lat + (b.lat - a.lat) * t,
+    k: Math.exp(Math.log(a.k) + (Math.log(b.k) - Math.log(a.k)) * t),
+  };
+};
 
 export function projFor(cam: Camera, box: Box): GeoProjection {
   const p = geoEqualEarth().rotate([-cam.lon, 0]).scale(baseScale(box.w) * cam.k).translate([0, 0]);
@@ -98,12 +112,23 @@ export function drawMap(ctx: Ctx, th: Theme, world: World, box: Box, cam: Camera
   ctx.strokeStyle = th.edge;
   ctx.beginPath(); for (const f of world.countries) path(f); ctx.lineWidth = lw; ctx.stroke();
   ctx.beginPath(); for (const f of world.regions) path(f); ctx.lineWidth = lw * .8; ctx.stroke();
-  const dot = Math.max(4, box.w / 160);
+  const dot = Math.max(2.5, box.w / DOT_DIVISOR * Math.pow(cam.k, .25)), merge = cam.k <= MERGE_K;
+  const dots: {x: number; y: number; r: number; level: Level}[] = [];
   for (const id of world.small) {
     const r = reveal(id), [x, y] = proj(world.centroids.get(id)!)!;
     if (x < box.x || x > box.x + box.w || y < box.y || y > box.y + box.h) continue;
-    ctx.beginPath(); ctx.arc(x, y, dot, 0, 7);
-    ctx.fillStyle = r > 0 ? levelColour(th, levelOf(id)) : th.land; ctx.globalAlpha = Math.max(.5, r); ctx.fill();
+    // a merged dot shows the best level of those that have come in (a reveal of 0 is not yet on the map)
+    const near = merge ? dots.find(d => Math.hypot(d.x - x, d.y - y) < dot * 2.2) : undefined;
+    if (near) {
+      if (r > 0 && (near.r <= 0 || levelOf(id) < near.level)) near.level = levelOf(id);
+      near.r = Math.max(near.r, r);
+      continue;
+    }
+    dots.push({x, y, r, level: levelOf(id)});
+  }
+  for (const d of dots) {
+    ctx.beginPath(); ctx.arc(d.x, d.y, dot, 0, 7);
+    ctx.fillStyle = d.r > 0 ? levelColour(th, d.level) : th.land; ctx.globalAlpha = Math.max(.5, d.r); ctx.fill();
     ctx.globalAlpha = 1; ctx.lineWidth = dot * .45; ctx.strokeStyle = th.bg; ctx.stroke();
   }
   ctx.restore();

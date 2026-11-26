@@ -88,6 +88,10 @@ Rules for every step:
      | 30° | 191 | 100 / 129 | 48 % / 32 % | 357 / 818 |
      | 20° | 241 | 114 / 153 | 53 % / 37 % | 403 / 903 |
 
+     Measured again at 40.5° on 2026-11-24 for the animations (`tools/coverage_contrast.py`, today's search; the
+     Stawamus Chief on British Columbia's lidar, which `--source auto` takes now, not HRDEM): 2010 spots at 1 m,
+     107 at 30 m, 81 real (45 m), 794 of the 1 m spots found (45 m); the other thresholds not measured again.
+
      Small rocks gain the most from a lower threshold (Bastei: 2 spots at 45°, 19 at 30°, nearly all real); on
      big walls the threshold hardly matters (Matterhorn: 9-10 spots at every threshold, none within 30 m of a
      1 m line). Real 30 m data (FABDEM, Copernicus: radar, trees removed by estimate) are likely worse than this
@@ -1947,7 +1951,9 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 - **A geographic raster's pixel counted at 111 320 m both ways** (found 2026-11-15, batch 5 wave 2, the review of the LERC tiles): `mosaic.src_pixel_m` takes a degree as 111 320 m for the mosaic's choice of resampling (average when the data are finer than `FINER` 0.75 of the grid's pixel, else bilinear), but a degree of longitude is that times the cosine of the latitude, so a geographic raster counts its east-west pixel too coarse by 1/cos(lat) (FABDEM, Copernicus GLO-30, GA's 5 m DEM in EPSG:4283: at 50° N FABDEM's 1″ is 30.9 m north-south but 19.9 m east-west), and the mosaic may pick bilinear where average would apply. Only EPSG:3857 got the cosine (3c80a85: Northern Ireland's LERC tiles). A fix moves existing results (every entry whose grid takes a geographic layer near the threshold): measure first which entries change, then decide. Not assigned.
 - **Noted in batch 6 of the new sources** (2026-11-15/16; not assigned):
   - `docs/images/coverage-*` were not rendered again (`tools/coverage_media.py readme`) by any batch since e881195,
-    while batches 5 and 6 added areas to the coverage map.
+    while batches 5 and 6 added areas to the coverage map. Done 2026-11-24 (tag `history/readme-graphics`): rendered
+    again with four new views (South America, East Asia, Africa, the Caribbean), Europe widened, dots sized by the
+    zoom and merged on the world, and level 2 up to 10 m (Italy's TINITALY had the 30 m colour).
   - `tests/test_web.py::test_search_panel_on_a_phone` fails now and then in a loaded full run (KeyError 'phone').
   - `CachedIndex._listed` is kept per process and keyed by the grid alone, not by the data folder: a test that lists
     one grid in two data folders must clear it.
