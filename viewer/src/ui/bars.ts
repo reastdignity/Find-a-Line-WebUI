@@ -33,10 +33,72 @@ function headGrounds(): Grounds | null {
   return {lines: {light, dark}, values: {light: light.content, dark: dark.content}};
 }
 
+// NOT FOR MERGE (branch bars-variants, round 7's brief BV): three ways of colouring an iPhone's status strip, chosen
+// by the page's port for the user's LAN test: 8444 A (one fresh line without media), 8445 B (today's lines and the
+// page's own ground on <html> and <body>), 8446 C (A and B); any other port: today's code.
+type Variant = "A" | "B" | "C" | null;
+const VARIANT: Variant = typeof location === "undefined" ? null
+  : ({"8444": "A", "8445": "B", "8446": "C"} as Record<string, Variant>)[location.port] ?? null;
+let fresh: HTMLMetaElement | null = null;  // A, C: the one line without media while a chosen theme is shown
+let label = false;
+
+/** A, C: a chosen theme removes the head's two lines and puts one new line in their place (a new element at every
+ *  change); "auto" removes it and puts the two lines back where they stood. */
+function freshLine(g: Grounds, theme: "auto" | "light" | "dark"): void {
+  const {light, dark} = g.lines;
+  const [first, second] = light.compareDocumentPosition(dark) & Node.DOCUMENT_POSITION_FOLLOWING
+    ? [light, dark] : [dark, light];
+  if (theme === "auto") {
+    if (!fresh) return;
+    fresh.before(first, second);
+    fresh.remove();
+    fresh = null;
+    return;
+  }
+  const line = document.createElement("meta");
+  line.name = "theme-color";
+  line.content = g.values[theme];
+  if (fresh) { fresh.replaceWith(line); } else { first.before(line); first.remove(); second.remove(); }
+  fresh = line;
+}
+
+/** B, C: the shown theme's ground and colour scheme on the document's root, its ground on the body; "auto" removes
+ *  them. */
+function pageGround(g: Grounds, theme: "auto" | "light" | "dark"): void {
+  const html = document.documentElement.style, body = document.body?.style;
+  if (theme === "auto") {
+    html.removeProperty("background-color");
+    html.removeProperty("color-scheme");
+    body?.removeProperty("background-color");
+    return;
+  }
+  html.backgroundColor = g.values[theme];
+  html.colorScheme = theme;
+  if (body) body.backgroundColor = g.values[theme];
+}
+
+/** The variant's name in a corner, once: covers nothing pressable (no pointer events), hidden from assistive tech. */
+function showLabel(): void {
+  if (label || !VARIANT || !document.body) return;
+  label = true;
+  const tag = document.createElement("div");
+  tag.textContent = "bars " + VARIANT;
+  tag.setAttribute("aria-hidden", "true");
+  tag.id = "fal-bars-variant";
+  Object.assign(tag.style, {position: "fixed", left: "4px", bottom: "calc(env(safe-area-inset-bottom, 0px) + 76px)",
+    zIndex: "2147483647", font: "bold 11px/1 sans-serif", color: "#e00", pointerEvents: "none",
+    background: "rgb(255 255 255 / .7)", padding: "2px 3px", borderRadius: "3px"});
+  document.body.appendChild(tag);
+}
+
 /** The bars in the ground of `theme`, the theme the page shows ("auto": the system's, as the head says it). */
 export function themeBars(theme: "auto" | "light" | "dark"): void {
+  showLabel();
   if (!grounds) grounds = headGrounds();
   if (!grounds) return;
+  if (VARIANT === "A" || VARIANT === "C") freshLine(grounds, theme);
+  if (VARIANT === "B" || VARIANT === "C") pageGround(grounds, theme);
+  if (VARIANT === "A" || VARIANT === "C") return;
   for (const scheme of ["light", "dark"] as const) {
     const value = grounds.values[theme === "auto" ? scheme : theme], line = grounds.lines[scheme];
     if (line.content !== value) line.content = value;
