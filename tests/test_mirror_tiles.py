@@ -1993,7 +1993,7 @@ def test_averaged_cut(tmp_path, monkeypatch):
 
 def test_wallonia_seam_must_agree(tmp_path, monkeypatch):
     """One seam pixel of the second province 1 cm off the first's: the cut stops with the overlap error naming the
-    tile ("agree" compares the 0.5 m pixels, before the mean), and nothing is final."""
+    tile ("agree" compares the 0.5 m pixels), and nothing is final."""
     inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
     _wallonia_fetch(inputs, tmp_path, seam_change=0.01)
     with pytest.raises(mt.Overlap, match=r"tile 1_0: wallonia/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV_"

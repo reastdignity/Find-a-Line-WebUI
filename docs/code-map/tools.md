@@ -85,7 +85,7 @@ over the file's EPSG:3061 label) and `selvagens`, both with a floor of -1 m. `wa
 province ZIPs per model (fetch-list groups MNT, MNS) cut at their own 0.5 m (the user's decision of 2026-11-26),
 overlap "agree"; the card's heading the approved row's title, `Dataset.heading`. `Product.average` (no product
 today: Wallonia's until 2026-11-26) cuts at a whole multiple of the inputs' pixel (`input_res`: footprints, masks and
-the overlap rule on the inputs' pixels, then `_block_means`; the factor in the index, the journal rule and the card
+the overlap rule on the inputs' pixels, then `_block_means`); the factor in the index, the journal rule and the card
 only when it is not 1; verify also compares up to `EDGE_BLOCKS` blocks of each of `EDGE_KINDS` per sampled tile
 (partly valid, on a seam, joined from two rasters that touch), found from the inputs by `_edge_blocks`, those
 compared counted in verify.json (found but none compared: a fault). Inputs: `Url` (one GET at a time under a
