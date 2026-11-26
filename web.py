@@ -1345,18 +1345,21 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             return None
         return run_id
 
-    def run_or_link(request: Request, run: str) -> Tuple[str, object]:
+    def user_unless_link(request: Request) -> Optional[ac.User]:
+        """run_or_link's caller before its run is read: None with the header X-Findaline-Share, else
+        current_user (401, 403 as before, also for a request without `run`)."""
+        return None if request.headers.get(SHARE_HEADER) is not None else current_user(request)
+
+    def run_or_link(request: Request, run: str, user: Optional[ac.User] = Depends(user_unless_link)) -> Tuple[str, object]:
         """The run and the caller of a computed route (/api/profile, /api/patch, /api/reach): with the header
         X-Findaline-Share (SHARE_HEADER) present, whoever is signed in, a share link's visitor (LinkVisitor) when
         its token is the link of the query's `run` (run_of_link), else 404 as for another user's run; without
         it, run_access and current_user as before (401, 403, then 404). Only routes that decided a link's
         visitor may call them take this (.claude/rules/web-app.md)."""
-        share = request.headers.get(SHARE_HEADER)
-        if share is not None:
-            if not public or run_of_link(request, share) != run:  # the local app has no share links
+        if user is None:
+            if not public or run_of_link(request, request.headers[SHARE_HEADER]) != run:  # locally no share links
                 raise HTTPException(404, "no such run")
             return run, LinkVisitor(run)
-        user = current_user(request)
         return run_access(run, user), user
 
     def link_run(request: Request, share: str) -> str:

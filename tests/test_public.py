@@ -944,6 +944,9 @@ def test_share_link_visitors_compute(run_people, tmp_path, monkeypatch):
     kinds = ("profile", "patch", "canopy", "reach")
     for kind in kinds:  # without the header: as before
         assert _computed(anonymous, kind, RUN_A, lat, lon).status_code == 401, kind
+    for path in ("/api/profile?line=1,2,3,4", "/api/patch?line=1,2,3,4", "/api/reach?line=1,2,3,4&anchor=1,2&as=1"):
+        assert anonymous.get(path).status_code == 401, path  # the session before the run, as before
+        assert run_people["pending"].get(path).status_code == 403, path
         assert _computed(run_people["pending"], kind, RUN_A, lat, lon).status_code == 403, kind
         assert _computed(b, kind, RUN_A, lat, lon).status_code == 404, kind
     for who in ("anonymous", "a", "b", "pending", "blocked", "admin"):  # on to the (missing) worker: 503

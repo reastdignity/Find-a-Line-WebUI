@@ -71,7 +71,8 @@ is a `RunFiles` over `run_of_link`, `/s/_viewer/` the viewer, `/s/runs.js` the f
 map shows its own run only), `/s/index.html` redirects to `/`; a share link's visitor asks these three with the link's
 token in `X-Findaline-Share` (`SHARE_HEADER`, never in
 a URL; `run_or_link`, their one access rule: a present header decides whoever is signed in, its token must be the
-link of the query's `run` (`run_of_link`), else 404; without it `run_access` and `current_user`), as a `LinkVisitor`
+link of the query's `run` (`run_of_link`), else 404; without it `current_user` first (its sub-dependency
+`user_unless_link`, so 401/403 come before the run is read, as before), then `run_access`), as a `LinkVisitor`
 (no id, not an administrator: `profile_problem` refuses `ADMIN_SOURCES`; limited: `within_rate` keys the link's rates
 `link_<kind>_rate` on `link:<run id>` (`rate_key_of`), 429 `rate_link_<kind>`; `refused` audits it with no user and
 the run as the target; its quick tasks have `user_id` NULL and `jobs.QUICK_ORDER` claims users' first; the
