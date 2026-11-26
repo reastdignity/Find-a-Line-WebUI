@@ -29,7 +29,9 @@ proxy: only the host of FINDALINE_PUBLIC_URL, an Origin required for changes, X-
 trusted from FINDALINE_TRUSTED_PROXY only, no worker in this process. Users sign in with
 GitHub, Google or Microsoft (accounts.py, settings.AccountSettings); the token a change needs is then
 the CSRF token of the user's session, and sign-in requests are limited per IP address
-(the `limits` library, in memory).
+(the `limits` library, in memory). A share link (/s/<token>/) opens one run's map and its 3D view for anyone
+with the link; their computed requests (/api/profile, /api/patch, /api/reach) carry the token in the header
+X-Findaline-Share (SHARE_HEADER, never in a URL) and use the link's rates (LinkVisitor, run_or_link).
 """
 
 import asyncio
@@ -126,6 +128,15 @@ SECURITY_HEADERS = {
 # view turns its walker's gaze with the phone's motion (DeviceOrientationEvent: viewer/src/view3d/views.ts); the
 # readings stay in the page
 PAGE_PERMISSIONS = {"/view3d": permissions_policy(("accelerometer", "gyroscope", "magnetometer"))}
+# The 3D view's page has two addresses: /view3d (users) and /s/<token>/view3d (a share link's visitors); the
+# guard gives both the headers of "/view3d" in PAGE_PERMISSIONS and PAGE_CSP, and cache_control no-store
+VIEW3D_PATH = "/view3d"
+SHARE_VIEW3D = re.compile(r"/s/[^/]+/view3d")
+
+
+def view3d_page(path: str) -> bool:
+    """Whether a request's path is the 3D view's page: /view3d, or a share link's /s/<token>/view3d."""
+    return path == VIEW3D_PATH or SHARE_VIEW3D.fullmatch(path) is not None
 
 
 # The pages whose Content-Security-Policy differs from SECURITY_HEADERS' (the guard chooses it by the
@@ -488,7 +499,44 @@ PLACE_CHARS_MAX = 200  # of a name the place box looks up
 RATE_NAMES = {"estimate": "estimates", "profile": "profiles", "patch": "3D views", "reach": "reach calculations",
               "place": "place lookups", "export": "downloads",
               # Limits.<kind>_rate
-              "report": "problem reports", "time_zone": "time zones sent", "job": "searches started"}
+              "report": "problem reports", "time_zone": "time zones sent", "job": "searches started",
+              # a share link's (Limits.link_<kind>_rate; LinkVisitor)
+              "link_profile": "profiles on this link", "link_patch": "3D views on this link",
+              "link_reach": "reach calculations on this link"}
+# A share link's visitor asks the computed routes with the link's token in this header, never in a URL
+# (run_or_link); a present header decides, whoever is signed in
+SHARE_HEADER = "x-findaline-share"
+QUICK_CALLERS = ("user", "link")  # who waited for the quick lane (metrics.py: the label `caller`)
+
+
+class LinkVisitor:
+    """The caller of a computed route (/api/profile, /api/patch, /api/reach) with a valid share link's header
+    (run_or_link): not a user (no id: no quotas of one, no one-waiting rule of the quick lane, whose tasks of a
+    link have user_id NULL and wait behind users'), not an administrator (profile_problem refuses
+    ADMIN_SOURCES), limited: the link's rates (Limits.link_<kind>_rate), keyed on its run, so every visitor of
+    a link shares them and renewing the link does not reset them. Its fields are those of accounts.User the
+    endpoints read."""
+    id = None
+    admin = False
+    limited = True
+    approved = False
+
+    def __init__(self, run: str):
+        self.run = run
+        self.rate_key = f"link:{run}"
+
+    def __repr__(self) -> str:
+        return f"LinkVisitor({self.run!r})"
+
+
+def rate_key_of(caller) -> str:
+    """The key of a caller's rates and refusals: a user's id, a link's `link:<run id>` (never the token)."""
+    return caller.rate_key if isinstance(caller, LinkVisitor) else str(caller.id)
+
+
+# The Retry-After of a user's quick_waiting 429 (their other quick task waits; a page asks one at a time): short, so
+# a page that waits as long as it says loses no time, and long enough to stay far from fail2ban's 100 refusals
+QUICK_WAITING_RETRY = 5
 TIME_ZONE_CHARS_MAX = 100  # of an IANA time zone's name (the longest are about 30)
 EVERYONE_SECONDS = 300     # the sign-in page's total of everyone's searched area is counted again after it
 QUICK_RESULTS = ("ok", "no_worker", "busy", "gone")  # how a wait for the quick lane ended (metrics.py)
@@ -948,7 +996,8 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     for approved in (users.approved_at_start if users else []):  # FINDALINE_SIGNUP=open approved them (accounts.py):
         # logged at once, before anything else of the start can fail and leave them unlogged
         audit.log("user_status", None, str(approved), {"status": "approved", "was": "pending", "signup": "open"})
-    quick_answers = dict.fromkeys(QUICK_RESULTS, 0)  # waits for the quick lane by result, since the start
+    # waits for the quick lane by result and caller (QUICK_CALLERS), since the start
+    quick_answers = {(result, caller): 0 for result in QUICK_RESULTS for caller in QUICK_CALLERS}
     quick_lock = threading.Lock()
     route_counts = RouteCounts()  # requests per route, since the start (metrics.py)
     # The keys the page gets (settings.WebKeys), read at the start: the satellite map of ArcGIS Location
@@ -960,9 +1009,9 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     ring_meta = html.escape(view.ring_url) if view.ring else "off"
     csp_of_page = page_csp(view)
 
-    def quick_ended(result: str):
+    def quick_ended(result: str, caller):
         with quick_lock:
-            quick_answers[result] += 1
+            quick_answers[(result, "link" if isinstance(caller, LinkVisitor) else "user")] += 1
 
     def record(action: str, user: Optional[ac.User] = None, target=None, detail: Optional[Dict] = None):
         """An event of the audit log (the public site only; audit.py). It writes to a database: from
@@ -970,26 +1019,28 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         if audit is not None:
             audit.log(action, user.id if user else None, None if target is None else str(target), detail)
 
-    refusals: Dict[tuple, list] = {}  # (user id, kind) -> [start of its window, refusals not recorded]
+    refusals: Dict[tuple, list] = {}  # (rate_key_of, kind) -> [start of its window, refusals not recorded]
     refusals_lock = threading.Lock()
 
-    def refused(user: ac.User, kind: str, reason: str, status: int):
-        """A refusal by a rate, a quota or a safeguard in the audit log: the first of a user and kind
-        in REFUSAL_WINDOW seconds; the others only counted, their number goes with the next row."""
+    def refused(user, kind: str, reason: str, status: int):
+        """A refusal by a rate, a quota or a safeguard in the audit log: the first of a user (a share link's
+        visitor: of its link) and kind in REFUSAL_WINDOW seconds; the others only counted, their number goes
+        with the next row. A link's row has no user and the run as its target, never the token."""
         if audit is None:
             return
         now = time.monotonic()
+        who = (rate_key_of(user), kind)
         with refusals_lock:
-            seen = refusals.get((user.id, kind))
+            seen = refusals.get(who)
             if seen is not None and now - seen[0] < REFUSAL_WINDOW:
                 seen[1] += 1
                 return
-            refusals[(user.id, kind)] = [now, 0]
+            refusals[who] = [now, 0]
             if len(refusals) > 10000:  # forget the windows that ended (their counts are lost)
                 for key in [k for k, (start, _) in refusals.items() if now - start >= REFUSAL_WINDOW]:
                     del refusals[key]
-        record("refused", user, None, {"reason": reason, "status": status,
-                                       **({"repeated": seen[1]} if seen and seen[1] else {})})
+        record("refused", user, user.run if isinstance(user, LinkVisitor) else None,
+               {"reason": reason, "status": status, **({"repeated": seen[1]} if seen and seen[1] else {})})
 
     @contextlib.asynccontextmanager
     async def lifespan(_):
@@ -1059,22 +1110,23 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
                 route_counts.add(route_template(app, request.scope), request.method, 500, time.monotonic() - started)
                 raise
         response.headers.update(SECURITY_HEADERS)
-        if path in csp_of_page:
-            response.headers["Content-Security-Policy"] = csp_of_page[path]
-        if path in PAGE_PERMISSIONS:
-            response.headers["Permissions-Policy"] = PAGE_PERMISSIONS[path]
+        page = VIEW3D_PATH if view3d_page(path) else path  # the 3D page's two addresses alike
+        if page in csp_of_page:
+            response.headers["Content-Security-Policy"] = csp_of_page[page]
+        if page in PAGE_PERMISSIONS:
+            response.headers["Permissions-Policy"] = PAGE_PERMISSIONS[page]
         response.headers["Cache-Control"] = cache_control(request, path)
         route_counts.add(route_template(app, request.scope), request.method, response.status_code,
                          time.monotonic() - started)
         return response
 
     def cache_control(request: Request, path: str) -> str:
-        """Answers with a user's data are not stored: the API, the list of runs, the 3D view's page and
-        the page with its token (locally always; on the public site when signed in). The files of runs and share links
-        are private (no shared cache) and revalidated. The rest (the app, the viewer, the public
+        """Answers with a user's data are not stored: the API, the list of runs, the 3D view's page (a share
+        link's too) and the page with its token (locally always; on the public site when signed in). The files of
+        runs and share links are private (no shared cache) and revalidated. The rest (the app, the viewer, the public
         pages) is revalidated too: the viewer and the app change with the code, run data with every
         run (a browser must not keep an old viewer.js next to a new data.js)."""
-        if path.startswith("/api/") or path in ("/runs/runs.js", "/view3d") or (
+        if path.startswith("/api/") or path == "/runs/runs.js" or view3d_page(path) or (
                 path == "/" and (not public or getattr(request.state, "signed_in", None))):
             return "no-store"
         if path.startswith(("/runs/", "/s/")) and not path.startswith((f"/runs/{VIEWER}/", f"/s/{VIEWER}/")) \
@@ -1293,6 +1345,30 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             return None
         return run_id
 
+    def user_unless_link(request: Request) -> Optional[ac.User]:
+        """run_or_link's caller before its run is read: None with the header X-Findaline-Share, else
+        current_user (401, 403 as before, also for a request without `run`)."""
+        return None if request.headers.get(SHARE_HEADER) is not None else current_user(request)
+
+    def run_or_link(request: Request, run: str, user: Optional[ac.User] = Depends(user_unless_link)) -> Tuple[str, object]:
+        """The run and the caller of a computed route (/api/profile, /api/patch, /api/reach): with the header
+        X-Findaline-Share (SHARE_HEADER) present, whoever is signed in, a share link's visitor (LinkVisitor) when
+        its token is the link of the query's `run` (run_of_link), else 404 as for another user's run; without
+        it, run_access and current_user as before (401, 403, then 404). Only routes that decided a link's
+        visitor may call them take this (.claude/rules/web-app.md)."""
+        if user is None:
+            if not public or run_of_link(request, request.headers[SHARE_HEADER]) != run:  # locally no share links
+                raise HTTPException(404, "no such run")
+            return run, LinkVisitor(run)
+        return run_access(run, user), user
+
+    def link_run(request: Request, share: str) -> str:
+        """The run of a share link's page outside RunFiles (/s/<token>/view3d): 404 for a dead link."""
+        run_id = run_of_link(request, share)
+        if run_id is None:
+            raise HTTPException(404, "no such run")
+        return run_id
+
     if public:
         # Runs from before the public mode (no row, or no owner) belong to the first administrator,
         # as private runs; nothing is deleted. Made before anyone signs in, so the id stays.
@@ -1325,13 +1401,37 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             if getattr(limits, f"{kind}_rate"):
                 rates[kind] = parse_many(getattr(limits, f"{kind}_rate"))
 
-    def within_rate(kind: str, user: ac.User):
+    def within_rate(kind: str, user):
         """429 when a limited user asks for more estimates, profiles or searches than Limits allows (the
-        limits library, in the memory of this process)."""
-        if user.limited and kind in rates and not all([rate_limiter.hit(r, kind, str(user.id)) for r in rates[kind]]):
-            refused(user, f"{kind} rate", f"{kind} rate", 429)
-            raise HTTPException(429, messages.UserError(f"too many {RATE_NAMES[kind]}: try again in a minute",
-                                                        f"rate_{kind}").detail())
+        limits library, in the memory of this process); a share link's visitor (LinkVisitor: profile, patch,
+        reach) against the link's rates (Limits.link_<kind>_rate, keyed on its run). The 429 carries
+        Retry-After: the seconds until the rates it ran out of let one more through."""
+        link = isinstance(user, LinkVisitor)
+        rate = f"link_{kind}" if link else kind
+        if not user.limited or rate not in rates:
+            return
+        key = rate_key_of(user)
+        hits = [rate_limiter.hit(r, rate, key) for r in rates[rate]]  # every rate counts the request
+        if all(hits):
+            return
+        refused(user, f"{rate} rate", f"{rate} rate", 429)
+        headers = {"Retry-After": str(retry_after([r for r, ok in zip(rates[rate], hits) if not ok], rate, key))}
+        if link:
+            raise HTTPException(429, messages.UserError(
+                f"too many {RATE_NAMES[rate]}: try again later",
+                "rate_link_profile" if kind == "profile" else "rate_link_patch" if kind == "patch" else
+                "rate_link_reach").detail(), headers=headers)
+        raise HTTPException(429, messages.UserError(f"too many {RATE_NAMES[kind]}: try again in a minute",
+                                                    f"rate_{kind}").detail(), headers=headers)
+
+    def retry_after(spent, rate: str, key: str) -> int:
+        """Whole seconds (at least 1) until every rate of `spent` lets one more request through: past its window
+        stats' reset time (the sliding window counter's next free slot; at that instant the count is still
+        the old one, so the whole second after it), at most its window."""
+        now = strategies.time.time()  # the clock its reset times come from
+        return max(min(int(item.get_expiry()),
+                       math.floor(max(0.0, rate_limiter.get_window_stats(item, rate, key).reset_time - now)) + 1)
+                   for item in spent)
 
     def admitted(user: ac.User):
         """The quotas and safeguards of a new job, before its request is validated (a drawn geometry
@@ -1402,19 +1502,21 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         except ValueError as e:
             raise HTTPException(400, error_detail(e))
 
-    async def quick(kind: str, request: Dict, user: ac.User, client: Request):
+    async def quick(kind: str, request: Dict, user, client: Request):
         """The answer of the worker's quick lane (jobs.QUICK) to a task: added to the table `quick`
         and awaited without holding a thread, so the server does no search work itself. On the
-        public site a user has one waiting task at most (429). The wait ends (504) after the lane's
+        public site a user has one waiting task at most (429); a share link's visitor (LinkVisitor) none, its
+        task has no user and waits behind users' (jobs.quick_claim). The wait ends (504) after the lane's
         time limit for each task ahead and this one (QUICK_WAIT_MAX at most), or when the client
         goes away; the task is deleted then, unless the lane works on it already."""
         if not await run_in_threadpool(jobs.worker_alive):
-            quick_ended("no_worker")
+            quick_ended("no_worker", user)
             raise HTTPException(503, no_worker)
         try:
             task = await run_in_threadpool(jobs.quick_add, kind, request, user.id, unlimited(user), public is not None)
-        except QuotaExceeded as e:
-            raise HTTPException(e.status, error_detail(e))
+        except QuotaExceeded as e:  # quick_waiting: the user's other task ends in seconds, not a rate's window
+            raise HTTPException(e.status, error_detail(e), headers={"Retry-After": str(QUICK_WAITING_RETRY)}
+                                if e.code == "quick_waiting" else None)
         gone = None
         try:
             if limits.quick_seconds:
@@ -1429,17 +1531,17 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             while (answer := await run_in_threadpool(jobs.quick_take, task)) is None:
                 await asyncio.sleep(QUICK_POLL)
                 if gone.done():
-                    quick_ended("gone")
+                    quick_ended("gone", user)
                     raise HTTPException(503, "the client went away")  # nobody reads it
                 if time.monotonic() - started > wait:
-                    quick_ended("busy")
+                    quick_ended("busy", user)
                     raise HTTPException(504, messages.UserError(
                         f"no answer within {wait:g} s: the worker is busy, try again later", "busy",
                         seconds=round(wait, 1)).detail())
                 if time.monotonic() - looked > 5:
                     looked = time.monotonic()
                     if not await run_in_threadpool(jobs.worker_alive):
-                        quick_ended("no_worker")
+                        quick_ended("no_worker", user)
                         raise HTTPException(503, no_worker)
         except BaseException:  # also a cancelled request (the server stops): nobody waits for the task
             jobs.quick_forget(task)
@@ -1447,7 +1549,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         finally:
             if gone is not None:
                 gone.cancel()
-        quick_ended("ok")  # answered by the lane (an error of the request too)
+        quick_ended("ok", user)  # answered by the lane (an error of the request too)
         if answer["code"] != 200:
             raise HTTPException(answer["code"], answer["body"])
         return answer["body"]
@@ -2165,15 +2267,16 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             raise HTTPException(400, str(e))
 
     @app.get("/api/profile")
-    async def line_profile(request: Request, line: str, run: str = Depends(run_access),
-                           user: ac.User = Depends(current_user)):
+    async def line_profile(request: Request, line: str, access: tuple = Depends(run_or_link)):
         """The profile of a line of a saved run, computed from the cached data (search.profile_of_line,
         in the worker's quick lane). On the public site both points lie in the run's box with a margin
         of its --max-length, at most --max-length apart.
 
         A GET that costs computing time: it needs the X-Findaline-Profile header, which a
-        foreign website cannot send without a CORS preflight this server does not allow.
+        foreign website cannot send without a CORS preflight this server does not allow. A share link's
+        visitor asks it with the link's header (run_or_link) and the link's rate.
         """
+        run, user = access
         if not request.headers.get("x-findaline-profile"):
             raise HTTPException(403, "header X-Findaline-Profile missing")
         try:
@@ -2201,12 +2304,14 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
 
     @app.get("/api/patch")
     async def line_patch(request: Request, line: str, step: int = 1, part: Optional[str] = None,
-                         run: str = Depends(run_access), user: ac.User = Depends(current_user)):
+                         access: tuple = Depends(run_or_link)):
         """The terrain of the 3D view around a line of a saved run (search.patch_of_line, in the worker's
         quick lane; docs/3d-view-contract.md): uint32 little-endian N, N bytes of the meta as UTF-8
         JSON, the deflated heights. The checks of /api/profile with the patch's codes; the header
         X-Findaline-Patch as its X-Findaline-Profile. part=canopy: the trees and buildings of the same
-        patch (search.canopy_of_line) in the same framing, with the same checks and rate."""
+        patch (search.canopy_of_line) in the same framing, with the same checks and rate. A share link's
+        visitor as for /api/profile."""
+        run, user = access
         if not request.headers.get("x-findaline-patch"):
             raise HTTPException(403, "header X-Findaline-Patch missing")
         points = line_points(line)
@@ -2225,11 +2330,13 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
 
     @app.get("/api/reach")
     async def line_reach(request: Request, line: str, anchor: str, which: Optional[int] = Query(None, alias="as"),
-                         step: int = 1, run: str = Depends(run_access), user: ac.User = Depends(current_user)):
+                         step: int = 1, access: tuple = Depends(run_or_link)):
         """Where the other anchor of a line of a saved run may stand when the point `anchor` (lat,lon) is
         fixed as its end `as` (1 or 2): search.reach_of_anchor in the worker's quick lane, framed as
         /api/patch (docs/3d-view-contract.md, "/api/reach"). `line` and `step` name the patch as the
-        page asked it. The checks of /api/patch, the anchor's too; the header X-Findaline-Reach."""
+        page asked it. The checks of /api/patch, the anchor's too; the header X-Findaline-Reach. A share
+        link's visitor as for /api/profile."""
+        run, user = access
         if not request.headers.get("x-findaline-reach"):
             raise HTTPException(403, "header X-Findaline-Reach missing")
         points = line_points(line)
@@ -2269,17 +2376,27 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         def runs_index():
             return RedirectResponse("/", 303)  # the app lists the runs
 
-        # Share links: /s/<token>/map.html and its files; the map's ../runs.js and ../_viewer/ land here
+        # Share links: /s/<token>/map.html and its files, /s/<token>/view3d; the map's ../runs.js and ../_viewer/
+        # land here
         @app.get("/s/runs.js")
         def share_runs_js():
-            """No list of runs (FINDALINE_RUNS stays undefined: the map shows its own run only), no
-            profiles or measuring, no favourites; the page's keys (page_keys)."""
-            flags = {"profiles": False, "favourites": False, **page_keys}
+            """No list of runs (FINDALINE_RUNS stays undefined: the map shows its own run only); profiles and
+            measuring computed with the link's header and rates (run_or_link), no favourites; the page's keys
+            (page_keys)."""
+            flags = {"profiles": True, "favourites": False, **page_keys}
             return Response(f"window.FINDALINE_APP = {json.dumps(flags)};\n", media_type="text/javascript")
 
         @app.get("/s/index.html")
         def share_index():
             return RedirectResponse("/", 303)
+
+        @app.get("/s/{share}/view3d", response_class=HTMLResponse)
+        def share_view3d(run: str = Depends(link_run)):
+            """The 3D view of a line of a share link's run (its run and line in the hash, as on /view3d): the
+            user meta {"link": true} (no session, no CSRF token; the page sends the link's header), the keys and
+            the ring as /view3d; 404 for a dead link. Before the mount of /s, which would take the path."""
+            return VIEW3D_HTML.format(user=html.escape(json.dumps({"link": True})), keys=key_meta(esri_key),
+                                      ring=ring_meta)
 
         @app.get("/privacy", response_class=HTMLResponse)
         def privacy():

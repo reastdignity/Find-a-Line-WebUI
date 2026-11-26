@@ -537,7 +537,9 @@ def people(public, tmp_path, account_settings):
 
 def test_every_route_has_its_access_rule(public):
     """Every route outside the explicit public list depends on current_user, require_admin or
-    run_access (a FastAPI dependency, not a check inside the endpoint); the run files have theirs."""
+    run_access (a FastAPI dependency, not a check inside the endpoint), or on a share link's: run_or_link (the
+    computed routes a link's visitor may call: exactly these, each a decision of its own) and link_run (the
+    link's 3D page); the run files have theirs."""
     from fastapi.routing import APIRoute
     from starlette.routing import Mount
 
@@ -548,17 +550,24 @@ def test_every_route_has_its_access_rule(public):
             found |= names(dependency)
         return found
     rules = {"current_user", "require_admin", "run_access"}
-    seen = []
+    links = {"run_or_link": {"/api/profile", "/api/patch", "/api/reach"}, "link_run": {"/s/{share}/view3d"}}
+    seen, by_link = [], {name: set() for name in links}
     for route in public.app.routes:
         seen.append(route.path)
         if route.path in web.PUBLIC_ROUTES:
+            assert not isinstance(route, APIRoute) or not names(route.dependant) & set(links), route.path
             continue
         if isinstance(route, APIRoute):
-            assert names(route.dependant) & rules, f"{route.path} has no access rule"
+            found = names(route.dependant)
+            for name in links:
+                if name in found:
+                    by_link[name].add(route.path)
+            assert found & (rules | set(links)), f"{route.path} has no access rule"
         elif isinstance(route, Mount):
             assert isinstance(route.app, web.RunFiles), f"{route.path}: a mount without access control"
         else:
             raise AssertionError(f"{route.path}: an unknown kind of route")
+    assert by_link == links  # a new route a link's visitor may call is added here on purpose
     assert "/api/jobs" in seen and "/api/events" in seen and "/app" in seen
 
 
@@ -876,7 +885,7 @@ def test_share_links(run_people, tmp_path):
         assert anonymous.get(path).status_code == 404, path
     shared_js = anonymous.get("/s/runs.js")
     assert shared_js.status_code == 200 and "FINDALINE_RUNS" not in shared_js.text
-    assert 'window.FINDALINE_APP = {"profiles": false, "favourites": false};' in shared_js.text
+    assert 'window.FINDALINE_APP = {"profiles": true, "favourites": false};' in shared_js.text  # D3: Measure too
     assert anonymous.get("/s/_viewer/viewer.js").status_code == 200
     redirect = anonymous.get("/s/index.html", follow_redirects=False)
     assert redirect.status_code == 303 and redirect.headers["location"] == "/"
@@ -903,6 +912,243 @@ def test_share_links(run_people, tmp_path):
     users = ac.Accounts(str(tmp_path), a.app.state.account_settings)
     users.set_status(run_people["ids"]["a"], "blocked")
     assert anonymous.get(f"/s/{again}/map.html").status_code == 404
+
+
+def _computed(client, kind: str, run: str, lat: float, lon: float, share=None):
+    """A computed request of a map or 3D page (profile, patch, canopy, reach) of a short line at lat, lon, with a
+    share link's header when `share` is given."""
+    line = f"{lat},{lon},{lat + 0.0003},{lon}"
+    headers = {web.SHARE_HEADER: share} if share is not None else {}
+    if kind == "profile":
+        return client.get(f"/api/profile?run={run}&line={line}", headers={"x-findaline-profile": "1", **headers})
+    if kind in ("patch", "canopy"):
+        part = "&part=canopy" if kind == "canopy" else ""
+        return client.get(f"/api/patch?run={run}&line={line}{part}", headers={"x-findaline-patch": "1", **headers})
+    return client.get(f"/api/reach?run={run}&line={line}&anchor={lat},{lon}&as=1",
+                      headers={"x-findaline-reach": "1", **headers})
+
+
+def test_share_link_visitors_compute(run_people, tmp_path, monkeypatch):
+    """A share link's visitors (the user's D1-D3 of 2026-11-26) ask /api/profile, /api/patch (canopy too) and
+    /api/reach with the link's token in X-Findaline-Share: a present header decides, whoever is signed in (no one,
+    the owner, another user, a waiting or blocked account, an administrator); a token that is not the link of the
+    query's run, a renewed-away, revoked or too long one, an empty header and a blocked owner's link answer 404
+    as another user's run. Without the header nothing changes (401, 403, 404). A link's visitor is no
+    administrator (nasadem stays refused with the existing codes) and gets nothing else: no export, favourites,
+    report or list of runs."""
+    a, b, admin, anonymous = run_people["a"], run_people["b"], run_people["admin"], run_people["anonymous"]
+    jobs, ids = run_people["jobs"], run_people["ids"]
+    meta = json.loads((tmp_path / "runs" / RUN_A / "run.json").read_text("utf-8"))
+    lat, lon = meta["area"]["lat"], meta["area"]["lon"]
+    token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    kinds = ("profile", "patch", "canopy", "reach")
+    for kind in kinds:  # without the header: as before
+        assert _computed(anonymous, kind, RUN_A, lat, lon).status_code == 401, kind
+    for path in ("/api/profile?line=1,2,3,4", "/api/patch?line=1,2,3,4", "/api/reach?line=1,2,3,4&anchor=1,2&as=1"):
+        assert anonymous.get(path).status_code == 401, path  # the session before the run, as before
+        assert run_people["pending"].get(path).status_code == 403, path
+        assert _computed(run_people["pending"], kind, RUN_A, lat, lon).status_code == 403, kind
+        assert _computed(b, kind, RUN_A, lat, lon).status_code == 404, kind
+    for who in ("anonymous", "a", "b", "pending", "blocked", "admin"):  # on to the (missing) worker: 503
+        for kind in kinds if who == "anonymous" else ("profile", "patch", "reach"):  # within the link's 10 patches
+            answer = _computed(run_people[who], kind, RUN_A, lat, lon, token)
+            assert answer.status_code == 503, (who, kind, answer.text)
+    answers = a.app.state.quick_answers
+    assert answers[("no_worker", "link")] == 19 and answers[("no_worker", "user")] == 0  # O2: who waited
+    for kind in kinds:
+        assert _computed(a, kind, RUN_A, lat, lon).status_code == 503  # the owner's own request: a user's
+    assert answers[("no_worker", "user")] == 4
+    b_token = b.post(f"/api/runs/{RUN_B}/share").json()["url"].split("/s/")[1].split("/")[0]
+    for kind in kinds:
+        for who in ("anonymous", "a", "b"):
+            assert _computed(run_people[who], kind, RUN_B, lat, lon, token).status_code == 404, (who, kind)
+            assert _computed(run_people[who], kind, RUN_A, lat, lon, b_token).status_code == 404, (who, kind)
+            for odd in ("", "x", token[:-1], token + "x" * 100):
+                assert _computed(run_people[who], kind, RUN_A, lat, lon, odd).status_code == 404, (who, kind, odd)
+        assert _computed(anonymous, kind, "nothing", lat, lon, token).status_code == 404
+    assert _computed(anonymous, "profile", RUN_A, lat, lon, token).headers["cache-control"] == "no-store"
+    # The link's visitor gets nothing else: the routes of users keep their rules with the header too
+    shared = {web.SHARE_HEADER: token}
+    for method, path in (("post", f"/api/runs/{RUN_A}/export"), ("get", f"/api/runs/{RUN_A}/favourites"),
+                         ("get", "/api/runs"), ("post", "/api/reports"), ("get", "/api/favourites"),
+                         ("get", "/api/schema"), ("post", "/api/estimate")):
+        kwargs = {"json": {"format": "csv"}} if method == "post" else {}
+        assert getattr(anonymous, method)(path, headers=shared, **kwargs).status_code == 401, path
+    # A run from nasadem: refused for a link's visitor with the existing codes, an administrator's request too
+    run_json = tmp_path / "runs" / RUN_A / "run.json"
+    run_json.write_text(json.dumps({**meta, "source": {**meta["source"], "id": "nasadem"}}), "utf-8")
+    code = lambda answer: (answer.status_code, answer.json()["detail"]["code"])  # noqa: E731
+    for who in ("anonymous", "admin"):
+        assert code(_computed(run_people[who], "profile", RUN_A, lat, lon, token)) == (400, "profile_admin_only")
+        assert code(_computed(run_people[who], "patch", RUN_A, lat, lon, token)) == (400, "patch_admin_only")
+        assert code(_computed(run_people[who], "reach", RUN_A, lat, lon, token)) == (400, "patch_admin_only")
+    assert _computed(admin, "profile", RUN_A, lat, lon).status_code == 503  # without the header: an administrator
+    run_json.write_text(json.dumps(meta), "utf-8")
+    # Renewed, revoked, a blocked owner: 404
+    renewed = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    assert _computed(anonymous, "profile", RUN_A, lat, lon, token).status_code == 404
+    assert _computed(anonymous, "profile", RUN_A, lat, lon, renewed).status_code == 503
+    assert a.delete(f"/api/runs/{RUN_A}/share").status_code == 200
+    for kind in kinds:
+        assert _computed(anonymous, kind, RUN_A, lat, lon, renewed).status_code == 404, kind
+    again = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    assert _computed(anonymous, "patch", RUN_A, lat, lon, again).status_code == 503
+    ac.Accounts(str(tmp_path), a.app.state.account_settings).set_status(ids["a"], "blocked")
+    for kind in kinds:
+        assert _computed(anonymous, kind, RUN_A, lat, lon, again).status_code == 404, kind
+    # The token is in no audit row and in no metric
+    import audit
+    import metrics
+    from prometheus_client import generate_latest
+    rows = json.dumps(audit.Audit(str(tmp_path)).entries())
+    exposition = generate_latest(metrics.registry(str(tmp_path), a.app.state.limits, str(tmp_path),
+                                                  a.app.state.quick_answers, a.app.state.route_counts)).decode()
+    for secret in (token, renewed, again, b_token):
+        assert secret not in rows and secret not in exposition
+    assert not [q for q in jobs._db().execute("SELECT request FROM quick").fetchall() if token in q[0]]
+    local = tmp_path / "local"  # the local app has no share links: the header gets 404, never an error
+    local.mkdir()
+    with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
+        for kind in kinds:
+            assert _computed(client, kind, "x", lat, lon, token).status_code == 404, kind
+        assert client.get(f"/s/{token}/view3d").status_code == 404
+
+
+def test_share_link_rates(tmp_path, clip_run, settings, account_settings, providers, monkeypatch):
+    """The link's rates (Limits.link_<kind>_rate, the user's D4): one budget for every visitor of a link, whoever is
+    signed in, and none of theirs; two links do not share one; over it 429 with rate_link_<kind>, its text and
+    Retry-After, after which one more passes; a user's own 429 carries Retry-After too; refusals of a link are
+    audited with no user and the run as the target, never the token."""
+    import audit
+    from jobs import Jobs
+    from settings import Limits
+    clock = _hold_rate_clock(monkeypatch)
+    for run_id, name in ((RUN_A, "A's run"), (RUN_B, "B's run")):
+        copy_run(clip_run, tmp_path, run_id, name)
+    people_ids = {who: session_of(tmp_path, account_settings, who)[0] for who in ("a", "b")}
+    jobs = Jobs(str(tmp_path))
+    jobs.add_run(RUN_A, people_ids["a"], 100)
+    jobs.add_run(RUN_B, people_ids["b"], 100)
+    token, b_token = "link-a-" + "x" * 40, "link-b-" + "y" * 40
+    jobs.set_share(RUN_A, ac.digest(token))
+    jobs.set_share(RUN_B, ac.digest(b_token))
+    limits = Limits.load(public=True).model_copy(update={
+        "link_profile_rate": "3/minute", "link_patch_rate": "2/minute", "link_reach_rate": "2/minute",
+        "profile_rate": "2/minute"})
+    app = _public_app(tmp_path, settings, account_settings, providers, limits=limits)
+    people = _clients(app, tmp_path, account_settings, ("a", "b"))
+    a, b = people["a"], people["b"]
+    anonymous = TestClient(app, base_url=URL)
+    meta = json.loads((tmp_path / "runs" / RUN_A / "run.json").read_text("utf-8"))
+    lat, lon = meta["area"]["lat"], meta["area"]["lon"]
+    status = lambda client, kind, share=token, run=RUN_A: _computed(client, kind, run, lat, lon, share).status_code  # noqa: E731
+    # Profiles: the owner twice, a visitor once, then another signed-in user: the link's three are used
+    assert [status(a, "profile"), status(a, "profile"), status(anonymous, "profile")] == [503] * 3
+    refused = _computed(b, "profile", RUN_A, lat, lon, token)
+    detail = refused.json()["detail"]
+    assert refused.status_code == 429 and detail["code"] == "rate_link_profile"
+    assert detail["message"] == "Too many profiles on this link in a short time. Try again later."
+    wait = int(refused.headers["retry-after"])
+    assert 1 <= wait <= 60
+    assert status(anonymous, "profile", b_token, RUN_B) == 503  # another link: its own budget
+    # The users' own budgets are untouched by their requests through the link
+    assert [status(a, "profile", None), status(a, "profile", None)] == [503, 503]
+    mine = _computed(a, "profile", RUN_A, lat, lon)
+    assert mine.status_code == 429 and mine.json()["detail"]["code"] == "rate_profile"
+    assert 1 <= int(mine.headers["retry-after"]) <= 60
+    assert status(b, "profile", None, RUN_B) == 503
+    # Patches (the canopy is a patch) and reaches: their own budgets
+    assert [status(anonymous, "patch"), status(b, "canopy")] == [503, 503]
+    over = _computed(a, "patch", RUN_A, lat, lon, token)
+    assert (over.status_code, over.json()["detail"]["code"]) == (429, "rate_link_patch")
+    assert over.json()["detail"]["message"] == "Too many 3D views on this link in a short time. Try again later."
+    assert [status(anonymous, "reach"), status(anonymous, "reach")] == [503, 503]
+    over = _computed(b, "reach", RUN_A, lat, lon, token)
+    assert (over.status_code, over.json()["detail"]["code"]) == (429, "rate_link_reach")
+    assert over.json()["detail"]["message"] == ("Too many reach calculations on this link in a short time. "
+                                                "Try again later.")
+    assert "retry-after" in over.headers
+    # Retry-After is honest: a second early the link is still refused, at it one more passes
+    clock.now += wait - 1
+    assert status(anonymous, "profile") == 429
+    clock.now += 1
+    assert status(anonymous, "profile") == 503
+    # Refusals: one row per link and kind, no user, the run as the target, never the token
+    rows = [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "refused"]
+    links = [(e["user_id"], e["target"], e["detail"]["reason"]) for e in rows if e["user_id"] is None]
+    assert sorted(links) == [(None, RUN_A, "link_patch rate"), (None, RUN_A, "link_profile rate"),
+                             (None, RUN_A, "link_reach rate")]
+    assert [(e["user_id"], e["detail"]["reason"]) for e in rows if e["user_id"] is not None] == [
+        (people_ids["a"], "profile rate")]
+    assert token not in json.dumps(rows)
+    for client in (a, b, anonymous):
+        client.close()
+
+
+def test_quick_lane_users_first(tmp_path):
+    """The quick lane (the user's D5, "Users first"): a waiting task of a user is claimed before every waiting task
+    of a share link's visitor (user_id NULL on the public site), then by id; quick_ahead counts in that order
+    (every running task, the users' waiting before it, a link's the users' and the links' before it); a link has
+    no one-waiting rule; locally (every task NULL) the order is by id as before."""
+    from jobs import Jobs, QuotaExceeded
+    jobs = Jobs(str(tmp_path))
+    link_1 = jobs.quick_add("profile", {"run": "r"}, None, one_waiting=True)
+    link_2 = jobs.quick_add("patch", {"run": "r"}, None, one_waiting=True)  # no rule for a link
+    user_1 = jobs.quick_add("profile", {"run": "s"}, 7, one_waiting=True)
+    user_2 = jobs.quick_add("profile", {"run": "s"}, 8, one_waiting=True)
+    with pytest.raises(QuotaExceeded):
+        jobs.quick_add("profile", {"run": "s"}, 7, one_waiting=True)  # the users' rule stays
+    assert [jobs.quick_ahead(t) for t in (user_1, user_2, link_1, link_2)] == [0, 1, 2, 3]
+    assert jobs.quick_claim("w")["id"] == user_1
+    assert [jobs.quick_ahead(t) for t in (user_2, link_1, link_2)] == [1, 2, 3]  # the running one counts
+    user_3 = jobs.quick_add("estimate", {}, 9, one_waiting=True)  # a user who comes later still goes first
+    assert jobs.quick_ahead(user_3) == 2 and jobs.quick_ahead(link_1) == 3
+    claimed = []
+    while (task := jobs.quick_claim("w")) is not None:
+        claimed.append(task["id"])
+    assert claimed == [user_2, user_3, link_1, link_2]
+    (tmp_path / "local").mkdir()
+    local = Jobs(str(tmp_path / "local"))
+    tasks = [local.quick_add("estimate", {}) for _ in range(3)]
+    assert [local.quick_ahead(t) for t in tasks] == [0, 1, 2]
+    assert [local.quick_claim("w")["id"] for _ in tasks] == tasks
+
+
+def test_share_link_3d_page(run_people, tmp_path):
+    """/s/<token>/view3d: the 3D view's page for a share link's visitors, whoever is signed in, with the user meta
+    {"link": true} (no session, no CSRF token), the keys and the ring as /view3d; the 3D page's CSP and
+    Permissions-Policy, no-store, Referrer-Policy strict-origin; 404 for a dead, revoked, renewed-away or blocked
+    owner's link; /view3d itself unchanged (visitors 303). The route's template, never the token, is counted."""
+    a, anonymous = run_people["a"], run_people["anonymous"]
+    token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    for who in ("anonymous", "a", "b", "pending"):
+        page = run_people[who].get(f"/s/{token}/view3d")
+        assert page.status_code == 200, who
+        assert page.headers["content-security-policy"] == web.PAGE_CSP["/view3d"]
+        assert page.headers["permissions-policy"] == web.PAGE_PERMISSIONS["/view3d"]
+        assert page.headers["cache-control"] == "no-store" and page.headers["referrer-policy"] == "strict-origin"
+        assert '<meta name="findaline-user" content="{&quot;link&quot;: true}">' in page.text
+        assert '<meta name="findaline-3d-ring" content="off">' in page.text
+        assert token not in page.text and "findaline-token" not in page.text and '<script src="/app/view3d.js">' in page.text
+    for path in ("/s/x/view3d", f"/s/{token[:-1]}/view3d", f"/s/{RUN_A}/view3d", "/s/_viewer/view3d",
+                 f"/s/{token + 'x' * 100}/view3d"):
+        answer = anonymous.get(path)
+        assert answer.status_code == 404, path
+        assert answer.headers["cache-control"] == "no-store", path
+    assert anonymous.get(f"/s/{token}/map.html").headers["cache-control"] == "private, no-cache"
+    visitor = anonymous.get("/view3d", follow_redirects=False)
+    assert visitor.status_code == 303 and visitor.headers["location"] == "/"
+    renewed = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    assert anonymous.get(f"/s/{token}/view3d").status_code == 404
+    assert anonymous.get(f"/s/{renewed}/view3d").status_code == 200
+    a.delete(f"/api/runs/{RUN_A}/share")
+    assert anonymous.get(f"/s/{renewed}/view3d").status_code == 404
+    again = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    ac.Accounts(str(tmp_path), a.app.state.account_settings).set_status(run_people["ids"]["a"], "blocked")
+    assert anonymous.get(f"/s/{again}/view3d").status_code == 404
+    requests, _ = a.app.state.route_counts.snapshot()
+    routes = {route for route, _, _ in requests}
+    assert "/s/{share}/view3d" in routes and not [r for r in routes if token in r or renewed in r or again in r]
 
 
 def test_demo_runs_and_the_anonymous_page(run_people, tmp_path):
@@ -995,7 +1241,8 @@ def _hold_rate_clock(monkeypatch):
     """The per-user rates' time (web.within_rate: limits' SlidingWindowCounterRateLimiter on MemoryStorage, its windows
     clock minutes and hours) held one second into the current minute: the counter counts the previous window's
     requests as floor(weight), so a refusal a test expects lets one more through when a window begins between its
-    requests (test_time_zone's fifth time zone, test_problem_reports' fourth report)."""
+    requests (test_time_zone's fifth time zone, test_problem_reports' fourth report). The clock: its `now` moved
+    moves them on."""
     import limits.storage.memory
     import limits.strategies
 
@@ -1004,8 +1251,10 @@ def _hold_rate_clock(monkeypatch):
 
         def time(self):
             return self.now
-    monkeypatch.setattr(limits.storage.memory, "time", Clock())
-    monkeypatch.setattr(limits.strategies, "time", Clock())
+    clock = Clock()
+    monkeypatch.setattr(limits.storage.memory, "time", clock)
+    monkeypatch.setattr(limits.strategies, "time", clock)
+    return clock
 
 
 def test_tiers_and_quotas(tmp_path, settings, account_settings, providers, monkeypatch):
@@ -1313,7 +1562,7 @@ def test_removing_searches(run_people, tmp_path):
 
     link = a.post(f"/api/runs/{RUN_A}/share").json()["url"]
     path = urlsplit(link).path
-    assert anonymous.get(path).status_code == 200  # the share link opens the map, and nothing else
+    assert anonymous.get(path).status_code == 200  # the share link opens the map, and no job
     for who, code in [("anonymous", 401), ("pending", 403), ("blocked", 403), ("b", 404), ("admin", 404)]:
         assert run_people[who].post(f"/api/jobs/{cancelled}/remove").status_code == code, who
     refused = a.post(f"/api/jobs/{failed}/remove")
@@ -1934,7 +2183,8 @@ SHARE_CHECK = """
 def test_signed_in_app_and_shared_map_in_edge(tmp_path, clip_run, account_settings, monkeypatch):
     """Headless Edge signs in through a fake GitHub (its authorize page is a route of the test app,
     tokens and the user come from FakeProviders), gets the app with its user and no CSP violation;
-    a share link opens the map without the list of runs, measuring, comparing, a way back or violations."""
+    a share link opens the map without the list of runs, comparing, a way back or violations, with measuring (the
+    user's D3 of 2026-11-26: profiles computed with the link's header, Measure too)."""
     import re
     import socket
     import threading
@@ -2010,9 +2260,9 @@ def test_signed_in_app_and_shared_map_in_edge(tmp_path, clip_run, account_settin
         assert result["users"] >= 2 and _violations(dom) == []
         dom = _edge(f"{site}/s/{token}/map.html", tmp_path / "edge-anonymous")
         result = json.loads(re.search(r'<pre id="result">(.*?)</pre>', dom, re.S).group(1).replace("&quot;", '"'))
-        assert result["map"] and result["runs"] and result["app"] == {"profiles": False, "favourites": False}, result
+        assert result["map"] and result["runs"] and result["app"] == {"profiles": True, "favourites": False}, result
         # No Download: the run has a store, and a share link's page cannot ask for an export (store U9)
-        assert not result["measure"] and not result["compare"] and not result["download"], result
+        assert result["measure"] and not result["compare"] and not result["download"], result
         assert result["back"] == [] and result["lines"] > 0, result
         assert _violations(dom) == []
         Jobs(str(data)).set_visibility(RUN_A, "demo")  # a demo: the anonymous page and the map
@@ -2651,6 +2901,7 @@ def test_public_time_limits_and_one_waiting_estimate(tmp_path, settings, account
         jobs.quick_add("estimate", {}, people["a"].user_id, one_waiting=True)
     answer = people["a"].post("/api/estimate", json={"params": POINT})
     assert answer.status_code == 429 and answer.json()["detail"]["code"] == "quick_waiting"
+    assert answer.headers["retry-after"] == str(web.QUICK_WAITING_RETRY)  # seconds, not a rate's window
     jobs.quick_add("estimate", {}, None, one_waiting=True)  # the local app: no such rule
     jobs.quick_add("estimate", {}, people["b"].user_id, one_waiting=True)
     for client in people.values():
@@ -3996,7 +4247,7 @@ def test_satellite_key(tmp_path, clip_run, settings, account_settings, providers
     with signed, anonymous:
         assert "findaline-esri-key" not in signed.get("/").text
         assert _app_flags(signed.get("/runs/runs.js").text) == {"profiles": True, "favourites": True}
-        assert _app_flags(anonymous.get("/s/runs.js").text) == {"profiles": False, "favourites": False}
+        assert _app_flags(anonymous.get("/s/runs.js").text) == {"profiles": True, "favourites": False}
         about = anonymous.get("/about").text
         # Esri's host (other providers serve their data from ArcGIS servers of their own: Queensland)
         assert "Esri" not in about and "arcgis.com" not in about.lower()
@@ -4010,7 +4261,7 @@ def test_satellite_key(tmp_path, clip_run, settings, account_settings, providers
         assert _app_flags(signed.get("/runs/runs.js").text) == {"profiles": True, "favourites": True,
                                                                 "esri_key": ESRI_KEY}
         assert _app_flags(anonymous.get("/runs/runs.js").text)["esri_key"] == ESRI_KEY  # the demo runs' maps
-        assert _app_flags(anonymous.get("/s/runs.js").text) == {"profiles": False, "favourites": False,
+        assert _app_flags(anonymous.get("/s/runs.js").text) == {"profiles": True, "favourites": False,
                                                                 "esri_key": ESRI_KEY}
         about = anonymous.get("/about")
         assert ESRI_TERMS in about.text and "<script" not in about.text and ESRI_KEY not in about.text
@@ -4098,7 +4349,8 @@ def test_view3d_ring(tmp_path, settings, account_settings, providers, monkeypatc
     its CSP is every page's, the privacy and about pages name no Mapterhorn; on, the meta holds the escaped
     template, connect-src adds the ring's origin, Esri's imagery and every orthophoto service of the catalogue
     (nothing else changes), and the pages carry the approved Mapterhorn texts; / and /api/jobs keep their
-    headers. Locally the same meta and CSP."""
+    headers; a share link's 3D page (/s/<token>/view3d) gets the same meta and CSP (the user's D6). Locally the same
+    meta and CSP."""
     import sources as src
     assert web.ortho_origins() == RING_ORIGINS  # the catalogue's today: a new orthophoto service changes both
     computed = {f"{urlsplit(u).scheme}://{urlsplit(u).netloc}" for s in src.SOURCES.values() if s.ortho is not None
@@ -4106,6 +4358,11 @@ def test_view3d_ring(tmp_path, settings, account_settings, providers, monkeypatc
     assert set(web.ortho_origins()) == computed
     user_id, cookie, csrf = session_of(tmp_path, account_settings, "a")
     template = "https://tiles.example.org/t/{z}/{x}/{y}.webp?a=1&b=2"
+    from jobs import Jobs
+    (tmp_path / "runs" / RUN_A).mkdir(parents=True)
+    token = "ring-link-" + "z" * 40
+    Jobs(str(tmp_path)).add_run(RUN_A, user_id, 1)
+    Jobs(str(tmp_path)).set_share(RUN_A, ac.digest(token))
     every_page = web.SECURITY_HEADERS["Content-Security-Policy"]
 
     def directives(policy: str) -> dict:
@@ -4118,6 +4375,9 @@ def test_view3d_ring(tmp_path, settings, account_settings, providers, monkeypatc
             page = signed.get("/view3d")
             assert page.status_code == 200
             policy = page.headers["content-security-policy"]
+            shared = anonymous.get(f"/s/{token}/view3d")
+            assert shared.status_code == 200 and shared.headers["content-security-policy"] == policy
+            assert page.text.split('name="findaline-3d-ring"')[1] == shared.text.split('name="findaline-3d-ring"')[1]
             privacy, about = anonymous.get("/privacy").text, anonymous.get("/about").text
             assert web.html.escape(PRIVACY_3D) in privacy and web.html.escape(SOFTWARE_3D) in about
             if not view.ring:
@@ -4207,7 +4467,8 @@ def test_exports_of_the_public_site(run_people, tmp_path, monkeypatch):
     """Exports (store wave 3, store U9): the owner, an administrator and a signed-in visitor of a demo run make
     one (POST /api/runs/<run>/export through the public quick lane, whose answer passes Redact as it is) and
     download it once; another user, a pending or blocked one, a visitor without a session and a share link's
-    visitor are refused, and another user's GET leaves the file; each export made (not one refused) is a `run_export` event of the
+    visitor are refused (also with the link's header: a link computes profiles, 3D views and reaches, no
+    exports), and another user's GET leaves the file; each export made (not one refused) is a `run_export` event of the
     audit log with its format; one waiting quick task at most per user; the runs row's bytes stay."""
     import audit
     from test_export import exported, exports_of, quick_lane
@@ -4222,6 +4483,8 @@ def test_exports_of_the_public_site(run_people, tmp_path, monkeypatch):
     shared.headers["origin"] = URL
     assert shared.get(f"/s/{token}/map.html").status_code == 200
     assert shared.post(f"/api/runs/{RUN_A}/export", json={"format": "csv"}).status_code == 401
+    assert shared.post(f"/api/runs/{RUN_A}/export", json={"format": "csv"},
+                       headers={web.SHARE_HEADER: token}).status_code == 401
     assert shared.post(f"/s/{token}/export", json={"format": "csv"}).status_code in (401, 404, 405)
     assert a.post(f"/api/runs/{RUN_A}/export", json={"format": "csv"}).status_code == 503  # no worker
     jobs.register("busy-worker")
