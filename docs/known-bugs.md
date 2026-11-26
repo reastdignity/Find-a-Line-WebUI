@@ -822,7 +822,9 @@ to the default); none fixed. The phone sheet's jerky move with a long list has i
   `test_access_view.py::test_legend_lists_the_three_marks`, `test_shell_c_flows.py::test_shell_c_intros`,
   `test_keyboard_app.py::test_place_map_coverage_legend` (line volume's round 7: its 30 s wait for the search panel
   timed out once in a full run while another full run shared the PC, 2026-11-25; 3 of 3 alone on the branch and on
-  its base). Run them alone before calling a failure a regression.
+  its base), `test_view3d_touch.py::test_view3d_touch_targets` (line volume's round 7: its 120 s wait for the 3D
+  page's first frame ran out once in a full run, 2026-11-25; 3 of 3 alone; the 3D page unchanged by the round). Run
+  them alone before calling a failure a regression.
 - `test_view_gaps.py::test_no_page_zoom_outside_the_map`'s double-tap step tests nothing in Chromium (its pinch step
   does).
 - `test_store_share.py` (and `test_thumb_store.py`) still check that `runs.js` is asked at most once by the browser's

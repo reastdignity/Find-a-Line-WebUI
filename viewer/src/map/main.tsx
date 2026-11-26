@@ -10,7 +10,7 @@
 // (runs.MAP_HTML, which a rename rewrites; the store's head keeps the name of the saving).
 //
 // The disk notice (store wave 4: docs/line-volume/spec-store.md 1.2): a map.html written since then carries it
-// (mapping.MAP_HTML, the element NOTICE after this bundle's script). Over http(s) the page is marked served by the
+// (runs.MAP_HTML, the element NOTICE after this bundle's script). Over http(s) the page is marked served by the
 // bundle's first module (./served, before any other import runs), before the notice is parsed, and notice.css hides
 // it under that mark (viewer.css is loaded in the head), so no frame shows it; it is removed once the page is parsed.
 // From disk (file://) no run loads (store wave 4's item 5): the bundle waits for the parse and leaves the
@@ -106,12 +106,12 @@ function LoadedMap() {
   </Screen>;
 }
 
-/** mapping.DISK_NOTICE: the id of the disk notice in a run's map.html. */
+/** runs.DISK_NOTICE: the id of the disk notice in a run's map.html. */
 export const NOTICE = "disk-notice";
 
-/** The disk notice of a map.html written before store wave 4 (it has none): mapping.MAP_HTML's markup, the run's id
+/** The disk notice of a map.html written before store wave 4 (it has none): runs.MAP_HTML's markup, the run's id
  *  from the page's folder, its name from the list of runs (../runs.js) when it names the run, else from the page's
- *  title (mapping: "<name> - Find-a-Line"), the sentence from the catalogue. */
+ *  title (runs.map_page: "<name> - Find-a-Line"), the sentence from the catalogue. */
 function diskNotice(): HTMLElement {
   const parts = location.pathname.split("/"), id = decodeURIComponent(parts[parts.length - 2] || "");
   const name = (window.FINDALINE_RUNS || []).find((r) => r.id === id)?.name ?? titleName() ?? document.title;
