@@ -594,8 +594,9 @@ def test_cards_state_the_changes():
             "(PTRA08 / UTM zone 28N); nothing reprojected") in changes(served["desertas"])
     assert "the values, float64 in the file, stored as float32 (within those 5 mm)" in changes(served["porto-santo"])
     assert "label replaced" not in served["selvagens"] and "float64" not in served["selvagens"]
-    # Wallonia's mean of 2 x 2 (U96), as its row says it
-    assert "each 1 m pixel is the mean of the valid 0.5 m pixels of its 2 x 2 block" in changes(served["wallonia"])
+    # Wallonia at its own 0.5 m (U96, its wording at 0.5 m approved 2026-11-26), nothing averaged, as its row says it
+    assert "on its own 0.5 m pixel grid in EPSG:3812" in changes(served["wallonia"])
+    assert "mean" not in changes(served["wallonia"])
     sk = changes(mp.cards()["slovakia"])
     assert "2 m and 5 m" in sk and "mean" in sk and "2 × 2" in sk and "5 × 5" in sk
     aosta = mp.cards()["aosta"]

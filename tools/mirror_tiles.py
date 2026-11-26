@@ -60,15 +60,16 @@ assembled from the pixels of every raster that covers it, in the order of the in
 product's rule: "first" (the first listed wins) or "agree" (within the 5 mm bound, else an error naming the tile).
 Masks per product: the files' own nodata, the `nodata` values, the `sea` value, an optional `floor` (every value
 below it) and NaN. The CRS is the product's, never the file's (a file's own label, when another, is recorded in the
-index as `input_crs`). A product may be cut at a whole multiple of its inputs' pixel (`average`: Wallonia's 0.5 m
-rasters at 1 m): the footprints, the masks and the overlap rule work on the inputs' pixels, then each pixel is the
-mean of the valid input pixels of its average x average block, in float64 (sources.readers.download._block_means,
-the rule of tools/sk_tiles.py average; a block without one is no data; 2 km tiles hold whole blocks); its index names
-`average` and `input_resolution`, its journal rule the factor, and verify compares a sampled pixel with the mean of its
-block read straight from the inputs. Tiles are written in tools/sk_tiles.py's encoding (COG LERC_ZSTD within 5 mm,
-`sk_tiles._write`); index.json lists every tile of the extent with its sha256 (null: no data). The datasets of
-before (Madeira 2 m, Valle d'Aosta) go the same way and keep their index keys and published cards; a folder an
-earlier version of this tool left unfinished (an index saying "partial") is left alone: move it away to cut again.
+index as `input_crs`). A product may be cut at a whole multiple of its inputs' pixel (`average`; none today, every
+product is cut at its inputs' own pixels, Wallonia's at 0.5 m): the footprints, the masks and the overlap rule
+work on the inputs' pixels, then each pixel is the mean of the valid input pixels of its average x average block, in
+float64 (sources.readers.download._block_means, the rule of tools/sk_tiles.py average; a block without one is no
+data; 2 km tiles hold whole blocks); its index names `average` and `input_resolution`, its journal rule the factor,
+and verify compares a sampled pixel with the mean of its block read straight from the inputs. Tiles are written in
+tools/sk_tiles.py's encoding (COG LERC_ZSTD within 5 mm, `sk_tiles._write`); index.json lists every tile of the
+extent with its sha256 (null: no data). The datasets of before (Madeira 2 m, Valle d'Aosta) go the same way and keep
+their index keys and published cards; a folder an earlier version of this tool left unfinished (an index saying
+"partial") is left alone: move it away to cut again.
 
 Memory: the cut works tile by tile, `--threads` writers and a GDAL cache within `--max-memory-gb`. The bound is an
 estimate (GDAL's cache, TILE_BYTES_PER_PX for each tile in flight and the one being assembled, BASE_MB for the
@@ -272,7 +273,7 @@ class Product:
     about: str = ""                  # the card's sentence on what the product is and where it comes from
     card_changes: str = ""           # a change the card names besides the cut's own (a label replaced, a type)
     average: int = 1                 # the inputs' pixel is res / average; above 1 each pixel is the mean of the valid
-                                     # input pixels of its average x average block (Wallonia: 0.5 m inputs, 1 m tiles)
+                                     # input pixels of its average x average block (no product today)
 
 
 def input_res(product: Product) -> float:
@@ -329,11 +330,12 @@ def _island(name: str, island: str, member: str, crs: str, crs_name: str, nodata
 # Inspected 2026-11-21: Deflate; one raster per ZIP (RELIEF_WALLONIE_MN{T,S}_50CM_2021_2022.tif), float32 in LZW
 # full-width strips (a tiled copy in --work), AREA_OR_POINT=Point; pixel edges on whole half-metres (origin (0, 0));
 # nodata -9999; the provinces are rectangles whose boxes overlap, nodata outside the province, their shared pixels
-# equal (MNS Brabant wallon and Hainaut: 104 507 pixels valid in both, all identical), hence "agree". Cut at 1 m only,
-# each pixel the mean of the valid 0.5 m pixels of its 2 x 2 block (the user's decision of 2026-11-22: "cut it to 1m
-# resolution", "1 m only"). Licence CC BY 4.0; the credits verbatim from the records (2026-11-15; the MNS's also in
-# its ATOM feed of 2026-11-21); the MNT's record asks the changes to be named ("mention explicite des modifications
-# apportées à la donnée"): the card names every one
+# equal (MNS Brabant wallon and Hainaut: 104 507 pixels valid in both, all identical), hence "agree". Cut at its own
+# 0.5 m pixels only, nothing averaged (the user's decision of 2026-11-26: "store native", "0.5 m only"; it replaced
+# that of 2026-11-22, 1 m only, each pixel the mean of 2 x 2); searches read the tiles onto their grid. Licence CC BY
+# 4.0; the credits verbatim from the records (2026-11-15; the MNS's also in its ATOM feed of 2026-11-21); the MNT's
+# record asks the changes to be named ("mention explicite des modifications apportées à la donnée"): the card names
+# every one
 SPW = "Service public de Wallonie (SPW)"
 WALLONIA_MNT_RECORD = "https://geoportail.wallonie.be/catalogue/a004e570-99d6-4fe5-b83d-49b774409278.html"
 WALLONIA_MNS_RECORD = "https://geoportail.wallonie.be/catalogue/5a4c28fe-d30c-493e-861e-a80ebc703b64.html"
@@ -345,10 +347,10 @@ WALLONIA_CREDITS = (
 
 
 def _wallonia(name: str, group: str, model: str, record: str) -> Product:
-    """One model of SPW's 2021-2022 lidar: its five province ZIPs (0.5 m) averaged to 1 m."""
-    return Product(name, 1.0, "EPSG:3812", (0.0, 0.0), (Fetched("wallonia", group=group, members=("*.tif",)),),
-                   f"{model} 2021-2022 (SPW, lidar 2021-2022, 0.5 m), averaged to 1 m",
-                   "Deuxième Nivellement Général (EPSG:5710)", nodata=(-9999.0,), overlap="agree", average=2,
+    """One model of SPW's 2021-2022 lidar: its five province ZIPs, cut at their own 0.5 m pixels."""
+    return Product(name, 0.5, "EPSG:3812", (0.0, 0.0), (Fetched("wallonia", group=group, members=("*.tif",)),),
+                   f"{model} 2021-2022 (SPW, lidar 2021-2022, 0.5 m)",
+                   "Deuxième Nivellement Général (EPSG:5710)", nodata=(-9999.0,), overlap="agree",
                    about=f"the five province ZIPs of SPW's \"Relief de la Wallonie - {model} 2021-2022\" (record "
                          f"{record}), each one raster RELIEF_WALLONIE_{group}_50CM_2021_2022.tif of 0.5 m pixels in "
                          "ETRS89 / Belgian Lambert 2008 (EPSG:3812), lidar of 19/02/2021 to 05/03/2022")
@@ -393,13 +395,14 @@ DATASETS: Dict[str, Union[Dict, Dataset]] = {
                          "PTRA08 / UTM zone 28N, EPSG:5016", (-32768.0, -999.0), None,
                          "Selvagem Grande, Selvagem Pequena and Ilhéu de Fora", floor=-1.0),
     "wallonia": Dataset(
-        "wallonia", "Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW), averaged to 1 m", SPW,
+        "wallonia", "Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW)", SPW,
         "CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)", "; ".join(WALLONIA_CREDITS),
         (_wallonia("dtm", "MNT", "Modèle Numérique de Terrain (MNT)", WALLONIA_MNT_RECORD),
          _wallonia("dsm", "MNS", "Modèle Numérique de Surface (MNS)", WALLONIA_MNS_RECORD)),
         record=WALLONIA_MNT_RECORD, not_endorsed="the Service public de Wallonie (SPW)",
-        # the publishing row's title and not-endorsed sentence (the user's approval of 2026-11-22)
-        heading="Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW), averaged to 1 m, as 2 km tiles"),
+        # the publishing row's title and not-endorsed sentence (the user's approval of 2026-11-22, the title at 0.5 m
+        # approved 2026-11-26)
+        heading="Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW), as 2 km tiles"),
 }
 
 

@@ -1702,8 +1702,10 @@ def test_the_card_of_a_finished_product_rewritten(tmp_path, monkeypatch, capsys)
         assert readme.stat().st_mtime_ns == stamp and others() == before, case
 
 
-# Wallonia (2026-11-22): a product averaged from finer inputs (Product.average), SPW's province ZIPs at 0.5 m cut at
-# 1 m, each pixel the mean of the valid 0.5 m pixels of its 2 x 2 block
+# Wallonia (2026-11-22): SPW's province ZIPs at 0.5 m, cut at their own 0.5 m pixels (the user's decision of
+# 2026-11-26, "store native", "0.5 m only"). The same fake fetch serves the tests of a product averaged from finer
+# inputs (Product.average, used by no dataset today): Wallonia's products as they were planned before that decision,
+# at 1 m, each pixel the mean of the valid 0.5 m pixels of its 2 x 2 block (_averaged_wallonia)
 
 # The fake region on the 0.5 m grid of EPSG:3812: its left edge on an odd half-metre (as Brabant wallon's 666380.5),
 # so blocks at the edge hold one column of it; 6400 x 800 px (3.2 x 0.4 km) over the tiles 0_0, 1_0 and 2_0
@@ -1788,16 +1790,148 @@ def _wallonia_expected(truth, valid):
     return out
 
 
-def test_wallonia_averaged_cut(tmp_path, monkeypatch):
-    """DATASETS["wallonia"] on a fake fetch of two provinces per model: the 1 m product's every pixel is the mean of
-    the valid 0.5 m pixels of its 2 x 2 block (within the 5 mm of LERC): of four, three, two (the region's edge on an
-    odd half-metre, a block with two holes) or one, no data where none; the seam (valid in both provinces, equal)
-    gives the same means; -9999 is no data; the index names the factor; verify passes; the card names the mean as the
-    publishing row's changes do. The ZIPs' other members are no inputs."""
+def _averaged_wallonia(monkeypatch):
+    """DATASETS["wavg"]: Wallonia's dataset with its two products averaged to 1 m (average 2), on the same fetch."""
+    real = mt.dataset("wallonia")
+    ds = mt.replace(real, name="wavg", heading="",
+                    products=tuple(mt.replace(p, res=1.0, average=2) for p in real.products))
+    monkeypatch.setitem(mt.DATASETS, "wavg", ds)
+    return ds
+
+
+def _wallonia_native(truth, valid):
+    """The 0.5 m tiles of the region, computed here: the valid pixels where they lie on the tile grid. {key: tile}."""
+    region = np.where(valid, truth, np.nan).astype(np.float32)
+    col0, row0 = round(WAL_LEFT / 0.5), round((2000 - WAL_TOP) / 0.5)  # 2001, 600: the region's corner in tile 0_0
+    out = {}
+    for i in range(0, 3):
+        tile = np.full((4000, 4000), np.nan, np.float32)
+        c0 = col0 - 4000 * i
+        cs = slice(max(c0, 0), min(c0 + WAL_W, 4000))
+        tile[row0:row0 + WAL_H, cs] = region[:, cs.start - c0:cs.stop - c0]
+        out[f"{i}_0"] = tile
+    return out
+
+
+def test_wallonia_native_cut(tmp_path, monkeypatch):
+    """DATASETS["wallonia"] on a fake fetch of two provinces per model: each product is cut at its own 0.5 m pixels
+    (4000 px tiles), every pixel the input's within the 5 mm of LERC, -9999 no data, the seam (valid in both
+    provinces, equal) the same values, nothing averaged (the index names no factor); verify passes on the plain path
+    (no edge blocks); the indexes pass the client's check and the publish tool's; the card and the publishing row
+    say the 0.5 m grid and no mean. The catalogue's layer reads the 0.5 m tiles onto a 1 m grid as the mean of the
+    valid pixels of each 2 x 2 block: of four, three, two or one, no data where none."""
     inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
     made = _wallonia_fetch(inputs, tmp_path)
     ds = mt.dataset("wallonia")
+    assert [(p.name, p.res, p.average, mt.input_res(p)) for p in ds.products] == [("dtm", 0.5, 1, 0.5),
+                                                                                   ("dsm", 0.5, 1, 0.5)]
     assert mt.cut("wallonia", str(work), str(out), inputs=str(inputs)) == {"dtm": "cut", "dsm": "cut"}
+    for product, group in zip(ds.products, ("MNT", "MNS")):
+        truth, in_a, in_b = made[group]
+        tiles, index = _tiles(out, ds, product)
+        want = _wallonia_native(truth, in_a | in_b)
+        assert set(tiles) == set(want) == {"0_0", "1_0", "2_0"}
+        assert index["resolution"] == 0.5 and "average" not in index and "input_resolution" not in index
+        assert index["inputs"] == 2 and index["overlap"] == "agree" and index["crs"] == "EPSG:3812"
+        for key in want:
+            assert tiles[key].shape == (4000, 4000)
+            _close(tiles[key], want[key])
+            assert np.nanmin(tiles[key]) > 100  # -9999 is no data
+        for (br, bc), holes in WAL_HOLES.items():  # the holes in province A: no data at 0.5 m
+            for dr, dc in holes:
+                assert np.isnan(tiles["0_0"][600 + 2 * br + dr, 2000 + 2 * bc + dc])
+    for name in ("dtm", "dsm"):
+        result = mt.verify("wallonia", str(work), str(out), inputs=str(inputs))[name]
+        assert result["ok"] and result["points_compared"] == mt.POINTS * 3, result["problems"]
+        # the plain path: no blocks of an averaged product looked for
+        assert all(not any(k.endswith("_found") or k.endswith("_compared") for k in s) for s in result["samples"])
+        saved = json.loads((out / "wallonia" / name / "0.5m" / "verify.json").read_text(encoding="utf-8"))
+        assert saved["samples"] == result["samples"]
+    import mirror_publish as mp
+    from sources.readers import tilebases
+    for name in ("dtm", "dsm"):
+        index = json.loads((out / "wallonia" / name / "0.5m" / "index.json").read_text(encoding="utf-8"))
+        tiles, extent = tilebases._checked_index(index)
+        assert tiles == index["tiles"] and extent is not None and index["block"] == tilebases.BLOCK
+    faults, files = mp.read_master(str(out / "wallonia"), "<folder>")
+    assert faults == [] and {"dtm/0.5m/index.json", "dsm/0.5m/index.json"} <= set(files)
+    # The catalogue's layer on a 1 m grid of EPSG:3812 (edges on whole metres): it reads the 0.5 m tiles (no other
+    # resolution is kept) and the mosaic averages them, each 1 m pixel the mean of the valid 0.5 m pixels of its block
+    monkeypatch.setattr(net, "_get", lambda *a, **k: pytest.fail("no network with a mirror"))
+    monkeypatch.setenv(src.MIRROR_ENV, str(out))
+    layer = src.SOURCES["wallonia"].nmt
+    grid = gd.make_grid((1000.0, 1300.0, 3500.0, 1700.0), 1.0, "EPSG:3812", src.SOURCES["wallonia"].grid_origin)
+    assert (grid.left, grid.top, grid.width, grid.height) == (1000.0, 1700.0, 2500, 400)
+    assert layer.resolution(grid.res, grid.crs) == 0.5 and {t[0] for t in layer.tiles(grid)} == {0.5}
+    cache_dir = str(tmp_path / "cache")
+    layer.download(grid, cache_dir, None, "test")
+    mosaic = src.build_mosaic(layer.files(grid, cache_dir), grid, str(tmp_path / "m.npy"), "test")
+    truth, in_a, in_b = made["MNT"]
+    want = _wallonia_expected(truth, in_a | in_b)
+    _close(mosaic, np.concatenate([want["0_0"][300:700, 1000:], want["1_0"][300:700, :1500]], axis=1))
+    edge = truth[2 * 3:2 * 3 + 2, 0].astype(np.float64).mean()  # two valid pixels: the region's first column
+    assert abs(mosaic[3, 0] - edge) <= 0.0051
+    for (br, bc), holes in WAL_HOLES.items():  # three, two, one valid pixels: their mean; none: no data
+        block = truth[2 * br:2 * br + 2, 2 * bc - 1:2 * bc + 1].astype(np.float64)
+        kept = [block[dr, dc] for dr in (0, 1) for dc in (0, 1) if (dr, dc) not in holes]
+        got = mosaic[br, bc]
+        assert (np.isnan(got) if not kept else abs(got - np.mean(kept)) <= 0.0051), (br, bc, len(kept))
+    # The card and the publishing row (the user's wording of 2026-11-26): the 0.5 m grid, no mean
+    card = mt.card_text(ds, str(out))
+    assert "## `dtm/0.5m`" in card and "## `dsm/0.5m`" in card and "values -9999" in card
+    assert card.count("on its own 0.5 m pixel grid in EPSG:3812") == 2 and card.count("made no data;") == 2
+    assert "mean" not in card and "averag" not in card and "1 m" not in card
+    assert "Source : Service public de Wallonie (SPW) - Relief de la Wallonie - Modèle Numérique de Terrain" in card
+    row = mp.PUBLISHABLE["wallonia"]
+    assert row["changes"] == {f: "cut into 2 km x 2 km Cloud Optimized GeoTIFFs on the 0.5 m EPSG:3812 grid, LERC "
+                                 "within 5 mm; the value -9999 made no data" for f in ("dtm/0.5m", "dsm/0.5m")}
+    assert row["title"] == "Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW), as 2 km tiles"
+    # The card's heading and its not-endorsed sentence are the approved row's
+    assert card.startswith(f"# {row['title']}\n") and card.rstrip().endswith(row["not_endorsed"])
+
+
+def test_wallonia_layer_averages_four_pixels_on_a_1m_grid(tmp_path, monkeypatch):
+    """The rule by which a 1 m grid reads Wallonia's 0.5 m tiles, on a small fixture: four 0.5 m pixels of known values
+    give their mean, a block with one -9999 (made no data by the cut) the mean of the other three, a block of -9999
+    only no data (the mosaic's average of a raster finer than the grid, mosaic._resampling, whose pixels' NaN it
+    leaves out). The grid's 1 m edges lie on whole metres (origin (0, 0)), so each 1 m pixel holds exactly four."""
+    inputs = tmp_path / "in"
+    values = np.full((8, 8), 200.0, np.float32)
+    values[0:2, 0:2] = [[100.0, 101.0], [102.0, 104.0]]   # block (0, 0): 101.75
+    values[0:2, 2:4] = [[100.0, -9999.0], [103.0, 106.0]]  # block (0, 1): one -9999, the mean of three: 103
+    values[2:4, 0:2] = -9999.0                            # block (1, 0): none valid
+    values[2:4, 2:4] = [[150.5, 150.5], [150.5, 150.5]]    # block (1, 1): 150.5
+    _tif(inputs / "half.tif", values, 3000.0, 1004.0, res=0.5, crs="EPSG:3812", nodata=-9999.0)
+    real = mt.dataset("wallonia")
+    monkeypatch.setitem(mt.DATASETS, "wallonia", mt.replace(real, products=(
+        mt.replace(real.products[0], inputs=(mt.Placed("half.tif"),)),)))
+    out = tmp_path / "mirror"
+    assert mt.cut("wallonia", str(tmp_path / "work"), str(out), inputs=str(inputs)) == {"dtm": "cut"}
+    monkeypatch.setattr(net, "_get", lambda *a, **k: pytest.fail("no network with a mirror"))
+    monkeypatch.setenv(src.MIRROR_ENV, str(out))
+    layer = src.SOURCES["wallonia"].nmt
+    assert layer.native_res == 0.5 and layer.averaged == () and src.SOURCES["wallonia"].default_resolution == 1.0
+    grid = gd.make_grid((3000.0, 1000.0, 3004.0, 1004.0), 1.0, "EPSG:3812", src.SOURCES["wallonia"].grid_origin)
+    assert layer.tiles(grid) == [(0.5, 1, 0)]
+    cache_dir = str(tmp_path / "cache")
+    layer.download(grid, cache_dir, None, "test")
+    mosaic = src.build_mosaic(layer.files(grid, cache_dir), grid, str(tmp_path / "m.npy"), "test")
+    assert mosaic.shape == (4, 4)
+    assert abs(mosaic[0, 0] - 101.75) <= 0.0051 and abs(mosaic[0, 1] - 103.0) <= 0.0051
+    assert np.isnan(mosaic[1, 0]) and abs(mosaic[1, 1] - 150.5) <= 0.0051
+    assert np.allclose(mosaic[2:, :], 200.0, atol=0.0051) and np.allclose(mosaic[:2, 2:], 200.0, atol=0.0051)
+
+
+def test_averaged_cut(tmp_path, monkeypatch):
+    """An averaged product (Wallonia's products at 1 m, average 2, on the fake fetch of two provinces per model): every
+    pixel is the mean of the valid 0.5 m pixels of its 2 x 2 block (within the 5 mm of LERC): of four, three, two (the
+    region's edge on an odd half-metre, a block with two holes) or one, no data where none; the seam (valid in both
+    provinces, equal) gives the same means; -9999 is no data; the index names the factor; verify passes and compares
+    the blocks where a mean can go wrong; the card names the mean. The ZIPs' other members are no inputs."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    made = _wallonia_fetch(inputs, tmp_path)
+    ds = _averaged_wallonia(monkeypatch)
+    assert mt.cut("wavg", str(work), str(out), inputs=str(inputs)) == {"dtm": "cut", "dsm": "cut"}
     for product, group in zip(ds.products, ("MNT", "MNS")):
         truth, in_a, in_b = made[group]
         tiles, index = _tiles(out, ds, product)
@@ -1827,7 +1961,7 @@ def test_wallonia_averaged_cut(tmp_path, monkeypatch):
             assert both.all() and np.isfinite(seam[row0 + r, c - 2:c + 3]).all()
             _close(seam[row0 + r, c - 2:c + 3], want["1_0"][row0 + r, c - 2:c + 3])
     for name in ("dtm", "dsm"):
-        result = mt.verify("wallonia", str(work), str(out), inputs=str(inputs))[name]
+        result = mt.verify("wavg", str(work), str(out), inputs=str(inputs))[name]
         assert result["ok"] and result["points_compared"] == mt.POINTS * 3, result["problems"]
         # Besides the random pixels, the blocks where a mean can go wrong, found from the inputs: partly valid ones
         # (the region's first and last columns on odd half-metres in tiles 0_0 and 2_0, the holes in 0_0) and those
@@ -1839,39 +1973,22 @@ def test_wallonia_averaged_cut(tmp_path, monkeypatch):
             assert s["joined_found"] == 0, key
             for kind in mt.EDGE_KINDS:
                 assert s[f"{kind}_compared"] == min(mt.EDGE_BLOCKS, s[f"{kind}_found"]), (key, kind)
-        saved = json.loads((out / "wallonia" / name / "1m" / "verify.json").read_text(encoding="utf-8"))
+        saved = json.loads((out / "wavg" / name / "1m" / "verify.json").read_text(encoding="utf-8"))
         assert saved["samples"] == result["samples"]
-    # The averaged indexes (with their two new keys) pass the client's check and the publish tool's verify, and the
-    # catalogue's layer reads the means back from the folder as a local mirror
+    # The averaged indexes (with their two new keys) pass the client's check and the publish tool's verify
     import mirror_publish as mp
     from sources.readers import tilebases
     for name in ("dtm", "dsm"):
-        index = json.loads((out / "wallonia" / name / "1m" / "index.json").read_text(encoding="utf-8"))
+        index = json.loads((out / "wavg" / name / "1m" / "index.json").read_text(encoding="utf-8"))
         tiles, extent = tilebases._checked_index(index)
         assert tiles == index["tiles"] and extent is not None and index["block"] == tilebases.BLOCK
-    faults, files = mp.read_master(str(out / "wallonia"), "<folder>")
+    faults, files = mp.read_master(str(out / "wavg"), "<folder>")
     assert faults == [] and {"dtm/1m/index.json", "dsm/1m/index.json"} <= set(files)
-    monkeypatch.setattr(net, "_get", lambda *a, **k: pytest.fail("no network with a mirror"))
-    monkeypatch.setenv(src.MIRROR_ENV, str(out))
-    layer = src.SOURCES["wallonia"].nmt
-    grid = gd.make_grid((1500.0, 1400.0, 3500.0, 1650.0), 1.0, "EPSG:3812", src.SOURCES["wallonia"].grid_origin)
-    cache_dir = str(tmp_path / "cache")
-    layer.download(grid, cache_dir, None, "test")
-    mosaic = src.build_mosaic(layer.files(grid, cache_dir), grid, str(tmp_path / "m.npy"), "test")
-    truth, in_a, in_b = made["MNT"]
-    want = _wallonia_expected(truth, in_a | in_b)
-    _close(mosaic, np.concatenate([want["0_0"][350:600, 1500:], want["1_0"][350:600, :1500]], axis=1))
     card = mt.card_text(ds, str(out))
     sentence = "each 1 m pixel is the mean of the valid 0.5 m pixels of its 2 x 2 block"
     assert card.count(sentence) == 2 and card.count("made no data (on the 0.5 m pixels, before the mean)") == 2
     assert "## `dtm/1m`" in card and "## `dsm/1m`" in card and "values -9999" in card
-    assert "Source : Service public de Wallonie (SPW) - Relief de la Wallonie - Modèle Numérique de Terrain" in card
-    assert all(text.startswith(sentence + ";") and "EPSG:3812" in text and "-9999" in text
-               for text in mp.PUBLISHABLE["wallonia"]["changes"].values())
-    assert sorted(mp.PUBLISHABLE["wallonia"]["changes"]) == ["dsm/1m", "dtm/1m"]
-    # The card's heading and its not-endorsed sentence are the approved row's
-    row = mp.PUBLISHABLE["wallonia"]
-    assert card.startswith(f"# {row['title']}\n") and card.rstrip().endswith(row["not_endorsed"])
+    assert card.count("a 1 m pixel grid on the edges of the 0.5 m pixels") == 2
 
 
 def test_wallonia_seam_must_agree(tmp_path, monkeypatch):
@@ -1909,14 +2026,15 @@ def test_averaged_verify_finds_a_change(tmp_path, monkeypatch, kind):
     verify compares such blocks on purpose."""
     inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
     _wallonia_fetch(inputs, tmp_path)
+    _averaged_wallonia(monkeypatch)
     if kind == "shift":
         monkeypatch.setattr(mt, "assemble", _buggy("shift"))
     if kind == "edges":
         monkeypatch.setattr(mt, "assemble", _divided_by_four())
-    mt.cut("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")
-    folder = out / "wallonia" / "dtm" / "1m"
+    mt.cut("wavg", str(work), str(out), inputs=str(inputs), product="dtm")
+    folder = out / "wavg" / "dtm" / "1m"
     if kind == "pixel":
-        assert mt.verify("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")["dtm"]["ok"]
+        assert mt.verify("wavg", str(work), str(out), inputs=str(inputs), product="dtm")["dtm"]["ok"]
         index = json.loads((folder / "index.json").read_text())
         path = folder / src.grid_tile_name(1, 0)
         with rio.open(path) as t:
@@ -1925,7 +2043,7 @@ def test_averaged_verify_finds_a_change(tmp_path, monkeypatch, kind):
         sk_tiles._write(str(path), values, "EPSG:3812", transform)
         index["tiles"]["1_0"] = hashlib.sha256(path.read_bytes()).hexdigest()
         (folder / "index.json").write_text(json.dumps(index))
-    result = mt.verify("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")["dtm"]
+    result = mt.verify("wavg", str(work), str(out), inputs=str(inputs), product="dtm")["dtm"]
     problems = "\n".join(result["problems"])
     assert not result["ok"]
     if kind == "pixel":  # 2 cm, give or take the 5 mm of the two LERC encodings
@@ -1985,13 +2103,14 @@ def test_verify_says_when_found_blocks_are_not_compared(tmp_path, monkeypatch):
     leaves the edge blocks out (its random pixels only) makes it fire, for each kind that was found."""
     inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
     _wallonia_fetch(inputs, tmp_path)
-    mt.cut("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")
+    _averaged_wallonia(monkeypatch)
+    mt.cut("wavg", str(work), str(out), inputs=str(inputs), product="dtm")
     real = mt._point_problems
 
     def without_edges(key, got, product, readers, rng, n, handles, extra=None, counted=None):
         return real(key, got, product, readers, rng, n, handles)
     monkeypatch.setattr(mt, "_point_problems", without_edges)
-    result = mt.verify("wallonia", str(work), str(out), inputs=str(inputs), product="dtm")["dtm"]
+    result = mt.verify("wavg", str(work), str(out), inputs=str(inputs), product="dtm")["dtm"]
     problems = set(result["problems"])
     assert not result["ok"]
     assert problems == {"0_0: partial blocks found but none compared", "2_0: partial blocks found but none compared",
@@ -2160,11 +2279,22 @@ def test_averaged_assemble_is_exact(tmp_path):
             mt.input_res(mt.replace(product, average=bad))
     with pytest.raises(ValueError, match="pixels"):
         mt.footprint(str(_tif(tmp_path / "one.tif", values, 2000.0, 2100.0, res=1.0, crs="EPSG:3812")), product)
-    # Wallonia's at the planned bound: eight tiles of 1 m in flight beside one of 0.5 m being assembled
-    wallonia = mt.dataset("wallonia").products[0]
-    assert mt._workers(wallonia, 8, 24.0)[0] == 8
+    # An averaged product's bound: eight tiles of 1 m in flight beside one of 0.5 m being assembled
+    assert mt._workers(product, 8, 24.0)[0] == 8
     with pytest.raises(ValueError, match=r"too little for one tile of 1 m \(0\.86 GB"):
-        mt._workers(wallonia, 8, 0.6)
+        mt._workers(product, 8, 0.6)
+
+
+def test_wallonia_memory_bound_at_4000_px_tiles():
+    """Wallonia's 0.5 m products (tiles of 4000 x 4000 px, nothing averaged) within the cut's bound: at 24 GB and 8
+    threads eight tiles in flight beside GDAL's cache of 2 GiB; at the defaults (8 GB, 6 threads) six; a bound below
+    one tile beside the cache and the base is refused."""
+    for product in mt.dataset("wallonia").products:
+        assert mt.tile_px(product.res) == 4000 and product.average == 1
+        assert mt._workers(product, 8, 24.0) == (8, 2048)
+        assert mt._workers(product, mt.THREADS, mt.MAX_MEMORY_GB) == (6, 1835)
+        with pytest.raises(ValueError, match=r"too little for one tile of 0\.5 m \(0\.77 GB"):
+            mt._workers(product, 8, 1.2)
 
 
 def test_averaged_mean_in_float64(tmp_path):
@@ -2328,10 +2458,10 @@ def test_wallonia_waits_for_its_state_files(tmp_path):
     inputs, work = tmp_path / "in", tmp_path / "work"
     _wallonia_fetch(inputs, tmp_path, status=False)
     lines = mt.status(["wallonia"], str(work), None, str(inputs))
-    assert lines[0] == "wallonia: Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW), averaged to 1 m"
-    assert "  dtm/1m: waiting (inputs missing); missing wallonia/status.json names no group MNT (run the fetch tool)" \
-        in lines
-    assert any(line.startswith("  dsm/1m: waiting") and "status.json names no group MNS" in line for line in lines)
+    assert lines[0] == "wallonia: Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW)"
+    assert ("  dtm/0.5m: waiting (inputs missing); missing wallonia/status.json names no group MNT (run the fetch "
+            "tool)") in lines
+    assert any(line.startswith("  dsm/0.5m: waiting") and "status.json names no group MNS" in line for line in lines)
     (inputs / "wallonia" / "status.json").write_text(json.dumps({"groups": {"MNT": {"files": 2}, "MNS": {"files": 2}}}))
     lines = mt.status(["wallonia"], str(work), None, str(inputs))
-    assert "  dtm/1m: ready to cut (wallonia/MNT: 2 of 2)" in lines
+    assert "  dtm/0.5m: ready to cut (wallonia/MNT: 2 of 2)" in lines

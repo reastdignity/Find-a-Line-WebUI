@@ -2574,19 +2574,19 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                          'credits': ['Relief de la Wallonie MNT 2021-2022 (SPW, Wallonia)',
                                      'Relief de la Wallonie MNS 2021-2022 (SPW, Wallonia)'],
                          'nmt': {'class': 'GridTiles',
-                                 'description': 'Wallonia MNT 1 m (terrain)',
-                                 'folder': 'belgium/wallonia-mnt/2022/epsg3812-1m-2km',
+                                 'description': 'Wallonia MNT 0.5 m (terrain)',
+                                 'folder': 'belgium/wallonia-mnt/2022/epsg3812-0.5m-2km',
                                  'prefix': None,
-                                 'native_res': 1.0,
+                                 'native_res': 0.5,
                                  'processing': 1,
                                  'ttl_days': None,
                                  'credit': 'Relief de la Wallonie MNT 2021-2022 (SPW, Wallonia)',
                                  'shift': (0.0, 0.0)},
                          'nmpt': {'class': 'GridTiles',
-                                  'description': 'Wallonia MNS 1 m (trees, buildings)',
-                                  'folder': 'belgium/wallonia-mns/2022/epsg3812-1m-2km',
+                                  'description': 'Wallonia MNS 0.5 m (trees, buildings)',
+                                  'folder': 'belgium/wallonia-mns/2022/epsg3812-0.5m-2km',
                                   'prefix': None,
-                                  'native_res': 1.0,
+                                  'native_res': 0.5,
                                   'processing': 1,
                                   'ttl_days': None,
                                   'credit': 'Relief de la Wallonie MNS 2021-2022 (SPW, Wallonia)',
@@ -2890,9 +2890,9 @@ PATHS = [
     ("shizuoka", "nmt", "sheetset", "shizuoka/lp-grid/s/OF/04/2019_08OF0485_0123abcd.tif", None),
     ("hong_kong", "nmt", (48, 40), "hong_kong/dtm-2020/7SW/7SW25C.tif", (48, 40)),
     ("hong_kong", "nmpt", (49, 39), "hong_kong/dsm-2020/11NW/11NW5B.tif", (49, 39)),
-    # The Rochers de Freyr's tile (343, 300) on Wallonia's 1 m grid
-    ("wallonia", "nmt", (1.0, 343, 300), "belgium/wallonia-mnt/2022/epsg3812-1m-2km/34_30/343_300.tif", None),
-    ("wallonia", "nmpt", (1.0, 343, 300), "belgium/wallonia-mns/2022/epsg3812-1m-2km/34_30/343_300.tif", None),
+    # The Rochers de Freyr's tile (343, 300) of Wallonia's 0.5 m tiles
+    ("wallonia", "nmt", (0.5, 343, 300), "belgium/wallonia-mnt/2022/epsg3812-0.5m-2km/34_30/343_300.tif", None),
+    ("wallonia", "nmpt", (0.5, 343, 300), "belgium/wallonia-mns/2022/epsg3812-0.5m-2km/34_30/343_300.tif", None),
 ]
 
 
@@ -3605,12 +3605,16 @@ def test_processed_note_in_the_viewer():
 
 
 def test_wallonia_declared():
-    """Wallonia (SPW, our own 1 m tiles): each model's layer reads its mirror folder on the products' grid and
-    carries its own record's credit; the source's attribution names both, the terrain model's first."""
+    """Wallonia (SPW, our own 0.5 m tiles, the user's decision of 2026-11-26): each model's layer reads its mirror
+    folder on the products' grid and carries its own record's credit; the source's attribution names both, the
+    terrain model's first. The working resolution stays 1 m (README: never finer than 1 m), read from the 0.5 m
+    tiles (no other resolution is kept)."""
     s = src.SOURCES["wallonia"]
-    assert [s.nmt.mirror, s.nmpt.mirror] == ["wallonia/dtm/1m", "wallonia/dsm/1m"]
+    assert [s.nmt.mirror, s.nmpt.mirror] == ["wallonia/dtm/0.5m", "wallonia/dsm/0.5m"]
     assert all(layer.origin == s.grid_origin == (0.0, 0.0) and layer.crs == s.crs == "EPSG:3812" and
-               layer.tile_m == 2000 and layer.native_res == 1.0 and not layer.averaged for layer in (s.nmt, s.nmpt))
+               layer.tile_m == 2000 and layer.native_res == 0.5 and not layer.averaged for layer in (s.nmt, s.nmpt))
+    assert s.default_resolution == 1.0 and s.nmt.resolution(1.0, "EPSG:3812") == 0.5
+    assert [s.nmt._bytes, s.nmpt._bytes] == [19.2e6, 22.8e6]  # estimates until the cut measures them
     assert [s.nmt.credit, s.nmpt.credit] == list(s.credits) and all(c.licence == "CC BY 4.0" for c in s.credits)
     assert s.nmpt.credit.attribution == ("Source : Service public de Wallonie (SPW) - Relief de la Wallonie - Modèle "
                                          "Numérique de Surface (MNS) 2021-2022 (2024-01-23) "
@@ -3758,7 +3762,7 @@ def test_a_neighbour_not_published_leaves_the_border_as_before(tmp_path, http_se
     with contextlib.closing(sqlite3.connect(tmp_path / "unpublished" / "cache" / "belgium" / "index.sqlite")) as db:
         assert db.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0  # no tile, no "missing" row
     assert "SPW Wallonia" not in first["out"]
-    assert unpublished["asked"] == ["/v1/tiles/wallonia/dtm/1m/index.json"] * 2
+    assert unpublished["asked"] == ["/v1/tiles/wallonia/dtm/0.5m/index.json"] * 2
     assert unpublished["pauses"] == first["pauses"] + 1  # the one pause before asking the index again
     assert "Gaps at the border not filled from SPW Wallonia (MNT / MNS 2021-2022): " in unpublished["out"]
     assert ("server at 127.0.0.1 (HTTP 404): this dataset or resolution is not published there, also after taking the "
