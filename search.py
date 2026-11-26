@@ -94,18 +94,23 @@ ORTHO_DETAIL = 50  # groups of an area with detailed orthophoto, unless the serv
 PIXEL_BYTES = 50
 # The access mark (--access, access.py) of the search's whole grid: in memory at once when ACCESS_WINDOW_BYTES per
 # pixel of the grid fit the search's memory (Plan.memory, else the memory free), else in blocks (access.block_grid):
-# ACCESS_AREA_BYTES per pixel of the whole grid for its grid-wide pass (strips, masks memory-mapped) plus
-# ACCESS_WINDOW_BYTES per pixel of a block's window (the block and access.margin_px around it); blocks at least
-# ACCESS_BLOCK_MIN_M wide. Measured 2026-11-15 (exclusive; docs/performance.md, "The access grid's memory"): at once
-# 43 B per pixel of the grid on whole metres (the Gozo coast), 29 on float heights (the Tatras); in blocks the
-# grid-wide pass 6.1-6.7 B per pixel of the grid, 9.5 where flat float heights join the sea's fill (the Gozo coast at
-# 2 m: 55 % of its pixels in flat regions whose heights are gathered), and 27-46 per pixel of the largest window
-ACCESS_AREA_BYTES = 12
+# ACCESS_AREA_BYTES per pixel of the whole grid, ACCESS_FIXED_BYTES once and ACCESS_WINDOW_BYTES per pixel of a
+# block's window (the block and access.margin_px around it); blocks at least ACCESS_BLOCK_MIN_M wide. Each counts the
+# working set the stage adds above its start in a search's own order (step 1 just run in the process;
+# docs/performance.md, "The access grid's memory"). At once 43 B per pixel of the grid on whole metres (the Gozo
+# coast), 29 on float heights (the Tatras), measured 2026-11-15. In blocks (measured 2026-11-25): ACCESS_AREA_BYTES
+# the file pages the blocks hold beyond their window, step 1's water and covered grids and the mark's own grid, 3.0 B
+# per pixel at the last block (the grid-wide masks are bits in files, in no working set); ACCESS_FIXED_BYTES the
+# grid-wide pass's own memory, 73-117 MB (its file pages, 2.0-2.1 B per pixel, are under ACCESS_AREA_BYTES); and
+# 27-46 B per pixel of the largest window (2026-11-15)
+ACCESS_AREA_BYTES = 4
+ACCESS_FIXED_BYTES = 140_000_000
 ACCESS_WINDOW_BYTES = 50
 ACCESS_BLOCK_MIN_M = 500
-# Disk per pixel of the whole grid in the work folder while the access grid is made in blocks: access.npy (uint8),
-# the water, the open ground and its smoothed twin (bool) and a region mask with its int32 labels at a time
-ACCESS_DISK_BYTES = 9
+# Disk per pixel of the whole grid in the work folder while the access grid is made in blocks: the mark's files at
+# most, access.npy (uint8) and the masks' bits (in the pass the bits and the regions' tables): 1.38 B measured, 1.83
+# in a made-up worst case of the pass
+ACCESS_DISK_BYTES = 2
 # The lines: the largest per-line peak of a search's process tree with a margin. Measured 2026-11-15 (the line-volume
 # task, part 5.1; docs/performance.md, "The memory constant"): full searches of 0.7-3.5 million lines, one at a time
 # on this PC, the process tree sampled every 0.2 s, 7 cores and a compute slot's tiles. The peak is step 5, while
@@ -881,7 +886,7 @@ def estimate_search(plan: Plan) -> Estimate:
         # largest one's: a tile's folder is removed before the next tile's are made)
         largest = max((t for _, t in plan.tiles), key=lambda t: t.width * t.height)
         work += plan.grid.width * plan.grid.height * AREA_TEMP_BYTES + largest.width * largest.height * tile_bytes(plan)
-    if plan.access_on:  # the access grid in blocks at most (_access_grid): its grids in the work folder
+    if plan.access_on:  # the access grid in blocks at most (_access_grid): its files in the work folder
         work += plan.grid.width * plan.grid.height * ACCESS_DISK_BYTES
     work_gb = work / 1e9
     estimate = Estimate(download_mb, work_gb)
@@ -2233,28 +2238,31 @@ def _access_block_px(plan: Plan) -> Optional[int]:
     """The side of the access grid's blocks in pixels, or None: the grid at once (access.access_grid) when
     ACCESS_WINDOW_BYTES per pixel of the whole grid fit the budget (_access_budget) and the walk's int32 indices
     hold it. Else the largest square block whose window (the block and access.margin_px around it) takes
-    ACCESS_WINDOW_BYTES per pixel of what the budget leaves after ACCESS_AREA_BYTES per pixel of the whole grid,
-    at least ACCESS_BLOCK_MIN_M wide (_check_access leaves the mark out below it) and its window under
-    2^31 pixels. The blocks follow the memory only, never the tiles or the threads, and never the answers."""
+    ACCESS_WINDOW_BYTES per pixel of what the budget leaves after ACCESS_AREA_BYTES per pixel of the whole grid and
+    ACCESS_FIXED_BYTES (the grid-wide pass's own), at least ACCESS_BLOCK_MIN_M wide (_check_access leaves the mark
+    out below it) and its window under 2^31 pixels. The blocks follow the memory only, never the tiles or the
+    threads, and never the answers."""
     import access
     pixels = plan.grid.width * plan.grid.height
     budget = _access_budget(plan)
     if pixels * ACCESS_WINDOW_BYTES <= budget and pixels < access.WALK_PX_MAX:
         return None
     margin = access.margin_px(plan.resolution)
-    room = max(0, budget - pixels * ACCESS_AREA_BYTES)
+    room = max(0, budget - pixels * ACCESS_AREA_BYTES - ACCESS_FIXED_BYTES)
     side = min(int(math.sqrt(room / ACCESS_WINDOW_BYTES)), int(math.sqrt(access.WALK_PX_MAX - 1)))
     return max(int(math.ceil(ACCESS_BLOCK_MIN_M / plan.resolution)), side - 2 * margin)
 
 
 def access_memory(plan: Plan) -> int:
     """The least memory the access grid of this search needs: the whole grid at once if that is less, else the
-    grid-wide pass and a window of the smallest block (ACCESS_BLOCK_MIN_M)."""
+    grid in blocks: ACCESS_AREA_BYTES per pixel of the grid, ACCESS_FIXED_BYTES (the grid-wide pass's own) and a
+    window of the smallest block (ACCESS_BLOCK_MIN_M)."""
     import access
     pixels = plan.grid.width * plan.grid.height
     block = int(math.ceil(ACCESS_BLOCK_MIN_M / plan.resolution)) + 2 * access.margin_px(plan.resolution)
     window = min(plan.grid.height, block) * min(plan.grid.width, block)
-    return min(pixels * ACCESS_WINDOW_BYTES, pixels * ACCESS_AREA_BYTES + window * ACCESS_WINDOW_BYTES)
+    return min(pixels * ACCESS_WINDOW_BYTES,
+               pixels * ACCESS_AREA_BYTES + ACCESS_FIXED_BYTES + window * ACCESS_WINDOW_BYTES)
 
 
 def _check_access(plan: Plan):

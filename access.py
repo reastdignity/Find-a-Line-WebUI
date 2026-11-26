@@ -1209,7 +1209,8 @@ def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int
         for mask in (wet, og, og2):
             if mask is not None:
                 mask.remove()
-    except BaseException:  # its masks' handles let go (their files: the caller's, as after a failed search)
+    except BaseException:  # its masks' handles and the result grid let go (their files: the caller's, as after a
+        out = None  # failed search); the exception's frames hold this frame's names while it is alive
         for mask in (wet, og, og2):
             if mask is not None:
                 mask.close()
