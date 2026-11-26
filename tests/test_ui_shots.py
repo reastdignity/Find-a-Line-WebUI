@@ -473,7 +473,7 @@ def test_pages_selected_by_their_names():
     assert not ui_shots.select_pages("readme")  # the README's pages: --readme's only
     assert set(ui_shots.select_pages("c-line,map-shared")) == {"c-line", "c-line-profile", "map-shared",
                                                                  "map-shared-credits", "map-shared-line"}
-    assert set(ui_shots.select_pages("c-line,map-shared", "credits,profile")) == {"c-line", "map-shared"}
+    assert set(ui_shots.select_pages("c-line,map-shared", "credits,profile")) == {"c-line", "map-shared", "map-shared-line"}
     assert "c-home" not in ui_shots.select_pages(exclude="home")
 
 
