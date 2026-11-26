@@ -949,14 +949,17 @@ def test_share_link_visitors_compute(run_people, tmp_path, monkeypatch):
     for path in ("/api/profile?line=1,2,3,4", "/api/patch?line=1,2,3,4", "/api/reach?line=1,2,3,4&anchor=1,2&as=1"):
         assert anonymous.get(path).status_code == 401, path  # the session before the run, as before
         assert run_people["pending"].get(path).status_code == 403, path
+    no_worker_link = {"message": "Profiles and 3D views cannot be computed right now. Try again in a few minutes.",
+                      "code": "no_worker_link", "params": {}}  # the user's T2: a link has no queue of searches
     for who in ("anonymous", "a", "b", "pending", "blocked", "admin"):  # on to the (missing) worker: 503
         for kind in kinds if who == "anonymous" else ("profile", "patch", "reach"):  # within the link's 10 patches
             answer = _computed(run_people[who], kind, RUN_A, lat, lon, token)
-            assert answer.status_code == 503, (who, kind, answer.text)
+            assert answer.status_code == 503 and answer.json()["detail"] == no_worker_link, (who, kind, answer.text)
     answers = a.app.state.quick_answers
     assert answers[("no_worker", "link")] == 19 and answers[("no_worker", "user")] == 0  # O2: who waited
     for kind in kinds:
-        assert _computed(a, kind, RUN_A, lat, lon).status_code == 503  # the owner's own request: a user's
+        mine = _computed(a, kind, RUN_A, lat, lon)  # the owner's own request: a user's, with the users' text
+        assert mine.status_code == 503 and mine.json()["detail"]["code"] == "no_worker", kind
     assert answers[("no_worker", "user")] == 4
     b_token = b.post(f"/api/runs/{RUN_B}/share").json()["url"].split("/s/")[1].split("/")[0]
     for kind in kinds:
@@ -1110,7 +1113,8 @@ def test_share_link_rates(tmp_path, clip_run, settings, account_settings, provid
     refused = _computed(b, "profile", RUN_A, lat, lon, token)
     detail = refused.json()["detail"]
     assert refused.status_code == 429 and detail["code"] == "rate_link_profile"
-    assert detail["message"] == "Too many profiles on this link in a short time. Try again later."
+    assert detail["message"] == "Too many profiles on this link in a short time. Try again in 1 min."
+    assert detail["params"] == {"wait": "1 min"}  # the user's T1: whole minutes, rounded up
     assert refused.headers["retry-after"] == "40"  # the minute's 39 s left, and the second after the turn
     assert status(anonymous, "profile", b_token, RUN_B) == 503  # another link: its own budget
     # The users' own budgets are untouched by their requests through the link; their 429 counts the same way
@@ -1123,14 +1127,14 @@ def test_share_link_rates(tmp_path, clip_run, settings, account_settings, provid
     assert [status(anonymous, "patch"), status(b, "canopy")] == [503, 503]
     over = _computed(a, "patch", RUN_A, lat, lon, token)
     assert (over.status_code, over.json()["detail"]["code"]) == (429, "rate_link_patch")
-    assert over.json()["detail"]["message"] == "Too many 3D views on this link in a short time. Try again later."
+    assert over.json()["detail"]["message"] == "Too many 3D views on this link in a short time. Try again in 1 min."
     assert [status(anonymous, "reach"), status(anonymous, "reach")] == [503, 503]
     over = _computed(b, "reach", RUN_A, lat, lon, token)
     assert (over.status_code, over.json()["detail"]["code"]) == (429, "rate_link_reach")
     assert over.json()["detail"]["message"] == ("Too many reach calculations on this link in a short time. "
-                                                "Try again later.")
+                                                "Try again in 50 min.")
     reach_at, reach_wait = clock.now, int(over.headers["retry-after"])
-    assert reach_wait == 3600 - 621 + 1  # to the hour's turn, not the minute's
+    assert reach_wait == 3600 - 621 + 1  # to the hour's turn, not the minute's: 49 min 40 s, said as 50 min
     # Retry-After is honest and tight: a second early still refused, at it one more passes
     clock.now += 40 - 1
     assert status(anonymous, "profile") == 429 and status(a, "profile", None) == 429
@@ -1158,6 +1162,7 @@ def test_share_link_rates(tmp_path, clip_run, settings, account_settings, provid
         for _ in range(2):
             link = _computed(anonymous, "profile", RUN_A, lat, lon, token)
             assert (link.status_code, link.headers["retry-after"]) == (429, "3600")
+            assert link.json()["detail"]["message"].endswith("Try again in 60 min.")
             user = _computed(a, "profile", RUN_A, lat, lon)
             assert (user.status_code, user.headers["retry-after"]) == (429, "60")
 
