@@ -42,7 +42,7 @@ APP_METRICS = {
     "findaline_job_phase_seconds_count": {"phase"},
     "findaline_quick_waiting": set(),
     "findaline_quick_oldest_waiting_seconds": set(),
-    "findaline_quick_answers_total": {"result"},
+    "findaline_quick_answers_total": {"result", "caller"},
     "findaline_users": {"status"},
     "findaline_users_by_country": {"country"},
     "findaline_users_searched_in": {"country"},
