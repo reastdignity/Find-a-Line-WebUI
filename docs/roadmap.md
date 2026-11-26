@@ -419,7 +419,8 @@ per pixel of the grid and 0.14 GB (12 B before) and 50 B per pixel of a window; 
 from a box of 34.2 km at 1 m and 69.1 km at 2 m (computed; 20.0 and 40.5 before); the wide box's stage 249 s against
 383 s; 0 pixels differ everywhere.* Of the candidates of the first build: labels by strips and exact percentiles
 built; skipping blocks without an anchor is the entry below; a smaller walk (float32 or quantised distances, 8 B of
-a window's 50) not looked at; the one-pass gather is gone with the gather.
+a window's 50) not looked at; the one-pass gather in part: the batches of flat regions under `GATHER_PX` stay, but a
+batch reads only its regions' strips and boxes (their records), not the whole grid.
 
 ### Blocks without an anchor (E2): a possible option (the user, 2026-11-24)
 The grid in blocks computes every block whose core holds a pixel of the search area (E); the grid is read only at

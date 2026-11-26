@@ -3875,8 +3875,9 @@ island: Malta 2018 resampled to 2 m reads as float heights, the sea's 0 m fill j
   near 170 MB, a constant inside these figures (the third review's flat lowland at the default strips).
 - A known cost in time, not measured: `_spread_flat` reads the whole grid once per batch of flat regions, so flat
   float ground split into many unsure regions under `GATHER_PX` costs about (their pixels / `GATHER_PX`) passes over
-  the labels and heights (about 100 on 600 Mpx of fragmented lowland), where the unbounded code made one.
-  `ACCESS_WINDOW_BYTES` stays 50 (42.9 at once, 42.2 a window).
+  the labels and heights (about 100 on 600 Mpx of fragmented lowland), where the unbounded code made one (until
+  2026-11-26: since then a batch reads only its regions' strips and boxes, below). `ACCESS_WINDOW_BYTES` stays 50
+  (42.9 at once, 42.2 a window).
 
 - The constants (`search.py`; until 2026-11-26, since then 4, a fixed 0.14 GB and 2: below): `ACCESS_WINDOW_BYTES`
   50 per pixel of the grid at once or of a block's window (43.2 and 45.9 measured; the window's figure holds the
@@ -3929,7 +3930,8 @@ What was built, in this order:
   region).
 - **The pass's seconds** (the user's "Seconds first", wave 2a): float32 bounds, no flushes in the pass, the open ground
   written in the forward sweep, a strip's verdicts handed on one strip late (`_Regions._finish`: only the pieces of
-  regions that go on below the next strip are recorded), the flat lakes' questions of one strip answered in the sweep.
+  regions that go on below the next strip are recorded), the flat lakes' questions of one strip answered in the sweep,
+  and a batch of the others reading only its regions' strips and boxes (their records), not the whole grid.
 - **E, blocks only where the search area is:** `block_grid(needed=)` computes a block only when its core holds a pixel
   of the search area (`Data.mask`: every anchor comes from it); the other blocks hold `access.NOT_COMPUTED` (255),
   which `access.at` refuses; with partner anchors beyond the outline (the count mode across a border) every block.
@@ -4066,8 +4068,6 @@ the full fuzz stay as they are.
   holds the same three grids; the two float cases read 3.01 to 3.25 B/px there, the excess a fixed 10 MB.
 - E leaves nothing out when the search area reaches into every block (the Tatras circle: 4 of 4). Blocks without an
   anchor (E2) would skip at most 17 % of E's blocks, and only at the smallest blocks: the roadmap.
-- `access._blocks_needed` refuses a raw memory map without an .npy header (not reachable from a search: `Data.mask` is
-  an array or an .npy).
 
 #### Confirming runs at the close
 *To be filled by the planner after agent M's runs through the rule as built: the three small cases, Linux on the Gozo
