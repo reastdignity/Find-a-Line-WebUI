@@ -54,6 +54,14 @@ now += 59999;
 const reachLate = b.blocked("reach");
 now += 1;
 out.wait = {{before, during, thrown, late, after, reachLate, reachAfter: b.blocked("reach")}};
+// a shorter 429 after a longer one (a user's quick_waiting after the hour's rate) keeps the later deadline
+m.noteRefusal("patch", 429, "3600", "the hour", b);
+m.noteRefusal("patch", 429, "5", "five seconds", b);
+now += 6000;
+const longKept = b.blocked("patch");
+m.noteRefusal("patch", 429, "7200", "two hours", b);   // a later deadline takes over, with its text
+now += 3600000;
+out.later = [longKept, b.blocked("patch")];
 console.log(JSON.stringify(out));""")
     assert found["tokens"] == [TOKEN, TOKEN, TOKEN, None, None, None, None, None, None, None, None]
     assert found["headers"] == [{"X-Findaline-Profile": "1", "X-Findaline-Share": TOKEN}, {"X-Findaline-Patch": "1"}]
@@ -65,6 +73,7 @@ console.log(JSON.stringify(out));""")
     assert wait["thrown"] == "Too many profiles" and wait["late"] == "Too many profiles", wait
     assert wait["after"] == [None, "passed"], wait
     assert wait["reachLate"] == "Too many reach" and wait["reachAfter"] is None, wait
+    assert found["later"] == ["the hour", "two hours"], found["later"]
 
 
 @node
@@ -152,12 +161,26 @@ def _link_page() -> tuple:
     return page, web.page_csp(ViewSettings(ring=False))["/view3d"]
 
 
-def _link_context(browser, port: int, asked: list, refuse_reach: list | None = None):
+# The server's words of a link's 429 per kind of request (contract.md); the canopy is a patch
+REFUSALS = {"reach": ("rate_link_reach", REACH_TEXT),
+            "profile": ("rate_link_profile", "Too many profiles on this link in a short time. Try again later."),
+            "patch": ("rate_link_patch", "Too many 3D views on this link in a short time. Try again later."),
+            "canopy": ("rate_link_patch", "Too many 3D views on this link in a short time. Try again later.")}
+
+
+def _kind(url: str) -> str:
+    """The kind of an /api request: reach, canopy, patch or profile."""
+    return "canopy" if "part=canopy" in url else url.split("/api/")[1].split("?")[0]
+
+
+def _link_context(browser, port: int, asked: list, refuse: dict | None = None, refused: dict | None = None):
     """A context without cookies in which /s/<TOKEN>/view3d is the link's 3D page and everything else the local app's
     (its /api answers the clip's run; the local app answers a request with X-Findaline-Share 404, so the header is
     taken off on the way: the link's server side is test_public's and test_share_link_end_to_end's); `asked` gets
     every /api request as the page sent it, [path and query, its X-Findaline-Share or None, the time]; while
-    `refuse_reach` holds a count, a reach is answered 429 with Retry-After: 2 and the server's words."""
+    `refuse[kind]` (REFUSALS' kinds) holds a count, such a request is answered 429 with Retry-After: 2 and the server's
+    words, and `refused[kind]` gets the time the browser had each such answer (its response event: the page's wait
+    counts from the answer)."""
     import time
     from test_web import CSP_STUB
     page_html, csp = _link_page()
@@ -168,10 +191,12 @@ def _link_context(browser, port: int, asked: list, refuse_reach: list | None = N
                                              "cache-control": "no-store"}))
 
     def api(route):
-        if refuse_reach and refuse_reach[0] > 0 and "/api/reach" in route.request.url:
-            refuse_reach[0] -= 1
+        kind = _kind(route.request.url)
+        if refuse and refuse.get(kind, 0) > 0:
+            refuse[kind] -= 1
+            code, text = REFUSALS[kind]
             route.fulfill(status=429, headers={"content-type": "application/json", "retry-after": "2"},
-                          body=json.dumps({"detail": {"code": "rate_link_reach", "params": {}, "message": REACH_TEXT}}))
+                          body=json.dumps({"detail": {"code": code, "params": {}, "message": text}}))
         else:
             route.continue_(headers={k: v for k, v in route.request.headers.items() if k.lower() != "x-findaline-share"})
     ctx.route(f"http://127.0.0.1:{port}/api/**", api)
@@ -182,6 +207,9 @@ def _link_context(browser, port: int, asked: list, refuse_reach: list | None = N
         if parts.path.startswith("/api/"):
             asked.append([parts.path + "?" + parts.query, request.headers.get("x-findaline-share"), time.monotonic()])
     ctx.on("request", seen)
+    if refused is not None:
+        ctx.on("response", lambda r: refused.setdefault(_kind(r.url), []).append(time.monotonic())
+               if r.status == 429 and "/api/" in r.url else None)
     page = ctx.new_page()
     page.errors = []
     page.on("pageerror", lambda e: page.errors.append(str(e)[:300]))
@@ -280,11 +308,39 @@ def test_link_view3d_page(clip_data, monkeypatch):
         run_json.write_text(saved, encoding="utf-8")
 
 
-@edge
-def test_link_view3d_waits_after_a_429(clip_data, monkeypatch):
-    """A reach answered 429 with Retry-After: 2 (a link's rate): the server's text in the tool's note, no reach asked
-    for 2 s however often the tool is switched (the other anchor's ask included), then asked again and shown."""
+def _waited(refused_at: float, page):
+    """Until the server's Retry-After (2 s) has passed since the browser had the 429 (the time is the subject)."""
     import time
+    while time.monotonic() - refused_at < 2.3:
+        page.evaluate(FRAMES)
+
+
+def _drag(page, k: int = 1, dx: float = 25, dy: float = 10) -> str:
+    """Anchor k's handle dragged by (dx, dy) after the page settled; the edit's state once the profile answered."""
+    from test_web import WAIT
+    page.evaluate(FRAMES)
+    box = page.evaluate("(k) => { const r = document.querySelectorAll('.v3-handle')[k].getBoundingClientRect();"
+                        " return [r.left + r.width / 2, r.top + r.height / 2]; }", k)
+    page.evaluate("() => { document.getElementById('view3d').dataset.edit = ''; }")
+    page.mouse.move(box[0], box[1])
+    page.mouse.down()
+    page.mouse.move(box[0] + dx, box[1] + dy, steps=6)
+    page.mouse.up()
+    page.wait_for_function("() => ['checked', 'error'].includes(document.getElementById('view3d').dataset.edit)",
+                           timeout=WAIT * 2)
+    return page.evaluate("() => document.getElementById('view3d').dataset.edit")
+
+
+# The readout's failure (line.ts: the profile's own, not saving's)
+READ_FAILED = "() => document.querySelector('.v3-readout .v3-failed:not(.v3-save-failed):not(.v3-hidden)')?.textContent ?? null"
+
+
+@pytest.fixture
+def link_page(clip_data, monkeypatch):
+    """A factory of the link's 3D page over the local app (as test_link_view3d_page, the run with its surface model:
+    the trees' tool): page(refuse, level, ready) -> (page, asked, refused); the server, the browser and run.json's
+    text end with the test."""
+    from contextlib import ExitStack
     from urllib.parse import quote
     from playwright.sync_api import sync_playwright
     from test_patch import _offline_env
@@ -294,34 +350,111 @@ def test_link_view3d_waits_after_a_429(clip_data, monkeypatch):
     for key, value in _offline_env().items():
         monkeypatch.setenv(key, value)
     keys = [_key_of(r) for r in _lines_of(data, meta["id"])]
-    asked: list = []
-    refuse = [1]
-    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+    run_json, saved = _clip_with_surface(data, meta)
+    with ExitStack() as stack:
+        stack.callback(run_json.write_text, saved, encoding="utf-8")
+        port = stack.enter_context(_server(data, start_scheduler=True))
+        p = stack.enter_context(sync_playwright())
         browser = p.chromium.launch(channel="msedge", headless=True)
-        try:
-            page = _link_context(browser, port, asked, refuse)
-            page.goto(f"http://127.0.0.1:{port}/s/{TOKEN}/view3d?level=full#run={quote(meta['id'], safe='')}"
+        stack.callback(browser.close)
+
+        def open_page(refuse: dict, level: str = "full", ready: bool = True):
+            asked, refused = [], {}
+            page = _link_context(browser, port, asked, refuse, refused)
+            page.goto(f"http://127.0.0.1:{port}/s/{TOKEN}/view3d?level={level}#run={quote(meta['id'], safe='')}"
                       f"&line={quote(keys[0], safe='')}")
-            page.wait_for_function(READY, timeout=WAIT * 4)
-            reaches = lambda: [a for a in asked if a[0].startswith("/api/reach")]  # noqa: E731
-            failed = "() => document.querySelector('.v3-reach-failed:not(.v3-hidden)')?.textContent ?? null"
-            page.click('.v3-tool[data-tool="valid"]')
-            page.wait_for_function(f"() => ({failed})() !== null", timeout=WAIT * 4)
-            assert REACH_TEXT in page.evaluate(failed) and len(reaches()) == 1, (page.evaluate(failed), reaches())
-            refused = reaches()[0][2]
-            page.click('.v3-tool[data-tool="valid"]')  # off
-            page.click('.v3-tool[data-tool="valid"]')  # on: both anchors wanted, none asked
-            page.wait_for_function(f"() => ({failed})() !== null", timeout=WAIT)
-            assert REACH_TEXT in page.evaluate(failed) and len(reaches()) == 1 and time.monotonic() - refused < 2, reaches()
-            while time.monotonic() - refused < 2.1:  # the server's Retry-After passing: the time is the test's subject
-                page.evaluate(FRAMES)
-            page.click('.v3-tool[data-tool="valid"]')
-            page.click('.v3-tool[data-tool="valid"]')
-            page.wait_for_function("() => document.getElementById('view3d').dataset.reach === '1'", timeout=WAIT * 4)
-            assert len(reaches()) >= 2 and all(a[1] == TOKEN for a in asked), asked
-            assert page.evaluate(failed) is None and page.errors == []
-        finally:
-            browser.close()
+            if ready:
+                page.wait_for_function(READY, timeout=WAIT * 4)
+            return page, asked, refused
+        yield open_page
+
+
+@edge
+def test_link_view3d_waits_after_a_429(link_page):
+    """A reach answered 429 with Retry-After: 2 (a link's rate): the server's text in the tool's note, no reach asked
+    for 2 s from the answer however often the tool is switched (the other anchor's ask included), then asked again
+    and shown."""
+    import time
+    from test_web import WAIT
+    page, asked, refused = link_page({"reach": 1})
+    reaches = lambda: [a for a in asked if a[0].startswith("/api/reach")]  # noqa: E731
+    failed = "() => document.querySelector('.v3-reach-failed:not(.v3-hidden)')?.textContent ?? null"
+    page.click('.v3-tool[data-tool="valid"]')
+    page.wait_for_function(f"() => ({failed})() !== null", timeout=WAIT * 4)
+    assert REACH_TEXT in page.evaluate(failed) and len(reaches()) == 1, (page.evaluate(failed), reaches())
+    answered = refused["reach"][0]
+    page.click('.v3-tool[data-tool="valid"]')  # off
+    page.click('.v3-tool[data-tool="valid"]')  # on: both anchors wanted, none asked
+    page.wait_for_function(f"() => ({failed})() !== null", timeout=WAIT)
+    assert REACH_TEXT in page.evaluate(failed) and len(reaches()) == 1 and time.monotonic() - answered < 2, reaches()
+    _waited(answered, page)
+    page.click('.v3-tool[data-tool="valid"]')
+    page.click('.v3-tool[data-tool="valid"]')
+    page.wait_for_function("() => document.getElementById('view3d').dataset.reach === '1'", timeout=WAIT * 4)
+    assert len(reaches()) >= 2 and all(a[1] == TOKEN for a in asked), asked
+    assert page.evaluate(failed) is None and page.errors == []
+
+
+@edge
+def test_link_view3d_profile_waits_after_a_429(link_page):
+    """The found line's profile answered 429: its reason over the readout (main.ts passes the text to edit.found, as a
+    moved line's failure shows), the page ready; a drag within 2 s of the answer asks nothing and shows the text; after
+    them a drag asks and is checked; a 429 during a drag shows the text and the next drag in the wait asks nothing."""
+    import time
+    page, asked, refused = link_page({"profile": 1})
+    text = REFUSALS["profile"][1]
+    profiles = lambda: [a for a in asked if a[0].startswith("/api/profile")]  # noqa: E731
+    assert text in (page.evaluate(READ_FAILED) or ""), page.evaluate(READ_FAILED)
+    assert page.evaluate("() => document.getElementById('view3d').dataset.profileError") == text
+    answered = refused["profile"][0]
+    assert _drag(page) == "error" and len(profiles()) == 1 and time.monotonic() - answered < 2, profiles()
+    assert text in page.evaluate(READ_FAILED)
+    _waited(answered, page)
+    assert _drag(page, dx=-20) == "checked" and len(profiles()) == 2, profiles()
+    assert page.evaluate(READ_FAILED) is None
+    # a 429 during a drag
+    refuse_again = {"profile": 1}
+    page.context.unroute("**/api/**")
+    page.context.route("**/api/**", lambda route: (
+        route.fulfill(status=429, headers={"content-type": "application/json", "retry-after": "2"},
+                      body=json.dumps({"detail": {"code": "rate_link_profile", "params": {}, "message": text}}))
+        if _kind(route.request.url) == "profile" and refuse_again.pop("profile", 0)
+        else route.continue_(headers={k: v for k, v in route.request.headers.items() if k.lower() != "x-findaline-share"})))
+    assert _drag(page, dx=15) == "error" and len(profiles()) == 3 and text in page.evaluate(READ_FAILED), profiles()
+    answered = refused["profile"][1]
+    assert _drag(page, dx=-15) == "error" and len(profiles()) == 3 and time.monotonic() - answered < 2, profiles()
+    assert all(a[1] == TOKEN for a in asked) and page.errors == []
+
+
+@edge
+def test_link_view3d_patch_and_canopy_wait_after_a_429(link_page):
+    """The patch answered 429: the server's text in the page's status. The canopy (a patch's kind) answered 429: the
+    text in the trees' note; the tool switched on again within 2 s of the answer asks nothing and shows it again; after
+    them it asks and draws the trees."""
+    import time
+    from test_web import WAIT
+    page, asked, refused = link_page({"patch": 1}, ready=False)
+    page.wait_for_function("() => !!document.querySelector('.v3-status.v3-error')", timeout=WAIT * 2)
+    assert REFUSALS["patch"][1] in page.evaluate("() => document.querySelector('.v3-status').textContent")
+    assert [a[1] for a in asked] == [TOKEN] and page.errors == []
+    page.context.close()
+    page, asked, refused = link_page({"canopy": 1})
+    note = "() => { const n = [...document.querySelectorAll('.v3-note.v3-alert')].find((e) => !e.classList.contains('v3-hidden') && /3D views/.test(e.textContent)); return n ? n.textContent : null; }"
+    canopies = lambda: [a for a in asked if "part=canopy" in a[0]]  # noqa: E731
+    page.click('.v3-tool[data-tool="trees"]')
+    page.wait_for_function("() => document.getElementById('view3d').dataset.trees === 'failed'", timeout=WAIT * 2)
+    assert REFUSALS["canopy"][1] in page.evaluate(note) and len(canopies()) == 1
+    answered = refused["canopy"][0]
+    page.evaluate("() => { document.getElementById('view3d').dataset.trees = ''; }")
+    page.click('.v3-tool[data-tool="trees"]')
+    page.wait_for_function("() => document.getElementById('view3d').dataset.trees === 'failed'", timeout=WAIT * 2)
+    assert len(canopies()) == 1 and time.monotonic() - answered < 2 and REFUSALS["canopy"][1] in page.evaluate(note)
+    _waited(answered, page)
+    page.click('.v3-tool[data-tool="trees"]')
+    page.wait_for_function("() => ['on', 'failed'].includes(document.getElementById('view3d').dataset.trees)",
+                           timeout=WAIT * 4)
+    assert page.evaluate("() => document.getElementById('view3d').dataset.trees") == "on" and len(canopies()) == 2
+    assert all(a[1] == TOKEN for a in asked) and page.errors == []
 
 
 # --- end to end: a real share link on the public app with its worker ----------------------------------------------
@@ -350,6 +483,8 @@ def link_site(clip_data, tmp_path, monkeypatch):
     source, meta = clip_data
     data = tmp_path / "data"
     shutil.copytree(source, data)
+    from test_reach import with_surface  # the run with the clip's surface model: the trees' tool
+    (data / "runs" / meta["id"] / "run.json").write_text(json.dumps(with_surface(meta, "mark")), encoding="utf-8")
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -381,8 +516,9 @@ def link_site(clip_data, tmp_path, monkeypatch):
 def test_share_link_end_to_end(link_site):
     """A link made by its owner (POST /api/runs/<run>/share) opened in a context without cookies: a line outside the
     run (no saved profile) is measured by the server with the link's header; the selected line's "3D view" opens
-    /s/<token>/view3d, which draws the patch and the profile, takes a drag of an anchor and goes Back to the link's
-    map with the moved line; every /api request carries the token in X-Findaline-Share only. Revoked by the owner: the
+    /s/<token>/view3d, which draws the patch and the profile, takes a drag of an anchor, shows "Only valid lines" (the
+    reach) and the trees (the canopy) from the server, and goes Back to the link's map with the moved line; every /api
+    request carries the token in X-Findaline-Share only. Revoked by the owner: the
     map and the 3D page answer 404."""
     import urllib.request
     from urllib.parse import quote, urlsplit
@@ -442,12 +578,21 @@ def test_share_link_end_to_end(link_site):
             page.wait_for_function("() => ['checked', 'error'].includes(document.getElementById('view3d').dataset.edit)",
                                    timeout=WAIT * 4)
             assert page.evaluate("() => document.getElementById('view3d').dataset.edit") == "checked"
+            # "Only valid lines" and trees through the real link's header
+            page.click('.v3-tool[data-tool="valid"]')
+            page.wait_for_function("() => document.getElementById('view3d').dataset.reach === '1' || "
+                                   "!!document.querySelector('.v3-reach-failed:not(.v3-hidden)')", timeout=WAIT * 6)
+            assert page.evaluate("() => document.getElementById('view3d').dataset.reach") == "1"
+            page.click('.v3-tool[data-tool="trees"]')
+            page.wait_for_function("() => ['on', 'failed'].includes(document.getElementById('view3d').dataset.trees)",
+                                   timeout=WAIT * 6)
+            assert page.evaluate("() => document.getElementById('view3d').dataset.trees") == "on"
             back = page.evaluate("() => document.querySelector('.v3-back').href")
             assert urlsplit(back).path == f"/s/{token}/map.html" and urlsplit(back).fragment.startswith("line="), back
             page.click(".v3-back")
             page.wait_for_function("() => !!window.FINDALINE_VIEW", timeout=WAIT * 2)
-            kinds = {a[0].split("?")[0] for a in asked}
-            assert {"/api/profile", "/api/patch"} <= kinds, kinds
+            kinds = {a[0].split("?")[0] + ("&part=canopy" if "part=canopy" in a[0] else "") for a in asked}
+            assert {"/api/profile", "/api/patch", "/api/patch&part=canopy", "/api/reach"} <= kinds, kinds
             assert all(a[1] == token and token not in a[0] for a in asked), asked
             assert page.errors == []
             # revoked: the map and the 3D page are gone

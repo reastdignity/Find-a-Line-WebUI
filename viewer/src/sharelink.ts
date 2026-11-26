@@ -54,8 +54,11 @@ export class Backoff {
 
   constructor(private readonly now: () => number = () => Date.now()) {}
 
+  /** A 429 of `kind`: the wait ends at the later of the deadline kept and this answer's (a shorter answer that comes
+   *  after a longer one, e.g. a user's quick_waiting after the hour's rate, never shortens it). */
   refused(kind: Kind, retryAfter: string | null | undefined, text: string): void {
-    this.until.set(kind, {at: this.now() + retrySeconds(retryAfter) * 1000, text});
+    const at = this.now() + retrySeconds(retryAfter) * 1000, kept = this.until.get(kind);
+    if (!kept || at >= kept.at) this.until.set(kind, {at, text});
   }
 
   blocked(kind: Kind): string | null {

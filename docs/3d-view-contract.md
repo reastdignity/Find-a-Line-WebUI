@@ -956,7 +956,10 @@ privacy page unchanged (D7, D8).
   `quick_waiting` 5 s). The page asks nothing more of that kind (`profile`, `patch` with the canopy, `reach`) until it
   has passed (60 s when an answer has none) and gives the server's text again where the error shows (`sharelink.ts`
   `Backoff`: a deadline compared before a request, no timer). The one-request lanes (`reach.ts` `reachLane`,
-  `interact.ts` `profileQueue`) are unchanged. A reload of the page forgets the wait (it is kept in memory).
+  `interact.ts` `profileQueue`) are unchanged. A later 429 never shortens a longer wait of its kind (the later
+  deadline is kept). The wait is kept in memory only, per page (the session's decision of 2026-11-26, after the code
+  review): a reload, Back from the 3D view or the 2D page's "3D view" starts without it, so at most one request per
+  navigation is refused again. The found line's refused profile shows its reason over the readout, as a moved line's.
 - **The 2D share page**: `map/main.tsx` gives the result its 3D button only under a link (`view3d/page.ts`
   `view3dLink("view3d")`, relative: `/s/<token>/view3d#run=…&line=…&also=…`); the app's result takes
   `view3dLink("/view3d")`; a run's own `map.html` has none.

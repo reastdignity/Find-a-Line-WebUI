@@ -324,7 +324,7 @@ async function start() {
     measure("fal:3d:profile", profileStart);
     edit?.found(profile);
   } catch (e) {
-    edit?.found(null);
+    edit?.found(null, (e as Error).message);  // the reason over the readout, as a moved line's failure (a 429's text)
     root.dataset.profileError = (e as Error).message;
     console.error(e);
   }

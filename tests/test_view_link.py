@@ -589,6 +589,11 @@ window.S = {
   saved() { const {view} = window.FINDALINE_VIEW, m = view.model;
     for (let row = 0; row < view.count; row++) if (view.passes(row) && m.lineAt(row).prof) return [view.spotOf(row), row];
     return null; },
+  // every answer of the model's profile(line), by the line's key: what the dock shows comes from it
+  watch() { const m = window.FINDALINE_VIEW.view.model, real = m.profile.bind(m); window.OUTCOMES = [];
+    m.profile = (l) => real(l).then((p) => { OUTCOMES.push({key: m.lineLink(l), error: null}); return p; },
+                                    (e) => { OUTCOMES.push({key: m.lineLink(l), error: e.message}); throw e; }); },
+  keyOf(row) { const m = window.FINDALINE_VIEW.view.model; return m.lineLink(m.lineAt(row)); },
   dock() { const d = document.querySelector(".r-dock"); if (!d) return null;
     return {error: d.querySelector(".r-error")?.textContent ?? null, ready: !!d.querySelector(".r-profile"),
             busy: !!d.querySelector("[aria-busy]")}; },
@@ -641,11 +646,17 @@ def test_share_page_profiles_and_3d(share_site, device):
             page.wait_for_function("() => { const d = S.dock(); return d && d.error !== null; }", timeout=WAIT)
             assert RATE_TEXT in page.evaluate("() => S.dock().error")
             refused_at = page.evaluate("() => SHARE_ASKS[2].at")
+            # during the wait: the selected line's own profile is refused with the text (its outcome, by its key, before
+            # the dock is read: the dock keeps the line before's error until its effect ran), nothing asked
+            page.evaluate("() => S.watch()")
             page.evaluate(f"() => window.FINDALINE_VIEW.view.select({unsaved[2][0]}, {unsaved[2][1]})")
-            page.wait_for_function("() => { const d = S.dock(); return d && d.error !== null && "
-                                   f"window.FINDALINE_VIEW.view.selected.row === {unsaved[2][1]}; }}", timeout=WAIT)
-            during = page.evaluate("() => [SHARE_ASKS.length, S.dock().error, performance.now()]")
-            assert during[0] == 3 and RATE_TEXT in during[1] and during[2] - refused_at < 2000, during
+            key = page.evaluate(f"() => S.keyOf({unsaved[2][1]})")
+            page.wait_for_function("(key) => OUTCOMES.some((o) => o.key === key)", arg=key, timeout=WAIT)
+            page.evaluate("() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))")
+            during = page.evaluate("(key) => [SHARE_ASKS.length, OUTCOMES.find((o) => o.key === key).error, S.dock().error, "
+                                   "performance.now()]", key)
+            assert during[0] == 3 and RATE_TEXT in during[1] and RATE_TEXT in during[2], during
+            assert during[3] - refused_at < 2000, during
             page.wait_for_function(f"() => performance.now() - {refused_at} > 2050", timeout=WAIT)
             page.evaluate(f"() => window.FINDALINE_VIEW.view.select({unsaved[3][0]}, {unsaved[3][1]})")
             page.wait_for_function("() => { const d = S.dock(); return d && d.ready; }", timeout=WAIT)
