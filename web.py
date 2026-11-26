@@ -78,6 +78,7 @@ QUICK_WAIT_LOCAL = 3600
 NO_WORKER = messages.UserError("the worker is not running (findaline.py worker, or findaline.py web without "
                                "--no-worker)", "no_worker_local")
 NO_WORKER_PUBLIC = messages.UserError.web("no_worker")
+NO_WORKER_LINK = messages.UserError.web("no_worker_link")  # a share link's visitor: no queue of searches to wait in
 APP_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer", "dist")
 THIRD_PARTY_LICENCES = "THIRD-PARTY-LICENSES.txt"  # the bundled libraries' licences in APP_DIST (viewer/build.mjs)
 # The fonts of APP_DIST (viewer/src/ui/fonts.css): Python on Windows knows no type for them (text/plain otherwise)
@@ -1389,6 +1390,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         return None if unlimited(user) else limits
 
     no_worker = (NO_WORKER_PUBLIC if public else NO_WORKER).detail()
+    no_worker_link = NO_WORKER_LINK.detail()  # the text of a share link's visitor (the user's T2 of 2026-11-26)
 
     def hidden_sources(user: ac.User) -> tuple:
         return ADMIN_SOURCES if public and not user.admin else ()
@@ -1415,12 +1417,14 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         if all(hits):
             return
         refused(user, f"{rate} rate", f"{rate} rate", 429)
-        headers = {"Retry-After": str(retry_after([r for r, ok in zip(rates[rate], hits) if not ok], rate, key))}
-        if link:
+        seconds = retry_after([r for r, ok in zip(rates[rate], hits) if not ok], rate, key)
+        headers = {"Retry-After": str(seconds)}
+        if link:  # the wait in the text too: whole minutes, rounded up (the user's T1 of 2026-11-26)
+            wait = messages.text("ui.common.minutes", n=max(1, math.ceil(seconds / 60)))
             raise HTTPException(429, messages.UserError(
-                f"too many {RATE_NAMES[rate]}: try again later",
+                f"too many {RATE_NAMES[rate]}: try again in {wait}",
                 "rate_link_profile" if kind == "profile" else "rate_link_patch" if kind == "patch" else
-                "rate_link_reach").detail(), headers=headers)
+                "rate_link_reach", wait=wait).detail(), headers=headers)
         raise HTTPException(429, messages.UserError(f"too many {RATE_NAMES[kind]}: try again in a minute",
                                                     f"rate_{kind}").detail(), headers=headers)
 
@@ -1513,7 +1517,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         goes away; the task is deleted then, unless the lane works on it already."""
         if not await run_in_threadpool(jobs.worker_alive):
             quick_ended("no_worker", user)
-            raise HTTPException(503, no_worker)
+            raise HTTPException(503, no_worker_link if isinstance(user, LinkVisitor) else no_worker)
         try:
             task = await run_in_threadpool(jobs.quick_add, kind, request, user.id, unlimited(user), public is not None)
         except QuotaExceeded as e:  # quick_waiting: the user's other task ends in seconds, not a rate's window
@@ -1544,7 +1548,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
                     looked = time.monotonic()
                     if not await run_in_threadpool(jobs.worker_alive):
                         quick_ended("no_worker", user)
-                        raise HTTPException(503, no_worker)
+                        raise HTTPException(503, no_worker_link if isinstance(user, LinkVisitor) else no_worker)
         except BaseException:  # also a cancelled request (the server stops): nobody waits for the task
             jobs.quick_forget(task)
             raise
