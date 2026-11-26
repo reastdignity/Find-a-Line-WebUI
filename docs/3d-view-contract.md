@@ -951,7 +951,11 @@ privacy page unchanged (D7, D8).
   link does not reset it): `link_profile_rate` `"30/minute;500/hour"` (`FINDALINE_LIMIT_LINK_PROFILE_RATE`, 429
   `rate_link_profile`), `link_patch_rate` `"10/minute;120/hour"` (`FINDALINE_LIMIT_LINK_PATCH_RATE`, 429
   `rate_link_patch`; the canopy counts as a patch), `link_reach_rate` `"12/minute;200/hour"`
-  (`FINDALINE_LIMIT_LINK_REACH_RATE`, 429 `rate_link_reach`); the texts `error.rate_link_*` of `locales/en.json`.
+  (`FINDALINE_LIMIT_LINK_REACH_RATE`, 429 `rate_link_reach`); the texts `error.rate_link_*` of `locales/en.json`
+  end "Try again in {{wait}}." with the server's wait (the user's T1; the page shows the server's text unchanged, also
+  while it waits); a link's 503 without a worker says `error.no_worker_link` (T2); after a drag a link's readout says
+  "Anchors moved" / "Moved" (`ui.view3d.edited_link`, `edited_short_link`: nothing to save there, T3), users' pages
+  keep "not saved".
 - **After a 429** (users' and links' pages alike): every rate's 429 carries `Retry-After` (whole seconds; a user's
   `quick_waiting` 5 s). The page asks nothing more of that kind (`profile`, `patch` with the canopy, `reach`) until it
   has passed (60 s when an answer has none) and gives the server's text again where the error shows (`sharelink.ts`
