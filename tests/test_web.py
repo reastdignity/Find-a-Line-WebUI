@@ -941,6 +941,35 @@ def test_quick_lane(tmp_path, monkeypatch):
     assert Jobs(str(tmp_path))._db().execute("SELECT COUNT(*) FROM quick").fetchone()[0] == 0
 
 
+def test_quick_lane_users_first(tmp_path):
+    """The quick lane (the user's D5, "Users first"): a waiting task of a user is claimed before every waiting task
+    of a share link's visitor (user_id NULL on the public site), then by id; quick_ahead counts in that order
+    (every running task, the users' waiting before it, a link's the users' and the links' before it); a link has
+    no one-waiting rule; locally (every task NULL) the order is by id as before."""
+    from jobs import QuotaExceeded
+    jobs = Jobs(str(tmp_path))
+    link_1 = jobs.quick_add("profile", {"run": "r"}, None, one_waiting=True)
+    link_2 = jobs.quick_add("patch", {"run": "r"}, None, one_waiting=True)  # no rule for a link
+    user_1 = jobs.quick_add("profile", {"run": "s"}, 7, one_waiting=True)
+    user_2 = jobs.quick_add("profile", {"run": "s"}, 8, one_waiting=True)
+    with pytest.raises(QuotaExceeded):
+        jobs.quick_add("profile", {"run": "s"}, 7, one_waiting=True)  # the users' rule stays
+    assert [jobs.quick_ahead(t) for t in (user_1, user_2, link_1, link_2)] == [0, 1, 2, 3]
+    assert jobs.quick_claim("w")["id"] == user_1
+    assert [jobs.quick_ahead(t) for t in (user_2, link_1, link_2)] == [1, 2, 3]  # the running one counts
+    user_3 = jobs.quick_add("estimate", {}, 9, one_waiting=True)  # a user who comes later still goes first
+    assert jobs.quick_ahead(user_3) == 2 and jobs.quick_ahead(link_1) == 3
+    claimed = []
+    while (task := jobs.quick_claim("w")) is not None:
+        claimed.append(task["id"])
+    assert claimed == [user_2, user_3, link_1, link_2]
+    (tmp_path / "local").mkdir()
+    local = Jobs(str(tmp_path / "local"))
+    tasks = [local.quick_add("estimate", {}) for _ in range(3)]
+    assert [local.quick_ahead(t) for t in tasks] == [0, 1, 2]
+    assert [local.quick_claim("w")["id"] for _ in tasks] == tasks
+
+
 def test_quick_lane_idle_and_prompt(tmp_path, monkeypatch):
     """The idle quick lane only reads (no write transaction while nothing waits), and a task that
     arrives is answered within a few of its looks."""
