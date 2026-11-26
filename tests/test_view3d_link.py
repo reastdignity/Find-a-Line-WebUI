@@ -13,7 +13,9 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_patch import clip_data  # noqa: E402,F401 (a run of the clip, computed once)
 from test_viewer import VIEWER, run_ts  # noqa: E402
+from test_web import EDGE, _playwright  # noqa: E402
 
 node = pytest.mark.skipif(not os.path.isdir(os.path.join(VIEWER, "node_modules", "esbuild")),
                           reason="needs Node and `npm install` in viewer/")
@@ -126,3 +128,196 @@ def test_reach_carries_the_token_and_waits(tmp_path):
     assert found["again"] == "The anchor is outside the patch." and found["app"] == "y", found
     assert [url for url, _ in found["seen"]] == ["/api/reach?run=r"] * 3 and all(TOKEN not in url for url, _ in found["seen"])
     assert [h for _, h in found["seen"]] == [{"X-Findaline-Reach": "1", "X-Findaline-Share": TOKEN}] * 2 + [{"X-Findaline-Reach": "1"}]
+
+
+# --- the link's 3D page in Playwright's Edge ---------------------------------------------------------------------
+
+READY = "() => document.getElementById('view3d')?.dataset.ready === '1'"
+FRAMES = "() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))"
+REACH_TEXT = "Too many reach calculations on this link in a short time. Try again later."
+# The clipboard's writes, kept (Copy link)
+CLIPBOARD = """window.COPIED = [];
+Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText: (s) => { COPIED.push(s); return Promise.resolve(); }}});
+"""
+
+
+def _link_page() -> tuple:
+    """The 3D page as the server gives a link's (/s/<token>/view3d: the user meta {"link": true}, no token, no CSRF;
+    the ring off) and the 3D page's Content-Security-Policy."""
+    import html
+
+    import web
+    from settings import ViewSettings
+    page = web.VIEW3D_HTML.format(user=html.escape(json.dumps({"link": True})), keys=web.key_meta(None), ring="off")
+    return page, web.page_csp(ViewSettings(ring=False))["/view3d"]
+
+
+def _link_context(browser, port: int, asked: list, refuse_reach: list | None = None):
+    """A context without cookies in which /s/<TOKEN>/view3d is the link's 3D page and everything else the local app's
+    (its /api answers the clip's run: the link's server side is the server worker's); `asked` gets every /api request
+    as [path and query, its X-Findaline-Share or None, the time]; while `refuse_reach` holds a count, a reach is
+    answered 429 with Retry-After: 2 and the server's words."""
+    import time
+    from test_web import CSP_STUB
+    page_html, csp = _link_page()
+    ctx = browser.new_context(viewport={"width": 1200, "height": 800})
+    ctx.add_init_script(CSP_STUB + CLIPBOARD)
+    ctx.route(f"http://127.0.0.1:{port}/s/{TOKEN}/view3d*", lambda route: route.fulfill(
+        status=200, body=page_html, headers={"content-type": "text/html; charset=utf-8", "content-security-policy": csp,
+                                             "cache-control": "no-store"}))
+
+    def reach(route):
+        if refuse_reach and refuse_reach[0] > 0:
+            refuse_reach[0] -= 1
+            route.fulfill(status=429, headers={"content-type": "application/json", "retry-after": "2"},
+                          body=json.dumps({"detail": {"code": "rate_link_reach", "params": {}, "message": REACH_TEXT}}))
+        else:
+            route.continue_()
+    ctx.route(f"http://127.0.0.1:{port}/api/reach*", reach)
+
+    def seen(request):
+        from urllib.parse import urlsplit
+        parts = urlsplit(request.url)
+        if parts.path.startswith("/api/"):
+            asked.append([parts.path + "?" + parts.query, request.headers.get("x-findaline-share"), time.monotonic()])
+    ctx.on("request", seen)
+    page = ctx.new_page()
+    page.errors = []
+    page.on("pageerror", lambda e: page.errors.append(str(e)[:300]))
+    return page
+
+
+def _clip_with_surface(data, meta):
+    """The run with the clip's surface model (the trees' tool) and data credits (the notices' link); run.json's text
+    before, to put back."""
+    from test_reach import with_surface
+    run_json = data / "runs" / meta["id"] / "run.json"
+    saved = run_json.read_text("utf-8")
+    run_json.write_text(json.dumps({**with_surface(meta, "mark"), "attribution": [
+        {"data": "Test model", "attribution": "Test survey", "licence": "CC BY 4.0", "url": "https://example.org/"}]}),
+        encoding="utf-8")
+    return run_json, saved
+
+
+edge = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright")
+
+
+@edge
+def test_link_view3d_page(clip_data, monkeypatch):
+    """The link's 3D page (/s/<token>/view3d, link mode by its address): the patch, the profile, a drag's profile, the
+    reach and the canopy all carry X-Findaline-Share: <token>, none has the token in its address; no Save, no "Saved
+    lines" (two lines of the address still drawn), no Report; Back is the link's map.html with the line (and the moved
+    line after a drag); Copy link the link's own 3D address; the notices are the link's ATTRIBUTION.txt; dragging,
+    "Only valid lines" and trees work against the app's routes; no CSP violation."""
+    from urllib.parse import quote, unquote, urljoin
+    from playwright.sync_api import sync_playwright
+    from test_patch import _offline_env
+    from test_view3d_others import _key_of
+    from test_web import WAIT, _lines_of, _server
+    data, meta = clip_data
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    keys = [_key_of(r) for r in _lines_of(data, meta["id"])]
+    run_json, saved = _clip_with_surface(data, meta)
+    asked: list = []
+    try:
+        with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge", headless=True)
+            try:
+                page = _link_context(browser, port, asked)
+                origin = f"http://127.0.0.1:{port}"
+                address = (f"{origin}/s/{TOKEN}/view3d?level=full#run={quote(meta['id'], safe='')}&line={quote(keys[0], safe='')}"
+                           f"&also={quote(';'.join(keys[1:3]), safe='')}")
+                page.goto(address)
+                page.wait_for_function(READY, timeout=WAIT * 4)
+                page.wait_for_function("() => Number(document.getElementById('view3d').dataset.others) > 0", timeout=WAIT)
+                tools = page.evaluate("() => [...document.querySelectorAll('.v3-tool')].map((b) => b.dataset.tool)")
+                assert "save" not in tools and "others" not in tools and {"valid", "trees", "profile"} <= set(tools), tools
+                assert not page.evaluate("() => [...document.querySelectorAll('button, a')].some((b) => /report/i.test(b.textContent))")
+                back = page.evaluate("() => document.querySelector('.v3-back').getAttribute('href')")
+                assert back == "map.html#line=" + quote(keys[0], safe="-_.!~*'()"), back
+                assert urljoin(page.url, back).split("#")[0] == f"{origin}/s/{TOKEN}/map.html"
+                notices = page.evaluate("() => [...document.querySelectorAll('.v3-credits a')].map((a) => a.href)")
+                assert f"{origin}/s/{TOKEN}/ATTRIBUTION.txt" in notices and not any("/runs/" in n for n in notices), notices
+                page.click(".v3-copy")
+                page.wait_for_function("() => window.COPIED.length === 1", timeout=WAIT)
+                copied = page.evaluate("() => window.COPIED[0]")
+                assert copied.startswith(f"{origin}/s/{TOKEN}/view3d?level=full#run=") and "&also=" in copied, copied
+                assert unquote(copied.split("&line=")[1].split("&")[0]) == keys[0], copied
+                # a drag of anchor 2: the moved line's profile asked (with the header), Back follows it
+                page.evaluate(FRAMES)
+                box = page.evaluate("() => { const r = document.querySelectorAll('.v3-handle')[1].getBoundingClientRect();"
+                                    " return [r.left + r.width / 2, r.top + r.height / 2]; }")
+                profiles = sum(1 for a in asked if a[0].startswith("/api/profile"))
+                page.mouse.move(box[0], box[1])
+                page.mouse.down()
+                page.mouse.move(box[0] + 25, box[1] + 10, steps=6)
+                page.mouse.up()
+                page.wait_for_function("() => ['checked', 'error'].includes(document.getElementById('view3d').dataset.edit)",
+                                       timeout=WAIT * 2)
+                assert page.evaluate("() => document.getElementById('view3d').dataset.edit") == "checked"
+                assert sum(1 for a in asked if a[0].startswith("/api/profile")) == profiles + 1, asked
+                moved = page.evaluate("() => document.querySelector('.v3-back').getAttribute('href')")
+                assert moved.startswith("map.html#line=") and moved != back, moved
+                # "Only valid lines": the reaches of both anchors from the app's route
+                page.click('.v3-tool[data-tool="valid"]')
+                page.wait_for_function("() => document.getElementById('view3d').dataset.reach === '1' || "
+                                       "!!document.querySelector('.v3-reach-failed:not(.v3-hidden)')", timeout=WAIT * 4)
+                assert page.evaluate("() => document.getElementById('view3d').dataset.reach") == "1"
+                # trees: the canopy part of the patch
+                page.click('.v3-tool[data-tool="trees"]')
+                page.wait_for_function("() => ['on', 'failed'].includes(document.getElementById('view3d').dataset.trees)",
+                                       timeout=WAIT * 4)
+                assert page.evaluate("() => document.getElementById('view3d').dataset.trees") == "on"
+                kinds = {a[0].split("?")[0] + ("&part=canopy" if "part=canopy" in a[0] else "") for a in asked}
+                assert {"/api/patch", "/api/patch&part=canopy", "/api/profile", "/api/reach"} <= kinds, kinds
+                assert all(a[1] == TOKEN and TOKEN not in a[0] for a in asked), asked
+                assert page.evaluate("() => window.CSP_VIOLATIONS") == [] and page.errors == []
+            finally:
+                browser.close()
+    finally:
+        run_json.write_text(saved, encoding="utf-8")
+
+
+@edge
+def test_link_view3d_waits_after_a_429(clip_data, monkeypatch):
+    """A reach answered 429 with Retry-After: 2 (a link's rate): the server's text in the tool's note, no reach asked
+    for 2 s however often the tool is switched (the other anchor's ask included), then asked again and shown."""
+    import time
+    from urllib.parse import quote
+    from playwright.sync_api import sync_playwright
+    from test_patch import _offline_env
+    from test_view3d_others import _key_of
+    from test_web import WAIT, _lines_of, _server
+    data, meta = clip_data
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    keys = [_key_of(r) for r in _lines_of(data, meta["id"])]
+    asked: list = []
+    refuse = [1]
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _link_context(browser, port, asked, refuse)
+            page.goto(f"http://127.0.0.1:{port}/s/{TOKEN}/view3d?level=full#run={quote(meta['id'], safe='')}"
+                      f"&line={quote(keys[0], safe='')}")
+            page.wait_for_function(READY, timeout=WAIT * 4)
+            reaches = lambda: [a for a in asked if a[0].startswith("/api/reach")]  # noqa: E731
+            failed = "() => document.querySelector('.v3-reach-failed:not(.v3-hidden)')?.textContent ?? null"
+            page.click('.v3-tool[data-tool="valid"]')
+            page.wait_for_function(f"() => ({failed})() !== null", timeout=WAIT * 4)
+            assert REACH_TEXT in page.evaluate(failed) and len(reaches()) == 1, (page.evaluate(failed), reaches())
+            refused = reaches()[0][2]
+            page.click('.v3-tool[data-tool="valid"]')  # off
+            page.click('.v3-tool[data-tool="valid"]')  # on: both anchors wanted, none asked
+            page.wait_for_function(f"() => ({failed})() !== null", timeout=WAIT)
+            assert REACH_TEXT in page.evaluate(failed) and len(reaches()) == 1 and time.monotonic() - refused < 2, reaches()
+            while time.monotonic() - refused < 2.1:  # the server's Retry-After passing: the time is the test's subject
+                page.evaluate(FRAMES)
+            page.click('.v3-tool[data-tool="valid"]')
+            page.click('.v3-tool[data-tool="valid"]')
+            page.wait_for_function("() => document.getElementById('view3d').dataset.reach === '1'", timeout=WAIT * 4)
+            assert len(reaches()) >= 2 and all(a[1] == TOKEN for a in asked), asked
+            assert page.evaluate(failed) is None and page.errors == []
+        finally:
+            browser.close()
