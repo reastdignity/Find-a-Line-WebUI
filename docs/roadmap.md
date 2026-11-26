@@ -410,27 +410,50 @@ texts), and one was not a defect. With step 3c, beside today's features and the 
   "Line volume, round 6". They have states since round 7 (`c-view-editor`, `c-view-more`, `c-view-more-end`), with
   the same qualifier as the list above.*
 
-### An access grid that needs less memory (the user, 2026-11-16)
-The access mark's grid covers the search's whole grid. In blocks it needs about 12 B per pixel of the whole grid and
-50 B per pixel of a block's window (docs/performance.md, "The access grid's memory"); a search whose memory cannot
-hold even the smallest blocks runs without the mark. On the public site that starts where the box around the area
-is larger than about 19 × 19 km at 1 m data, about 40 km at 2 m (computed from the limits). The user, on that case:
-"add to roadmap for better algorith with lower memory cost". Candidates from the build, none started; each must give
-the same answers at every pixel (the six private cases and the Gozo coast):
-- **Where the 12 B go** (the Gozo coast at 2 m, measured 9.5): about 4 B the int32 labels of each regions pass; about
-  1 B each the water, open-ground and smoothed-open-ground masks and the region mask; 4 B the gathered heights of the
-  largest flat region on float heights; about 170 MB of strip temporaries, fixed.
-- **Labels by strips** (effort high): a union-find over strips in place of `ndimage.label` on the whole grid drops
-  the 4 B of labels. Measure the grid-wide peak.
-- **Exact percentiles without gathered heights** (medium): a radix select over the float32 bit patterns per region,
-  two counting passes, no stored heights; saves the 4 B of the largest region. Measure the peak and the seconds on
-  the Gozo coast at 2 m.
-- **Skip blocks without an anchor** (medium): the grid is read only at anchors, so boxes of mostly sea or flat land
-  need far fewer windows; saves time and the windows' peak. Measure the share of skipped blocks on the Gozo coast
-  and on Bełchatów.
-- **A smaller walk** (high): float32 or quantised distances in the walk cut 8 B of a window's 50.
-- **One-pass gather** (low to medium): each region's first and last strip recorded during the bounds pass, gathered
-  in one pass and freed when the pass leaves it. Cuts time on fragmented lowland, not memory.
+### An access grid that needs less memory (the user, 2026-11-16; closed 2026-11-26)
+The user, on a search too wide for the mark: "add to roadmap for better algorith with lower memory cost". *Closed
+2026-11-26 (branch `access-memory`; docs/performance.md, "Less memory for the grid in blocks"): the regions found in
+strips with no label array of the grid, exact percentiles without the gathered heights, the masks as bits in files,
+blocks only where the search area is, the open-ground passes cropped to own-data land. The rule in blocks counts 4 B
+per pixel of the grid and 0.14 GB (12 B before) and 50 B per pixel of a window; in a compute slot the mark is left out
+from a box of 34.2 km at 1 m and 69.1 km at 2 m (computed; 20.0 and 40.5 before); the wide box's stage 249 s against
+383 s; 0 pixels differ everywhere.* Of the candidates of the first build: labels by strips and exact percentiles
+built; skipping blocks without an anchor is the entry below; a smaller walk (float32 or quantised distances, 8 B of
+a window's 50) not looked at; the one-pass gather is gone with the gather.
+
+### Blocks without an anchor (E2): a possible option (the user, 2026-11-24)
+The grid in blocks computes every block whose core holds a pixel of the search area (E); the grid is read only at
+the anchors, so a block with area but no anchor could be left out too. The user: "ok skip E2 for now - save it as
+possible option in the future". Counted (2026-11-24, `tools/perf_access.py`; blocks with the area -> with an anchor):
+
+| Block side | The Gozo coast (126 Mpx) | The Tatras circle (43.6 Mpx) | The coasts of Malta and Gozo (1 217 Mpx) |
+| --- | --- | --- | --- |
+| 500 m | - | 141 -> 139 of 196 | 568 -> 470 of 4 964 |
+| 1 km | - | 43 -> 42 of 49 | 216 -> 200 of 1 258 |
+| 2 km | 22 -> 21 of 40 | 15 -> 14 of 16 | 83 -> 80 of 323 |
+| 4 km | 10 -> 9 of 12 | 4 -> 4 of 4 | 32 -> 31 of 90 |
+| The rule's own side | 4 -> 4 of 6 | 4 -> 4 of 4 | 17 -> 17 of 30 |
+
+So it skips nothing at the block sides a search gets with room in its budget, and up to 17 % of E's blocks at the
+smallest side (a grid at the rule's limit). No memory moves; it saves the blocks that hold area but no anchor. How it
+could be built: `block_grid`'s `needed` takes the anchors' pixels where they are known before the grid is made: a
+search of one grid (`search._lines` finds them first) and a web job of a tiled area (`search._estimate_tiles` finds
+every tile's anchors and drops them); a tiled search on the command line has no estimate and would stay at E or pay
+step 2 once more (over the coasts of Malta and Gozo's 19 tiles 47.9 s, indicative). It touches `_lines`,
+`_estimate_tiles` and two lines of `search_lines`; a block left out by mistake fails the search (`access.at` on a
+255), never a wrong mark.
+
+### The access grid: what the task of 2026-11 leaves
+- **The mask loops' fresh arrays:** the two open-ground mask loops take 45 million first-touch faults on the coasts
+  of Malta and Gozo (about 150 B of fresh arrays per pixel of the grid a pass), so their seconds follow the
+  machine's free pages; buffers kept across strips might remove them (not tried).
+- **`_Mask.window` reads its rows whole** (ceil(width / 8) bytes a row): on a wide grid in small blocks about 2.8
+  times a mask's window bytes, about 100 GB from the file cache at 36 000 pixels wide in blocks of 500 m (computed).
+  Reading only a window's byte range of each row would remove it (not tried).
+- **int64 labels, a variant measured and not taken:** the pass 0 to 2 % of the stage faster, the regions' traced
+  peak 32 to 48 MB higher (over the bound of 196 MB in the made-up worst strip); taking it means a full fuzz and the
+  bound restated (docs/performance.md, "Measured and not taken").
+- Not measured: a wide grid of float heights; Linux on a wide grid (the constant is Windows's there, computed).
 
 ### Parked ideas of the line-volume task
 Written down, not evaluated: 153 ideas parked at gate 2 (2026-11-13) and the items parked at gate 3 (2026-11-14). Each

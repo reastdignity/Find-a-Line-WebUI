@@ -335,12 +335,15 @@ text of 2026-11-14, the user's words of round 3 decided (`spec.md` 6.5). What is
   anchors' answers after the pair search. **At once** (`access.access_grid`) when 50 B per pixel of the grid fit the
   search's memory; **else in blocks** (`access.block_grid`; the user, 2026-11-15: "Compute in blocks"): the
   grid-wide judgements (the whole-metre sample, the flat lakes, the open regions on the heights and the smoothed
-  heights) once on the whole grid, strip by strip, their masks memory-mapped; every block from its window of
-  533 m and 6 pixels around it. The answers are the whole grid's (0 pixels differed on the Gozo coast, the Tatras
-  circle and R83). Blocks need about 12 B per pixel of the grid and 50 B per pixel of a block's window
-  (`search.ACCESS_AREA_BYTES`, `ACCESS_WINDOW_BYTES`; blocks at least 500 m wide). The measure needs 533 m around an
-  anchor; the grid reaches `_margin` (300 m by default) beyond the area, so edge anchors read "cannot tell" more
-  often.
+  heights) once on the whole grid, strip by strip, their regions with no label array of the grid and their masks as
+  bits in files (since 2026-11-26; memory-mapped before); every block from its window of 533 m and 6 pixels around it,
+  and only the blocks whose core holds a pixel of the search area (the others are never read: every anchor lies in
+  the area). The answers are the whole grid's (0 pixels differed on the Gozo coast, the Tatras circle and R83).
+  Blocks need 4 B per pixel of the grid, 0.14 GB for the grid-wide pass and 50 B per pixel of a block's window
+  (`search.ACCESS_AREA_BYTES`, `ACCESS_FIXED_BYTES`, `ACCESS_WINDOW_BYTES`; blocks at least 500 m wide; 12 B and no
+  fixed term until 2026-11-26: docs/performance.md, "Less memory for the grid in blocks"). The measure needs 533 m
+  around an anchor; the grid reaches `_margin` (300 m by default) beyond the area, so edge anchors read "cannot tell"
+  more often.
 - **A search too wide for the access grid runs without the mark** (the user, 2026-11-16: "1, and add to roadmap for
   better algorith with lower memory cost"). It replaces the refusal `access_memory` of a first build: no search is
   refused for a mark that filters nothing. `search._check_access` decides before step 1, when not even the smallest
@@ -348,8 +351,8 @@ text of 2026-11-14, the user's words of round 3 decided (`spec.md` 6.5). What is
   free when the search starts, so the same search may be marked on one day and not on another). The run is then the
   run of a search without the option, plus `"access_skipped": "memory"` (3.3) and the coded note `access_skipped`
   (3.4). The request's hash stays, so its 2 % sample is the marked request's. On the public site this starts where
-  the box around the area is larger than about 19 × 19 km at 1 m data, about 40 km at 2 m (computed from the limits,
-  not run on a slot).
+  the box around the area is larger than about 34.2 by 34.2 km at 1 m data, about 69.1 km at 2 m (computed from the
+  rule for a compute slot of 4.95 GB; about 20.0 and 40.5 km until 2026-11-26).
 - **Cost** (measured, exclusive; `docs/performance.md` "The access grid's memory"): at once about 0.25-0.35 s per
   megapixel, in blocks about 0.4 s. The whole Gozo coast search in a VPS slot's memory: 44.0 s without the option,
   91.7 s with it (the grid in six blocks); its peak 3 636 MB against 2 869 MB. A Basic point search: about 1 s more.
@@ -455,8 +458,10 @@ then the page. 4. Review: full pytest, R83, `tools/ui_shots.py`.
 The weak separation may mislead (the help says the site cannot see "paths, fences, private land or trees"); edge
 anchors read "cannot tell"; memory per pixel grows; whether a wide search on the command line or in the local app is
 marked depends on the memory free that day. A tiled run interrupted under one choice of the mark and never resumed
-leaves its "running" folder (as any interrupted tiled run whose hash never returns). A grid that needs less memory
-is a roadmap entry (`docs/roadmap.md`, "An access grid that needs less memory"). VPS: deploy, no migration; the mark
+leaves its "running" folder (as any interrupted tiled run whose hash never returns); so does one whose choice the
+constants of 2026-11-26 changed (the same request then starts a new run). The grid needs less memory since
+2026-11-26 (`docs/roadmap.md`, "An access grid that needs less memory", closed; blocks without an anchor are a
+possible option there). VPS: deploy, no migration; the mark
 is then on in every Basic search (the seconds and the peak of 3.2).
 
 ### 3.11 Needs the user's word
