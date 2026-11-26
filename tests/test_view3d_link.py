@@ -17,6 +17,9 @@ from test_patch import clip_data  # noqa: E402,F401 (a run of the clip, computed
 from test_viewer import VIEWER, run_ts  # noqa: E402
 from test_web import EDGE, _playwright  # noqa: E402
 
+with open(os.path.join(VIEWER, "..", "locales", "en.json"), encoding="utf-8") as _f:
+    WORDS = json.load(_f)
+
 node = pytest.mark.skipif(not os.path.isdir(os.path.join(VIEWER, "node_modules", "esbuild")),
                           reason="needs Node and `npm install` in viewer/")
 
@@ -118,7 +121,7 @@ def test_reach_carries_the_token_and_waits(tmp_path):
   let now = 0;
   const {{Backoff}} = require({json.dumps(str(tmp_path / "sharelink.cjs"))});
   const b = new Backoff(() => now), out = {{}};
-  const tooMany = {{code: "rate_link_reach", message: "Too many reach calculations on this link in a short time. Try again later."}};
+  const tooMany = {{code: "rate_link_reach", params: {{wait: "1 min"}}, message: "too many reach calculations"}};
   const ask = async (get) => {{ try {{ await m.fetchReach("/api/reach?run=r", get, b); return "fetched"; }} catch (e) {{ return e.message; }} }};
   out.first = await ask(answer(429, tooMany, "2"));
   out.blocked = await ask(answer(400, "x", null));
@@ -132,7 +135,7 @@ def test_reach_carries_the_token_and_waits(tmp_path):
   out.seen = seen;
   console.log(JSON.stringify(out));
 }})();""", bundles={"sharelink": "sharelink"})
-    text = "Too many reach calculations on this link in a short time. Try again later."
+    text = WORDS["error.rate_link_reach"].replace("{{wait}}", "1 min")  # the catalogue's, with the server's wait
     assert found["first"] == found["blocked"] == found["late"] == text and found["sentDuring"] == 1, found
     assert found["again"] == "The anchor is outside the patch." and found["app"] == "y", found
     assert [url for url, _ in found["seen"]] == ["/api/reach?run=r"] * 3 and all(TOKEN not in url for url, _ in found["seen"])
@@ -143,7 +146,8 @@ def test_reach_carries_the_token_and_waits(tmp_path):
 
 READY = "() => document.getElementById('view3d')?.dataset.ready === '1'"
 FRAMES = "() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))"
-REACH_TEXT = "Too many reach calculations on this link in a short time. Try again later."
+WAIT_TEXT = "1 min"  # the server's {{wait}} of a link's 429 (a no-break space)
+REACH_TEXT = None  # set below from the catalogue
 # The clipboard's writes, kept (Copy link)
 CLIPBOARD = """window.COPIED = [];
 Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText: (s) => { COPIED.push(s); return Promise.resolve(); }}});
@@ -161,11 +165,12 @@ def _link_page() -> tuple:
     return page, web.page_csp(ViewSettings(ring=False))["/view3d"]
 
 
-# The server's words of a link's 429 per kind of request (contract.md); the canopy is a patch
-REFUSALS = {"reach": ("rate_link_reach", REACH_TEXT),
-            "profile": ("rate_link_profile", "Too many profiles on this link in a short time. Try again later."),
-            "patch": ("rate_link_patch", "Too many 3D views on this link in a short time. Try again later."),
-            "canopy": ("rate_link_patch", "Too many 3D views on this link in a short time. Try again later.")}
+# A link's 429 per kind of request: the server's code with its {{wait}}, and the catalogue's text the page draws of it
+# (the canopy is a patch)
+REFUSALS = {kind: (code, WORDS[f"error.{code}"].replace("{{wait}}", WAIT_TEXT)) for kind, code in
+            (("reach", "rate_link_reach"), ("profile", "rate_link_profile"), ("patch", "rate_link_patch"),
+             ("canopy", "rate_link_patch"))}
+REACH_TEXT = REFUSALS["reach"][1]
 
 
 def _kind(url: str) -> str:
@@ -196,7 +201,7 @@ def _link_context(browser, port: int, asked: list, refuse: dict | None = None, r
             refuse[kind] -= 1
             code, text = REFUSALS[kind]
             route.fulfill(status=429, headers={"content-type": "application/json", "retry-after": "2"},
-                          body=json.dumps({"detail": {"code": code, "params": {}, "message": text}}))
+                          body=json.dumps({"detail": {"code": code, "params": {"wait": WAIT_TEXT}, "message": text}}))
         else:
             route.continue_(headers={k: v for k, v in route.request.headers.items() if k.lower() != "x-findaline-share"})
     ctx.route(f"http://127.0.0.1:{port}/api/**", api)
@@ -286,6 +291,9 @@ def test_link_view3d_page(clip_data, monkeypatch):
                                        timeout=WAIT * 2)
                 assert page.evaluate("() => document.getElementById('view3d').dataset.edit") == "checked"
                 assert sum(1 for a in asked if a[0].startswith("/api/profile")) == profiles + 1, asked
+                # the user's T3: "Anchors moved" / "Moved" on a link (nothing to save), not "not saved"
+                said = page.evaluate("() => ['.v3-long', '.v3-short'].map((s) => document.querySelector('.v3-edited ' + s).textContent)")
+                assert said == [WORDS["ui.view3d.edited_link"], WORDS["ui.view3d.edited_short_link"]] == ["Anchors moved", "Moved"], said
                 moved = page.evaluate("() => document.querySelector('.v3-back').getAttribute('href')")
                 assert moved.startswith("map.html#line=") and moved != back, moved
                 # "Only valid lines": the reaches of both anchors from the app's route
@@ -417,7 +425,7 @@ def test_link_view3d_profile_waits_after_a_429(link_page):
     page.context.unroute("**/api/**")
     page.context.route("**/api/**", lambda route: (
         route.fulfill(status=429, headers={"content-type": "application/json", "retry-after": "2"},
-                      body=json.dumps({"detail": {"code": "rate_link_profile", "params": {}, "message": text}}))
+                      body=json.dumps({"detail": {"code": "rate_link_profile", "params": {"wait": WAIT_TEXT}, "message": text}}))
         if _kind(route.request.url) == "profile" and refuse_again.pop("profile", 0)
         else route.continue_(headers={k: v for k, v in route.request.headers.items() if k.lower() != "x-findaline-share"})))
     assert _drag(page, dx=15) == "error" and len(profiles()) == 3 and text in page.evaluate(READ_FAILED), profiles()

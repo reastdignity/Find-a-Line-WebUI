@@ -554,8 +554,9 @@ def test_share_page(share_site, device):
 
 # A share page's flags as the server sends them since 2026-11-26 (/s/runs.js: profiles on, D3), whatever this server
 # sends; the profiles asked, each with its address and its X-Findaline-Share header; while REFUSE > 0 the answer is
-# a 429 of a link's rate with Retry-After: 2 (the server's own words: contract.md)
-RATE_TEXT = "Too many profiles on this link in a short time. Try again later."
+# a 429 of a link's rate with Retry-After: 2 (the server's code and its {{wait}}: the page draws the catalogue's text)
+RATE_WAIT = "1 min"  # the server's {{wait}} (a no-break space)
+RATE_TEXT = WORDS["error.rate_link_profile"].replace("{{wait}}", RATE_WAIT)
 SHARE_PROFILES = """
 Object.defineProperty(window, "FINDALINE_APP", {configurable: true, get() { return window.__app; },
   set(v) { window.__app = v && {...v, profiles: true}; }});
@@ -569,7 +570,7 @@ window.fetch = (url, init) => {
                    share: headers["X-Findaline-Share"] ?? null, at: performance.now()});
   if (window.REFUSE > 0) {
     window.REFUSE--;
-    return Promise.resolve(new Response(JSON.stringify({detail: {code: "rate_link_profile", params: {},
+    return Promise.resolve(new Response(JSON.stringify({detail: {code: "rate_link_profile", params: {wait: "1\u00a0min"},
       message: "%s"}}), {status: 429, headers: {"content-type": "application/json", "Retry-After": "2"}}));
   }
   return Promise.resolve(new Response(JSON.stringify({d: [0, 20, 40, 60, 80], z: [300, 296, 292, 296, 301], min: [40, 7.5],
