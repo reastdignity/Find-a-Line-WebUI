@@ -13,7 +13,9 @@ webbing, results shown on an interactive Leaflet map. User-facing docs: [README.
 the host: SSH, firewall, OAuth, backups, checks; keep it in step with `deploy/` (`deploy/vps.sh` runs its commands),
 compose.yaml and `tests/nginx_check.sh`). Plans, decisions already made, their order and open checks:
 [docs/roadmap.md](docs/roadmap.md); read it before proposing a design. Where the time and memory of a search go, the
-worker's slots and what was measured and decided about speed: [docs/performance.md](docs/performance.md). The
+worker's slots and what was measured and decided about speed: [docs/performance.md](docs/performance.md). How
+heights are resampled onto a search's grid (where, by which method, what was measured and decided):
+[docs/resampling.md](docs/resampling.md). The
 monitoring of the VPS and the app (phases 1 to 4 built: `deploy/monitoring/`, `metrics.py`, `servicecounts.py`):
 [docs/monitoring.md](docs/monitoring.md).
 

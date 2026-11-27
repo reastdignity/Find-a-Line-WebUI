@@ -3437,6 +3437,10 @@ store gzipped, 89.5 MB, until wave 6 sends brotli.
 
 ## The resampling of a neighbour's data (2026-11-05, tag `history/partner-resampling`)
 
+Everything known about resampling heights onto a search's grid (the rule, the methods, the later
+measurements on simulated surveys of 0.5 to 3 m, the decisions) is in [resampling.md](resampling.md);
+this section is the study on real data at borders.
+
 Step 0 of the cube v2 contract (docs/country-precompute/contract.md, section 6). At a border a grid
 holds the neighbour's data reprojected onto it (`sources.filling.fill_from_neighbours`), and a line
 across the border is tested on them. `sources.mosaic._place` reprojects by the **average** where the

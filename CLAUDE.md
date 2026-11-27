@@ -14,6 +14,8 @@ Read the section you need, not the whole file (several are over 200 KB).
   [docs/known-bugs.md](docs/known-bugs.md): failures and findings that are known and not a regression.
   [docs/regression-failures.md](docs/regression-failures.md): why a regression entry fails and what to do.
 - [docs/performance.md](docs/performance.md): where time and memory go, what was measured and decided.
+- [docs/resampling.md](docs/resampling.md): how heights come onto a search's grid: the rule, the methods,
+  what was measured, the decisions. Before changing a resampling read it.
 - [docs/deployment.md](docs/deployment.md) (the VPS; kept in step with `deploy/`, compose.yaml and
   `tests/nginx_check.sh`), [docs/monitoring.md](docs/monitoring.md).
 - [docs/data-sources.md](docs/data-sources.md) (adding a source), docs/3d-view-contract.md,
