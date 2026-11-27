@@ -25,11 +25,12 @@ Every statement carries where it comes from:
 
 ## State
 
-Last change: 2026-11-26 (rounds 5 and 6 of the comparison and their reviews are in: a monotone cubic, and GDAL's
-methods with and without the widened kernel at 0.76 and 0.91 m; and what a search on several grid resolutions
-would take; the user chose cubic for the USA's lidar files of 0.75 to 1.0 m that are not on the grid, and a
-point in the roadmap for the general rule, and kept GDAL's widening for those files). The method question of
-this task is closed ([Decisions](#decisions)); nothing of it is built yet. No measurement is running.
+Last change: 2026-11-27 (the user decided where the USA's lidar files are resampled: once, when their cached
+1 m block is made, in the block reader, not in a search's mosaic). Before it, on 2026-11-26: rounds 5 and 6 of
+the comparison, cubic chosen for the USA's lidar files of 0.75 to 1.0 m that are not on the grid, GDAL's
+widening kept, a point in the roadmap for the general rule. The method question of this task is closed
+([Decisions](#decisions)); the reader's rule is built in wave B-1 (the source `usa_opr`, on its branch; `usa`
+does not use it before wave B-2). No measurement is running.
 
 ## Summary
 
@@ -109,8 +110,10 @@ grid's:
 Known faults of `src_pixel_m`:
 - **A CRS in feet counts its pixel in feet.** A 2.5 ft pixel (0.762 m) counts as 2.5, a 3 ft pixel as 3: bilinear
   where the rule in metres says the same, but a 1.5 ft (0.457 m) or 2 ft (0.61 m) pixel is not averaged. No source
-  of the catalogue is known to read a CRS in feet today; the OPR wave fixes it. For the same reason the neighbour rule's range can only catch
-  files in metres.
+  of the catalogue is known to read a CRS in feet today, and the USA's lidar files in feet will not reach the
+  mosaic (they are resampled in the block reader, by their pixel in metres: [Decisions](#decisions)), so the
+  fault stays, as the roadmap's entry. For the same reason the neighbour rule's range can only catch files in
+  metres.
 - **A degree counts as 111 320 m both ways**, so a geographic raster counts too coarse east-west by the cosine of
   the latitude ([roadmap.md](roadmap.md), "A geographic raster's pixel counted at 111 320 m both ways"; not
   assigned).
@@ -128,7 +131,35 @@ neighbour's rasters; `tools/border_study.py --resampling` uses it to measure.
   usual case) and resampled **bilinearly** otherwise.
 - `windows.py` `_warp_window` (`Windows(warp=)`): a file kept in another CRS than the blocks'. Cyprus is the one
   user: the terrain by **nearest**, the surface model (0.5 m onto 1 m) by **average**
-  (`sources/catalogue/cyprus.py`). Those tiles are resampled twice, once by the provider.
+  (`sources/catalogue/cyprus.py`). Those tiles are resampled twice, once by the provider. One method for every
+  file of a layer; 2 source pixels are read around a block; a file in the blocks' own CRS never takes this
+  path (NAD83(2011) / UTM counts as NAD83 / UTM).
+- **Built in wave B-1** (the USA's lidar files, `usa_opr`, the user's decision of 2026-11-27): `windows.py`
+  `compose_opr` chooses per file, by the file's own header (`opr_method`; its pixel in the CRS's unit times
+  that unit in metres): a copy on the block's pixels, **average** below 0.75 m (also in the blocks' own CRS,
+  within it without a change of datum, as `_read_window`), **cubic** from 0.75 to 1.001 m off the block's
+  pixels (GDAL's defaults, one thread, but the kernel's scale given: `XSCALE` and `YSCALE` the file's pixel in
+  metres over the block's, `opr_scale`, the user's decision of 2026-11-27), a coarser file or one without a
+  projected CRS skipped and named.
+  Heights are multiplied by the survey's measured factor after the file's nodata and floor, before the
+  resampling. The margin read around a block: 2 source pixels for a copy and average, 4 for cubic (gate B-1a
+  measured 2 already equal to a warp of a window 150 m larger on two State Plane surveys turned about 1°; 4 holds
+  at 10° in `tests/test_opr_reader.py`). The files of one survey that share a lattice are joined into one
+  array before the one warp (tile by tile, the kernel lost the other tile at the edge: up to 0.94 m off at a
+  0.762 m edge, gate B-1a). The survey's factor, the methods its sampled headers take (with their versions,
+  `OPR_METHODS`) and its `collect_end` are in the key of a block holding its files (`versions.block_key`). Every
+  file is still read by its own header's method; one outside its survey's sampled methods is named once. The
+  limit: a later change of one method's version reads again the blocks of the surveys whose record names that
+  method; a block holding an unsampled file of another class keeps its content until the layer's `processing` is
+  raised (which reads every OPR block again). A block equals the whole file warped onto that block (the scale
+  given) bit for bit (`tests/test_opr_reader.py`, 2026-11-27; 0.0005 m against a window 150 m larger on the real
+  surveys before the fixed scale). Against one warp of a larger lattice (several blocks at once) it differs by 0,
+  2.3 and 11.1 mm for a file turned 0, 2 and 10 degrees (the scope review's S1; the same after the fixed scale):
+  GDAL's default error threshold approximates the transform per warp, so its error depends on the warp's extent
+  (with tolerance 0 the two agree to 0.1 mm); the default stays (the user's choice: the warp as it is). The same
+  threshold leaves a file warped alone and the same pixels of a joined window 0.12 mm apart in the tests (bit for
+  bit with a threshold of 1e-6 on the Montana tile of fix round 1), where GDAL's own scale estimate left them 3.7 cm
+  apart.
 - `sheetfile.py` `_xyz_grid`: a text file of points that holds several grids is written on its finest one, the
   others filling in **bilinearly**.
 - `wcsreader.py`: an answer of a WCS that is not on the asked pixels is brought onto them by **nearest**.
@@ -257,6 +288,15 @@ What applies to all three:
   through rasterio's `reproject(..., XSCALE=1, YSCALE=1)`, the two options turn the widening off: GDAL's
   bilinear, cubic and Lanczos then equal the plain kernels at single points (rasterio 1.5.2, GDAL 3.12.2;
   reviewed: [GDAL's methods without the widened kernel](#gdals-methods-without-the-widened-kernel-2026-11-26-reviewed)).
+  Unless `XSCALE` and `YSCALE` are given, GDAL takes the kernel's scale from each chunk's source window (measured
+  2026-11-27: a file warped alone, its window cut to the file, got another scale than the same pixels in a joined
+  window, 3.7 cm apart on a 3 ft survey; given at 0.9144, the two are equal; the error threshold played no part,
+  6e-5 m). The OPR reader gives them for cubic at the file's pixel over the block's ([Decisions](#decisions),
+  2026-11-27); every other warp of the app leaves GDAL's estimate. For a file turned against the zone the fixed scale
+  narrows the kernel GDAL would widen by the turned window's box: on the test's terrain (a 25 m step over 1.5 m) the
+  stated-scale blocks lie 13.5 and 23.5 cm from GDAL's own scale at 2 and 10 degrees (`tests/test_opr_reader.py`
+  `test_block_equals_the_whole_warp`, the third code review), while GDAL's own scale against itself on a larger warp
+  differs by only 2.32 and 10.86 mm (the error threshold).
 - **The coordinate transform is approximated** to within 0.125 source pixel by default (library docs: `-et`;
   rasterio's `tolerance`); 0 gives the exact transform. The app does not set it. Measured (not reviewed): against
   the exact transform the default moves heights by up to 3 mm (1.0 m pixels) and 34 mm (0.762 m) when the survey's
@@ -655,12 +695,19 @@ formula model, 354 with sag); "widened" is GDAL's default, as in every table abo
 | 2026-11-05 | Slovakia's averaged 2 m and 5 m tiles go only to a grid of their own CRS | the user |
 | 2026-11-24 | The OPR wave reads surveys of 1 m or finer, by the file's own pixel; coarser surveys are not read | the user ("(a) 1 m or finer") |
 | 2026-11-24 | Pixels from data coarser than 1 m are to be shown on the map's "Coarser terrain" layer and in each line's metres, with the pixel size in the legend; built with the 3 m DEM, not with the OPR wave | the user ("On the map and per line") |
-| 2026-11-26 | USGS lidar files of 0.75 to 1.0 m that are not on the 1 m grid come into a search by cubic (not built yet) | the user ("Cubic (Recommended)"), after the comparisons of 2026-11-24 to 26 |
-| 2026-11-26 | GDAL's widening of the kernel stays for those files (the warp's default; no `XSCALE` or `YSCALE` set) | the user ("Keep the widening (Recommended)") |
+| 2026-11-26 | USGS lidar files of 0.75 to 1.0 m that are not on the 1 m grid come into a search by cubic (built in wave B-1, 2026-11-27: `windows.compose_opr`, the source `usa_opr`) | the user ("Cubic (Recommended)"), after the comparisons of 2026-11-24 to 26 |
+| 2026-11-26 | GDAL's widening of the kernel stays for those files (the warp's default; no `XSCALE` or `YSCALE` set). Replaced on 2026-11-27 for the scale's value (the row below); the widening stays | the user ("Keep the widening (Recommended)") |
+| 2026-11-27 | The cubic kernel's scale is fixed at the file's true pixel ratio: `XSCALE` and `YSCALE` given, per axis, the file's pixel in metres over the block's (0.9144 for a 3 ft file onto 1 m), the same on both axes for a file turned against the zone. Found in fix round 1 (S6): GDAL takes the scale from each chunk's source window, so a group of files covering part of a block (a survey's edge, a file alone) got another widening than the same pixels inside the survey, up to 3.7 cm apart on a 3 ft survey in Montana, while the joined window lay 8.4 mm from the true ratio. Set in `windows.opr_scale` for cubic only (not average, not a copy, no other layer), the cubic method's version 2 | the user ("Fix it at the true ratio (Recommended)") |
+| 2026-11-27 | Those files are resampled once, when their cached 1 m block is made (the block reader), not in each search; a later change of a method reads the blocks made by it again from USGS (built in wave B-1: the method's version in the block's key) | the user ("Once, into 1 m blocks (Recommended)", after asking what a later change would take) |
 | 2026-11-26 | Cubic is for those files of the USA only; a change of the general rule (every reprojected layer at about the grid's pixel size, the border rule with it) is a point of docs/roadmap.md, "Resampling to the working resolution", to be evaluated | the user ("for this session 1 - save a roadmap point to evalute global change") |
 
-Planned for the OPR wave and not a decision of the user's: the pixel of a CRS in feet counted in metres, so that
-files finer than 0.75 m are averaged as the rule says.
+Built with the OPR wave (B-1) and not a decision of the user's: in the block reader the pixel of a file in feet is
+counted in metres, so that files finer than 0.75 m are averaged as the rule says. Two things follow from
+resampling in the reader. Where a search's grid is not the block's lattice (a neighbouring UTM zone, the fill
+of a Canadian or Mexican border run, a 2 m or 5 m grid) the 1 m block is resampled a second time by the
+mosaic's rule, as the 1 m DEM's blocks are today. And the comparisons above ran through the mosaic's warp on
+a whole survey: `tests/test_opr_reader.py` shows that a block equals that warp, inside and across block and tile
+edges, for files turned 0, 2 and 10 degrees against the zone.
 
 ## Open questions
 

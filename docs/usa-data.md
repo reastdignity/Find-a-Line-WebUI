@@ -56,7 +56,7 @@ A sample of 30 OPR files, the newest at every 12th point:
 
 ## WESM: USGS's table of surveys
 
-USGS keeps one table of every lidar and IfSAR survey of 3DEP, the "Work unit Extent Spatial Metadata" (WESM): a row per work unit, which is a survey or one block of a large one. Read in full on 2026-11-22; nothing in the app uses it yet.
+USGS keeps one table of every lidar and IfSAR survey of 3DEP, the "Work unit Extent Spatial Metadata" (WESM): a row per work unit, which is a survey or one block of a large one. Read in full on 2026-11-22; the OPR layer reads it since wave B-1 ("OPR read by the app" below).
 
 - **Where.** `https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/metadata/WESM.csv` (2.3 MB, 3308 rows) and, with the outlines, `WESM.gpkg` in the same folder (3.8 GB). Both carried that day's date: USGS says "A new WESM is written almost daily as more lidar projects are processed and published" (https://www.usgs.gov/ngp-standards-and-specifications/3dep-spatial-metadata).
 - **Which row a file belongs to.** An OPR file's URL lies under the row's `sourcedem_link`. Matching by the URL's folders (`/OPR/Projects/<project>/<workunit>/`) against `project` and `workunit` missed 13.5 % of the files of an Illinois box (hyphens in the names; one Montana survey has no work unit folder).
@@ -100,6 +100,135 @@ USGS keeps one table of every lidar and IfSAR survey of 3DEP, the "Work unit Ext
 **How the OPR DEMs are delivered** (one bucket listing per survey, all 357): 192 come as one or two files; 154 have a file over 1 GB, 62 over 4 GB, the largest 29.6 GB; 3 have no `.tif` under their link. They are tiled, so a window can still be read.
 
 **Alaska's lidar** covers 3.4 to 3.7 % of the state's land (55 216 km² by the boxes of its files, 2026-11-22), and the circle of the regression case at Mount Juneau lies wholly inside a survey of 2023 at 0.5 m. It is published as OPR only: 53 lidar rows with an OPR link, flown 2013 to 2025, at 0.5 m (22), 1 m (13), 3 feet (9) and 1.5 feet (7), two without a pixel size, QL 1 or QL 2 but for three. They cover Anchorage, the Fairbanks borough, the Matanuska-Susitna borough, Juneau and the south-east (Glacier Bay, Prince of Wales Island, the Tongass landslide surveys), blocks of the North Slope, the Yukon-Kuskokwim delta, Lake Peninsula, the west coast after typhoon Merbok, and native villages. Eleven older surveys (2007 to 2012) have no OPR link.
+
+## OPR read by the app (wave B-1, 2026-11-27)
+
+The source `usa_opr` (single searches, not on the public site) reads every lidar OPR DEM of 1 m or finer through the
+layer `OprBlocks` (`sources/layers/tnm.py`): the TNM index's OPR answers per 0.25° tile (`usa/sheet-index/opr/`), each
+file placed in the NAD83 / UTM zone under the centre of its box and cached as 1 km blocks of 1 m
+(`usa/3dep-opr/epsg269xx/...`), newest survey first (WESM's `collect_end`). Each file is brought onto the block by
+its own header's pixel (copied, averaged below 0.75 m, cubic from 0.75 to 1.001 m: docs/resampling.md, "When a
+block or a file is read"). `usa` itself does not read OPR yet (wave B-2).
+
+**WESM** is cached as `usa/sheet-index/wesm/WESM.csv` (fetched once by a search when none is cached; renewed after
+28 days by `cache update usa` and by a renewal over a layer that reads it, asked with its ETag: 0 bytes when
+unchanged). In wave B-1 no download row holds the OPR layer, so a download pass does not renew it yet (wave B-2).
+The layer's cached index answers are asked again by `cache update usa` after 28 days, as the 1 m DEM's (the user's
+D3a, "every month").
+
+**The survey record** (`usa/sheet-index/opr-surveys/<work unit>.json`, `sources/layers/oprsurveys.py`), made when an
+index answer naming the survey is first read: the year, the height unit and its factor or "undecided", the pixel
+of the sampled files, why it is not read. Rule "highest+fixed-5": the headers of up to five of the answer's files of
+the survey spread by name, then up to five windows of 200 m on them, each file's at its highest ground (its
+smallest overview, when at most 1024 px) and at fixed points by turns; the first window whose wrong reading (metres
+or feet against the 1/3″ DEM) is off by more than 3 m and five times the right one decides. A survey is left out
+and named once per run when its unit is undecided, its sampled pixel is coarser than 1.001 m, it is not lidar, its
+files have no projected CRS, or a file of it was cut at 4 GB (below). A file of a readable survey is still read by
+its own header (fix round 1, the user's D4): left out and named only for its own pixel above 1.001 m, a geographic
+or missing CRS, rotation terms, or another horizontal unit than the sampled files' (below).
+
+**The rule's choice** (gate B-1a, measured 2026-11-27 on the 45 surveys of gate 0 with a known unit and 20 more of
+the 357 drawn by a fixed seed; raw numbers in the task's local notes):
+
+| Rule | Right | Wrong | Undecided | Requests a survey (median) |
+| --- | --- | --- | --- | --- |
+| one window at the middle file's centre | 37 | 0 | 8 | 6.5 |
+| three files, majority | 32 | 0 | 13 | 13 |
+| three files, every deciding window agrees | 42 | 0 | 3 | 13 |
+| five windows at the steepest 200 m by the 10 m DEM | 38 | 0 | 7 | 10 |
+| five windows at the highest 200 m by the 10 m DEM | 37 | 0 | 8 | 10 |
+| five windows at each file's highest ground by its own overview | 44 | 0 | 1 | 8.5 |
+| **as built** (highest ground and fixed points; `make_record` replayed on fix round 1's code, and again on round 2's (b432c23b: the same outcome for each survey, none of the 45 sampled in two units)) | **40** | **0** | **0** | **10** (3.1 s) |
+
+As built, the other 5 of the 45 (`MI_MuskegonCo_2013`, `HI_Oahu_2012`, `IL_District4_Peoria_2014`,
+`NC_SandyLot9_2014`, `IL_12_County_OgleCo_2008`) are left out because a sampled file of theirs was cut at 4 GB
+(below); before that check went in the same rule decided all 45 right (the replay on fix round 1's code: 446
+requests, 93 MB). The
+one-window and majority rules leave the cove's survey (coastal, its middle file at sea level) undecided; the built
+rule decides it in metres. The windows chosen by the 10 m DEM often land where the survey's file has no data. Of
+the 20 new surveys the built rule left two undecided (flat Louisiana coast). **Of the 357 surveys without a 1 m DEM,
+about 212 are left out** as the built rule gives them (*est.*: about 180 have a pixel coarser than 1.001 m by the
+file's header, scaled from WESM's pixel classes with the sample's headers; about 21 more are undecided, 4 of the
+sample's 34 surveys of 1 m or finer; about 10 more have a file cut at 4 GB: 10 of the 15 below are 1 m or finer by
+WESM, and all 5 of them that were checked are cut).
+
+**One factor for a survey, guarded per file.** The height unit is measured once per survey. A survey that mixes a
+mosaic in metres with tiles in feet (gate 0 met one) would be read 3.28 times off for part of it, so the reader
+leaves out a file whose horizontal CRS's linear unit is not among those of the files the unit was measured on, and
+names it (`windows._opr_file`, `oprsurveys.units_of`). It is a heuristic: a file in feet horizontally with heights in
+metres beside files in metres would be left out too. Its limit: a survey whose sampled files are themselves in
+metres and in feet is not read at all ("its files are in metres and in US survey feet, one height factor cannot
+serve both", fix round 2), and the sampled units' classes are in the blocks' key ("1" for metres, "0.3048" for the
+foot and the US survey foot alike: `oprsurveys.unit_class_texts`, fix round 4), so a record made again with another
+class of units reads its blocks again, and two caches whose samples of a mixed-feet survey differ write the same
+units text. Its height factor is in the key too (x0.3048 or x0.3048006096, the first deciding window's file's foot),
+so two such caches may still name its blocks differently, their heights 2 ppm apart. Units are compared at a relative 1e-5 (`windows.UNIT_REL_TOL`, in the record and in the
+guard, fix round 3): the foot and the US survey foot (2e-6 apart) are one unit, and so is a header that stores a
+rounded 0.3048006, so a survey mixing State Plane CRSs in "ft" and in "ftUS" is read as before round 2 (its height
+factor is measured, and every file is placed by its own CRS).
+
+**A survey whose measurement failed.** Its failure is kept for a day (`<work unit>.failed.json` beside the records,
+with the count of failed measurements in a row) and it is not measured again within it. During that day an answer
+naming it counts as failed, as an index that cannot be asked (`tnm.SurveyNotRead`): a search uses the cached blocks,
+`cache update` fails the tile and writes nothing (not its answer, not a block without that survey, no prune), so the
+tile is still due the next day. The rule as built (the user's decision of 2026-11-27, "Wait 3 days, then skip it"):
+the first and the second failed measurement block the survey's tiles (each at least a day after the one before);
+**the third failed measurement in a row** (no success between, none more than 28 days after the one before) records
+the survey as not read at once, so its tiles are unavailable for about two days. Its record says "could not be
+measured on 3 days, last: <the error>; measured again from <date>": from then on its answers are read without it, as
+for any survey not read (the tile's other surveys are read, the survey is named once per run, `cache update` works
+again and makes the blocks under it from what is left). 28 days later (the OPR answers' `update_ttl_days`, one
+constant: `oprsurveys.RECORD_SKIP_DAYS`) the first answer read that names it (a search's, a renewal's or `cache
+update`'s) measures it once more: a success writes its record (its items return, the blocks under it get new keys and
+are read again), a failure skips it another 28 days at once. A failed measurement is not counted only when nothing of
+it answered, none of its requests could connect, and one probe of WESM's host (a HEAD) cannot connect either: this
+machine without a network (`MeasurementNotReached`, `_wesm_host_reached`); it is kept for the day, and at a retry
+after the skip it keeps the skip and tries again a day later. A survey's own file on a host this machine cannot reach
+while WESM's host answers counts (the fourth code review's finding 1). Left: USGS's bucket itself unreachable from
+this machine for weeks counts nothing, and nothing of OPR can be read then anyway.
+
+**A block's files** are those listed in the index tiles its square grown by 5 m meets, whose box projected into the
+zone meets that square: one rule for a search, for every kind of grid, and for `cache update`, which checks every
+cached block whose tiles hold the one it renews (fix round 2, the code review's N2 and N5).
+
+**Files cut at 4 GB.** 15 of the 357 surveys have a largest file of 4,294,96x,xxx bytes, at the limit of a classic
+TIFF (`IL_12_County_KaneCo_2008`, `IL_JoDaviessCo_2008`, `IL_District4_Woodford_2014`, `IL_District4_Peoria_2014`,
+`IL_District4_Tazewell_2014`, `OK_Area1_1A_2011`, `KS_Lidar_1_B2_2013`, `KS_Lidar_1_B3_2013`, `KS_Lidar_1_B6_2013`,
+`MI_MuskegonCo_2013`, `HI_Oahu_2012`, `NC_Sandy_L15_2014`, `NC_Sandy_Lot8_2014`, `NC_Sandy_Lot10_2014`,
+`NC_Sandy_Lot11_2014`). `MI_MuskegonCo_2013`'s file holds its full-resolution tiles down to about the middle of the
+image and none after (offset 0: GDAL reads them as nodata without an error), while its overviews cover all. Such a
+survey is left out and named (`oprsurveys.cut_at_4gb`: a classic TIFF of at least 2^32 bytes less 64 KB whose last
+tile has no offset; only the record's sampled files are looked at, and the count of 15 looks only at each survey's
+largest file within 64 KB of 2^32; `NC_SandyLot9_2014`'s file of 4.7 GB, a classic TIFF beyond the format's limit,
+is caught too).
+
+**Reading blocks** (gate B-1a): a 1 km block costs 2-16 requests and 1-10 MB from tiles and from mosaics of 21.8 and
+29.6 GB alike, 2-7 s; the process grows by 45-80 MB at most while reading, and a file kept open over several blocks
+holds 6 to 18 MB more a block (GDAL's cache of its decoded tiles).
+
+**`check_source`'s "files" check** compares each sampled block with its file read by the method the file's own
+header takes, times its survey's factor (fix round 1). Before that it read the file by nearest and without the
+factor: 15 m off at the cove (a 0.5 m pixel against the block's 2 x 2 mean at a cliff) and 2,044 m in Montana
+(heights in feet against metres) on 2026-11-27. It still says WARN (2026-11-27): max 0.51 m at the cove and
+0.31 m in Montana, "equal" 1.5 % and 0.4 %. "Equal" counts exact equality, which tiles kept within LERC's 5 mm
+seldom show: 99.96 to 100 % of the cove's sampled pixels and 83 to 99 % of Montana's are within 1 cm. Each maximum
+lies on the edge row of the one file the check compares with, where the check warps that file alone and the reader
+warps the joined window. Inside a file, the cove's blocks (average) equal it to 5 mm. Montana's 2018 survey
+(0.9144 m, cubic) differs inside by up to 4.9 cm, because GDAL's warper takes the kernel's scale from each chunk's
+source window. A file warped alone has a window cut to the file, so it gets another scale than the joined window.
+With the scale fixed (`XSCALE`, `YSCALE` 0.9144) the two are equal, and the reader's block lay within 8.4 mm of
+that. The error threshold plays no part (6e-5 m). `compose_opr` run again gives the cached tiles to 5 mm. Since fix
+round 2 the reader fixes the scale at the file's pixel ratio (the user's decision of 2026-11-27,
+docs/resampling.md), and the check uses the same scale. It still says WARN (2026-11-27): 0.51 m at the cove as
+before (average) and 0.31 m in Montana, "equal" 1.5 % and 1.2 %. Every maximum lies on a file's edge row, and more
+than 4 pixels inside a file both places now equal the files to the cache's 5 mm (Montana's 2018 survey: 4.9 cm
+before). On the same Montana tile the joined block and the file warped alone lie 0.06 mm apart (3.7 cm before), the
+check's warp of the file 0.12 mm from them. The edge rows stay: the check warps one file alone, and the reader joins
+it with its neighbours.
+
+**Not every OPR survey is in the TNM index.** At `CA_E_SanDiegoCo_2016`'s files (2.5 ft, State Plane) the index's OPR
+answer names three other surveys (`CA_SanDiegoCo_1_D24`, `CA_CaliforniaGaps_4_B23`, `CA_SanDiego_2015_C17_1`) and
+none of this one's 499 files: `usa_opr` does not see such a survey.
 
 ## Where the 1 m DEM is missing, and what could fill it
 
@@ -266,5 +395,6 @@ Decided by the user on 2026-11-22, on the findings below. What S1M is, its file 
 - How a search should run on terrain coarser than 1 m: measured on 2026-11-23 on grids of 2, 3, 5, 10 and 30 m ([roadmap.md](roadmap.md), *A slope threshold for the resolution*; the user chose a lower default threshold only at 30 m). Still being measured: surveys whose pixels do not nest in the 1 m grid (0.5 to 3 m and sizes in feet), and a search with 1 m data beside coarser data.
 - The land gained by the unlisted 1 m files outside Utah; the unlisted files with old-style names (not counted).
 - A real seam between OPR and the 1 m DEM on steep ground.
+- OPR surveys the reader does not reach (2026-11-27): how many surveys of the bucket the TNM index does not list (`CA_E_SanDiegoCo_2016` is one; not counted); the mosaics cut at 4 GB (USGS's files; no other copy looked for); and the places outside NAD83 / UTM zones 1 to 23 north. Of those places only the Northern Marianas have an OPR DEM by WESM of 2026-11-23: one topobathymetric survey of 2019 at 1 m (`PI_CNMI_hydroflattened_2019`, NAD83(MA11) / UTM zone 55N, heights above the local datum; its second delivery has ellipsoidal heights); Guam has one survey of 2012 at 3 m without a source DEM, American Samoa none, and no Alaskan lidar survey lies west of UTM zone 2N. Whether the TNM index lists the Marianas' files was not checked.
 - The pixel origin of OPR projects other than the Oregon coast.
 - Noise in the point clouds of other projects: is the high layer at the cove usual? Is a cap of 100 m above the terrain safe (the tallest trees in the USA reach about 115 m)?

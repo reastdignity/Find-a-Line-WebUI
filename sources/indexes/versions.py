@@ -9,7 +9,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import rasterio as rio
 import rasterio.warp
@@ -254,11 +254,18 @@ def block_key(files: Sequence[Dict]) -> str:
     changes (the index lists it, with its own date in place of the upload time; or the list's date changes) the
     block gets another name, is read again and the block of the old name pruned, like a block whose set of files
     changed. A block without such a file keeps the name it always had (every block of every other layer; a list file
-    alone in its year, whose place in the order its date cannot change)."""
+    alone in its year, whose place in the order its date cannot change). A file of USGS's OPR DEMs (tnm.OprIndex)
+    enters by its name and its token ("opr", tnm.opr_items: its survey's height factor, the names and versions of the
+    methods its survey's sampled headers take, windows.OPR_METHODS, its collect_end and the sampled horizontal
+    units), so a corrected unit, a changed method, date or sample gives the blocks holding such a file another key,
+    and no other block."""
     years = collections.Counter(f["year"] for f in files)
-    return hashlib.sha1(",".join(sorted(
-        f"{f['name']}@{f.get('published', '')}" if f.get(EXTRA) and years[f["year"]] > 1 else f["name"]
-        for f in files)).encode()).hexdigest()[:8]
+
+    def token(f):
+        if f.get(EXTRA) and years[f["year"]] > 1:
+            return f"{f['name']}@{f.get('published', '')}"
+        return f"{f['name']}#{f['opr']}" if f.get("opr") else f["name"]
+    return hashlib.sha1(",".join(sorted(token(f) for f in files)).encode()).hexdigest()[:8]
 
 
 @dataclass(frozen=True)
@@ -287,6 +294,8 @@ class ComposedBlocks(Versions):
     year, published}.
     """
 
+    reach = 0.0  # metres a block reaches beyond its square for its files (tnm.OprBlocks: the reader's margin)
+
     def __init__(self, folder: str, block_m: float, native_res: float):
         self.folder, self.block_m, self.native_res = folder, block_m, native_res
 
@@ -306,41 +315,133 @@ class ComposedBlocks(Versions):
                 keep_item(items, item, names)
         return list(items.values())
 
-    def _blocks(self, items: List[Dict], bounds: Dict[str, tuple], shape=None) -> List[Block]:
-        """The blocks within bounds (per CRS: left, bottom, right, top), and under the shape
-        (in WGS84) if given, with the files over each, newest first."""
+    def _reach_tiles(self, crs: str, i: int, j: int) -> List[Tuple[float, float]]:
+        """The index tiles (south-west corners, sorted) a block of a layer with `reach` takes its files from: those
+        its square grown by the reach meets, the square's WGS84 box densified (transform_bounds). A function of the
+        block alone (the second code review's N2)."""
+        s, r = self.block_m, self.reach
+        return sorted(osm.tiles(*transform_bounds(crs, "EPSG:4326", i * s - r, j * s - r, (i + 1) * s + r,
+                                                  (j + 1) * s + r)))
+
+    def _reach_files(self, crs: str, i: int, j: int, answer: Callable[[Tuple[float, float]], List[Dict]]) -> List[Dict]:
+        """The files of a block of a layer with `reach`, the one rule of a search (query) and of `cache update`
+        (update_tile), for every kind of grid (the second code review's N2): the items listed in the block's own index
+        tiles (_reach_tiles; answer(tile) gives a tile's items), joined in their order (keep_item), whose extent meets
+        the block's square grown by the reach. So a block's files are the same whichever grid or tile asked for it. A
+        file with a pixel in the grown square is among them: TNM lists a product in every tile its box meets (its
+        bbox query), and a pixel of it in the square lies in a tile the square's box meets. An item whose extent (its
+        box projected into the zone, rounded out: wider than the box where the box is turned against the zone) reaches
+        the square from a tile the square's box does not meet is left out in both: its box, and so its file, stays
+        outside the square (the code review's case D)."""
+        found: Dict[str, Dict] = {}
+        names: Dict[str, str] = {}
+        for tile in self._reach_tiles(crs, i, j):
+            for item in answer(tile):
+                keep_item(found, item, names)
+        s, r = self.block_m, self.reach
+        x0, y0, x1, y1 = i * s, j * s, (i + 1) * s, (j + 1) * s
+        return [item for item in found.values() if item["crs"] == crs
+                and item["extent"][0] - r < x1 and item["extent"][2] + r > x0
+                and item["extent"][1] - r < y1 and item["extent"][3] + r > y0]
+
+    def _block(self, crs: str, i: int, j: int, files: List[Dict]) -> Block:
+        """A block with its files, newest first (year, collect_end or the date, name), its key and year."""
+        files = sorted(files, key=lambda f: (f["year"], f.get("published", ""), f["name"]), reverse=True)
+        return Block(crs, i, j, self.block_m, files[0]["year"], block_key(files),
+                     tuple((f["name"], f["url"], f["year"]) for f in files))
+
+    def _under(self, shape, crss) -> Callable[[tuple], bool]:
+        """Whether a block (crs, i, j) lies under the shape (WGS84)."""
+        import shapely
+        from area import project
+        from shapely.geometry import box
         size = self.block_m
+        projected = {crs: project(shape, "EPSG:4326", crs) for crs in crss}
+        for outline in projected.values():
+            shapely.prepare(outline)  # tested against every block: a country's outline has many vertices
+        return lambda k: projected[k[0]].intersects(box(k[1] * size, k[2] * size, (k[1] + 1) * size, (k[2] + 1) * size))
+
+    def _blocks(self, items: List[Dict], bounds: Dict[str, tuple], shape=None,
+                files_of: Optional[Callable[[str, int, int], List[Dict]]] = None) -> List[Block]:
+        """The blocks within bounds (per CRS: left, bottom, right, top), and under the shape
+        (in WGS84) if given, with the files over each, newest first. Without `reach` (every layer but USGS's OPR
+        DEMs, byte for byte as before) a file is over a block when its extent meets the block's square inside the
+        bounds. With `reach` (tnm.OprBlocks: extents of any size and place, not on the block lattice) the bounds only
+        choose the blocks (and the shape, before any block's files are asked), and a block's files are files_of(crs,
+        i, j) (_reach_files: query, update_tile), else, without it, all items whose extent meets its own square grown by
+        `reach` (the items then stand for every tile's answer), so its files, key and year are the same whatever box
+        chose it (the code review's F1 and N2, 2026-11-27)."""
+        size, reach = self.block_m, self.reach
         over: Dict[tuple, List[Dict]] = {}
         for item in items:
             if item["crs"] not in bounds:
                 continue
             left, bottom, right, top = bounds[item["crs"]]
             e_left, e_bottom, e_right, e_top = item["extent"]
+            if reach:
+                e_left, e_bottom, e_right, e_top = e_left - reach, e_bottom - reach, e_right + reach, e_top + reach
             left, bottom, right, top = max(left, e_left), max(bottom, e_bottom), min(right, e_right), min(top, e_top)
             if left >= right or bottom >= top:
                 continue
             for i in range(math.floor(left / size), math.ceil(right / size)):
                 for j in range(math.floor(bottom / size), math.ceil(top / size)):
                     over.setdefault((item["crs"], i, j), []).append(item)
-        if shape is not None:
-            import shapely
-            from area import project
-            from shapely.geometry import box
-            projected = {crs: project(shape, "EPSG:4326", crs) for crs in bounds}
-            for outline in projected.values():
-                shapely.prepare(outline)  # tested against every block: a country's outline has many vertices
-            over = {k: v for k, v in over.items()
-                    if projected[k[0]].intersects(box(k[1] * size, k[2] * size, (k[1] + 1) * size, (k[2] + 1) * size))}
-        blocks = []
-        for (crs, i, j), files in over.items():
-            files = sorted(files, key=lambda f: (f["year"], f.get("published", ""), f["name"]), reverse=True)
-            key = block_key(files)
-            blocks.append(Block(crs, i, j, size, files[0]["year"], key,
-                                tuple((f["name"], f["url"], f["year"]) for f in files)))
-        return blocks
+        if reach and files_of is not None:
+            chosen = set(over)
+            if shape is not None:
+                chosen = set(filter(self._under(shape, bounds), chosen))
+            over = {k: files for k in sorted(chosen) if (files := files_of(*k))}
+        elif reach:
+            chosen, over = set(over), {}
+            span: Dict[str, List[int]] = {}  # per CRS the chosen blocks' i and j range (a mosaic's extent is large)
+            for crs, i, j in chosen:
+                s = span.setdefault(crs, [i, i, j, j])
+                s[:] = [min(s[0], i), max(s[1], i), min(s[2], j), max(s[3], j)]
+            for item in items:
+                if item["crs"] not in span:
+                    continue
+                i0, i1, j0, j1 = span[item["crs"]]
+                e_left, e_bottom, e_right, e_top = item["extent"]
+                e_left, e_bottom, e_right, e_top = e_left - reach, e_bottom - reach, e_right + reach, e_top + reach
+                for i in range(max(math.floor(e_left / size), i0), min(math.ceil(e_right / size), i1 + 1)):
+                    for j in range(max(math.floor(e_bottom / size), j0), min(math.ceil(e_top / size), j1 + 1)):
+                        if (item["crs"], i, j) in chosen:
+                            over.setdefault((item["crs"], i, j), []).append(item)
+        if shape is not None and not (reach and files_of is not None):
+            under = self._under(shape, bounds)
+            over = {k: v for k, v in over.items() if under(k)}
+        return [self._block(crs, i, j, files) for (crs, i, j), files in over.items()]
+
+    @staticmethod
+    def _answer(index: CachedIndex, cache_dir: str, update: Optional[str] = None,
+                known: Optional[Dict[Tuple[float, float], List[Dict]]] = None):
+        """A tile's items (index.answers) asked once per call of query or update_tile (known: answers given
+        already)."""
+        memo = {(round(lat, 6), round(lon, 6)): items for (lat, lon), items in (known or {}).items()}
+
+        def answer(tile: Tuple[float, float]) -> List[Dict]:
+            key = (round(tile[0], 6), round(tile[1], 6))
+            if key not in memo:
+                memo[key] = index.answers(cache_dir, tile[0], tile[1], update)
+            return memo[key]
+        return answer
 
     def query(self, index: CachedIndex, grid: Grid, cache_dir: str, update: Optional[str]) -> list:
-        items = self._items_of(index, cache_dir, index_tiles(grid), update)
+        tiles = index_tiles(grid)
+        files_of = None
+        if self.reach:
+            # the grid's tiles choose the blocks; each chosen block's files come from its own tiles (_reach_files,
+            # as update_tile finds them), whatever the grid's outline
+            answer = self._answer(index, cache_dir, update)
+            found: Dict[str, Dict] = {}
+            names: Dict[str, str] = {}
+            for tile in tiles:
+                for item in answer(tile):
+                    keep_item(found, item, names)
+            items = list(found.values())
+            files_of = lambda crs, i, j: self._reach_files(crs, i, j, answer)  # noqa: E731
+        else:
+            items = self._items_of(index, cache_dir, tiles, update)
         bounds = {crs: transform_bounds(grid.crs, crs, *grid.bounds) for crs in {item["crs"] for item in items}}
         shape = None
         if grid.area_shape is not None:
@@ -348,7 +449,7 @@ class ComposedBlocks(Versions):
             shape = project(grid.area_shape, grid.crs, "EPSG:4326")
         # Blocks in the working CRS first: copied onto the grid as they are, they win where
         # a tile is delivered in two UTM zones
-        return sorted(self._blocks(items, bounds, shape),
+        return sorted(self._blocks(items, bounds, shape, files_of),
                       key=lambda b: (not _same_crs(b.crs, grid.crs), b.crs, b.j, b.i))
 
     def path(self, cache_dir: str, tile) -> str:
@@ -438,8 +539,18 @@ class ComposedBlocks(Versions):
         """The cached blocks (centred in the tile) over which the set of files changed, or its newest year, or the
         order its key holds (block_key): read again, and their older files deleted (prune: only once the new one is
         there). The answer is asked through fresh_answer and store, so a refused drop fails the tile
-        (DroppedFiles: `cache update` counts it) instead of being read from the cache as a search does."""
-        index.store(cache_dir, lat, lon, index.fresh_answer(cache_dir, lat, lon))
+        (DroppedFiles: `cache update` counts it) instead of being read from the cache as a search does.
+
+        With `reach` (OPR) every cached block whose own index tiles hold this one is checked (not only those centred
+        in it: a block's new file may be listed only in a neighbouring tile), its files by _reach_files as a search
+        finds them, over its whole square (the second code review's N5: a block whose files lie in its outer quarter);
+        the fresh answer's items are read (index.read_items) before anything is written, so an answer that cannot be
+        read (tnm.OprIndex: a survey whose measurement failed today) fails the tile with the cached answer, its check
+        time and every block as they were (N4)."""
+        fresh = index.fresh_answer(cache_dir, lat, lon)
+        if self.reach:
+            return self._update_reach(index, cache_dir, lat, lon, fresh)
+        index.store(cache_dir, lat, lon, fresh)
         todo = []
         for path in self._cached_paths(cache_dir):
             block = self._block_of(path)
@@ -447,14 +558,34 @@ class ComposedBlocks(Versions):
                 continue
             if not self._centred(block, lat, lon):
                 continue
-            west, south, east, north = self._block_wgs84(block)
             s = block.size
             inner = (block.i * s + s / 4, block.j * s + s / 4, (block.i + 1) * s - s / 4, (block.j + 1) * s - s / 4)
-            now = [b for b in self._blocks(self._items(index, cache_dir, west, south, east, north), {block.crs: inner})
+            now = [b for b in self._blocks(self._items(index, cache_dir, *self._block_wgs84(block)), {block.crs: inner})
                    if (b.i, b.j) == (block.i, block.j)]
             if now and (now[0].key != block.key or now[0].year != block.year) \
                     and not os.path.exists(self.path(cache_dir, now[0])):
                 todo.append(now[0])
+        return todo, todo
+
+    def _update_reach(self, index: CachedIndex, cache_dir: str, lat: float, lon: float,
+                      fresh: Dict) -> Tuple[list, list]:
+        """update_tile for a layer with `reach` (its docstring)."""
+        here = (round(lat, 6), round(lon, 6))
+        answer = self._answer(index, cache_dir, known={here: index.read_items(cache_dir, fresh["sheets"])})
+        todo = []
+        for path in self._cached_paths(cache_dir):
+            block = self._block_of(path)
+            if block is None:
+                continue
+            tiles = [(round(a, 6), round(b, 6)) for a, b in self._reach_tiles(block.crs, block.i, block.j)]
+            if here not in tiles:
+                continue
+            files = self._reach_files(block.crs, block.i, block.j, answer)
+            now = self._block(block.crs, block.i, block.j, files) if files else None
+            if now and (now.key != block.key or now.year != block.year) and not os.path.exists(self.path(cache_dir, now)) \
+                    and now not in todo:
+                todo.append(now)
+        index.store(cache_dir, lat, lon, fresh)
         return todo, todo
 
     def _centred(self, block: Block, lat: float, lon: float) -> bool:
@@ -464,8 +595,17 @@ class ComposedBlocks(Versions):
 
     def has_data_near(self, index: CachedIndex, lat: float, lon: float, cache_dir: str,
                       metres: float = 2000) -> Optional[bool]:
+        """Whether a file lies within metres of a point: from the point's index tile, or with `reach` (OPR) by the
+        rule of _reach_files: the items of every index tile the point's box grown by metres meets (one per cent more:
+        the zone's scale), a file near a tile's edge listed only in its neighbour included."""
         try:
-            items = self._items(index, cache_dir, lon, lat, lon, lat)
+            if self.reach:
+                grow_lat = metres * 1.01 / 111320
+                grow_lon = grow_lat / max(math.cos(math.radians(lat)), 0.01)
+                items = self._items_of(index, cache_dir, sorted(osm.tiles(lon - grow_lon, lat - grow_lat, lon + grow_lon,
+                                                                          lat + grow_lat)))
+            else:
+                items = self._items(index, cache_dir, lon, lat, lon, lat)
         except requests.RequestException:
             return None
         for item in items:

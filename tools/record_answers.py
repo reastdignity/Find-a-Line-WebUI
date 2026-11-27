@@ -46,6 +46,9 @@ RECIPES = {
     "stac-lgln": ("stac", "lgln-dgm1", "lower_saxony", "nmt", 52.75, 11.5),
     "tnm-1m": ("tnm", "dem1m", "usa", "nmt", 48.75, -95.25),
     "tnm-ifsar": ("tnm", "ifsar5m", "alaska_ifsar", "nmt", 59.75, -141.0),
+    # USGS's OPR DEMs (tnm.OprBlocks) at the Oregon cove (docs/usa-data.md): one survey of 0.5 m UTM tiles; with an
+    # extract of WESM (wesm.csv: the header and the rows of the answer's surveys, recorded apart: _wesm_extract)
+    "tnm-opr": ("tnm", "opr", "usa_opr", "nmt", 44.75, -124.25),
     "wfs-geoportal-error": ("wfs", "geoportal-error", "geoportal", "nmt", 54.75, 18.5),
     # LidarBC (British Columbia): its FeatureServer (layers 6 and 5), then the bucket listed under the sheets it names
     "arcgis-lidarbc": ("arcgis", "lidarbc-dem", "british_columbia", "nmt", 48.25, -124.5),
@@ -148,6 +151,8 @@ def record(recipe: str, lat: float, lon: float, out: str = OUT) -> str:
         with open(os.path.join(folder, "expected.json"), "wb") as f:
             f.write(expected)
     shutil.rmtree(cache_dir, ignore_errors=True)
+    if recipe == "tnm-opr" and raises is None:
+        _wesm_extract(folder, expected)
     hosts = sorted({"{0.scheme}://{0.netloc}".format(urlsplit(a["url"])) for a in answers})
     with open(os.path.join(folder, "answers.json"), "w", encoding="utf-8") as f:
         json.dump({"recipe": recipe, "recorded": datetime.date.today().isoformat(),
@@ -187,6 +192,31 @@ def _bucket1m(cache_dir: str) -> bytes:
                             projects=BUCKET1M["projects"], log=lambda text: None, at_once=1)
     items, _ = tnmbucket.read_list(out)
     return ('{"items": [\n' + ",\n".join(json.dumps(item) for item in items) + "\n]}\n").encode()
+
+
+def _wesm_extract(folder: str, expected: bytes):
+    """wesm.csv beside an OPR case: WESM's header and the rows whose sourcedem_link holds a file of the answer (one
+    request, not part of the cassette: the index's test asks only the index), read by tests/test_opr.py. A tool path
+    run by hand only (it needs the network), with no test of its own: checked by recording the case (2026-11-27, one
+    row) and by test_recorded_answer_with_wesm reading what it wrote."""
+    import csv
+    import io
+
+    import cache
+    from sources.layers import oprsurveys
+    response = requests.get(oprsurveys.WESM_URL, headers=cache.http_headers(), timeout=120)
+    response.raise_for_status()
+    text = response.content.decode("utf-8-sig")
+    wesm = oprsurveys.Wesm(oprsurveys.parse_wesm(text))
+    names = {wesm.survey_of(item["url"])["workunit"] for item in json.loads(expected)["sheets"]
+             if wesm.survey_of(item["url"])}
+    reader = csv.reader(io.StringIO(text))
+    header = next(reader)
+    rows = [row for row in reader if row and row[header.index("workunit")] in names]
+    out = io.StringIO()
+    csv.writer(out, lineterminator="\n").writerows([header] + rows)
+    with open(os.path.join(folder, "wesm.csv"), "w", encoding="utf-8", newline="") as f:
+        f.write(out.getvalue())
 
 
 def with_years(layer, years):

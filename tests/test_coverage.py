@@ -20,6 +20,10 @@ SHAPES = os.path.join(REPO, "viewer", "src", "coverage", "shapes.json")
 # Sources only used to fill the gaps of others: not on the map
 GAP_FILLERS = {"usgs10m", "canada_2m", "mrdem30", "nz8m", "france_rgealti", "malta2012", "alaska_ifsar", "nasadem",
                "europe", "copernicus", "islandsdem10", "queensland_demh", "northern_ireland_10m", "france_reunion_rgealti"}
+# Sources on no map that fill no gap, each with its reason (tools/coverage_data.py leaves out every source without a
+# coverage, so the map needs nothing of them)
+ON_NO_MAP = {"usa_opr": "USGS's OPR DEMs (wave B-1 of the USA): a source for single searches, chosen by hand and "
+                        "hidden on the public site; by its specification no download row and no place on the map"}
 
 
 def _json(path):
@@ -46,9 +50,10 @@ def test_coverage_json_up_to_date():
 
 
 def test_every_map_source_has_a_coverage():
-    """Every source but the gap fillers colours the map; the gap fillers do not."""
+    """Every source but the gap fillers and those named on no map (ON_NO_MAP) colours the map; they do not."""
+    assert not set(ON_NO_MAP) & GAP_FILLERS and set(ON_NO_MAP) <= set(src.SOURCES)
     for sid, source in src.SOURCES.items():
-        assert (source.coverage is None) == (sid in GAP_FILLERS), sid
+        assert (source.coverage is None) == (sid in GAP_FILLERS or sid in ON_NO_MAP), sid
         if source.coverage:
             assert source.coverage.provider and len(source.coverage.added) == 10, sid
 

@@ -162,6 +162,17 @@ before, another real CRS still raises `WrongCrs`): the Caribbean Netherlands' AH
 in degrees), pixels checked to 1/1000 px and resampled by nearest only when the service answers on others, a 404 or
 an answer without a valid pixel missing (Geoscience Australia).
 
+USA wave B-1: `windows.py` `Windows(opr=)` (the OPR layer's `rule_of`: a file's factor, method and survey) composes
+a block by `compose_opr` in place of `_read_block`/`read_group`: each file's method by its own header (`opr_method`:
+a copy on the block's pixels, average below `OPR_FINER`, cubic to `OPR_MAX_PIXEL_M`, else skipped and named once;
+a file outside its survey's sampled methods read by its own all the same, named once; an error at the open
+raises `Incomplete` before the header decides anything), its window plus `OPR_MARGIN[method]` source pixels, `_clean` in its own unit,
+times the factor (`_opr_read`, retried as `_read_block` retries: `_opr_file_retried`), the files of one survey on one
+lattice joined before the one warp (`_same_lattice`, `_join`, `_opr_values`: within the block's own CRS as
+`_read_window` resamples; cubic with the kernel's scale given, `opr_scale`: `XSCALE`/`YSCALE` the file's pixel in
+metres over the block's), newest first; `OPR_METHODS` holds each method's version (in the block key:
+`versions.block_key`, whose OPR files enter as `name#token`).
+
 Batch 5 (wave 2): `windows.py` `Windows(warp=)` (a `Resampling`): a file in another real CRS is warped onto its
 block's pixels (`_warped`, `_warp_window`: the file's window under the block read as `_read_masked` reads it, cleaned
 of its nodata and values below `VALID_MIN`, then reprojected from that array, one thread; not a `WarpedVRT`, whose
@@ -262,7 +273,10 @@ their names, a list file tied on its year with its date beside its name, so its 
 an index answer's version of a file name wins over the list's among a grid's tiles; `prune` also deletes a block's
 file of another newest year with the same key, only for a block whose own file is there; `update_tile` asks the
 answer through `fresh_answer`/`store` (a refused drop fails the tile) and reads again a block whose key or newest
-year changed); `metalink.py`
+year changed; with `reach` (OPR) one rule for a block's files in `query` and `update_tile` (`_reach_files`: the items
+of the block's own index tiles, `_reach_tiles`, whose extent meets its grown square; `_answer` asks each tile once
+per call), `_update_reach` checks every cached block whose tiles hold the renewed one and reads the fresh answer
+(`CachedIndex.read_items`) before storing it); `metalink.py`
 `MetalinkFiles` (Metalink 4 / RFC 5854 documents of a whole region, read once per TTL and kept in
 `<top>/metalink/<key>.json.gz`, each 0.25° tile picked from them; `parse_metalink`), `MetalinkIndex`, `ShaPerTile` (a
 file known by its SHA-256: `<E//10>_<N//10>/<E>_<N>[_<year>]_<sha8>.tif`, the newest year per place, a changed file
@@ -344,7 +358,26 @@ heights above that geoid, h - N in `_read_block`, the folder named `-<tag>`, the
 lock: ArcticDEM), `tnm.py` `TnmBlocks` (`TnmProducts`, `ComposedBlocks`, `Windows`: its 1 m DEM and Alaska's IfSAR;
 `index_class`: the 1 m DEM's `UnlistedIndex`, whose `answers` add the files of `tnmbucket.py`'s list reaching the
 tile whose URL the cached answer lacks, the answer itself never rewritten; `usgs_1m_item`, `tile_item`, `tile_extent`:
-a 1 m file as cached), `tnmbucket.py` (the 1 m files of USGS's bucket the TNM index does not list: `make_unlisted`
+a 1 m file as cached; `OprBlocks`: USGS's OPR DEMs (`usa_opr`), items in the NAD83 UTM zone under their TNM box's
+centre (box projected, rounded outward; IfSAR, Guam and Samoa left out), `ComposedBlocks.reach` = `OPR_REACH_M`,
+`Windows(opr=index.rule_of)`; its `OprIndex.answers` makes each item readable on read: WESM ensured, the survey's
+record made when missing (`opr_items`), only readable surveys kept, with WESM's year, collect_end as `published`,
+`survey` and the key's token `opr` (`x<factor>:<methods with versions>:<collect_end>:u<units>`), the file's
+(factor, methods, survey, units) kept in `rules`; `_methods`: `methods_for` once per survey, zone and record; a
+survey left out named once; one whose record cannot be made now raises `SurveyNotRead`, an `IndexUnavailable`),
+`oprsurveys.py` (USGS's table of surveys and the survey records:
+`fetch_wesm` (the app's path, an ETag's 304, `parse_wesm`, the row guard `WESM_MAX_DROP` with `wesm_refused.json`),
+`renew_wesm` (28 days, a lock, `wesm_failed.json` for a day), `ensure_wesm` (a search: only without a table),
+`table`/`Wesm.survey_of` (a file's row by `sourcedem_link`, found through the project's folder), `survey_record`
+(cached while the row's `fingerprint` and `RULE` are the same; `make_record`: lidar only, the headers of up to
+`UNIT_WINDOWS` files spread by name, windows of `WINDOW_M` at each file's highest ground by its smallest overview
+(`_highest`), the first that decides by `DECIDE_M` and `DECIDE_RATIO` against the 1/3 arc-second DEM
+(`_verdict`, `_reference_on`), the pixel of the sampled files, `MAX_PIXEL_M`; sampled files in two horizontal
+units: not read, `_distinct_units`; every record carries `headers`), `methods_for` (the sorted methods the
+sampled headers take onto a zone's blocks, CRSs compared by `_same_crs`), a measurement that failed
+remembered a day (`<work unit>.failed.json`, its `count` in a row; `MeasurementNotReached` not counted), after
+`RECORD_FAILED_TIMES` (3) a "not read" record with `retry_after` (`_skipped_record`, `RECORD_SKIP_DAYS` = the OPR
+answers' 28 days; `_retry_due`), `name_once`; imported only when an answer is read), `tnmbucket.py` (the 1 m files of USGS's bucket the TNM index does not list: `make_unlisted`
 lists the bucket's projects (`bucket_files`, `s3listing` with a host slot and a `PageBudget`), the index over the
 USA and its territories (`tnm_listed`, `REGIONS` split in four above `SPLIT_ABOVE`, a short page asked again, an
 empty page before `total` a dropped page, a 429 or 503 backing off longer, another 4xx at once an error), each part

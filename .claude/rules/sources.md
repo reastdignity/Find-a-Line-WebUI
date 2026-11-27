@@ -49,6 +49,9 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   `ANSWER_CASES` leave out "sheets" and "projects" cases): each brings its own update path and test.
 - The USA's 1 m DEM: TNM answers plus the bucket's files they lack (`tnmbucket.py`), merged on read
   (`tnm.UnlistedIndex`); shipped list only by `tools/usa_unlisted.py`. Only `renewal.py` renews (no search).
+- USGS's OPR DEMs (`usa_opr`): a file's method comes from its own header's pixel in metres (`windows.opr_method`),
+  never from WESM; the survey's measured factor and the method's version (`OPR_METHODS`) are in the block's key: a
+  changed method takes a new version. WESM and the survey records live in `oprsurveys.py` only.
 - The cache's tile encoding: `sources.layer._write_tile`'s profile (LERC_ZSTD within `MAX_Z_ERROR`), `old_encoding`
   (what counts as written before it), `Download.fetch` (a provider's one-band float file is written through it after
   its sha256 check; integer files, NASADEM and the water mask, as they came), the mirror's tiles (`tools/sk_tiles.py`
@@ -82,12 +85,9 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 - **Telling surveys apart**: two services resample differently, so compare their difference with the difference of the
   candidate source files; a residual around 0 shows which survey each serves (used for
   KRON86 vs EVRF2007).
-- **WCS services differ**: axis labels (`x/y` vs `E/N`), multipart responses (coverage part may be `image/*` or
-  `application/*`), formats (some GeoTIFFs are whole metres; ASCII grids keep centimetres), server limits (~2000×2000
-  px), interpolation support. Malta's WCS answers 404 to a request that reaches beyond the coverage, which once made
-  the whole north coast of Gozo "missing": `WcsTiles` clips such a request to the DescribeCoverage extent. A `missing`
-  tile at the edge of a country's data deserves suspicion. Other services' answers beyond their extent (500, 400, 0
-  without nodata, blended edges): docs/data-sources.md, section 5.
+- **WCS services differ** (axes, multipart parts, formats, size limits, answers beyond the extent: docs/data-sources.md,
+  section 5): `WcsTiles` clips a request to the DescribeCoverage extent (Malta's 404); a `missing` tile at the edge of a
+  country's data deserves suspicion.
 - **Patched names** (`_get`, `_sleep` of `sources.net`, `country_code` of `sources.choose`, `DOWNLOAD_THREADS` of
   `sources.layer`): call and patch them through their module (`net._get(...)`,
   `monkeypatch.setattr(src.net, "_get", ...)`), never import them by name; the package does not re-export them, so a

@@ -231,6 +231,12 @@ class CachedIndex(Index):
         with open(path, encoding="utf-8") as f:
             return json.load(f)["sheets"]
 
+    def read_items(self, cache_dir: str, items: List[Dict]) -> List[Dict]:
+        """An answer's items as answers() gives them (here as cached; tnm.OprIndex: made readable, and raising when a
+        survey of them cannot be read now): ComposedBlocks.update_tile reads a fresh answer through it before writing
+        it."""
+        return items
+
     def _fetch(self, cache_dir: str, lat: float, lon: float, old: Optional[List[Dict]]) -> Dict:
         """The index's answer for a tile; with confirms_drops and a cached answer (old: its versions) the rule of
         dropped files (the class's docstring), else DroppedFiles."""

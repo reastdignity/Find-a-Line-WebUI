@@ -20,7 +20,7 @@ from sources.indexes.sheetsets import SheetSet  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", "france_martinique", "france_guiana",
        "france_spm", "france_mayotte", "france_reunion", "france_reunion_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "porto_santo", "desertas", "selvagens", "madeira", "spain_canarias", "spain", "mexico", "alaska",
-       "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "ontario", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "northern_ireland", "northern_ireland_10m", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
+       "alaska_ifsar", "usa", "usa_opr", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "ontario", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "northern_ireland", "northern_ireland_10m", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "hamburg", "bremen", "bremerhaven", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "sardinia", "aosta_valley", "tuscany", "tinitaly", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "cyprus", "estonia", "rio_de_janeiro", "kanagawa", "yamanashi", "tokyo", "shizuoka", "miyagi", "hong_kong", "wallonia", "europe", "copernicus", "nasadem"]
 
@@ -762,6 +762,27 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                             'shift': (0.0, 0.0),
                             'index_url': 'https://tnmaccess.nationalmap.gov/api/v1/products'},
                     'nmpt': None},
+            'usa_opr': {'crs': None,
+                        'countries': (),
+                        'bbox': None,
+                        'fallbacks': ['usgs10m'],
+                        'grid_origin': (0.0, 0.0),
+                        'default_resolution': 1.0,
+                        'instead_without_data': None,
+                        'local_crs': 'nad83_utm_crs',
+                        'ortho': 'usa/ortho/live',
+                        'credits': ['USGS 3DEP source DEMs (OPR)'],
+                        'nmt': {'class': 'OprBlocks',
+                                'description': '3DEP source DEMs, OPR (terrain)',
+                                'folder': 'usa/3dep-opr',
+                                'prefix': 'opr',
+                                'native_res': 1.0,
+                                'processing': 1,
+                                'ttl_days': None,
+                                'credit': 'USGS 3DEP source DEMs (OPR)',
+                                'shift': (0.0, 0.0),
+                                'index_url': 'https://tnmaccess.nationalmap.gov/api/v1/products'},
+                        'nmpt': None},
             'usgs10m': {'crs': None,
                         'countries': (),
                         'bbox': None,
@@ -2866,6 +2887,7 @@ PATHS = [
     ("swisstopo", "nmt", "stac", "switzerland/swissalti3d/2m/2025_26000-12000.tif", None),
     ("swisstopo", "nmpt", "stac", "switzerland/swisssurface3d/2m/2025_26000-12000.tif", None),
     ("usa", "nmt", "block", "usa/3dep-1m/epsg26913/53_421/2020_532_4211_ab12cd34.tif", None),
+    ("usa_opr", "nmt", "block", "usa/3dep-opr/epsg26913/53_421/2020_532_4211_ab12cd34.tif", None),
     ("alaska_ifsar", "nmt", "block", "usa/ifsar-5m/epsg26913/53_421/2020_532_4211_ab12cd34.tif", None),
     ("usgs10m", "nmt", (-1195, 375), "usa/3dep-13/live/n38w120/-1195_375.tif", (-1195, 375)),
     ("canada", "nmt", (-1990, 600), "canada/hrdem-1m-dtm/live/-40_12/-1990_600.tif", (-1990, 600)),
@@ -3055,6 +3077,7 @@ def test_water_mask_and_tile_urls(tmp_path):
     ("geoportal", "nmpt", 50.15, 19.75, "poland/sheet-index/SkorowidzNMPT/N50.15_E019.75.json"),
     ("swisstopo", "nmt", 46.59, 7.91, "switzerland/sheet-index/ch.swisstopo.swissalti3d/N46.59_E007.91.json"),
     ("usa", "nmt", 37.7, -119.6, "usa/sheet-index/dem1m/N37.70_W119.60.json"),
+    ("usa_opr", "nmt", 44.75, -124.25, "usa/sheet-index/opr/N44.75_W124.25.json"),
     ("lower_saxony", "nmpt", 51.88, 10.44, "lower_saxony/sheet-index/dom1/N51.88_E010.44.json"),
     ("bavaria", "nmpt", 49.77, 11.41, "bavaria/sheet-index/dom20/N49.77_E011.41.json"),
     ("rhineland_palatinate", "nmt", 49.15, 7.78, "rhineland_palatinate/sheet-index/dgm1/N49.15_E007.78.json"),
@@ -3095,7 +3118,7 @@ def test_layer_surface():
             assert callable(layer.index_path) and callable(layer.update_index_tile)
     # The relations search.py (WcsTiles, OpenTopographyTiles) and update.py (IndexedTiles) rely on
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
-    assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony", "bavaria",
+    assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "usa_opr", "lower_saxony", "bavaria",
                        "rhineland_palatinate", "scotland", "schleswig_holstein", "saarland", "british_columbia",
                        "sardinia", "tuscany", "hamburg", "ontario", "bremen", "bremerhaven", "shizuoka", "yamanashi", "kanagawa"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}

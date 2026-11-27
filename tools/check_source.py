@@ -204,7 +204,7 @@ def _gdal_path(url: str) -> str:
 
 
 def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.nearest,
-                 cache_dir: Optional[str] = None) -> np.ndarray:
+                 cache_dir: Optional[str] = None, warp: Optional[Dict[str, str]] = None) -> np.ndarray:
     """A source file's values on the pixels of a cached tile (nearest: the same pixels when the
     tile is on the file's own grid; average for a layer that averages its files' pixels, as its
     Download does), NaN without data. A read GDAL could not complete although it
@@ -213,7 +213,8 @@ def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.ne
     src.net._gdal_http's (retries of requests without an answer, the open's fewer: net.open_gdal, the connect
     timeout, a one-connection host's ranges one after another: net.single_connection, the blocks read in this
     thread) but for the extensions: the sources here include zips and ASCII grids. With cache_dir the read holds a
-    slot of the host (net.host_slot) as the layers' reads do."""
+    slot of the host (net.host_slot) as the layers' reads do. warp: GDAL warp options for the WarpedVRT (an OPR
+    file's cubic: windows.opr_scale; the WarpedVRT takes them as keywords, not through warp_extras=)."""
     env = rio.Env(GDAL_HTTP_USERAGENT=cache.http_headers()["User-Agent"], GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
                   GDAL_HTTP_TIMEOUT="120", GDAL_HTTP_MAX_RETRY=str(src.net.RETRIES), GDAL_HTTP_RETRY_DELAY="2",
                   GDAL_HTTP_CONNECTTIMEOUT=str(src.net.CONNECT_TIMEOUT_S),
@@ -229,7 +230,7 @@ def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.ne
                 local = source.crs is None or windows._local(source.crs)
                 kwargs = {"src_crs": profile["crs"]} if local else {}
                 with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
-                               height=profile["height"], resampling=resampling, **kwargs) as vrt:
+                               height=profile["height"], resampling=resampling, **kwargs, **(warp or {})) as vrt:
                     values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
         if errors:
             raise RuntimeError("not read completely: " + "; ".join(dict.fromkeys(errors)))
@@ -636,6 +637,21 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
                 resampling = Resampling.average if getattr(layer, "average", 1) > 1 else Resampling.nearest
                 # A layer that warps its files onto its blocks (Cyprus: nearest for the DTM, average for the DSM)
                 resampling = getattr(getattr(layer, "reader", None), "warp", None) or resampling
+                # USGS's OPR DEMs (Windows(opr=)): each file by the method its own header takes, its heights times
+                # its survey's factor (without them the check compared a 0.5 m file's nearest pixel with the block's
+                # average, and heights in feet with metres: 15 m and 2,044 m on 2026-11-27)
+                rule = getattr(getattr(layer, "reader", None), "opr", None)
+                rule = rule(url) if rule else None
+                warp = None
+                if rule is not None:
+                    with src.net._gdal_http(), src.net.open_gdal(_gdal_path(url)) as head:
+                        method, _ = windows.opr_method(head, profile["crs"], profile["transform"])
+                        if method == "cubic":  # the kernel's scale as the reader fixes it
+                            warp = windows.opr_scale(head.transform, head.crs, profile["transform"])
+                    if method is None:
+                        continue
+                    resampling = {"copy": Resampling.nearest, "average": Resampling.average,
+                                  "cubic": Resampling.cubic}[method]
                 # A ZippedTiles layer without members reads plain files (Trento's ASCII grids)
                 if isinstance(layer, src.ZippedTiles) and layer.members is not None:
                     source = _read_zip(layer, url, profile)
@@ -652,7 +668,9 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
                 elif getattr(getattr(layer, "reader", None), "ranged", False) and url.startswith("http"):
                     source = _read_ranged(url, profile, resampling, cache_dir)
                 else:
-                    source = _read_source(url, profile, resampling, cache_dir)
+                    source = _read_source(url, profile, resampling, cache_dir, warp)
+                if rule is not None:
+                    source = source * np.float32(rule[0])
                 geoid = getattr(layer, "geoid", None)
                 if geoid is not None:  # heights above the ellipsoid: the layer caches them above its geoid
                     source -= geoid.undulation(profile["crs"], profile["transform"],

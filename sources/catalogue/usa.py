@@ -1,4 +1,4 @@
-"""USGS 3DEP (the USA): the 1 m DEM, Alaska's IfSAR and the 1/3 arc-second DEM."""
+"""USGS 3DEP (the USA): the 1 m DEM, the lidar surveys' own DEMs (OPR), Alaska's IfSAR and the 1/3 arc-second DEM."""
 
 from typing import List
 
@@ -7,7 +7,7 @@ from grid import nad83_utm_crs
 from ..credit import Credit
 from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.blocks import DegreeBlocks
-from ..layers.tnm import IfsarBlocks, Usgs1mBlocks
+from ..layers.tnm import IfsarBlocks, OprBlocks, Usgs1mBlocks
 
 # All 3DEP products are public domain; USGS asks for a credit, in its own sentence for its data and map
 # services (copyrights-and-credits page)
@@ -18,6 +18,7 @@ USGS_ATTRIBUTION = ("USGS 3D Elevation Program (3DEP). Map services and data ava
 USGS_1M_CREDIT = Credit("3DEP 1 m DEM (USGS)", USGS_ATTRIBUTION, *USGS_TERMS)
 USGS_IFSAR_CREDIT = Credit("3DEP Alaska IfSAR 5 m DTM (USGS)", USGS_ATTRIBUTION, *USGS_TERMS)
 USGS_13_CREDIT = Credit("3DEP 1/3 arc-second DEM (USGS)", USGS_ATTRIBUTION, *USGS_TERMS)
+USGS_OPR_CREDIT = Credit("USGS 3DEP source DEMs (OPR)", USGS_ATTRIBUTION, *USGS_TERMS)
 # USGS 3DEP (the USA): blocks read from the files on S3 by HTTP range requests; the 1 m
 # DEM per project (newest first), Alaska's IfSAR DTM, and the 1/3″ DEM for the gaps
 USGS_3DEP = "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation"
@@ -27,6 +28,12 @@ USGS_1M.credit = USGS_1M_CREDIT
 USGS_IFSAR = IfsarBlocks("3DEP Alaska IfSAR 5 m DTM (terrain)", "Alaska IFSAR 5 meter DEM", "ifsar5m",
                          "usa/ifsar-5m", native_res=5.0, block_m=5000, bytes_per_tile=2e6)
 USGS_IFSAR.credit = USGS_IFSAR_CREDIT
+# Each lidar survey's own DEM as delivered (OPR): read where it is 1 m or finer, brought onto 1 m blocks in the NAD83
+# UTM zone by each file's own pixel (tnm.OprBlocks); its surveys' height units measured against USGS_13
+USGS_OPR = OprBlocks("3DEP source DEMs, OPR (terrain)",
+                     "Original Product Resolution (OPR) Digital Elevation Model (DEM)", "opr", "usa/3dep-opr",
+                     native_res=1.0, block_m=1000, bytes_per_tile=2e6)
+USGS_OPR.credit = USGS_OPR_CREDIT
 USGS_13 = DegreeBlocks("3DEP 1/3 arc-second DEM (terrain)", "usa/3dep-13/live",
                        lambda name: f"{USGS_3DEP}/13/TIFF/current/{name}/USGS_13_{name}.tif",
                        "EPSG:4269", px_per_degree=10800, native_res=10.0, credit=USGS_13_CREDIT)
@@ -90,6 +97,19 @@ SOURCES: List[Source] = [
                  ("pr", (17.8, 18.6, -67.4, -65.2))),
         sample=(38.5610, -109.5680),
         coverage=Coverage(provider="USGS", added="2026-10-30", survey="projects")),
+    Source(
+        id="usa_opr", name="USGS 3DEP (lidar source DEMs, OPR)",
+        description="USGS 3DEP (USA): each lidar survey's own DEM (OPR) of 1 m or finer, newest survey first, "
+                    "brought onto 1 m in NAD83 / UTM; gaps from the 1/3 arc-second DEM",
+        # Single searches only: no countries (auto never picks it), no coverage (no download row, no place on the
+        # coverage map), hidden on the public site (web.ADMIN_SOURCES; the user's D6)
+        nmt=USGS_OPR, local_crs=nad83_utm_crs, ortho=USGS_ORTHO, fallback="usgs10m", credits=(USGS_OPR_CREDIT,),
+        note=USA_NOTE + " Each survey's own DEM (OPR): its heights' unit measured per survey; a survey whose unit "
+                        "could not be told is left out and named.",
+        listing=ReadmeRow("USA, single searches (not on the public site)",
+                          "USGS 3DEP lidar surveys' own DEMs (OPR) of 1 m or finer, newest survey first", "–",
+                          "USGS Imagery (NAIP, up to zoom 16)"),
+        sample=(44.767488, -124.070346)),  # the Oregon cove (docs/usa-data.md): OPR only, no 1 m DEM
     Source(
         id="usgs10m", name="USGS 3DEP (1/3 arc-second DEM)",
         description="USGS 3DEP seamless 1/3 arc-second DEM (about 10 m): the USA, Hawaii and the territories",

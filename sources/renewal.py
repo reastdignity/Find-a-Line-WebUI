@@ -92,6 +92,7 @@ class Renewal:
     gone: int = 0      # the bucket no longer holds them (its project listed again agrees): dropped
     relisted: int = 0  # the bucket's project listed again holds them after all: kept
     zoneless: int = 0  # left out this time without a zone (a header read refused): kept with their item of before
+    wesm: str = ""     # USGS's table of surveys (oprsurveys.renew_wesm), for a layer that reads it: made, same, kept, failed
     requests: Dict[str, int] = field(default_factory=dict)  # by part: bucket, index, headers (the list), answers
     bytes: Dict[str, int] = field(default_factory=dict)
     seconds: Dict[str, float] = field(default_factory=dict)
@@ -491,11 +492,19 @@ def renew(layers: Iterable, grid, cache_dir: str, say: Say = print, asked: Optio
         for layer in layers:
             if getattr(layer.index, "has_list", False):
                 renew_list(layer, cache_dir, say, result, asked, since)
+        for top in dict.fromkeys(layer.index.top for layer in layers if getattr(layer.index, "wesm", False)):
+            from .layers import oprsurveys  # USGS's table of surveys, read by the OPR layer (tnm.OprIndex)
+            result.wesm = oprsurveys.renew_wesm(cache_dir, say, top=top)
         mark = time.monotonic()
         tiles = index_tiles(grid)
         for layer in layers:
-            say(f"Asking the index of {layer.description} again: {len(tiles):,} answers")
-            _ask_answers(layer, cache_dir, tiles, since, asked, result, say, f"the index of {layer.description}")
+            todo = tiles
+            if getattr(layer.index, "renews_cached_only", False):
+                # USGS's OPR DEMs (tnm.OprIndex): only the answers a search cached (a row of a whole state would
+                # otherwise ask every OPR answer under it; where OPR is wanted is wave B-2's)
+                todo = [t for t in tiles if os.path.exists(layer.index.index_path(cache_dir, *t))]
+            say(f"Asking the index of {layer.description} again: {len(todo):,} answers")
+            _ask_answers(layer, cache_dir, todo, since, asked, result, say, f"the index of {layer.description}")
     finally:  # what tiles() found before the renewal, forgotten also after a raise (answers may be written by then)
         for layer in layers:
             layer.index._listed.clear()

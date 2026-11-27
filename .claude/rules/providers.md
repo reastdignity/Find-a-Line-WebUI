@@ -75,7 +75,8 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   days old) and asks the answers again at a row's start and a cube's first tile; a test that lets it list serves the
   bucket itself (`FINDALINE_USA_UNLISTED_RENEW=off` in conftest). Texts printed to the console stay in cp1250
   (a Windows console):
-  "1/3 arc-second", not ″, in names, descriptions and notes.
+  "1/3 arc-second", not ″, in names, descriptions and notes. OPR (`usa_opr`, admin only): each survey's height
+  unit measured, never WESM's: `oprsurveys.py`.
 - **Saarland and British Columbia** (batch 4): LVGL's DGM1 and DOM1 hold patches at 0 m whose rims fall from the
   ground to them (327_5485: one pixel; 343_5457: a ramp of five pixels, 101-166 m from ground at 184 m): `SL_RING` 6.
   The token of LVGL's share changes (the 2025 link of others is 404): resolved from its stable redirect, never pinned;
@@ -83,9 +84,8 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   an "Access Only" layer with wrong entries (LAZ as `.tif`, "2011" paths that answer 404): the bucket listing filters
   them. Its 2022+ 1:20 000 sheets are one-row strips (about 30 MB read per 1 km block, against 2-4 MB for tiled
   files); its "PixelIsPoint" files of 2015-2018 and 2021-2022 lie half a pixel off the "Area" ones, which
-  `GTIFF_POINT_GEO_IGNORE` does not fix (measured at the Chief and at Skaha). On BC's DSM (equal to its DTM on bare
-  ground) `obstacles.RULE` misses about half of the lines over a tree at R64 (pines within its 2 px envelope of the
-  walls).
+  `GTIFF_POINT_GEO_IGNORE` does not fix (measured at the Chief and at Skaha); BC's DSM and `obstacles.RULE`:
+  docs/data-sources.md, section 5.
 - **Batch 5** (2026-11-15): Nominatim names every French overseas territory "fr" and Caribbean Netherlands and Sint
   Maarten "nl" (their ISO 3166-2 codes only at zoom 8-10): those sources are chosen by bbox, and a new "fr" or "nl"
   source must keep its boxes off the others' islands. IGN's overseas RGE ALTI layers differ in alignment (Guadeloupe,

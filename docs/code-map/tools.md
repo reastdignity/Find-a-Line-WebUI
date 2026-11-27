@@ -9,7 +9,8 @@ pitfalls are in `.claude/rules/` (the rule of the area a tool belongs to).
 Run by hand: the data checks of a new source (docs/regression-tests.md) as one command: shift search against FABDEM /
 Copernicus / a file, valid share at 1 and 5 m, cached tiles against their source files, alignment with `grid_origin`,
 whole-metre heights, tiles without data (a ZIP member read again by Range through `net` and opened by GDAL, never
-`/vsizip//vsicurl/`); on a grid of `search.plan_search(with_margin=False)`; PASS/WARN/FAIL, `--json`;
+`/vsizip//vsicurl/`); on a grid of `search.plan_search(with_margin=False)`; PASS/WARN/FAIL, `--json`; an OPR layer's
+files (`Windows(opr=)`) read by the method each file's header takes and times its survey's factor;
 `tests/test_check_source.py`
 
 Batch 5 (wave 2): it also reads an INEGI sheet's whole ZIP (`_read_grid`: zipfile, the GRID cut as the layer cuts

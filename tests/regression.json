@@ -2781,5 +2781,60 @@
     },
     "notes": "added 2026-11-27 (wallonia): --source auto picks wallonia (BE-WAL); 6 tiles of 2 km per model, read at 0.5 m and averaged 2 x 2 onto the 1 m grid; skipped without FINDALINE_MIRROR/wallonia/dtm/0.5m and dsm/0.5m, run from the data server with --mirror-url",
     "seconds": 4.2
+  },
+  "R110": {
+    "place": "The Oregon cove (Otter Crest) as --source usa_opr: no 1 m DEM within 2 km, terrain from the lidar survey's own DEM (CA_WestCoastElNinoUTM10_2016: 0.5 m UTM 10N tiles, averaged onto 1 m blocks; its unit measured in metres); the rest from the 1/3 arc-second DEM",
+    "args": "--lat 44.767488 --lon -124.070346 --source usa_opr",
+    "sets": [
+      "us"
+    ],
+    "expected": {
+      "anchors": 109976,
+      "open": 4366,
+      "checked": 380320,
+      "lines": 22700,
+      "spots": 146,
+      "csv_sha256": "33fde362acaf113bb88a435b331d781553ca91911bccec434460420a6737eec0",
+      "length_km": 4434.075,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.104,
+      "clearance_max": 17.1,
+      "over_trees": 0,
+      "coverage": 31.76,
+      "empty_tiles": 6,
+      "filled_km2": 2.38,
+      "filled_from": "USGS 3DEP (1/3 arc-second DEM)",
+      "sea_km2": 3.06,
+      "water_lines": 21779,
+      "water_spots": 122,
+      "coastline": "OpenStreetMap coastline (Overpass or extracts)"
+    },
+    "notes": "added 2026-11-27 (wave B-1 of the USA's OPR task), by name only until its data were in the real cache; in the set us since 2026-11-27 (the user allowed the download of the place into the real cache); gate 0 found 22 710 lines in 147 spots on the same files averaged by a WarpedVRT file by file: there tile 41404956 bled its average onto the bottom metre of tile 41404957 (y 4 957 500-4 957 501 m, outside its own extent) and, read first, won on that row (up to 1.45 m); the blocks hold the plain 2 x 2 means there (to the cache's 5 mm), and today's code on gate 0's terrain still gives 22 710 in 147",
+    "seconds": 7.2
+  },
+  "R111": {
+    "place": "The Missouri Breaks, Montana, as --source usa_opr: the cubic path, MT_DNRCphase1_1_2018 (3 ft = 0.9144 m, NAD83(2011) / Montana State Plane in feet, heights in feet: its unit measured), the only OPR survey of the 3 x 3 km around the centre (by the TNM index's answer at 47.75 / -108.75), the steepest such square (52 degrees at its p99.9 by the 10 m DEM)",
+    "args": "--lat 47.886152 --lon -108.572142 --source usa_opr",
+    "sets": [
+      "us"
+    ],
+    "expected": {
+      "anchors": 31530,
+      "open": 2362,
+      "checked": 2857,
+      "lines": 220,
+      "spots": 10,
+      "csv_sha256": "0579d15466e8a3e70c8f1a909609c1d67fec906771698d064b0f25401c1bba15",
+      "length_km": 29.439,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.9,
+      "clearance_max": 3.37,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
+    },
+    "notes": "added 2026-11-27 (wave B-1 of the USA's OPR task), by name only until its data were in the real cache; in the set us since 2026-11-27 (the user allowed the download of the place into the real cache); baselined again 2026-11-27 (fix round 2: the cubic kernel's scale fixed at the file's pixel ratio, the user's decision; 217 lines and 10 spots before, 220 and 10 after)",
+    "seconds": 23.4
   }
 }

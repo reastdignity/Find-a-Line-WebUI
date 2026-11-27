@@ -8,6 +8,7 @@ Standard library only (http.server in a thread on a free port), so requests, GDA
 pyogrio read the same answers offline. The fixture `http_server` is in conftest.py.
 """
 
+import contextlib
 import gzip
 import json
 import mimetypes
@@ -22,6 +23,43 @@ from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl, urlsplit
 
 Key = Tuple[str, str, Tuple[Tuple[str, str], ...]]  # method, path, sorted query
+
+LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})  # the test server's
+
+
+@contextlib.contextmanager
+def only_local_hosts():
+    """A guard for tests that must ask no host but the test server (fix round 3 of the USA's OPR layer: a test asked
+    the real TNM API through a layer of the catalogue). Inside it every name resolution of Python's sockets
+    (socket.getaddrinfo: requests, urllib3, urllib; so the app's HTTP path, net._get and ranges) and every GDAL open
+    through the app's path (sources.net.open_gdal of a /vsicurl/ URL) to another host raises at once, before anything
+    leaves the machine, and the host is added to the list yielded, which a fixture asserts empty. Not seen: GDAL
+    opened directly (rasterio.open of a /vsicurl/ URL without net.open_gdal; libcurl resolves names itself), and
+    other processes."""
+    import socket
+
+    from sources import net
+    asked: List[str] = []
+    real_getaddrinfo, real_open = socket.getaddrinfo, net.open_gdal
+
+    def getaddrinfo(host, *args, **kwargs):
+        name = host.decode() if isinstance(host, bytes) else host
+        if name is not None and name not in LOCAL_HOSTS:
+            asked.append(name)
+            raise OSError(f"the tests' guard: {name} is an outside host; only the test server may be asked")
+        return real_getaddrinfo(host, *args, **kwargs)
+
+    def open_gdal(path, *args, **kwargs):
+        found = re.match(r"/vsi\w+/(?:vsi\w+/)?https?://([^/:\[\]]+)", str(path))
+        if found and found.group(1) not in LOCAL_HOSTS:
+            asked.append(found.group(1))
+            raise OSError(f"the tests' guard: GDAL asked to read {found.group(1)}, an outside host")
+        return real_open(path, *args, **kwargs)
+    socket.getaddrinfo, net.open_gdal = getaddrinfo, open_gdal
+    try:
+        yield asked
+    finally:
+        socket.getaddrinfo, net.open_gdal = real_getaddrinfo, real_open
 
 
 @dataclass

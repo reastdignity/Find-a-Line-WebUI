@@ -1,0 +1,22 @@
+{
+ "recipe": "tnm-opr",
+ "recorded": "2026-11-27",
+ "case": {
+  "source": "usa_opr",
+  "layer": "nmt",
+  "lat": 44.75,
+  "lon": -124.25
+ },
+ "hosts": [
+  "https://tnmaccess.nationalmap.gov"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://tnmaccess.nationalmap.gov/api/v1/products?datasets=Original+Product+Resolution+%28OPR%29+Digital+Elevation+Model+%28DEM%29&max=500&offset=0&bbox=-124.25%2C44.75%2C-124.0%2C45.0",
+   "status": 200,
+   "content_type": "application/json",
+   "body": "001.json.gz"
+  }
+ ]
+}

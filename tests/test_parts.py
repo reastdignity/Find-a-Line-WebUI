@@ -122,20 +122,25 @@ def _on_server(layer, server, years=None):
 
 def test_recorded_cases_exist():
     assert CASES == ["arcgis/lidarbc-dem", "bucket1m/usgs-1m", "inegi/mexico-dtm", "stac/lgln-dgm1", "stac/swisstopo-swissalti3d", "tnm/dem1m",
-                     "tnm/ifsar5m", "wfs/geoportal-error", "wfs/geoportal-nmt", "wfs/sardinia-dtm",
+                     "tnm/ifsar5m", "tnm/opr", "wfs/geoportal-error", "wfs/geoportal-nmt", "wfs/sardinia-dtm",
                      "wfs/tuscany-lidar"]
     assert ERROR_CASES == ["wfs/geoportal-error"]
 
 
 @pytest.mark.parametrize("case", ANSWER_CASES)
-def test_recorded_index_answers(case, http_server, tmp_path):
+def test_recorded_index_answers(case, http_server, tmp_path, monkeypatch):
     """The recorded answers of a service give the index JSON of the code that recorded them,
-    byte for byte, with the same requests and nothing else asked."""
+    byte for byte, with the same requests and nothing else asked. The OPR layer's answer is read as cached here
+    (OprIndex.read_items: its surveys' table and records are not this test's: they asked the real WESM and survey
+    files until fix round 3; tests/test_opr.py test_recorded_answer_with_wesm reads this answer with them)."""
     folder = os.path.join(RECORDED, case)
     recorded = _recorded(case)
     http_server.add_cassette(folder)
     lat, lon = recorded["case"]["lat"], recorded["case"]["lon"]
     layer = _on_server(getattr(src.SOURCES[recorded["case"]["source"]], recorded["case"]["layer"]), http_server)
+    from sources.layers.tnm import OprBlocks
+    if isinstance(layer, OprBlocks):
+        monkeypatch.setattr(layer.index, "read_items", lambda cache_dir, items: items)
     cache_dir = str(tmp_path / "cache")
     assert layer.update_index_tile(cache_dir, lat, lon) == (0, 0, 0)  # nothing cached: nothing downloaded
     with open(layer.index_path(cache_dir, lat, lon), "rb") as f:

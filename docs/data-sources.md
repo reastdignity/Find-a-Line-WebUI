@@ -180,6 +180,14 @@ Scripts from the 2026-10-25 research lived in the session scratchpad; the comman
 ## 5. Pitfalls met, in detail
 The rules in `.claude/rules/sources.md` point here for their measurements and examples.
 
+- **British Columbia's DSM and the obstacle rule** (moved from the providers rule, 2026-11-27): on BC's DSM (equal to
+  its DTM on bare ground) `obstacles.RULE` misses about half of the lines over a tree at R64 (pines within its 2 px
+  envelope of the walls).
+- **WCS services differ** (moved from the rule of the same name, 2026-11-27): axis labels (`x/y` vs `E/N`), multipart
+  responses (the coverage part may be `image/*` or `application/*`), formats (some GeoTIFFs are whole metres; ASCII
+  grids keep centimetres), server limits (about 2000 × 2000 px), interpolation support. Malta's WCS answers 404 to a
+  request that reaches beyond the coverage, which once made the whole north coast of Gozo "missing": `WcsTiles` clips
+  such a request to the DescribeCoverage extent.
 - **Spain's zeros** (2026-11-26/27): IGN's WCS answers 0.000 without nodata for the sea and beyond its data (the
   blocks around Ceuta and Melilla, the borders at Elvas and Banyuls); a search there found false cliffs at the
   blocks' edges (four false top spots in 5 km west of Ceuta). `spain` takes exact zeros as no data in MDT05 and

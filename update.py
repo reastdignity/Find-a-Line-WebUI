@@ -312,6 +312,31 @@ def _list_check(cache_dir: str, layer: src.IndexedTiles, rows: List[Dict], updat
                  parallel=False, first=True)
 
 
+def _wesm_check(cache_dir: str, layer: src.IndexedTiles, rows: List[Dict], update: str) -> Optional[Check]:
+    """The check of USGS's table of surveys (WESM: sources/layers/oprsurveys.py) for a layer whose index reads it
+    (`wesm` of the index: the USA's OPR DEMs, tnm.OprIndex), or None when it is not due: made again after
+    oprsurveys.WESM_MAX_AGE_DAYS (--all: now), or when none is cached while answers of the layer are. Checked first
+    (Check.first), as the list of the 1 m files; a failed fetch keeps the table there is."""
+    from sources.layers import oprsurveys
+    top = layer.index.top
+    path = oprsurveys.wesm_path(cache_dir, top)
+    relative = cache.relative(cache_dir, path)
+    row = next((r for r in rows if r["path"] == relative), None)
+    if row is None:
+        prefix = f"{top}/sheet-index/{layer.prefix}/"
+        if not any(r["path"].startswith(prefix) for r in rows):
+            return None
+    elif not cache.stale(row, oprsurveys.WESM_MAX_AGE_DAYS, update):
+        return None
+
+    def make() -> bool:
+        done = oprsurveys.renew_wesm(cache_dir, print, force=update == "all", top=top)
+        if done == "failed":
+            raise RuntimeError("WESM could not be fetched (the line above says why); the table there is is used")
+        return done == "made"
+    return Check("USGS's table of surveys (WESM)", relative, None, make, parallel=False, first=True)
+
+
 def checks(cache_dir: str, folder: Optional[str] = None, update: str = "stale",
            bbox: Optional[Tuple[float, float, float, float]] = None) -> List[Check]:
     """What an update would check; bbox (west, south, east, north) limits it to a place. The lists of the files an
@@ -331,14 +356,19 @@ def checks(cache_dir: str, folder: Optional[str] = None, update: str = "stale",
                     continue
             found.append(check)
         for layer in _sheet_layers():
-            if not getattr(layer.index, "has_list", False) or layer.index.top != top:
+            if layer.index.top != top:
                 continue
             prefix = f"{top}/sheet-index/{layer.prefix}/"
             if bbox and not any(c.path.startswith(prefix) for c in found):
                 continue
-            check = _list_check(cache_dir, layer, rows, update)
-            if check is not None and check.path not in {c.path for c in found}:
-                found.append(check)
+            if getattr(layer.index, "has_list", False):
+                check = _list_check(cache_dir, layer, rows, update)
+                if check is not None and check.path not in {c.path for c in found}:
+                    found.append(check)
+            if getattr(layer.index, "wesm", False):
+                check = _wesm_check(cache_dir, layer, rows, update)
+                if check is not None and check.path not in {c.path for c in found}:
+                    found.append(check)
     return sorted(found, key=lambda c: not c.first)  # stable: the order of before otherwise
 
 
