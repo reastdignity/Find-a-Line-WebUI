@@ -28,6 +28,14 @@ class CellSheetTiling(MetricCellTiling):
         """The cells of the table only: a cell without a file is no tile (no estimate, no record, no request)."""
         return [cell for cell in super()._tiles(grid) if self.files(*cell)]
 
+    def has_data_near(self, lat: float, lon: float, cache_dir: str, metres: float = 2000.0) -> Optional[bool]:
+        """Whether a cell of the table lies within `metres` of the point (a square of 2 x metres around it in the
+        cells' CRS), from the table alone: no request (Source.instead_without_data, Miyagi's)."""
+        from rasterio.warp import transform
+        xs, ys = transform("EPSG:4326", self.crs, [lon], [lat])
+        (i0, j0), (i1, j1) = self.cell_of(xs[0] - metres, ys[0] - metres), self.cell_of(xs[0] + metres, ys[0] + metres)
+        return any(self.files(i, j) for i in range(i0, i1 + 1) for j in range(j0, j1 + 1))
+
     def request(self, tile) -> Optional[SheetSetRequest]:
         files = self.files(*tile)
         if not files:

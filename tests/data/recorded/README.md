@@ -83,6 +83,19 @@ untouched, each re-zipped alone. VIRTUAL SHIZUOKA point cloud data (Shizuoka Pre
 (800 x 600 px, none valid). Yamanashi Prefecture, 山梨県点群データ（航空LP・MMS）,
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
+`kanagawa/`: two of Kanagawa Prefecture's 0.5 m MESH grid sheets as the bucket `kanagawa-pointcloud` served them on
+2026-11-27, unchanged, for `tests/test_japan.py`: `09MC9132.zip` (folder 2024/01) mid Lake Ashi (-9999 but 330
+cells at 725.0-725.3 m) and `09MD5023.zip` (2021/01) a sheet without a valid cell (-1111 but 12 cells of -9999); each
+a `.lem` member and its cp932 `.csv` header. Kanagawa Prefecture, 神奈川県 3次元点群データ, データ提供：（神奈川県環境農政局緑政部
+森林再生課）, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+`miyagi/`: Miyagi Prefecture's 1 m grid as served on 2026-11-27, for `tests/test_japan.py`: two of its sheets from
+the bucket `gic-miyagi`, unchanged, `10QE3444.zip` (183 rows of a sheet's 750 000, all flag 1) and `10QE1532.zip`
+(578 rows on the coast, 7 of them flagged -9999 with heights of -0.4 to 0.2 m); `grid_list_rows.csv`, the header
+and six rows of the portal's grid list (resource 1523, `040002_point_cloud_url_1mcsv.csv`, UTF-8 with a BOM),
+10PE0822's two rows among them, the rows untouched. Miyagi Prefecture, 【宮城県】3次元点群データ_データ一覧_グリッドデータ_CSV_2023
+(https://miyagi.dataeye.jp/resources/1523), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 `hong_kong/`: CEDD's 2020 lidar sheets as the CSDI Portal served them on 2026-11-16, for `tests/test_hong_kong.py`:
 `sheets.json`, rows of the index (the FeatureServer's layers DTM_2020 and DSM_2020 as `tools/hong_kong_sheets.py`
 keeps them: code, file name, URL, footprint in EPSG:2326), 23 terrain and 4 surface sheets spread over the 17 maps;

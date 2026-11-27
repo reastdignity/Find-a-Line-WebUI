@@ -11,7 +11,7 @@ from affine import Affine
 
 from ..composed import Reader
 from ..layer import Fetched, _clean, _write_tile
-from .sheetfile import BOM, SheetFile, _member_grid, _xyz_points
+from .sheetfile import BOM, SheetFile, _lem_grid, _member_grid, _xyz_points
 
 
 # A text point's offset from its pixel's centre, in pixels, beyond which it is not on the sheet's pixels (the
@@ -71,7 +71,8 @@ class SheetSetFile(Reader):
         """SheetFile._parts' reader of one member, on the sheet's own pixels: a GeoTIFF as GDAL reads it (placed by
         paste); text lines ("x y z", or "n,x,y,z,flag") gridded straight onto the sheet's pixels at the layer's
         resolution (each point in the pixel holding it: the step is the layer's, never guessed from the points,
-        so a sparse member, every other point or rows 1 m apart, is read as it is); an empty member is no data
+        so a sparse member, every other point or rows 1 m apart, is read as it is); a ".lem" member (heights
+        only, _lem_grid) holds exactly the sheet's pixels, rows north to south; an empty member is no data
         (None: an older survey fills the sheet). Points off the sheet are left out; a member none of whose points
         lies on the sheet is an error naming the points' box against the sheet's."""
         at, (rows, cols) = request.transform, request.shape
@@ -85,6 +86,11 @@ class SheetSetFile(Reader):
             if not data.strip(BOM + b" \t\r\n"):
                 print(f"{where}: an empty member; no data")
                 return None
+            if name.lower().endswith(".lem"):  # heights only, on the sheet's own pixels (Kanagawa's MESH grids)
+                try:
+                    return _lem_grid(data, (rows, cols)), at
+                except RuntimeError as e:
+                    raise RuntimeError(f"{where}: {e}") from e
             try:
                 xyz = _xyz_points(data, where)
             except (ValueError, RuntimeError) as e:

@@ -92,7 +92,7 @@ PARENTS = {"bl": "fr", "mf": "fr", "pm": "fr", "pr": "us", "vi": "us", "ax": "fi
 REGION_CONTINENTS = {"fr-gp": "North America", "fr-mq": "North America", "fr-gf": "South America",
                      "nl-bq1": "North America", "nl-bq2": "North America", "nl-bq3": "North America",
                      "fr-re": "Africa", "fr-yt": "Africa",
-                     "jp-13": "Asia", "jp-22": "Asia", "jp-19": "Asia"}
+                     "jp-13": "Asia", "jp-22": "Asia", "jp-19": "Asia", "jp-14": "Asia", "jp-04": "Asia"}
 WHOLE = "Whole country"   # the label of a country-wide row: "Whole country · <source id>"
 
 

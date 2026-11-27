@@ -2691,5 +2691,64 @@
     },
     "notes": "added 2026-11-27 (spain-zeros): pins that the four false top spots of before (clearance 120.25, 85.19, 30.25, 25.28 m: walls of up to 322 m at the zeros of the block's edges) are gone, and that the surface stays empty where MDS05 holds only zeros: the fallback fills the surface only on the terrain's gaps (Source.fallback_surface_with_terrain), so every line reads \"not measured\" (the run warns: no surface model for 54 % of the area) and none is marked over trees (2 923 of 4 797 were, from Copernicus GLO-30, before the switch); the baseline stored on a seeded scratch cache (--cold), the same values on the real cache",
     "seconds": 5.6
+  },
+  "R97": {
+    "place": "Jogashima, Miura, Kanagawa (JP-14): the sea cliffs of the island's south coast, Kanagawa Prefecture's 0.5 m lidar ground grid (2021) from its quadrant sheets of 1000 x 750 m (MESH .lem, the water -9999 and the open sea -1111 no data) in AIGID's kanagawa-pointcloud bucket, JGD2011 / Japan Plane Rectangular CS IX",
+    "args": "--lat 35.1317 --lon 139.6232 --radius 300 --min-length 15 --max-length 80",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 14842,
+      "open": 977,
+      "checked": 1277,
+      "lines": 353,
+      "spots": 10,
+      "csv_sha256": "5ae8c8f48e010bdea68c4965c040272a059cfa0849ba2350f3331e22a38e7708",
+      "length_km": 16.093,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.825,
+      "clearance_max": 6.48,
+      "over_trees": 0,
+      "coverage": 55.93,
+      "empty_tiles": 0,
+      "source": "Kanagawa (lidar 0.5 m)",
+      "filled_km2": 0.0,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 0.93,
+      "water_lines": 114,
+      "water_spots": 5,
+      "coastline": "OpenStreetMap water polygons (world file)"
+    },
+    "notes": "added 2026-11-27: --source auto picks kanagawa (JP-14); the brief's place, Yugawara Makuiwa (35.1532, 139.0856), gave no line (radius 400 m: 61 205 anchors, none with an open direction; radius 1 200 m: 2 candidate pairs, 0 lines), nor did Hirugatake (radius 700 m: 98 pairs, 0 lines); the centre on the steep pixels of the cached 2021 sheets (8 036 over 70 degrees within 300 m of the lines of the natural cliffs, their centroid), the radius 300 m keeping the harbour's moles 330 m to the north-east out (at 400 m they gave 4 of the 15 spots, anchors on the water's no-data edge); many lines cross the sea filled at 0 m below the cliffs, as R85's",
+    "seconds": 7.9
+  },
+  "R98": {
+    "place": "Banji-iwa, Futakuchi gorge, Sendai (JP-04): the rock walls above the Natori river, Miyagi Prefecture's 1 m lidar grid (labelled 2023) from its quadrant sheets of 1000 x 750 m (id,x,y,z,flag text) in the prefecture's gic-miyagi bucket, listed by the shipped table, JGD2011 / Japan Plane Rectangular CS X",
+    "args": "--lat 38.2950 --lon 140.5277 --radius 400 --min-length 20 --max-length 100",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 81272,
+      "open": 1581,
+      "checked": 1252,
+      "lines": 115,
+      "spots": 14,
+      "csv_sha256": "aa2b753a165ed03eed52073682a90a85634eafa791da0df68067dc32932ebd70",
+      "length_km": 6.805,
+      "clearance_min": 0.01,
+      "clearance_mean": 1.053,
+      "clearance_max": 6.02,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "Miyagi (lidar 1 m)",
+      "coastline": "no sea in the area"
+    },
+    "notes": "added 2026-11-27: --source auto picks miyagi (JP-04); the centre on the steep pixels of the cached sheets (4 763 over 70 degrees within 700 m of the research point, their centroid 462 m W, 58 m S of it); the rows flagged -9999 keep the heights the provider interpolated (the user's decision of 2026-11-27; with them as no data 98 lines in 12 spots: 17 lines anchored on a block of 464 such cells across the seam of 10QD3311 and 10QD3312); the first search there asked gic-miyagi 6 times for 33.5 MB",
+    "seconds": 43.0
   }
 }

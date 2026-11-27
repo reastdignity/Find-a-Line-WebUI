@@ -1,6 +1,7 @@
-"""Japan: three prefectures' 0.5 m lidar grids, one ZIP per small map sheet of the plane rectangular grid: Tokyo's
-(the Tokyo Digital Twin's point cloud grids, GeoTIFF), Shizuoka's (VIRTUAL SHIZUOKA's LP grids, text) and
-Yamanashi's (its point cloud grids, GeoTIFF: terrain and a surface model)."""
+"""Japan: five prefectures' lidar grids, one ZIP per small map sheet of the plane rectangular grid: Tokyo's (the
+Tokyo Digital Twin's point cloud grids, GeoTIFF), Shizuoka's (VIRTUAL SHIZUOKA's LP grids, text), Yamanashi's (its
+point cloud grids, GeoTIFF: terrain and a surface model), Kanagawa's (its point cloud data's MESH grids, fixed-width
+.lem text), all 0.5 m, and Miyagi's 1 m grid (text)."""
 
 import os
 import re
@@ -212,8 +213,9 @@ TK_ISLAND_BOXES = (
     (33.75, 34.15, 139.04, 139.65), (32.40, 33.20, 139.60, 139.90))
 TK_BOXES = tuple(("jp-13", box) for box in TK_MAINLAND_BOXES + TK_ISLAND_BOXES)
 # Tokyo's land along Yamanashi's border west of those boxes (they keep off Yamanashi's land), for Yamanashi's gap
-# filling only (tools/border_study.py boxes: 94 % without it, 2026-11-26)
-TK_BORDER_BOXES = ((35.60, 35.92, 138.90, 139.20),)
+# filling only (tools/border_study.py boxes: 94 % without it, 2026-11-26), and along Kanagawa's border south of
+# Hachioji and west of Machida (94 % without it, 2026-11-27)
+TK_BORDER_BOXES = ((35.60, 35.92, 138.90, 139.20), (35.55, 35.60, 139.22, 139.35))
 
 
 # --- Shizuoka ---------------------------------------------------------------------------------------------------
@@ -446,6 +448,7 @@ YM_BORDER_BOXES = (
     (35.75, 35.80, 138.17, 139.01), (35.80, 35.85, 138.18, 138.98), (35.85, 35.90, 138.21, 138.96),
     (35.90, 35.95, 138.31, 138.79), (35.95, 36.00, 138.34, 138.45))
 
+
 def ym_source(surface: str, nmpt: Optional[S3SheetSets] = None) -> Source:
     """The source `yamanashi` with the surface model of a sequence folder (YM_SURFACE's values): its layer (nmpt, or
     a new ym_layer) and every text naming it (description, README row, note) follow the one value."""
@@ -458,7 +461,7 @@ def ym_source(surface: str, nmpt: Optional[S3SheetSets] = None) -> Source:
         credits=(YM_CREDIT,),
         listing=ReadmeRow("Yamanashi (JP)", "Yamanashi point cloud grid 0.5 m (2019-2022)",
                           f"Yamanashi point cloud grid 0.5 m, {ym_product(surface).upper()} (2019-2022)", "–"),
-        offline=YM_BOXES, border_boxes=YM_BORDER_BOXES, neighbours=("tokyo", "shizuoka"),
+        offline=YM_BOXES, border_boxes=YM_BORDER_BOXES, neighbours=("tokyo", "shizuoka", "kanagawa"),
         sample=(35.8946, 138.5948),  # Mizugaki-yama, 300 m east of R95's centre
         note="Data: Yamanashi Prefecture point cloud data, CC BY 4.0. Airborne lidar of the whole prefecture "
              "(2019-2022; parts flown by MLIT's Fujikawa sabo office and by Tokyo). The surface model is "
@@ -466,8 +469,226 @@ def ym_source(surface: str, nmpt: Optional[S3SheetSets] = None) -> Source:
         coverage=Coverage(provider="Yamanashi Prefecture", added="2026-11-26", survey="2019–2022"))
 
 
-# Yamanashi first: its offline boxes overlap Tokyo's and Shizuoka's over its own land (YM_BOXES)
+
+
+# --- Kanagawa --------------------------------------------------------------------------------------------------
+# Kanagawa Prefecture's 3D point cloud data (神奈川県 3次元点群データ, six G-Spatial CKAN records kanagawa-2019-pointcloud,
+# -2020-1-, -2020-2-, -2021-, -2022- and -2024-pointcloud, the prefecture's デジタル戦略本部室): airborne lidar for its
+# forest resources (4 points/m² or more), the forests surveyed in parts from 2019 to 2024 (令和元年度-令和6年度); the
+# records' `quality`: no data were taken over towns and harbours without forest, nor over national forests and the
+# areas of military bases (yet central Yokohama has data: 95.4 % of a 300 m circle at its station, 2026-11-27). Its
+# 0.5 m ground grid (「グリッドデータ（メッシュ形式）」) is one ZIP per quadrant sheet of zone IX (1000 x 750 m, EPSG:6677)
+# in AIGID's bucket kanagawa-pointcloud (AWS Open Data) at
+# <year>/<nn>/LP/Grid/MESH/09/<1/50000 letters>/<1/5000 digits>/<sheet>.zip: a `.lem` member (_lem_grid: 1 500 rows of
+# 2 000 heights in 0.1 m; -9999 no ground: the water of the sea, of lakes and rivers and an unexplained block at
+# Owakudani; -1111 outside the survey; heights below 0 m are real, down to -0.5 m at Jogashima) and a `.csv` header
+# in cp932 (the survey year, the counts, the corners: equal to the code's box on the seven sheets read, 2026-11-27;
+# not read). Lake Ashi is -9999 (its sheet 09MC9132 holds 330 valid cells of 3 000 000), the open sea -1111 and the
+# water along the shore -9999: a gap a search fills as land from the fallback, or as sea in its sea zone. Heights
+# T.P. (Tokyo Bay mean sea level); pixel edges on whole metres. The folders KG_FOLDERS are composed newest first,
+# the older only for holes (Shizuoka's rule): 2024/01 holds every sheet of 2019/01 and 384 of 2020/02's 385, newer
+# and with 27 000 more valid cells on 09NC1242 than 2019's; 2020/01 and 2020/02 (one year, two areas, 47 sheets in
+# both) go the fuller first (SheetSetFile). Not used: 2022/02 (a 1 m grid of 2022's area), 2019/02 (orthophotos),
+# the CSV variant (`n,x,y,z,flag`, 7.6 times the bytes, the water with interpolated heights), 2021's centimetre
+# DEM text and the DSM of 2022's area only (2021/01/LP/DSM: no surface model here). Versions (listed 2026-11-27):
+# every key of 2019-2022 carries one LastModified, 2025-12-08, and of 2024 2026-07-30, while the ZIPs' members are
+# dated 2020-03 to 2025-03: objects are uploaded again in place, so the bucket's listing decides what exists and the
+# ETag is part of each file's name (S3SheetSets, as Shizuoka's); a sheet that is not listed is never asked (the
+# bucket answers 404 NoSuchKey for a key it does not have), the 0.25° tile's listing kept
+# cache.TTL_DAYS["sheet-index"] days. A new year folder is set here by hand (KG_FOLDERS). Listed 2026-11-27: 4 649
+# keys of the six folders, 7.99 GB, 3 282 distinct sheets (1 268 in two to four folders); 39 KB is a sheet without a
+# valid cell (09MD5023: -1111 but 12 cells of -9999).
+KG_BUCKET = "https://kanagawa-pointcloud.s3.ap-northeast-1.amazonaws.com"
+KG_CRS = "EPSG:6677"
+KG_ZONE = 9
+# The year folders and their subfolders of the 0.5 m MESH grid, newest first: a sheet's files go by year (the
+# order of the years here); the two subfolders of 2020 are one year, so their files go the fuller first
+# (SheetSetFile) and the order inside a year's tuple decides nothing (on 09LC8521, 2026-11-27: 57 242 cells, 2024's
+# holes, have both, differing by up to 3.7 m; 2020/02 the fuller there)
+KG_FOLDERS: Dict[int, Tuple[str, ...]] = {2024: ("01",), 2022: ("01",), 2021: ("01",), 2020: ("02", "01"),
+                                          2019: ("01",)}
+_KG_KEY = re.compile(r"(\d{4})/(\d\d)/LP/Grid/MESH/09/([A-Z]{2})/(\d\d)/(09[A-Z]{2}\d{4})\.zip")
+
+
+def kg_prefixes(folder: str, box: Tuple[float, float, float, float]) -> List[str]:
+    """The prefixes of a year folder ("2020/") under which the MESH sheets of a box (left, bottom, right, top in
+    zone IX) lie: one per subfolder of KG_FOLDERS and 1/50000 sheet over the box; none for another year."""
+    year = int(folder[:4]) if re.fullmatch(r"\d{4}/", folder) else None
+    return [p for sub in KG_FOLDERS.get(year, ()) for p in block_prefixes(f"{folder}{sub}/LP/Grid/MESH/09/", box)]
+
+
+def kg_key(key: str) -> Optional[Tuple[int, str, Tuple[int, int]]]:
+    """(year, level "q", cell) of a MESH sheet's ZIP in one of KG_FOLDERS, None for any other key."""
+    match = _KG_KEY.fullmatch(key)
+    if not match or match.group(2) not in KG_FOLDERS.get(int(match.group(1)), ()) \
+            or match.group(3) != match.group(5)[2:4] or match.group(4) != match.group(5)[4:6]:
+        return None
+    cell = jp_quad_cell(KG_ZONE, match.group(5))
+    return None if cell is None else (int(match.group(1)), "q", cell)
+
+
+KG_FOLDER = "kanagawa/grid-mesh"
+KG_LEVELS = {"q": MetricCellTiling(KG_CRS, f"{KG_FOLDER}/q", SHEET_QUAD,
+                                   lambda i, j: sheet_name(jp_quad_sheet(KG_ZONE, i, j)),
+                                   lambda name: jp_quad_cell(KG_ZONE, code_of_name(name)))}
+
+# The records (package_show, 2026-11-27): license_id cc-by; 2019-2022 prescribe in `restriction` 「本データを利用した制作物
+# には「データ提供：（神奈川県環境農政局緑政部森林再生課）」と明示すること。」 beside two conditions (not for crime or other
+# wrongful acts; the prefecture is not liable for any damage); the 2024 record (神奈川県 令和6年度県西部、相模原3次元点群
+# データ) leaves `restriction` empty: its sheets carry the same line (our choice). AIGID's README and the AWS registry
+# entry (kanagawa_pointcloud.yaml) say CC BY 4.0. No request limits published (the records, the README, the
+# registry entry, the prefecture's catalogue terms https://www.pref.kanagawa.jp/documents/37447/riyoukiyaku.pdf of
+# 2024-02, which no record links); the bucket is in AWS Open Data: two connections at once as a courtesy
+KG_RECORDS = "https://www.geospatial.jp/ckan/dataset/kanagawa-2019-pointcloud"  # one of the five with the conditions
+KG_RECORD_2024 = "https://www.geospatial.jp/ckan/dataset/kanagawa-2024-pointcloud"
+KG_CREDIT = Credit("Kanagawa Prefecture 3D point cloud data, 0.5 m grids 2019-2024 (Kanagawa Prefecture)",
+                   "神奈川県 3次元点群データ（令和元年度～令和6年度）グリッドデータ、神奈川県、CC BY 4.0。"
+                   "データ提供：（神奈川県環境農政局緑政部森林再生課）", *CC_BY,
+                   notice=f"Kanagawa Prefecture 3D point cloud data (G-Spatial Information Center): {KG_RECORDS} "
+                          f"and the records of 2020-2022 state these conditions: not to be used for crime or other "
+                          f"wrongful acts; Kanagawa Prefecture is not liable for any damage arising from the use of "
+                          f"the data (the 2024 record, {KG_RECORD_2024}, states none)")
+# bytes_per_tile: the mean listed ZIP of the six folders (7.99 GB / 4 649, 2026-11-27); the listed bytes of a
+# sheet's newest file are the estimate where a listing is at hand
+KG_DTM = S3SheetSets("Kanagawa point cloud grid 0.5 m (terrain)", KG_BUCKET, r"\d{4}/", kg_prefixes, kg_key,
+                     "grid-mesh", KG_FOLDER, KG_CRS, 0.5, KG_LEVELS, r"\.lem$", bytes_per_tile=1.72e6, credit=KG_CREDIT)
+
+# Offline boxes (south, north, west, east): made as Yamanashi's, bands of 0.05 degrees cut into columns of 0.01
+# degree, a cell kept when a listed sheet's box meets it (a sheet is 1 km wide: a centre leaves every tenth column
+# empty) and Kanagawa's land (the coverage map's outlines, Natural Earth's admin-1) is at least each neighbour's there,
+# runs of kept cells a box (the listing of 2026-11-27), and one box more for 1.2 km² of Tanzawa's north with sheets,
+# 1.2 km from Yamanashi, that its cell's rule left out (35.50-35.51 N). They hold 2 282 of Kanagawa's 2 423 km²; of the
+# 144 km² left out (5.9 %), 60 km² have no sheet (Tokyo Bay's coast of Kawasaki and Yokohama 55, the column of
+# Odawara's town 4.4, Oiso's coast 0.7) and 84 km² (3.5 %) lie in cells along the borders where a neighbour's land
+# wins (Machida's side 18, Lake Yamanaka's south 18, Kawasaki's bank of the Tama 8.5, the Chitose river at Yugawara
+# 7.4, Doshi 5.8, and 26 more in pieces under 5.5). Against 50 km² of the neighbours' land (Tokyo 30, Yamanashi 11,
+# Shizuoka 9). Tokyo's and Shizuoka's boxes hold some of Kanagawa's land and Yamanashi's
+# 13 km² of it: `kanagawa` comes first in SOURCES. KG_BORDER_BOXES, the whole bands of the sheets, hold the rest along
+# the borders (the neighbours' gap filling only), two of them grown east over Kawasaki's coast to 139.80 (no sheet
+# there, but Tokyo's border strip asks: tools/border_study.py boxes 93 % without it, 2026-11-27)
+KG_BOXES = tuple(("jp-14", box) for box in (
+    (35.10, 35.15, 139.07, 139.17), (35.10, 35.15, 139.60, 139.70), (35.15, 35.20, 138.99, 139.17),
+    (35.15, 35.20, 139.58, 139.70), (35.20, 35.25, 138.97, 139.16), (35.20, 35.25, 139.56, 139.76),
+    (35.25, 35.30, 138.99, 139.17), (35.25, 35.30, 139.18, 139.31), (35.25, 35.30, 139.40, 139.43),
+    (35.25, 35.30, 139.47, 139.50), (35.25, 35.30, 139.51, 139.76), (35.30, 35.35, 139.00, 139.68),
+    (35.35, 35.40, 138.99, 139.68), (35.40, 35.45, 138.92, 139.70), (35.45, 35.50, 139.00, 139.66),
+    (35.50, 35.51, 139.06, 139.09), (35.50, 35.55, 139.09, 139.43), (35.50, 35.55, 139.47, 139.71),
+    (35.55, 35.60, 139.11, 139.30), (35.55, 35.60, 139.48, 139.62), (35.60, 35.65, 139.12, 139.18)))
+KG_BORDER_BOXES = (
+    (35.10, 35.15, 139.02, 139.70), (35.15, 35.20, 138.97, 139.70), (35.20, 35.25, 138.96, 139.76),
+    (35.25, 35.30, 138.96, 139.76), (35.30, 35.35, 138.99, 139.68), (35.35, 35.40, 138.90, 139.68),
+    (35.40, 35.45, 138.90, 139.70), (35.45, 35.50, 138.92, 139.80), (35.50, 35.55, 139.03, 139.80),
+    (35.55, 35.60, 139.10, 139.69), (35.60, 35.65, 139.11, 139.66), (35.65, 35.70, 139.11, 139.23))
+
+
+# --- Miyagi -----------------------------------------------------------------------------------------------------
+# Miyagi Prefecture's 3D point cloud data (【宮城県】3次元点群データ, dataset 915 of the prefecture's open data portal
+# miyagi.dataeye.jp, its 防災砂防課; published 2025-03-25), labelled 2023 (the files are dated 2024-01 to 03; the
+# survey years per area are not published): its 1 m grid 「グリッドデータ」, one ZIP per quadrant sheet of zone X
+# (1000 x 750 m, EPSG:6678) in the prefecture's bucket gic-miyagi at <MG_BUCKET>/2024/1mcsv/<region>/<sheet>.zip, one
+# member <sheet>_1g.txt of "id,x,y,z,flag" rows (SheetFile's CSV branch, every row kept as Shizuoka's): 750 000 rows of
+# cell centres on .5 m (pixel edges on whole metres), north-west first, z in 0.1 m; the flag is undocumented and
+# measured on 2026-11-27 on six sheets: 1 (48-86 % of a sheet) and 0 (14-52 %) on all kinds of ground, 0 rarer on
+# flat water (perhaps cells with and without ground points: a guess), -9999 cells without ground, heights
+# interpolated across them (the Okura dam's lake flat at 269.1-269.8 m on 10QD1731, a block of 464 cells on Banji-iwa
+# across the seam of 10QD3311 and 10QD3312, the coast at -0.4 m on 10QE1532); no sheet holds a z of no data. The rows
+# flagged -9999 keep the heights the provider interpolated: the user's decision of 2026-11-27 (at R98's place 115 lines
+# in 14 spots with them, 98 in 12 with them as no data: 17 lines anchored on that block). A sheet on the coast or at
+# the survey's edge holds fewer rows (10QE3444: 183): the rest is no data. The bucket denies listing and answers 403 for a key it does not have, and the region
+# folder 01-07 cannot be derived from a code: the static table miyagi_sheets.npz (tools/miyagi_sheets.py, from the
+# portal's list, resource 1523) says which exist where, a sheet outside it is never asked, a 403 or 404 for one in it
+# is an error of that tile (CellSheetTiles, as Tokyo's). 10PE0822 is listed in 02 and 03 (two files, composed the
+# fuller first). The table holds 9 570 sheets (48.8 GB listed, 2026-11-27): the mountainous west whole, the eastern
+# lowlands and coast in parts (the sheet index's 1 157 sheets without a grid lie there: Wakabayashi's plain 3.6 km and
+# Kinkasan 1.6 km from the nearest sheet); where no sheet lies within 2 km of a centre, --source auto takes `europe`
+# (instead_without_data, the table's has_data_near: no request; the user's decision of 2026-11-27, as for Mexico's
+# partial lidar). Heights T.P.
+# (presumed: not published; the coast's rows near 0 m agree); no surface model is published. Versions: a single
+# publication (Last-Modified 2025-03-18 on the sheets read): cached as <MG_FOLDER>/<name>.tif in a versioned folder,
+# the table refreshed by hand (a re-published sheet is not read again unless its tile is deleted).
+MG_BUCKET = "https://gic-miyagi.s3.ap-northeast-1.amazonaws.com"
+MG_CRS = "EPSG:6678"
+MG_ZONE = 10
+MG_YEAR = 2023  # the dataset's label: the order of a sheet's two files (one year: the fuller first)
+MG_SHEETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "miyagi_sheets.npz")
+MG_FOLDER = "miyagi/1mcsv/2023"
+
+
+@lru_cache(maxsize=None)
+def _mg_table() -> Dict[str, Tuple[int, ...]]:
+    """The region folders of each sheet (miyagi_sheets.npz)."""
+    table: Dict[str, Tuple[int, ...]] = {}
+    with np.load(MG_SHEETS) as saved:
+        for code, folder in zip(saved["codes"], saved["folders"]):
+            table[code.decode()] = table.get(code.decode(), ()) + (int(folder),)
+    return table
+
+
+def mg_files(i: int, j: int) -> List[Tuple[str, str, int]]:
+    """The ZIPs of the quadrant sheet of cell (i, j): (name, url, year); none when Miyagi has none (not in the
+    table)."""
+    code = jp_quad_sheet(MG_ZONE, i, j)
+    folders = () if code is None else _mg_table().get(code, ())
+    return [(f"{folder:02d}_{code}", f"{MG_BUCKET}/2024/1mcsv/{folder:02d}/{code}.zip", MG_YEAR) for folder in folders]
+
+
+# bytes_per_tile: the mean listed ZIP (48.79 GB / 9 571, 2026-11-27): 5.1 MB, the median 5.1 MB too
+MG_DTM = CellSheetTiles("Miyagi point cloud grid 1 m (terrain)", MG_FOLDER, MG_CRS, SHEET_QUAD, 1.0,
+                        lambda i, j: sheet_name(jp_quad_sheet(MG_ZONE, i, j)),
+                        lambda name: jp_quad_cell(MG_ZONE, code_of_name(name)), mg_files, r"\.txt$",
+                        bytes_per_tile=5.1e6)
+
+# The portal's terms (https://miyagi.dataeye.jp/pages/terms, read 2026-11-27): its content is CC BY 4.0 unless noted
+# (the grid list's resource page: 「ライセンス CC BY 4.0（クリエイティブ・コモンズ表示4.0国際）」), and a user is asked to
+# show the source as 「①データセットのメタデータの作成者欄に記載する組織名、②リソースの名称及び③リソースのURL」: 宮城県, the
+# list's resource and its page. The dataset's description (not the grid list's) prints 「測量法に基づく国土地理院長承認（使用）
+# R6JHs966」, as does the description of its CS map list (resource 1521): carried as Shizuoka's approval sentence is.
+# No request limits published (the terms, the dataset's and the resource's pages); the bucket is the prefecture's own
+# (it pays the egress): two connections at once, and tools/miyagi_sheets.py asks the portal once a run
+MG_RESOURCE = "https://miyagi.dataeye.jp/resources/1523"
+MG_TERMS = "https://miyagi.dataeye.jp/pages/terms"
+# Offline boxes (south, north, west, east): made as Kanagawa's, cells of 0.05 x 0.01 degree kept where a sheet of the
+# table meets them and Miyagi's land is at least each neighbouring prefecture's (Iwate, Akita, Yamagata, Fukushima;
+# Natural Earth's admin-1). They hold 6 911 of Miyagi's 7 513 km² (the rest mostly the eastern lowlands without a
+# sheet, where a centre goes to europe anyway: instead_without_data) against 118 km² of the neighbours' land (Iwate 54,
+# Yamagata 29, Fukushima 20, Akita 14). No neighbours are declared (none of them has a source): no border boxes
+MG_BOXES = tuple(("jp-04", box) for box in (
+    (37.75, 37.80, 140.74, 140.78), (37.80, 37.85, 140.68, 140.85), (37.85, 37.90, 140.67, 140.86),
+    (37.90, 37.95, 140.47, 140.88), (37.95, 38.00, 140.27, 140.88), (38.00, 38.05, 140.28, 140.88),
+    (38.05, 38.10, 140.37, 140.88), (38.10, 38.15, 140.43, 140.91), (38.15, 38.20, 140.46, 140.86),
+    (38.20, 38.25, 140.46, 140.91), (38.25, 38.30, 140.47, 141.11), (38.25, 38.30, 141.47, 141.55),
+    (38.30, 38.35, 140.51, 141.18), (38.30, 38.35, 141.40, 141.55), (38.35, 38.40, 140.54, 141.20),
+    (38.35, 38.40, 141.35, 141.55), (38.40, 38.45, 140.57, 141.55), (38.45, 38.50, 140.58, 141.46),
+    (38.50, 38.55, 140.56, 141.43), (38.55, 38.60, 140.55, 141.46), (38.60, 38.65, 140.54, 141.48),
+    (38.65, 38.70, 140.60, 141.41), (38.70, 38.75, 140.61, 141.53), (38.75, 38.80, 140.61, 141.18),
+    (38.75, 38.80, 141.26, 141.51), (38.80, 38.85, 140.57, 141.12), (38.80, 38.85, 141.45, 141.55),
+    (38.85, 38.90, 140.59, 140.99), (38.85, 38.90, 141.45, 141.60), (38.90, 38.95, 140.71, 140.88),
+    (38.90, 38.95, 141.48, 141.60), (38.95, 39.00, 141.49, 141.60)))
+MG_CREDIT = Credit("Miyagi Prefecture 3D point cloud data, 1 m grid 2023 (Miyagi Prefecture)",
+                   f"宮城県、【宮城県】3次元点群データ_データ一覧_グリッドデータ_CSV_2023（{MG_RESOURCE}）、CC BY 4.0。"
+                   "測量法に基づく国土地理院長承認（使用）R6JHs966", *CC_BY,
+                   notice=f"Miyagi Prefecture and municipalities open data portal, terms of use: {MG_TERMS}")
+
+
+# Kanagawa, then Yamanashi first: their offline boxes overlap Tokyo's and Shizuoka's (and Yamanashi's Kanagawa's)
+# over their own land (KG_BOXES, YM_BOXES); the first box holding a point wins
 SOURCES: List[Source] = [
+    Source(
+        id="kanagawa", name="Kanagawa (lidar 0.5 m)",
+        description="Kanagawa Prefecture: 3D point cloud data, airborne lidar grids 0.5 m (terrain) of its forests, "
+                    "surveys of 2019-2024 composed newest first, JGD2011 / Japan Plane Rectangular CS IX; no "
+                    "surface model; parts of towns and harbours, national forests and the areas of military bases "
+                    "were not surveyed; water is no data",
+        nmt=KG_DTM, countries=("jp",), regions=("jp-14",), crs=KG_CRS, credits=(KG_CREDIT,),
+        listing=ReadmeRow("Kanagawa (JP)", "Kanagawa point cloud grid 0.5 m (forests, 2019-2024)", "–", "–"),
+        offline=KG_BOXES, border_boxes=KG_BORDER_BOXES, neighbours=("tokyo", "shizuoka", "yamanashi"),
+        sample=(35.1317, 139.6232),  # Jogashima's south coast (R97's centre)
+        note="Data: Kanagawa Prefecture 3D point cloud data, CC BY 4.0. Terrain only (no surface model: trees and "
+             "buildings are not in the data). Surveyed for the forests (2019-2024), most of the prefecture: parts of "
+             "towns and harbours, national forests and the areas around military bases have no data, nor have "
+             "lakes, rivers and the sea; the sea is filled at 0 m within the search's sea zone, the other gaps "
+             "(lakes and rivers too) from the fallback model as land.",
+        coverage=Coverage(provider="Kanagawa Prefecture", added="2026-11-27", partial=True, survey="2019–2024")),
     ym_source(YM_SURFACE, YM_DSM),
     Source(
         id="tokyo", name="Tokyo (Digital Twin lidar 0.5 m)",
@@ -486,7 +707,7 @@ SOURCES: List[Source] = [
              "the fallback model.",
         coverage=Coverage(provider="Tokyo Metropolitan Government", added="2026-11-15", partial=True,
                           survey="2022–2023"),
-        neighbours=("yamanashi",), border_boxes=TK_BORDER_BOXES),
+        neighbours=("yamanashi", "kanagawa"), border_boxes=TK_BORDER_BOXES),
     Source(
         id="shizuoka", name="Shizuoka (VIRTUAL SHIZUOKA lidar 0.5 m)",
         description="Shizuoka Prefecture: VIRTUAL SHIZUOKA land lidar (LP) grids 0.5 m (terrain), surveys of "
@@ -501,5 +722,22 @@ SOURCES: List[Source] = [
              "model: trees and buildings are not in the data). In the centre, west and north-west the heights are "
              "given to the decimetre. The sea is left out; the bathymetric (ALB) grids are not used.",
         coverage=Coverage(provider="Shizuoka Prefecture", added="2026-11-15", survey="2019–2025"),
-        neighbours=("yamanashi",)),
+        neighbours=("yamanashi", "kanagawa")),
+    Source(
+        id="miyagi", name="Miyagi (lidar 1 m)",
+        description="Miyagi Prefecture: 3D point cloud data, airborne lidar grid 1 m (terrain), labelled 2023, "
+                    "JGD2011 / Japan Plane Rectangular CS X; the mountainous west whole, the eastern lowlands and "
+                    "coast in parts; no surface model",
+        nmt=MG_DTM, countries=("jp",), regions=("jp-04",), crs=MG_CRS, credits=(MG_CREDIT,),
+        listing=ReadmeRow("Miyagi (JP), where it has lidar", "Miyagi point cloud grid 1 m (2023)", "–", "–"),
+        offline=MG_BOXES, sample=(38.2955, 140.5330),  # Banji-iwa (R98)
+        # Where no sheet lies within 2 km of the centre (Wakabayashi's and the Natori plain; Kinkasan's eastern
+        # half, while its western half lies within 2 km of the Oshika peninsula's sheets), --source auto takes europe
+        instead_without_data="europe",
+        note="Data: Miyagi Prefecture 3D point cloud data, CC BY 4.0 (approved under the Survey Act by the GSI, "
+             "R6JHs966). Terrain only (no surface model: trees and buildings are not in the data). The whole "
+             "mountainous west; much of the eastern lowlands and the coast (the Sendai plain, the Oshika and "
+             "Sanriku coast, Kinkasan) has no grid, filled from the fallback model. The publisher labels the "
+             "survey 2023.",
+        coverage=Coverage(provider="Miyagi Prefecture", added="2026-11-27", partial=True, survey="2023")),
 ]

@@ -1,5 +1,6 @@
 """SheetFile: a map sheet downloaded as a file (ASCII grid, XYZ or GeoTIFF, zipped once or twice, or several
-members of one ZIP) and saved as a GeoTIFF."""
+members of one ZIP) and saved as a GeoTIFF; the parsers of the text members (XYZ, "n,x,y,z,flag" CSV, and the
+fixed-width .lem grid that SheetSetFile places on its sheet's pixels)."""
 
 import io
 import re
@@ -45,6 +46,12 @@ _NOT_XYZ = re.compile(rb"^(?![ \t]*[-+.\deE]+[ \t]+[-+.\deE]+[ \t]+[-+.\deE]+[ \
 # A first line of five comma-separated numbers: "n,x,y,z,flag" (_csv_points). Such a file failed as "x y z" lines
 # before, so the branch changes no file read before
 _CSV_NXYZF = re.compile(rb"[ \t]*-?\d+(?:[ \t]*,[ \t]*[-+.\deE]+){4}[ \t]*\r?(?:\n|$)")
+# A ".lem" grid (Kanagawa Prefecture's MESH grids, _lem_grid): each line a record number of LEM_NUMBER characters,
+# then one height per pixel in LEM_FIELD characters, right-aligned integers in LEM_SCALE m; LEM_NODATA are no data
+# (-9999: no ground, the water of the sea, lakes and rivers and a few blocks; -1111: outside the survey; measured
+# 2026-11-27 on six sheets: no other code, heights below 0 m real, written -1 to -5)
+LEM_NUMBER, LEM_FIELD, LEM_SCALE = 10, 5, 0.1
+LEM_NODATA = (-9999, -1111)
 
 
 class ListedFileMissing(RuntimeError):
@@ -310,6 +317,57 @@ def _csv_points(data: bytes, where: str = "") -> np.ndarray:
     if xyz.shape[0] == 0:
         raise RuntimeError("no n,x,y,z,flag lines in the file")
     return xyz
+
+
+def _fixed_ints(fields: np.ndarray) -> np.ndarray:
+    """The integers of fixed-width ASCII fields (uint8, the last axis a field's characters): right-aligned, blanks
+    before an optional minus and at least one digit; ValueError naming the first field that is not one."""
+    first = np.argmax(fields != ord(" "), axis=-1)  # the first character that is not blank
+    after = np.arange(fields.shape[-1]) >= first[..., None]
+    digit = (fields >= ord("0")) & (fields <= ord("9"))
+    minus = (fields == ord("-")) & (np.arange(fields.shape[-1]) == first[..., None])
+    good = np.all(~after | digit | minus, axis=-1) & digit[..., -1]
+    if not good.all():
+        where = np.argwhere(~good)[0]
+        raise ValueError(f"not an integer at {tuple(int(w) for w in where)}: "
+                         f"{bytes(fields[tuple(where)]).decode('ascii', 'replace')!r}")
+    # int32 while a field fits (a sheet's 3 000 000 fields of 5: about 60 MB a temporary), int64 for longer ones
+    kind = np.int32 if fields.shape[-1] <= 9 else np.int64
+    weights = 10 ** np.arange(fields.shape[-1] - 1, -1, -1, dtype=kind)
+    values = np.sum(np.where(digit, fields - ord("0"), 0).astype(kind) * weights, axis=-1, dtype=kind)
+    return np.where(minus.any(axis=-1), -values, values)
+
+
+def _lem_grid(data: bytes, shape: Tuple[int, int]) -> np.ndarray:
+    """The heights of a ".lem" grid (Kanagawa Prefecture's MESH grids of its point cloud data, 2026-11-27) on a
+    sheet of shape (rows, columns), north to south and west to east: one line per row, CRLF or LF, of a record
+    number (LEM_NUMBER characters, the row's number from 1) and one LEM_FIELD-character integer per column in
+    LEM_SCALE m; LEM_NODATA as NaN. The file names no place (its sheet's code does) and its CSV header is not read.
+    Any other count of lines or characters, a record out of order or a field that is not an integer is an error
+    (these files are written by a program, none was seen broken)."""
+    rows, cols = shape
+    width = LEM_NUMBER + LEM_FIELD * cols
+    lines = data.replace(b"\r\n", b"\n").split(b"\n")
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if len(lines) != rows:
+        raise RuntimeError(f"{len(lines)} lines, {rows} expected")
+    short = [k for k, line in enumerate(lines) if len(line) != width]
+    if short:
+        raise RuntimeError(f"line {short[0] + 1} has {len(lines[short[0]])} characters, {width} expected "
+                           f"({len(short)} such lines)")
+    chars = np.frombuffer(b"".join(lines), dtype=np.uint8).reshape(rows, width)
+    try:
+        numbers = _fixed_ints(chars[:, :LEM_NUMBER][:, None, :])[:, 0]
+        codes = _fixed_ints(chars[:, LEM_NUMBER:].reshape(rows, cols, LEM_FIELD))
+    except ValueError as e:
+        raise RuntimeError(str(e)) from None
+    if not np.array_equal(numbers, np.arange(1, rows + 1)):
+        k = int(np.argmax(numbers != np.arange(1, rows + 1)))
+        raise RuntimeError(f"line {k + 1} holds record {int(numbers[k])}")
+    heights = (codes * LEM_SCALE).astype(np.float32)
+    heights[np.isin(codes, LEM_NODATA)] = np.nan
+    return heights
 
 
 def _loadtxt(data: bytes) -> np.ndarray:

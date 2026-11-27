@@ -10,6 +10,7 @@ header as published (a CRS without an EPSG code, AREA_OR_POINT=Point, nodata -32
 sheets toushobu/12/3636/1637.pbf (the islands' set, Mikurajima)."""
 
 import glob
+import hashlib
 import io
 import math
 import os
@@ -484,6 +485,12 @@ def _zip(member: str, text: bytes) -> bytes:
     return buffer.getvalue()
 
 
+def _etag(data: bytes) -> str:
+    """A fake object's ETag: the MD5 of its bytes, as S3 gives a single-part upload's (fixed across processes, unlike
+    hash(): a file's cached name ends in its ETag)."""
+    return hashlib.md5(data).hexdigest()
+
+
 def _bucket(http_server, objects, modified=None):
     """A bucket answering ListObjectsV2 (prefix, delimiter) and GET of its keys (LastModified from modified, by
     key)."""
@@ -500,7 +507,7 @@ def _bucket(http_server, objects, modified=None):
                 body += "".join(f"<CommonPrefixes><Prefix>{escape(p)}</Prefix></CommonPrefixes>" for p in folders)
             else:
                 body += "".join(f"<Contents><Key>{escape(k)}</Key><LastModified>"
-                                f"{modified.get(k, '2026-11-04T07:00:00.000Z')}</LastModified><ETag>&quot;{abs(hash(objects[k])) % 10 ** 12:012x}&quot;</ETag>"
+                                f"{modified.get(k, '2026-11-04T07:00:00.000Z')}</LastModified><ETag>&quot;{_etag(objects[k])}&quot;</ETag>"
                                 f"<Size>{len(objects[k])}</Size></Contents>" for k in keys)
             return Answer(200, (body + "</ListBucketResult>").encode(), {"Content-Type": "application/xml"})
         key = request.path.lstrip("/")
@@ -1383,8 +1390,8 @@ def test_yamanashi_catalogue_entry():
     assert japan.YM_DTM.credit is japan.YM_DSM.credit is japan.YM_CREDIT
     assert (japan.YM_DTM.bytes_per_tile(), japan.YM_DSM.bytes_per_tile()) == (0.95e6, 1.33e6)
     assert src.net.HOST_SLOTS_OF["japan-pointcloud.s3.ap-northeast-1.amazonaws.com"] == 2
-    assert source.neighbours == ("tokyo", "shizuoka")
-    assert src.SOURCES["tokyo"].neighbours == ("yamanashi",) and src.SOURCES["shizuoka"].neighbours == ("yamanashi",)
+    assert source.neighbours == ("tokyo", "shizuoka", "kanagawa")
+    assert src.SOURCES["tokyo"].neighbours == src.SOURCES["shizuoka"].neighbours == ("yamanashi", "kanagawa")
 
 
 def test_yamanashi_offline_boxes():
@@ -1420,13 +1427,13 @@ def test_yamanashi_offline_boxes():
         assert offline(lat, lon) == "jp-19", (lat, lon)
     # The neighbours' land next to Yamanashi's boxes (0.3-0.5 km outside them, at least 0.3 km inside the neighbour by
     # Natural Earth's admin-1 1:10m outlines, 2026-11-26): the cells its land did not win; a box grown over them takes
-    # them. Tokyo's and Shizuoka's keep their own boxes; Nagano's, Saitama's and Kanagawa's have none (Kanagawa's at
-    # Lake Yamanaka's south lies in a Shizuoka box, as before Yamanashi)
+    # them. Tokyo's, Shizuoka's and Kanagawa's (since 2026-11-27) keep their own boxes; Nagano's and Saitama's have
+    # none (Kanagawa's at Lake Yamanaka's south lies in a Shizuoka box, as before Yamanashi)
     for lat, lon, code in ((35.802, 138.972, "jp-13"), (35.676, 139.084, "jp-13"), (35.728, 139.004, "jp-13"),
                            (35.548, 138.228, "jp-22"), (35.348, 138.522, "jp-22"), (35.402, 138.228, "jp-22"),
                            (35.852, 138.198, None), (35.952, 138.328, None), (35.802, 138.178, None),  # Nagano
                            (35.854, 138.814, None), (35.854, 138.864, None), (35.904, 138.718, None),  # Saitama
-                           (35.548, 139.112, None), (35.398, 138.922, "jp-22"), (35.598, 139.122, None)):  # Kanagawa
+                           (35.548, 139.112, "jp-14"), (35.398, 138.922, "jp-22"), (35.598, 139.122, "jp-14")):  # Kanagawa
         assert offline(lat, lon) == code, (lat, lon, offline(lat, lon))
 
 
@@ -1461,7 +1468,7 @@ def _paged_bucket(http_server, objects):
                 body = (f"<ListBucketResult xmlns='{NS}'><IsTruncated>{'true' if more else 'false'}</IsTruncated>"
                         + (f"<NextContinuationToken>{start + size}</NextContinuationToken>" if more else "")
                         + "".join(f"<Contents><Key>{escape(k)}</Key><LastModified>2025-12-11T08:12:45.000Z"
-                                  f"</LastModified><ETag>&quot;{abs(hash(objects[k])) % 10 ** 12:012x}&quot;</ETag>"
+                                  f"</LastModified><ETag>&quot;{_etag(objects[k])}&quot;</ETag>"
                                   f"<Size>{len(objects[k])}</Size></Contents>" for k in page))
             return Answer(200, (body + "</ListBucketResult>").encode(), {"Content-Type": "application/xml"})
         key = request.path.lstrip("/")
@@ -1623,3 +1630,728 @@ def test_yamanashi_gap_filled_from_tokyo_across_zones(tokyo, http_server, tmp_pa
         assert not joined[:, :400].any() and np.isnan(result[:, 400:][~joined[:, 400:]]).all()
     finally:
         src.mosaic.used_data.clear()
+
+
+# --- Kanagawa ---------------------------------------------------------------------------------------------------------
+KG_RECORDED = os.path.join(HERE, "data", "recorded", "kanagawa")
+
+
+def _kg_key(code, year=2024, sub="01", kind="MESH"):
+    return f"{year}/{sub}/LP/Grid/{kind}/09/{code[2:4]}/{code[4:6]}/{code}.zip"
+
+
+def _kg_recorded(code):
+    with open(os.path.join(KG_RECORDED, f"{code}.zip"), "rb") as f:
+        return f.read()
+
+
+_LEM_ROWS = {}
+
+
+def _lem_text(codes) -> bytes:
+    """A .lem body as the publisher writes it (CRLF, a 10-character record number, 5-character integers in 0.1 m),
+    from one int code per pixel (rows north to south); each distinct row is formatted once."""
+    lines = []
+    for k, row in enumerate(np.asarray(codes)):
+        key = row.tobytes()
+        if key not in _LEM_ROWS:
+            _LEM_ROWS[key] = "".join(f"{v:5d}" for v in row.tolist())
+        lines.append(f"{k + 1:10d}{_LEM_ROWS[key]}")
+    return ("\r\n".join(lines) + "\r\n").encode("ascii")
+
+
+def _lem_zip(code, codes) -> bytes:
+    """A MESH sheet's ZIP: <code>_0.5g.lem and a cp932 header <code>_0.5g.csv (never read)."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(f"{code.lower()}_0.5g.csv", "測量年,2024\r\n東西方向の点数,2000\r\n".encode("cp932"))
+        z.writestr(f"{code.lower()}_0.5g.lem", _lem_text(codes))
+    return buffer.getvalue()
+
+
+def _kg_codes(value, holes=None):
+    """1500 x 2000 codes of one height (0.1 m), -1111 on the rows `holes` (a slice)."""
+    codes = np.full((1500, 2000), value, dtype=np.int64)
+    if holes is not None:
+        codes[holes] = -1111
+    return codes
+
+
+@pytest.fixture
+def kanagawa(http_server, monkeypatch):
+    """The catalogue's Kanagawa layer on the local server."""
+    layer = japan.KG_DTM
+    monkeypatch.setattr(layer, "bucket", http_server.base)
+    monkeypatch.setattr(layer.index.listing, "url", http_server.base)
+    layer.index._listed.clear()
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    return layer
+
+
+def _kg_grid(code, margin=1.0):
+    left, bottom, right, top = japan.KG_DTM.levels["q"].edges(japan.jp_quad_cell(9, code))
+    return make_grid((left + margin, bottom + margin, right - margin, top - margin), 0.5, japan.KG_CRS)
+
+
+def test_kanagawa_keys_and_prefixes():
+    """The catalogue's key parser takes the MESH sheets of KG_FOLDERS only (the quadrant sheets of zone IX: 09NC1222
+    is x -69 000..-68 000, y -93 750..-93 000), never 2022/02 (the 1 m grid), 2019/02, the CSV variant, the DSM or a
+    year set by hand later; a box asks one prefix per subfolder and 1/50000 sheet, none for another year."""
+    cell = japan.jp_quad_cell(9, "09NC1222")
+    assert cell == (-69, -125) and japan.KG_LEVELS["q"].edges(cell) == (-69_000, -93_750, -68_000, -93_000)
+    assert japan.jp_quad_sheet(9, *cell) == "09NC1222" and japan.jp_quad_cell(9, "09NC1225") is None
+    for year, subs in japan.KG_FOLDERS.items():
+        for sub in subs:
+            assert japan.kg_key(_kg_key("09NC1222", year, sub)) == (year, "q", cell)
+    assert list(japan.KG_FOLDERS) == [2024, 2022, 2021, 2020, 2019] and japan.KG_FOLDERS[2020] == ("02", "01")
+    for key in (_kg_key("09NC1222", 2022, "02"), _kg_key("09NC1222", 2019, "02"), _kg_key("09NC1222", 2026),
+                _kg_key("09NC1222", kind="CSV"), "2021/01/LP/DSM/TXT/09/LD/75/09LD7541.zip",
+                _kg_key("09NC1222").replace("/12/09NC", "/13/09NC"), _kg_key("08NC1222"),
+                _kg_key("09NC1222").replace(".zip", "_2.zip")):
+        assert japan.kg_key(key) is None, key
+    assert japan.kg_key(_kg_key("09LD7541", 2022)) == (2022, "q", japan.jp_quad_cell(9, "09LD7541"))
+    box = (-69_000, -93_750, -68_000, -93_000)
+    assert japan.kg_prefixes("2020/", box) == ["2020/02/LP/Grid/MESH/09/NC/", "2020/01/LP/Grid/MESH/09/NC/"]
+    assert japan.kg_prefixes("2024/", (-81_000, -93_750, -79_000, -93_000)) == \
+        ["2024/01/LP/Grid/MESH/09/NB/", "2024/01/LP/Grid/MESH/09/NC/"]
+    assert japan.kg_prefixes("2023/", box) == [] and japan.kg_prefixes("doc/", box) == []
+
+
+def test_lem_grid():
+    """The .lem parser (sheetfile._lem_grid): heights in 0.1 m, rows north to south; -9999 and -1111 no data, a height
+    below 0 m real, a five-digit height filling its field; CRLF or LF; a short line, a field that is no integer, a
+    missing row or a record out of order is an error."""
+    from sources.readers.sheetfile import _lem_grid
+    codes = np.array([[55, -9999, -1111, -5], [10927, 0, -1, 7]])
+    text = _lem_text(codes)
+    assert text.splitlines()[0] == b"         1   55-9999-1111   -5"
+    for body in (text, text.replace(b"\r\n", b"\n"), text.rstrip(b"\r\n")):
+        heights = _lem_grid(body, (2, 4))
+        assert heights.dtype == np.float32
+        assert np.array_equal(np.isnan(heights), [[False, True, True, False], [False, False, False, False]])
+        assert np.allclose(heights[~np.isnan(heights)], [5.5, -0.5, 1092.7, 0.0, -0.1, 0.7])
+    first, second = text.split(b"\r\n")[:2]
+    for broken, match in ((first + b"\r\n" + second[:-1], "line 2 has 29 characters, 30 expected"),
+                          (first + b"\r\n" + second.replace(b"    0", b"  0 0"), "not an integer"),
+                          (first + b"\r\n" + second.replace(b"    0", b"   0-"), "not an integer"),
+                          (first + b"\r\n" + second.replace(b"    0", b"     "), "not an integer"),
+                          (first + b"\r\n" + second.replace(b"    0", b"    x"), "not an integer"),
+                          (first, "1 lines, 2 expected"),
+                          (second + b"\r\n" + first, "line 1 holds record 2")):
+        with pytest.raises(RuntimeError, match=match):
+            _lem_grid(broken, (2, 4))
+
+
+def _kg_header_box(data, code):
+    """The box (left, bottom, right, top in m) a recorded sheet's cp932 CSV header gives (区画左下X/Y, 区画右上X/Y in cm,
+    X northward), read here by the test's own lines, not the app's."""
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        rows = dict(line.split(",", 1) for line in z.read(f"{code.lower()}_0.5g.csv").decode("cp932").splitlines()
+                    if "," in line)
+    return (int(rows["区画左下Y座標"]) / 100, int(rows["区画左下X座標"]) / 100, int(rows["区画右上Y座標"]) / 100,
+            int(rows["区画右上X座標"]) / 100)
+
+
+@pytest.mark.parametrize("code, year, valid", [("09MC9132", 2024, 330), ("09MD5023", 2021, 0)])
+def test_kanagawa_recorded_sheets(kanagawa, http_server, tmp_path, code, year, valid):
+    """The publisher's sheets (recorded 2026-11-27; the numbers measured then by a parser of their own): mid Lake Ashi
+    has 330 valid cells, all at 725.0-725.3 m, composed on its box (2000 x 1500 px of 0.5 m in EPSG:6677), the box
+    the code gives equal to the corners in the sheet's own header; a sheet without a valid cell (-1111 and -9999
+    only) is recorded as without data, never an error and never asked again."""
+    data = _kg_recorded(code)
+    _bucket(http_server, {_kg_key(code, year): data})
+    cache_dir = str(tmp_path)
+    grid = _kg_grid(code)
+    _search(kanagawa, grid, cache_dir)
+    (sheet,) = kanagawa.tiles(grid)
+    left, bottom, right, top = japan.KG_LEVELS["q"].edges(japan.jp_quad_cell(9, code))
+    assert _kg_header_box(data, code) == (left, bottom, right, top)
+    path = kanagawa.tile_path(cache_dir, sheet)
+    if valid:
+        assert path.replace(os.sep, "/").split("/kanagawa/grid-mesh/q/")[1].startswith(
+            f"{code[2:4]}/{code[4:6]}/{year}_{code}_")
+        with rio.open(path) as tile:
+            values = tile.read(1)
+            assert tile.crs.to_epsg() == 6677 and tile.shape == (1500, 2000)
+            assert tile.transform.almost_equals(from_origin(left, top, 0.5, 0.5))
+        assert np.count_nonzero(~np.isnan(values)) == valid
+        assert 725.0 - 0.006 <= np.nanmin(values) and np.nanmax(values) <= 725.3 + 0.006
+        assert kanagawa.used(grid, cache_dir)["credit"]["data"] == japan.KG_CREDIT.data
+    else:
+        assert not os.path.exists(path) and not cache.due(cache_dir, path)  # recorded: no data
+        assert kanagawa.files(grid, cache_dir) == []
+    _search(kanagawa, grid, cache_dir)
+    assert _zips(http_server) == 1  # the second search asks nothing for the sheet, with or without data
+
+
+def test_kanagawa_rows_north_and_west_first(kanagawa, http_server, tmp_path):
+    """A .lem's first line is the sheet's northern row and each line's first field its western column: a sheet whose
+    first row, last row and first column differ lands so on the sheet's box."""
+    code = "09NC1222"
+    codes = np.full((1500, 2000), 500, dtype=np.int64)
+    codes[0, :], codes[-1, :], codes[:, 0] = 1000, 2000, 3000
+    _bucket(http_server, {_kg_key(code): _lem_zip(code, codes)})
+    cache_dir = str(tmp_path)
+    grid = _kg_grid(code)
+    _search(kanagawa, grid, cache_dir)
+    (path,) = kanagawa.files(grid, cache_dir)
+    left, bottom, right, top = japan.KG_LEVELS["q"].edges(japan.jp_quad_cell(9, code))
+    with rio.open(path) as tile:
+        values = tile.read(1)
+        assert tile.transform.almost_equals(from_origin(left, top, 0.5, 0.5))
+    assert np.allclose(values[0, 1:], 100.0, atol=0.006) and np.allclose(values[-1, 1:], 200.0, atol=0.006)
+    assert np.allclose(values[:, 0], 300.0, atol=0.006) and np.allclose(values[1:-1, 1:], 50.0, atol=0.006)
+
+
+def test_kanagawa_empty_member_is_no_data(kanagawa, http_server, tmp_path):
+    """An empty .lem member is no data, never an error: the sheet is composed from the older survey."""
+    code = "09NC1222"
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(f"{code.lower()}_0.5g.csv", "測量年,2024\r\n".encode("cp932"))
+        z.writestr(f"{code.lower()}_0.5g.lem", b"")
+    _bucket(http_server, {_kg_key(code): buffer.getvalue(), _kg_key(code, 2019): _lem_zip(code, _kg_codes(2019))})
+    cache_dir = str(tmp_path)
+    grid = _kg_grid(code)
+    _search(kanagawa, grid, cache_dir)
+    (path,) = kanagawa.files(grid, cache_dir)
+    with rio.open(path) as tile:
+        assert np.allclose(tile.read(1), 201.9, atol=0.006)
+    assert [y for _, y, _ in gave_pixels(path)] == [2019]
+
+
+@pytest.mark.parametrize("fuller", ["01", "02"])
+def test_kanagawa_one_year_fuller_first(kanagawa, http_server, tmp_path, fuller):
+    """The two folders of 2020 are one year: their files go the fuller first (SheetSetFile), whichever folder it is
+    in, the other filling its holes; KG_FOLDERS' order of 02 before 01 decides nothing."""
+    code = "09NC1222"
+    other = "02" if fuller == "01" else "01"
+    objects = {_kg_key(code, 2020, fuller): _lem_zip(code, _kg_codes(4000 + int(fuller), slice(0, 10))),
+               _kg_key(code, 2020, other): _lem_zip(code, _kg_codes(4000 + int(other), slice(20, None)))}
+    _bucket(http_server, objects)
+    cache_dir = str(tmp_path)
+    grid = _kg_grid(code)
+    _search(kanagawa, grid, cache_dir)
+    (path,) = kanagawa.files(grid, cache_dir)
+    with rio.open(path) as tile:
+        values = tile.read(1)
+    assert np.allclose(values[:10], 400.0 + int(other) / 10, atol=0.006)  # the fuller's hole, filled by the other
+    assert np.allclose(values[10:], 400.0 + int(fuller) / 10, atol=0.006)
+    assert [p for _, _, p in gave_pixels(path)] == [1490 * 2000, 10 * 2000]
+
+
+def test_kanagawa_folders_newest_first(kanagawa, http_server, tmp_path):
+    """09NC1222 in 2024 with a hole (rows 0-99 outside its survey) and in 2019 (whole): 2024 first, 2019 only for the
+    hole; 09NC1224 in 2024 whole: 2019 never downloaded; 09NC1311 in 2021 (rows 0-9 only), 2020/02 (whole) and 2020/01
+    (rows 0-19): 2021 first, then within 2020 the fuller (2020/02) fills and 2020/01 gives nothing; 2022/02's 1 m grid
+    is never listed. A sheet not listed (09NC1313) is never asked; the estimate counts each sheet's newest files."""
+    a, b, c = "09NC1222", "09NC1224", "09NC1311"
+    objects = {
+        _kg_key(a, 2024): _lem_zip(a, _kg_codes(2024, slice(0, 100))),
+        _kg_key(a, 2019): _lem_zip(a, _kg_codes(2019)),
+        _kg_key(b, 2024): _lem_zip(b, _kg_codes(3024)),
+        _kg_key(b, 2019): _lem_zip(b, _kg_codes(3019)),
+        _kg_key(c, 2021): _lem_zip(c, _kg_codes(4021, slice(10, None))),
+        _kg_key(c, 2020, "01"): _lem_zip(c, _kg_codes(4201, slice(20, None))),
+        _kg_key(c, 2020, "02"): _lem_zip(c, _kg_codes(4202)),
+        _kg_key(c, 2022, "02"): b"the 1 m grid",
+    }
+    _bucket(http_server, objects)
+    ia, ja = japan.jp_quad_cell(9, a)
+    assert japan.jp_quad_cell(9, b) == (ia, ja - 1) and japan.jp_quad_cell(9, c) == (ia + 1, ja)
+    grid = make_grid((ia * 1000 + 1, (ja - 1) * 750 + 1, (ia + 2) * 1000 - 1, (ja + 1) * 750 - 1), 1.0, japan.KG_CRS)
+    cache_dir = str(tmp_path)
+    tiles, todo, mb = kanagawa.estimate(grid, cache_dir, None)
+    newest = len(objects[_kg_key(a, 2024)]) + len(objects[_kg_key(b, 2024)]) + len(objects[_kg_key(c, 2021)])
+    assert tiles == todo == 3 and mb == pytest.approx(newest / 1e6)
+    _search(kanagawa, grid, cache_dir)
+    by_code = {os.path.basename(p).split("_")[1]: p for p in kanagawa.files(grid, cache_dir)}
+    assert sorted(by_code) == [a, b, c]
+    with rio.open(by_code[a]) as tile:
+        values = tile.read(1)
+    assert np.allclose(values[:100], 201.9, atol=0.006) and np.allclose(values[100:], 202.4, atol=0.006)
+    with rio.open(by_code[b]) as tile:
+        assert np.allclose(tile.read(1), 302.4, atol=0.006)
+    with rio.open(by_code[c]) as tile:
+        values = tile.read(1)
+    assert np.allclose(values[:10], 402.1, atol=0.006) and np.allclose(values[10:], 420.2, atol=0.006)
+    assert [(n.split("@")[0], y, p) for n, y, p in gave_pixels(by_code[c])] == \
+        [("2021_09NC1311", 2021, 10 * 2000), ("2020_09NC1311", 2020, 1490 * 2000)]
+    asked = {r.path.lstrip("/") for r in http_server.requests() if r.path.endswith(".zip")}
+    assert asked == {_kg_key(a, 2024), _kg_key(a, 2019), _kg_key(b, 2024), _kg_key(c, 2021), _kg_key(c, 2020, "01"),
+                     _kg_key(c, 2020, "02")}
+    prefixes = {dict(r.query).get("prefix") for r in http_server.requests() if r.path == "/"}
+    assert all(p == "" or p.startswith(("2024/01/LP/Grid/MESH/09/", "2022/01/", "2021/01/", "2020/02/", "2020/01/",
+                                        "2019/01/")) for p in prefixes)
+    assert kanagawa.used(grid, cache_dir)["survey_years"] == [2019, 2024]
+
+
+def test_kanagawa_catalogue_entry():
+    """The catalogue's own settings: region jp-14, zone IX, the MESH grid's .lem members of kanagawa-pointcloud, two
+    connections at once, the credit with the records' line, no surface model; neighbours on both sides (at most six
+    each, the country layer's most)."""
+    source = src.SOURCES["kanagawa"]
+    assert source.regions == ("jp-14",) and source.countries == ("jp",) and source.crs == "EPSG:6677"
+    assert source.nmt is japan.KG_DTM and source.nmpt is None and source.credits == (japan.KG_CREDIT,)
+    assert japan.KG_DTM.bucket == japan.KG_DTM.index.listing.url == \
+        "https://kanagawa-pointcloud.s3.ap-northeast-1.amazonaws.com"
+    assert japan.KG_DTM.folders_pattern == r"\d{4}/" and japan.KG_DTM.prefixes is japan.kg_prefixes
+    assert japan.KG_DTM.parse is japan.kg_key and japan.KG_DTM.members == r"\.lem$"
+    assert japan.KG_DTM.reader.sheet.members == r"\.lem$" and japan.KG_DTM.reader.sheet.listed
+    assert set(japan.KG_DTM.levels) == {"q"} and japan.KG_DTM.levels["q"].cell == japan.SHEET_QUAD
+    assert (japan.KG_DTM.folder, japan.KG_DTM.index.prefix, japan.KG_DTM.index.top) == \
+        ("kanagawa/grid-mesh", "grid-mesh", "kanagawa")
+    assert japan.KG_DTM.native_res == 0.5 and japan.KG_DTM.bytes_per_tile() == 1.72e6
+    assert japan.KG_DTM.credit is japan.KG_CREDIT and not japan.KG_DTM.credits_by_pixels
+    assert "データ提供：（神奈川県環境農政局緑政部森林再生課）" in japan.KG_CREDIT.attribution
+    assert japan.KG_CREDIT.licence == "CC BY 4.0" and japan.KG_RECORDS in japan.KG_CREDIT.notice
+    # the conditions quoted stand on the records of 2019-2022, not on the 2024 record (its `restriction` is empty)
+    assert japan.KG_RECORDS.endswith("kanagawa-2019-pointcloud")
+    assert f"(the 2024 record, {japan.KG_RECORD_2024}, states none)" in japan.KG_CREDIT.notice
+    assert src.net.HOST_SLOTS_OF["kanagawa-pointcloud.s3.ap-northeast-1.amazonaws.com"] == 2
+    assert source.neighbours == ("tokyo", "shizuoka", "yamanashi")
+    for other in source.neighbours:
+        assert "kanagawa" in src.SOURCES[other].neighbours, other
+    assert all(len(s.neighbours) <= 6 for s in src.SOURCES.values())
+    assert source.sample == (35.1317, 139.6232) and source.border_boxes == japan.KG_BORDER_BOXES
+    assert src.SOURCES["tokyo"].border_boxes == japan.TK_BORDER_BOXES and len(japan.TK_BORDER_BOXES) == 2
+
+
+def test_kanagawa_offline_boxes():
+    """Kanagawa's offline boxes (region jp-14) come first among the Japanese sources (Tokyo's and Shizuoka's boxes
+    hold some of its land, Yamanashi's 13 km² of it) and keep off the neighbours' land: of the coverage map's outlines
+    they hold most of jp-14 and little of jp-13, jp-19 and jp-22; Kanagawa's places choose jp-14 offline and one
+    point on each neighbour's side next to its boxes keeps its own choice."""
+    import json
+    from shapely.geometry import box, shape
+    from shapely.ops import unary_union
+    from sources import choose
+    source = src.SOURCES["kanagawa"]
+    assert all(region == "jp-14" for region, _ in source.offline) and source.offline == japan.KG_BOXES
+    order = list(src.SOURCES)
+    assert order.index("kanagawa") < order.index("yamanashi") < order.index("tokyo") < order.index("shizuoka")
+    with open(os.path.join(os.path.dirname(HERE), "viewer", "src", "coverage", "shapes.json"), encoding="utf-8") as f:
+        outlines = {x["properties"]["id"]: shape(x["geometry"]) for x in json.load(f)["features"]
+                    if x["properties"]["id"] in ("jp-13", "jp-14", "jp-19", "jp-22")}
+    ours = unary_union([box(w, s, e, n) for _, (s, n, w, e) in source.offline])
+    km2 = {k: g.intersection(ours).area * 111.32 ** 2 * math.cos(math.radians(35.3)) for k, g in outlines.items()}
+    # measured 2026-11-27 (the boxes of the cells): a box grown or moved by a cell (about 5 km²) changes one of them
+    assert km2 == {"jp-14": pytest.approx(2281.68, abs=1.0), "jp-13": pytest.approx(29.63, abs=1.0),
+                   "jp-19": pytest.approx(10.72, abs=1.0), "jp-22": pytest.approx(9.32, abs=1.0)}, km2
+
+    def offline(lat, lon):
+        return next((region for region, (s, n, w, e) in choose.OFFLINE_BOXES if s <= lat <= n and w <= lon <= e),
+                    None)
+    # Makuiwa, Tanzawa (Hirugatake), Jogashima, Sagamiko, Yokohama's Kanazawa, Machida's south-east edge (Kanagawa's
+    # land inside Tokyo's box (35.48, 35.55, 139.42, 139.86))
+    for lat, lon in ((35.1532, 139.0856), (35.4605, 139.1595), (35.1340, 139.6200), (35.6120, 139.1800),
+                     (35.3400, 139.6200), (35.5200, 139.5000)):
+        assert offline(lat, lon) == "jp-14", (lat, lon)
+    # the neighbours' side next to Kanagawa's boxes: Tokyo (Machida, Hachioji), Yamanashi (Doshi), Shizuoka (Atami)
+    for lat, lon, code in ((35.5700, 139.4300, "jp-13"), (35.6600, 139.3000, "jp-13"),
+                           (35.4800, 138.9500, "jp-19"), (35.0950, 139.0700, "jp-22")):
+        assert offline(lat, lon) == code, (lat, lon, offline(lat, lon))
+
+
+def test_tokyo_gap_filled_from_kanagawa_as_a_seam(kanagawa, http_server, tmp_path):
+    """The neighbour fill of the catalogue's new pair: a Tokyo grid (zone IX) by the Kanagawa border at Machida,
+    two quadrant sheets wide, with no data in its eastern half gets Kanagawa's sheet there (its listing and its .lem
+    on the local bucket), counted as Kanagawa's and kept in the joined mask (a seam), never filled; its own data
+    stay."""
+    from rasterio.warp import transform
+    from shapely.geometry import box
+    assert "kanagawa" in src.SOURCES["tokyo"].neighbours and "tokyo" in src.SOURCES["kanagawa"].neighbours
+    xs, ys = transform("EPSG:4326", japan.KG_CRS, [139.40], [35.53])
+    i, j = int(xs[0] // 1000), int(ys[0] // 750)
+    grid = make_grid((i * 1000, j * 750, (i + 2) * 1000, (j + 1) * 750), 1.0, japan.KG_CRS)
+    grid.area_shape = box(*grid.bounds)
+    elevation = np.full((grid.height, grid.width), 100.0, np.float32)
+    elevation[:, grid.width // 2:] = np.nan
+    path = str(tmp_path / "nmt.npy")
+    np.save(path, elevation)
+    code = japan.jp_quad_sheet(9, i + 1, j)
+    _bucket(http_server, {_kg_key(code, 2020, "02"): _lem_zip(code, _kg_codes(1200))})
+    src.mosaic.used_data.clear()
+    try:
+        out = str(tmp_path / "joined.npy")
+        joined_path, counts = src.filling.fill_from_neighbours(path, None, grid, [src.SOURCES["kanagawa"]],
+                                                               str(tmp_path / "cache"), out)
+        result = np.load(path)
+        assert joined_path == out and [(s.id, n) for s, n in counts] == [("kanagawa", 1000 * 750)]
+        assert np.allclose(result[:, 1000:], 120.0, atol=0.006) and np.allclose(result[:, :1000], 100.0)
+        joined = np.load(out)
+        assert joined[:, 1000:].all() and not joined[:, :1000].any()
+        assert any(u.get("credit", {}).get("data") == japan.KG_CREDIT.data for u in src.mosaic.used_data)
+        assert not np.isnan(result).any()
+    finally:
+        src.mosaic.used_data.clear()
+
+
+@pytest.mark.parametrize("code", ["09MC9132", "09MD5023"])
+def test_check_source_reads_a_lem_sheet(code):
+    """tools/check_source.py's own reader of a .lem sheet (placed by its CSV header's corners, not the code) gives the
+    app's parser's heights on the sheet's pixels, for both recorded sheets."""
+    import check_source as cs
+    from sources.readers.sheetfile import _lem_grid
+    data = _kg_recorded(code)
+    left, bottom, right, top = japan.KG_LEVELS["q"].edges(japan.jp_quad_cell(9, code))
+    profile = {"crs": japan.KG_CRS, "transform": from_origin(left, top, 0.5, 0.5), "width": 2000, "height": 1500}
+    values = cs._lem_values(data, profile)
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        heights = _lem_grid(z.read(f"{code.lower()}_0.5g.lem"), (1500, 2000))
+    assert np.array_equal(np.isnan(values), np.isnan(heights)) and np.allclose(values, heights, equal_nan=True)
+
+
+def _lem_variant(code, drop=None, header=None, lem=None):
+    """A recorded sheet's ZIP with a member left out, its header replaced or its .lem replaced."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(_kg_recorded(code))) as source, \
+            zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as out:
+        for name in source.namelist():
+            if drop and name.endswith(drop):
+                continue
+            data = source.read(name)
+            if header is not None and name.endswith(".csv"):
+                data = header
+            if lem is not None and name.endswith(".lem"):
+                data = lem
+            out.writestr(name, data)
+    return buffer.getvalue()
+
+
+def test_check_source_lem_broken_is_a_warning(kanagawa, http_server, tmp_path):
+    """A .lem sheet check_source cannot read (no .csv member, a header without a corner, a byte that is not ASCII)
+    is a RuntimeError of _lem_values, so check_files says WARN with the reason instead of ending in a traceback; the
+    recorded sheet itself passes."""
+    import check_source as cs
+    code = "09MC9132"
+    profile = {"crs": japan.KG_CRS, "transform": from_origin(0, 0, 0.5, 0.5), "width": 2000, "height": 1500}
+    lem = _lem_text(_kg_codes(500))
+    for broken, match in ((_lem_variant(code, drop=".csv"), "no .lem and .csv members"),
+                          (_lem_variant(code, header="測量年,2024\r\n".encode("cp932")), "the header has no"),
+                          (_lem_variant(code, lem=lem[:20] + b"\xe9" + lem[21:]), "not a .lem sheet")):
+        with pytest.raises(RuntimeError, match=match):
+            cs._lem_values(broken, profile)
+    objects = {_kg_key(code): _kg_recorded(code)}
+    _bucket(http_server, objects)
+    cache_dir = str(tmp_path)
+    grid = _kg_grid(code)
+    _search(kanagawa, grid, cache_dir)
+    assert cs.check_files(kanagawa, grid, cache_dir, 1)["status"] == cs.PASS
+    objects[_kg_key(code)] = _lem_variant(code, drop=".csv")  # the source file read again is now broken
+    check = cs.check_files(kanagawa, grid, cache_dir, 1)
+    assert check["status"] == cs.WARN and "no .lem and .csv members" in check["text"], check["text"]
+
+
+# --- Miyagi -----------------------------------------------------------------------------------------------------------
+MG_RECORDED = os.path.join(HERE, "data", "recorded", "miyagi")
+
+
+def _mg_recorded(name):
+    with open(os.path.join(MG_RECORDED, name), "rb") as f:
+        return f.read()
+
+
+@pytest.fixture
+def miyagi(http_server, monkeypatch):
+    """The catalogue's Miyagi layer reading its ZIPs from the local server, with the table `table` (code -> folders)."""
+    monkeypatch.setattr(japan, "MG_BUCKET", http_server.base)
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+
+    def use(table):
+        monkeypatch.setattr(japan, "_mg_table", lambda: table)
+        return japan.MG_DTM
+    return use
+
+
+def _mg_search(layer, grid, cache_dir):
+    layer.download(grid, cache_dir, None, "terrain")
+    layer.downloaded(grid, cache_dir)
+
+
+def _mg_grid(code, margin=1.0):
+    left, bottom, right, top = japan.MG_DTM.index.edges(japan.jp_quad_cell(10, code))
+    return make_grid((left + margin, bottom + margin, right - margin, top - margin), 1.0, japan.MG_CRS)
+
+
+def _mg_text(code, z, rows=None, flag=1):
+    """A sheet's "id,x,y,z,flag" rows as the publisher writes them (cell centres on .5 m, west to east from the
+    north-west corner), only the rows given (row numbers from the north; None: all 750)."""
+    i, j = japan.jp_quad_cell(10, code)
+    left, top = i * 1000, (j + 1) * 750
+    lines, n = [], 0
+    for r in (range(750) if rows is None else rows):
+        y = top - 0.5 - r
+        for c in range(1000):
+            n += 1
+            lines.append(f"{n},{left + 0.5 + c:.2f},{y:.2f},{z:.2f},{flag}")
+    return ("\r\n".join(lines) + "\r\n").encode()
+
+
+def test_miyagi_sheet_codes_and_files():
+    """Quadrant sheets of zone X (10PD6721 is x -10 000..-9 000, y -168 750..-168 000: the research's check against a
+    real file's points); the files of a sheet come from the shipped table, its region folder in the URL, both folders
+    for 10PE0822 (listed twice), none for a code the table lacks (Kinkasan's 10QF3522)."""
+    assert japan.jp_quad_cell(10, "10PD6721") == (-10, -225) and japan.jp_quad_sheet(10, -10, -225) == "10PD6721"
+    assert japan.MG_DTM.index.edges((-10, -225)) == (-10_000, -168_750, -9_000, -168_000)
+    assert japan.jp_quad_cell(9, "10PD6721") is None and japan.jp_quad_cell(10, "10PD6725") is None
+    bucket = "https://gic-miyagi.s3.ap-northeast-1.amazonaws.com"
+    assert japan.mg_files(-10, -225) == [("01_10PD6721", f"{bucket}/2024/1mcsv/01/10PD6721.zip", 2023)]
+    assert japan.mg_files(*japan.jp_quad_cell(10, "10PE0822")) == [
+        ("02_10PE0822", f"{bucket}/2024/1mcsv/02/10PE0822.zip", 2023),
+        ("03_10PE0822", f"{bucket}/2024/1mcsv/03/10PE0822.zip", 2023)]
+    assert japan.mg_files(*japan.jp_quad_cell(10, "10QF3522")) == []
+
+
+def test_miyagi_table_shipped():
+    """The table in the catalogue (tools/miyagi_sheets.py from the portal's list of 2026-11-27): 9 570 sheets in 9 571
+    rows, every code a quadrant sheet of zone X, the test places' sheets in their folders."""
+    table = japan._mg_table()
+    assert len(table) == 9570 and sum(len(f) for f in table.values()) == 9571
+    assert table["10PE0822"] == (2, 3) and table["10QD3312"] == (6,) and table["10QE3444"] == (1,)
+    assert all(japan.jp_quad_cell(10, code) is not None for code in table)
+    assert {f for folders in table.values() for f in folders} == {1, 2, 3, 4, 5, 6, 7}
+    assert "10QF3522" not in table  # Kinkasan: in the sheet index, no grid
+
+
+def test_miyagi_sheets_tool(tmp_path):
+    """tools/miyagi_sheets.py on the recorded rows of the portal's list: 10PE0822 in two folders, the table written and
+    read back; a re-published list says what it adds, removes and moves; a list with another header, a URL of
+    another bucket or a code that is no quadrant sheet of zone X stops it."""
+    import miyagi_sheets
+    text = _mg_recorded("grid_list_rows.csv").decode("utf-8")
+    found = miyagi_sheets.sheets(miyagi_sheets.rows(text))
+    assert found["10PE0822"] == {2, 3} and found["10QD3312"] == {6} and len(found) == 5
+    out = str(tmp_path / "t.npz")
+    miyagi_sheets.save(out, found)
+    assert miyagi_sheets.load(out) == found
+    assert miyagi_sheets.sheet_url(6, "10QD3312") == f"{miyagi_sheets.BUCKET}/2024/1mcsv/06/10QD3312.zip"
+    republished = {**{c: f for c, f in found.items() if c != "10QE3444"}, "10QD3312": {7}, "10QD3313": {6}}
+    lines = miyagi_sheets.changes(found, republished)
+    assert lines[0].startswith("sheets added: 1 ['10QD3313']") and lines[1].startswith("sheets removed: 1 ['10QE3444']")
+    assert lines[2] == "sheets in other folders: 1 [('10QD3312', [6], [7])]"
+    with pytest.raises(ValueError, match="not the grid list"):
+        miyagi_sheets.rows("a,b,c,d\r\n")
+    header = text.splitlines()[0]
+    with pytest.raises(ValueError, match="no sheet's address"):
+        miyagi_sheets.rows(header + "\r\nt,n,https://example.org/2024/1mcsv/01/10PD6721.zip,1\r\n")
+    with pytest.raises(ValueError, match="not a quadrant sheet of zone X"):
+        miyagi_sheets.rows(header + f"\r\nt,n,{miyagi_sheets.sheet_url(1, '10PD6725')},1\r\n")
+    with pytest.raises(ValueError, match="names no sheet"):
+        miyagi_sheets.rows(header + "\r\n")
+
+
+@pytest.mark.parametrize("code, rows, flagged", [("10QE3444", 183, 0), ("10QE1532", 578, 7)])
+def test_miyagi_recorded_sheets(miyagi, http_server, tmp_path, code, rows, flagged):
+    """The publisher's small sheets (recorded 2026-11-27): each row a pixel of the 1 m sheet (1000 x 750 px in
+    EPSG:6678 on the code's box), the rest no data; the rows flagged -9999 keep their heights (the user's decision of
+    2026-11-27: 10QE1532's first row, flagged -9999, at -0.40 m)."""
+    data = _mg_recorded(f"{code}.zip")
+    layer = miyagi({code: (1,)})
+    http_server.add(f"/2024/1mcsv/01/{code}.zip", data, "application/x-zip-compressed")
+    cache_dir = str(tmp_path)
+    grid = _mg_grid(code)
+    _mg_search(layer, grid, cache_dir)
+    (path,) = layer.files(grid, cache_dir)
+    assert path.replace(os.sep, "/").endswith(f"miyagi/1mcsv/2023/{code[2:4]}/{code[4:6]}/{code}.tif")
+    left, bottom, right, top = layer.index.edges(japan.jp_quad_cell(10, code))
+    with rio.open(path) as tile:
+        values = tile.read(1)
+        assert tile.crs.to_epsg() == 6678 and tile.shape == (750, 1000)
+        assert tile.transform.almost_equals(from_origin(left, top, 1.0, 1.0))
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        table = np.loadtxt(io.BytesIO(z.read(f"{code.lower()}_1g.txt")), delimiter=",")
+    assert len(table) == rows and int((table[:, 4] == -9999).sum()) == flagged
+    assert np.count_nonzero(~np.isnan(values)) == rows  # every row, the flagged ones too
+    for x, y, z_, flag in table[:, 1:5]:
+        assert abs(values[int(top - y), int(x - left)] - z_) < 0.006, (x, y, flag)
+    if flagged:
+        assert table[0, 4] == -9999 and abs(values[int(top - table[0, 2]), int(table[0, 1] - left)] + 0.40) < 0.006
+    _mg_search(layer, grid, cache_dir)
+    assert _zips(http_server) == 1  # a second search asks nothing
+
+
+def test_miyagi_flagged_rows_keep_their_heights(miyagi, http_server, tmp_path):
+    """A synthetic sheet whose northern rows are flagged -9999 (the provider's interpolated cells: a lake's level, a
+    block without ground): their heights are kept as the others, never no data."""
+    code = "10QD3312"
+    layer = miyagi({code: (6,)})
+    text = _mg_text(code, 945.2, range(0, 20), flag=-9999) + _mg_text(code, 900.0, range(20, 750))
+    http_server.add(f"/2024/1mcsv/06/{code}.zip", _zip(f"{code.lower()}_1g.txt", text), "application/x-zip-compressed")
+    cache_dir = str(tmp_path)
+    grid = _mg_grid(code)
+    _mg_search(layer, grid, cache_dir)
+    (path,) = layer.files(grid, cache_dir)
+    with rio.open(path) as tile:
+        values = tile.read(1)
+    assert np.allclose(values[:20], 945.2, atol=0.006) and np.allclose(values[20:], 900.0, atol=0.006)
+
+
+def test_miyagi_two_files_and_missing_keys(miyagi, http_server, tmp_path):
+    """10PE0822 listed in two folders: both read, the fuller first, the other filling its holes; a sheet the table
+    lacks is no tile and never asked; a listed key the bucket answers 403 for (its answer to a missing key) is an error
+    of its sheet, nothing recorded, asked again by the next search."""
+    code = "10PE0822"
+    i, j = japan.jp_quad_cell(10, code)
+    absent, broken = japan.jp_quad_sheet(10, i + 1, j), japan.jp_quad_sheet(10, i + 2, j)  # 10PE0911, 10PE0912
+    layer = miyagi({code: (2, 3), broken: (1,)})
+    http_server.add(f"/2024/1mcsv/02/{code}.zip", _zip(f"{code.lower()}_1g.txt", _mg_text(code, 50.0, range(0, 10))),
+                    "application/x-zip-compressed")
+    http_server.add(f"/2024/1mcsv/03/{code}.zip", _zip(f"{code.lower()}_1g.txt", _mg_text(code, 60.0, range(5, 750))),
+                    "application/x-zip-compressed")
+    http_server.add(f"/2024/1mcsv/01/{broken}.zip", b"<Error><Code>AccessDenied</Code></Error>", "application/xml",
+                    status=403)
+    cache_dir = str(tmp_path)
+    grid = make_grid((i * 1000 + 1, j * 750 + 1, (i + 3) * 1000 - 1, (j + 1) * 750 - 1), 1.0, japan.MG_CRS)
+    tiles = layer.tiles(grid)
+    assert sorted(tiles) == sorted([(i, j), (i + 2, j)])  # the absent sheet is no tile
+    layer._download_and_record((i, j), cache_dir)
+    with rio.open(layer.tile_path(cache_dir, (i, j))) as tile:
+        values = tile.read(1)
+    assert np.allclose(values[:5], 50.0, atol=0.006) and np.allclose(values[5:], 60.0, atol=0.006)
+    assert [n for n, _, _ in gave_pixels(layer.tile_path(cache_dir, (i, j)))] == ["03_10PE0822", "02_10PE0822"]
+    with pytest.raises(RuntimeError, match=broken):
+        layer._download_and_record((i + 2, j), cache_dir)
+    assert cache.due(cache_dir, layer.tile_path(cache_dir, (i + 2, j)))  # the 403: an error, nothing recorded
+    assert len(http_server.requests(f"/2024/1mcsv/01/{broken}.zip")) == 1  # a 403 is not retried
+    assert not any(absent in r.path for r in http_server.requests())
+
+
+def test_miyagi_auto_takes_europe_far_from_sheets(monkeypatch, tmp_path):
+    """--source auto in jp-04: a centre within 2 km of a sheet of the table (Banji-iwa, Sendai's station) takes miyagi,
+    one farther (Wakabayashi's plain 3.6 km, the Natori plain 2.6 km) europe (instead_without_data, the user's
+    decision of 2026-11-27); the table decides, no request is made."""
+    monkeypatch.setattr(src.choose, "country_code", lambda lat, lon, cache_dir: "jp")
+    monkeypatch.setattr(src.choose, "region_codes", lambda lat, lon, cache_dir, code: ("jp-04",))
+
+    def no_request(*args, **kwargs):
+        raise AssertionError("a request")
+    monkeypatch.setattr(src.net, "_get", no_request)
+    for lat, lon in ((38.2950, 140.5277), (38.2601, 140.8822)):
+        assert src.choose_source("auto", lat, lon, str(tmp_path))[0].id == "miyagi", (lat, lon)
+    for lat, lon in ((38.2380, 140.9500), (38.1700, 140.8900)):
+        assert src.choose_source("auto", lat, lon, str(tmp_path)) == (
+            src.SOURCES["europe"], "the centre is in JP-04, but miyagi has no terrain data near it"), (lat, lon)
+    assert japan.MG_DTM.has_data_near(38.2380, 140.9500, str(tmp_path)) is False
+    assert japan.MG_DTM.index.has_data_near(38.2380, 140.9500, str(tmp_path), metres=4000) is True
+
+
+def test_miyagi_catalogue_entry():
+    """The catalogue's own settings: region jp-04, zone X, the 1 m grid's text members from the prefecture's bucket by
+    the shipped table, two connections at once (the portal too), the credit with the portal's three items and the
+    approval sentence, no surface model, no neighbours, europe where no sheet lies near."""
+    source = src.SOURCES["miyagi"]
+    assert source.regions == ("jp-04",) and source.countries == ("jp",) and source.crs == "EPSG:6678"
+    assert source.nmt is japan.MG_DTM and source.nmpt is None and source.credits == (japan.MG_CREDIT,)
+    assert source.neighbours == () and source.border_boxes == () and source.instead_without_data == "europe"
+    assert source.default_resolution == 1.0 and japan.MG_DTM.native_res == 1.0
+    assert japan.MG_DTM.folder == "miyagi/1mcsv/2023" and japan.MG_DTM.members == r"\.txt$"
+    assert japan.MG_DTM.reader.sheet.listed and japan.MG_DTM.index.cell == japan.SHEET_QUAD
+    assert japan.MG_DTM.bytes_per_tile() == 5.1e6
+    assert japan.MG_BUCKET == "https://gic-miyagi.s3.ap-northeast-1.amazonaws.com"
+    for text in ("宮城県", "【宮城県】3次元点群データ_データ一覧_グリッドデータ_CSV_2023", japan.MG_RESOURCE,
+                 "測量法に基づく国土地理院長承認（使用）R6JHs966"):
+        assert text in japan.MG_CREDIT.attribution, text
+    assert japan.MG_TERMS in japan.MG_CREDIT.notice and japan.MG_CREDIT.licence == "CC BY 4.0"
+    assert src.net.HOST_SLOTS_OF["gic-miyagi.s3.ap-northeast-1.amazonaws.com"] == 2
+    assert src.net.HOST_SLOTS_OF["miyagi.dataeye.jp"] == 2
+    assert source.sample == (38.2955, 140.5330) and japan.MG_DTM.has_data_near(*source.sample, "") is True
+
+
+def test_miyagi_offline_boxes():
+    """Miyagi's offline boxes (region jp-04) hold its places and keep off its neighbours' (no source there: their
+    points choose no Japanese source offline)."""
+    from sources import choose
+    source = src.SOURCES["miyagi"]
+    assert all(region == "jp-04" for region, _ in source.offline) and source.offline == japan.MG_BOXES
+
+    def offline(lat, lon):
+        return next((region for region, (s, n, w, e) in choose.OFFLINE_BOXES if s <= lat <= n and w <= lon <= e),
+                    None)
+    for lat, lon in ((38.2955, 140.5330), (38.2601, 140.8822), (38.7450, 140.6800), (38.1350, 140.4450)):
+        assert offline(lat, lon) == "jp-04", (lat, lon)
+    # Yamagata city, Fukushima's Kunimi, Iwate's Ichinoseki: no box
+    for lat, lon in ((38.2550, 140.3400), (37.8770, 140.5500), (38.9340, 141.1270)):
+        assert offline(lat, lon) is None, (lat, lon)
+
+
+@pytest.mark.parametrize("code", ["10QE3444", "10QE1532"])
+def test_check_source_reads_miyagi_rows(miyagi, http_server, tmp_path, code):
+    """tools/check_source.py reads "id,x,y,z,flag" rows by its own rule (GDAL's XYZ driver took id, x, y as the
+    columns: "Ungridded dataset"): every row in the pixel holding it, the flagged ones too, equal to the tile the
+    layer cached; a text of four columns is a RuntimeError (check_files' WARN line)."""
+    import check_source as cs
+    data = _mg_recorded(f"{code}.zip")
+    layer = miyagi({code: (1,)})
+    http_server.add(f"/2024/1mcsv/01/{code}.zip", data, "application/x-zip-compressed")
+    cache_dir = str(tmp_path)
+    grid = _mg_grid(code)
+    _mg_search(layer, grid, cache_dir)
+    check = cs.check_files(layer, grid, cache_dir, 1)
+    assert check["status"] == cs.PASS and check["tiles"][0]["max_abs_m"] <= 0.006, check["text"]
+    left, bottom, right, top = layer.index.edges(japan.jp_quad_cell(10, code))
+    profile = {"crs": japan.MG_CRS, "transform": from_origin(left, top, 1.0, 1.0), "width": 1000, "height": 750}
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        text = z.read(f"{code.lower()}_1g.txt")
+    with rio.open(layer.tile_path(cache_dir, japan.jp_quad_cell(10, code))) as tile:
+        cached = tile.read(1)
+    values = cs._csv_values(text, profile)
+    assert np.array_equal(np.isnan(values), np.isnan(cached)) and np.allclose(values, cached, atol=0.006,
+                                                                               equal_nan=True)
+    with pytest.raises(RuntimeError, match="5 expected"):
+        cs._csv_values(b"1,2.5,3.5,4\r\n2,3.5,3.5,4\r\n", profile)
+
+
+def test_check_source_reads_an_xyz_sheet_once(miyagi, http_server, tmp_path):
+    """check_source's text branch on a sheet of "x y z" lines (Shizuoka's kind) reads it through GDAL's XYZ driver
+    from the bytes it downloaded: one request to the ZIP, under the host's slot, and the cached tile equals it."""
+    import check_source as cs
+    code = "10QD3312"
+    layer = miyagi({code: (6,)})
+    i, j = japan.jp_quad_cell(10, code)
+    left, top = i * 1000, (j + 1) * 750
+    lines = [f"{left + 0.5 + c:.3f} {top - 0.5 - r:.3f} {900 + r + c / 1000:.3f}"
+             for r in range(10) for c in range(1000)]
+    text = ("\r\n".join(lines) + "\r\n").encode()
+    http_server.add(f"/2024/1mcsv/06/{code}.zip", _zip(f"{code.lower()}_1g.txt", text), "application/x-zip-compressed")
+    cache_dir = str(tmp_path)
+    grid = _mg_grid(code)
+    _mg_search(layer, grid, cache_dir)
+    before = len(http_server.requests(f"/2024/1mcsv/06/{code}.zip"))
+    slots, host_slot = [], src.net.host_slot
+
+    import contextlib
+
+    @contextlib.contextmanager
+    def counted(cache, url):
+        with host_slot(cache, url):
+            slots.append(url)  # held while the request runs
+            yield
+    import unittest.mock
+    with unittest.mock.patch.object(src.net, "host_slot", counted):
+        check = cs.check_files(layer, grid, cache_dir, 1)
+    assert len(http_server.requests(f"/2024/1mcsv/06/{code}.zip")) == before + 1  # one download, no second by GDAL
+    assert [u.rsplit("/", 3)[-2:] for u in slots] == [["06", f"{code}.zip"]]  # under the host's slot
+    assert check["status"] == cs.PASS and check["tiles"][0]["max_abs_m"] <= 0.006, check["text"]
+
+
+def test_check_source_composes_a_sheet_of_two_files(miyagi, http_server, tmp_path):
+    """A sheet of two files (10PE0822 in folders 02 and 03): check_source composes them as the layer does (the fuller
+    first, the other filling its holes), so the cached tile passes; compared with one file it would differ by 10 m."""
+    import check_source as cs
+    code = "10PE0822"
+    layer = miyagi({code: (2, 3)})
+    http_server.add(f"/2024/1mcsv/02/{code}.zip", _zip(f"{code.lower()}_1g.txt", _mg_text(code, 50.0, range(0, 10))),
+                    "application/x-zip-compressed")
+    http_server.add(f"/2024/1mcsv/03/{code}.zip", _zip(f"{code.lower()}_1g.txt", _mg_text(code, 60.0, range(5, 750))),
+                    "application/x-zip-compressed")
+    cache_dir = str(tmp_path)
+    grid = _mg_grid(code)
+    _mg_search(layer, grid, cache_dir)
+    check = cs.check_files(layer, grid, cache_dir, 1)
+    assert check["status"] == cs.PASS and check["tiles"][0]["max_abs_m"] <= 0.006, check["text"]
+    assert "02/10PE0822.zip + " in check["tiles"][0]["file"] and check["tiles"][0]["file"].endswith("03/10PE0822.zip")
+    assert cs._sheet_files(src.SOURCES["tokyo"].nmt, japan.jp_cell(9, "09KD8388")) == [
+        (f"{japan.TK_BUCKET}/2024/dig/grd50/09KD8388.zip", 2024),
+        (f"{japan.TK_BUCKET}/2023/dig/grd50/09KD8388.zip", 2023)]
+    assert cs._sheet_files(src.SOURCES["czechia"].nmt, None) == []

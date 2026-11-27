@@ -5273,5 +5273,93 @@
    "proj": "9.7.1",
    "rasterio": "1.5.2"
   }
+ },
+ "R97": {
+  "access_skipped": null,
+  "area": {
+   "inputs": null,
+   "shape": "b84d7c281be99322432351ceb09bd0ecad570ca75d3c2208f8ec69d73fb20f04",
+   "type": "circle"
+  },
+  "coastline": {
+   "edition": "2026-10-23"
+  },
+  "folders": {
+   "copernicus30/2021/wbm": {
+    "files": {
+     "copernicus30/2021/wbm/N35E139.tif": "d1f6ede4229a5503d416b3addec16ab38761cb74732b61b5f5c1661ff037933c"
+    },
+    "layers": [
+     "Copernicus water body mask"
+    ]
+   },
+   "fabdem/v1-2": {
+    "files": {
+     "fabdem/v1-2/N35E139.tif": "6fd1a4951c35535ab6535848463936a2a5d9929f40fa001d5f6e369d0b681ea9"
+    },
+    "layers": [
+     "FABDEM (terrain)"
+    ]
+   },
+   "kanagawa/grid-mesh": {
+    "files": {
+     "kanagawa/grid-mesh/q/ND/15/2021_09ND1533_aaa4b3eb.tif": "6f76e3e2abfc6c2c4e28938b1c42eb1ea1565a70d8b1936b2e0f0f21e610a5c6",
+     "kanagawa/grid-mesh/q/ND/15/2021_09ND1534_a9b27195.tif": "2b7f087ad2cf63f6af2ef4d45e7d90411dda4e6e1c180d4c7e41468af2aeab49",
+     "kanagawa/grid-mesh/q/ND/25/2021_09ND2511_42e639ed.tif": "6cb4c934d3011cdecb600e4e3a4c4c21ef924a06df271518da5037aab09f426b",
+     "kanagawa/grid-mesh/q/ND/25/2021_09ND2512_b4791578.tif": "a98a27bea866936572b844bc4f4045aa933c5f3aeeafe912edc30e247bb14a8a"
+    },
+    "layers": [
+     "Kanagawa point cloud grid 0.5 m (terrain)"
+    ]
+   }
+  },
+  "left_out": [],
+  "mixed": false,
+  "source": "kanagawa",
+  "versions": {
+   "gdal": "3.12.2",
+   "proj": "9.7.1",
+   "rasterio": "1.5.2"
+  }
+ },
+ "R98": {
+  "access_skipped": null,
+  "area": {
+   "inputs": null,
+   "shape": "d39d873634e151286ed37012ab0dc23d6742bc3b42f90e0071e19d2228ee5924",
+   "type": "circle"
+  },
+  "coastline": null,
+  "folders": {
+   "copernicus30/2021/wbm": {
+    "files": {
+     "copernicus30/2021/wbm/N38E140.tif": "77520284ebd18cdf6aec4fe0b5b8e98ee866b2ad9b3de932af6b485c3495a851"
+    },
+    "layers": [
+     "Copernicus water body mask"
+    ]
+   },
+   "miyagi/1mcsv/2023": {
+    "files": {
+     "miyagi/1mcsv/2023/QD/23/10QD2333.tif": "a97de6ccfb909062755830364c64d416cb7a705714d3dfe31dc7f60b795f7f65",
+     "miyagi/1mcsv/2023/QD/23/10QD2334.tif": "3ea346abeb8805a89a5085dc739ec58fba0f669c8ab65b5fd7f4189e7036bfb9",
+     "miyagi/1mcsv/2023/QD/33/10QD3311.tif": "c8aed32238ca37aeb1a6765af73d64dbe9162af598752c02c03cab658b5b9389",
+     "miyagi/1mcsv/2023/QD/33/10QD3312.tif": "2a2ff9d6783282a291221d72417456b4fa07f751a7d650dd826eba3f756c7af9",
+     "miyagi/1mcsv/2023/QD/33/10QD3313.tif": "76929b9c1558d057fd811c5d2b7a63ac6dd35e272fbc47400792b706da6366b5",
+     "miyagi/1mcsv/2023/QD/33/10QD3314.tif": "0d0f792efde9ba152c4a6249229d22630abbcd58a0a00a1fc91f02c931f13143"
+    },
+    "layers": [
+     "Miyagi point cloud grid 1 m (terrain)"
+    ]
+   }
+  },
+  "left_out": [],
+  "mixed": false,
+  "source": "miyagi",
+  "versions": {
+   "gdal": "3.12.2",
+   "proj": "9.7.1",
+   "rasterio": "1.5.2"
+  }
  }
 }

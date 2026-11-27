@@ -35,10 +35,10 @@ from . import belgium
 # of German land; the Faroe Islands anywhere before the global ones; Mexico before the USA: the usa's offline box
 # holds Monterrey, Mexico's keep clear of US land; Cyprus and Estonia anywhere before the global ones; Portugal
 # (Madeira) before Spain: Spain's offline box holds Madeira; Brazil (Rio de Janeiro) anywhere before the global ones;
-# Japan (Yamanashi, Tokyo, Shizuoka; Yamanashi first within it: its offline boxes overlap the others' over its
-# own land) anywhere before the global ones; Hong Kong anywhere before the global ones; Belgium
-# (Wallonia) after Luxembourg: Luxembourg's offline box holds Arlon and Martelange, which stay Luxembourg's offline
-# (Wallonia's own offline boxes keep off France, Flanders, the Netherlands and Germany)
+# Japan (Kanagawa, Yamanashi, Tokyo, Shizuoka, Miyagi; Kanagawa and Yamanashi first within it: their offline boxes
+# overlap the others' over their own land) anywhere before the global ones; Hong Kong anywhere before the global ones;
+# Belgium (Wallonia) after Luxembourg: Luxembourg's offline box holds Arlon and Martelange, which stay Luxembourg's
+# offline (Wallonia's own offline boxes keep off France, Flanders, the Netherlands and Germany)
 FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, portugal, spain, mexico, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, cyprus, estonia, brazil, japan, hong_kong, belgium, world)
 SOURCES: Dict[str, Source] = {s.id: s for family in FAMILIES for s in family.SOURCES}
 
@@ -70,7 +70,7 @@ AREA_NAMES: Dict[str, str] = {
     # Bremerhaven, which the source's coverage boxes leave out of a download) and Bremerhaven (relation 62658; the
     # area's code is ours: ISO 3166-2 names neither city; checked 2026-11-16)
     "de-hb": "Freie Hansestadt Bremen", "de-hb-bhv": "Bremerhaven",
-    "jp-13": "東京都", "jp-22": "静岡県", "jp-19": "山梨県",
+    "jp-13": "東京都", "jp-22": "静岡県", "jp-19": "山梨県", "jp-14": "神奈川県", "jp-04": "宮城県",
     # Madeira's other island groups: Nominatim's municipality and archipelagos (checked 2026-11-15)
     "pt-30-ps": "Porto Santo, Portugal", "pt-30-de": "Ilhas Desertas", "pt-30-se": "Ilhas Selvagens",
     # Hong Kong: its own ISO 3166-1 code on the map (Natural Earth's admin-0 has it; Nominatim names the place "cn"

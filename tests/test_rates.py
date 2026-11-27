@@ -393,6 +393,8 @@ def test_published_limits():
                                  "gic-tokyo.s3.ap-northeast-1.amazonaws.com": 2,
                                  "virtual-shizuoka.s3.ap-northeast-1.amazonaws.com": 2,
                                  "japan-pointcloud.s3.ap-northeast-1.amazonaws.com": 2,
+                                 "kanagawa-pointcloud.s3.ap-northeast-1.amazonaws.com": 2,
+                                 "gic-miyagi.s3.ap-northeast-1.amazonaws.com": 2, "miyagi.dataeye.jp": 2,
                                  "bulkdata.csdi.gov.hk": 2, "portal.csdi.gov.hk": 2,
                                  "mirror.findaline.lukawski.org": 2}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())

@@ -1655,6 +1655,17 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     without wires (DSM2, folder 02; the user's choice), listed per 1/50000 block; neighbours Tokyo and Shizuoka.
     Known: lakes are no data in the terrain and are filled as land from the 30 m models; "2024" is the files'
     publication label. R95 Mizugaki-yama (3 286 lines in 151 spots).
+  - *Kanagawa and Miyagi* (`kanagawa`, jp-14; `miyagi`, jp-04; built 2026-11-27, tag `history/japan`), read on
+    demand, terrain only. Kanagawa: the prefecture's 0.5 m MESH grids of 2019-2024 from its bucket
+    `kanagawa-pointcloud` (fixed-width `.lem` text), newest folder first; neighbours Tokyo, Shizuoka, Yamanashi;
+    its surface model exists for the 2022 area only and is not built. R97 Jogashima (353 lines in 10 spots).
+    Miyagi: the prefecture's 1 m grid from `gic-miyagi`, listed by a table shipped in the repository and
+    refreshed by hand; the rows its files flag -9999 hold heights the provider interpolated (a lake's level, a
+    block on a cliff) and are kept (the user, 2026-11-27: 115 lines with them at R98, 98 without); where no
+    sheet lies within 2 km of a search's centre the 30 m source takes over. R98 Banji-iwa (115 lines in 14
+    spots). The sets published as large archives (Kyoto, Tottori, Toyama, Nagano, Hyogo) are not built: the
+    user, 2026-11-27, dropped the archive reader for now and asks the providers whether a tiled copy may be
+    hosted (the Survey Act's Article 43: a copy receivable by the public needs the planning body's approval).
   - *Madeira's other islands* (`porto_santo`, `desertas`, `selvagens`): DROTe's 5 m ZIP, a mirror dataset per island
     group cut by the reworked `tools/mirror_tiles.py` (3.5 MB in all, final and verified, copied into the local
     mirror 2026-11-16); before `madeira` in pt-30, chosen by their boxes. R86 Porto Santo (7 184 lines in 431 spots),

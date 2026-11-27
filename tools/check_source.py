@@ -23,8 +23,11 @@ layer's own path into the cache of --data-dir:
    data (blocks: against the newest file with data there; a layer of heights above the ellipsoid
    against the files after its geoid's correction, as it caches them; a member of a remote ZIP
    (ZipMemberTiles, PackageTiles) read again by Range and opened by GDAL, with the layer's floor rule applied, in
-   the tile's own CRS when it names one). n/a for WCS tiles and local files. Both sides as the provider gave them:
-   a floor or a height offset applied where the tiles are read onto the grid (Layer.floor_of,
+   the tile's own CRS when it names one; a ".lem" sheet by the check's own parser, placed by its CSV header;
+   "id,x,y,z,flag" rows by the check's own parser, every row kept; a sheet of several files (surveys of several
+   years, two deliveries) composed again as the layer composes it, newest first, the fuller of one year first).
+   n/a for WCS tiles and local files. Both sides as the provider gave them: a floor or a height offset applied
+   where the tiles are read onto the grid (Layer.floor_of,
    Layer.height_offset) is on neither.
 4. alignment: the cached tiles' pixel edges against Source.grid_origin, their pixel size and CRS.
 5. precision: the share of whole-metre and whole-centimetre heights; WARN above 90% whole metres.
@@ -61,6 +64,8 @@ import area as ar  # noqa: E402
 import cache  # noqa: E402
 import search  # noqa: E402
 import sources as src  # noqa: E402
+from sources.layers.cellsheets import CellSheetTiles  # noqa: E402
+from sources.layers.s3sheets import S3SheetSets  # noqa: E402
 from sources.layers.wmsr import WmsrTiles  # noqa: E402
 from sources.readers import windows  # noqa: E402
 from sources.readers.zipmember import drop_below, xyz_rows  # noqa: E402
@@ -280,6 +285,105 @@ def _read_zip(layer: src.ZippedTiles, url: str, profile: Dict) -> np.ndarray:
     return values
 
 
+def _read_lem(url: str, profile: Dict, cache_dir: Optional[str] = None) -> np.ndarray:
+    """A sheet ZIP of fixed-width ".lem" heights (Kanagawa's MESH grids), downloaded (net._get, the host's rate turn,
+    under a slot of the host in the data folder) and read by _lem_values."""
+    slot = src.net.host_slot(cache_dir, url) if cache_dir else contextlib.nullcontext()
+    with slot:
+        response = src.net._get(url, binary_types=("zip", "octet"))
+    if response is None:
+        raise RuntimeError(f"{cache.clean_url(url)}: not found")
+    return _lem_values(response.content, profile)
+
+
+def _lem_values(data: bytes, profile: Dict) -> np.ndarray:
+    """A ".lem" sheet ZIP by the check's own rules, not the layer's parser (sources.readers.sheetfile._lem_grid) nor
+    its sheet code: the place from the ZIP's cp932 CSV header (the corners in cm, X northward, Y eastward; the counts
+    and the spacing), each line split into 5-character integers after its 10-character record number, -9999 and
+    -1111 as no data, 0.1 m; placed on the cached tile's pixels. RuntimeError (check_files' WARN line) for a ZIP
+    without its .lem or .csv member, a header without a key it needs, a byte that is not text or a line that is
+    not the header's count of integers."""
+    from rasterio.transform import Affine
+    from rasterio.warp import reproject
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            names = archive.namelist()
+            lem = next((n for n in names if n.lower().endswith(".lem")), None)
+            csv = next((n for n in names if n.lower().endswith(".csv")), None)
+            if lem is None or csv is None:
+                raise RuntimeError(f"no .lem and .csv members in {names[:5]}")
+            header = dict(line.split(",", 1) for line in archive.read(csv).decode("cp932").splitlines() if "," in line)
+            lines = archive.read(lem).decode("ascii").splitlines()
+        columns, rows = int(header["東西方向の点数"]), int(header["南北方向の点数"])
+        step = float(header["東西方向のデータ間隔"])
+        left, top = int(header["区画左下Y座標"]) / 100, int(header["区画右上X座標"]) / 100
+        if len(lines) < rows or any(len(line) < 10 + 5 * columns for line in lines[:rows]):
+            raise RuntimeError(f"{len(lines)} lines, {rows} of {10 + 5 * columns} characters expected")
+        codes = np.array([[int(line[10 + 5 * k:15 + 5 * k]) for k in range(columns)] for line in lines[:rows]],
+                         dtype=np.float64)
+    except KeyError as e:
+        raise RuntimeError(f"the header has no {e}") from None
+    except ValueError as e:  # UnicodeDecodeError too
+        raise RuntimeError(f"not a .lem sheet ({e})") from None
+    heights = np.where((codes == -9999) | (codes == -1111), np.nan, codes / 10).astype(np.float32)
+    values = np.full((profile["height"], profile["width"]), np.nan, dtype=np.float32)
+    reproject(heights, values, src_transform=Affine(step, 0, left, 0, -step, top), src_crs=profile["crs"],
+              dst_transform=profile["transform"], dst_crs=profile["crs"], src_nodata=np.nan, dst_nodata=np.nan,
+              resampling=Resampling.nearest)
+    return values
+
+
+# A first line of five comma-separated numbers: "id,x,y,z,flag" rows (Miyagi's 1 m sheets, VIRTUAL SHIZUOKA's CSV)
+BOM = b"\xef\xbb\xbf"  # a UTF-8 byte order mark a text may start with
+_CSV_ROW =re.compile(rb"\s*-?\d+(\s*,\s*[-+.\deE]+){4}\s*$")
+
+
+def _read_text_sheet(url: str, profile: Dict, cache_dir: Optional[str] = None) -> np.ndarray:
+    """A sheet ZIP of text, downloaded once (net._get, which takes the host's rate turn, under a slot of the host
+    in the data folder, as the layer's own download): "id,x,y,z,flag" rows by _csv_values (GDAL's XYZ driver would
+    take id, x, y as the columns), "x y z" lines by GDAL's XYZ driver on the cached tile's pixels."""
+    slot = src.net.host_slot(cache_dir, url) if cache_dir else contextlib.nullcontext()
+    with slot:
+        response = src.net._get(url, binary_types=("zip", "octet"))
+    if response is None:
+        raise RuntimeError(f"{cache.clean_url(url)}: not found")
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = [n for n in archive.namelist() if n.lower().endswith(".txt")]
+        if not names:
+            raise RuntimeError(f"no .txt member in {archive.namelist()[:5]}")
+        data = archive.read(names[0])
+    first = data.lstrip(BOM).split(b"\n", 1)[0]
+    if _CSV_ROW.match(first):
+        return _csv_values(data, profile)
+    with rio.io.MemoryFile(data.lstrip(BOM), ext=".xyz") as memfile, memfile.open() as source:
+        with WarpedVRT(source, src_crs=profile["crs"], crs=profile["crs"], transform=profile["transform"],
+                       width=profile["width"], height=profile["height"], nodata=-9999.0,
+                       resampling=Resampling.nearest) as vrt:
+            values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+    values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
+    return values
+
+
+def _csv_values(data: bytes, profile: Dict) -> np.ndarray:
+    """The "id,x,y,z,flag" rows of a text sheet by the check's own rule: every row's z (whatever its flag) in the
+    pixel of the cached tile holding its x, y; NaN where no row lies. RuntimeError for rows that are not five
+    numbers."""
+    try:
+        rows = np.loadtxt(io.BytesIO(data.lstrip(BOM)), delimiter=",", ndmin=2)
+    except ValueError as e:
+        raise RuntimeError(f"not id,x,y,z,flag rows ({e})") from None
+    if rows.shape[1] != 5:
+        raise RuntimeError(f"rows of {rows.shape[1]} columns, 5 expected")
+    t = profile["transform"]
+    values = np.full((profile["height"], profile["width"]), np.nan, dtype=np.float32)
+    cols = np.floor((rows[:, 1] - t.c) / t.a).astype(np.int64)
+    lines = np.floor((rows[:, 2] - t.f) / t.e).astype(np.int64)
+    inside = (cols >= 0) & (cols < profile["width"]) & (lines >= 0) & (lines < profile["height"])
+    values[lines[inside], cols[inside]] = rows[inside, 3]
+    values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
+    return values
+
+
 def _read_xyz(url: str, profile: Dict) -> np.ndarray:
     """A plain XYZ file of a GeoJsonTiles layer read by GDAL's XYZ driver (not the layer's own parser) on the
     pixels of a cached tile; its server needs net.verify (an incomplete TLS chain), so it is downloaded by
@@ -389,6 +493,41 @@ def _read_grid(layer: src.InegiSheets, url: str, tile, profile: Dict) -> np.ndar
     return values
 
 
+def _sheet_files(layer: src.Layer, tile) -> List[Tuple[str, int]]:
+    """(url, year) of every file a sheet of a sheet-set layer is composed from (S3SheetSets, CellSheetTiles), newest
+    year first; [] for any other layer."""
+    if isinstance(layer, S3SheetSets):
+        files = tile.files
+    elif isinstance(layer, CellSheetTiles):
+        request = layer.index.request(tile)
+        files = request.files if request is not None else ()
+    else:
+        return []
+    return [(f[1], f[2]) for f in files]
+
+
+def _composed(read, files: List[Tuple[str, int]]) -> np.ndarray:
+    """A sheet composed from its files as SheetSetFile does: newest year first, an older year read only while the
+    sheet has holes, within one year the fuller file first; read(url) is a file's raster on the tile's pixels."""
+    band = None
+    for year in sorted({y for _, y in files}, reverse=True):
+        if band is not None and not np.isnan(band).any():
+            break
+        rasters = sorted((read(url) for url, y in files if y == year), key=lambda r: -np.count_nonzero(~np.isnan(r)))
+        for raster in rasters:
+            band = raster.copy() if band is None else np.where(np.isnan(band), raster, band)
+    return band
+
+
+def _read_file(layer, url: str, profile: Dict, cache_dir: str) -> np.ndarray:
+    """One file of a sheet-set layer's sheet by the check's rules of its kind (as check_files' own dispatch)."""
+    if getattr(layer, "members", None) == r"\.lem$":
+        return _read_lem(url, profile, cache_dir)
+    if getattr(layer, "members", None) == r"\.txt$" and url.lower().endswith(".zip"):
+        return _read_text_sheet(url, profile, cache_dir)
+    return _read_source(url, profile, Resampling.nearest, cache_dir)
+
+
 def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
     """The files a cached tile comes from, newest first; None: no file to compare with."""
     if isinstance(layer, (src.WcsTiles, src.GeoWcsTiles, src.LercTiles, src.ZipSheetTiles, WmsrTiles,
@@ -483,6 +622,15 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
         name = cache.relative(cache_dir, path)
         blocks = isinstance(layer, (src.TnmBlocks, src.S3Blocks))
         result = None
+        sheets = _sheet_files(layer, tile)
+        if len(sheets) > 1:  # a sheet of several files: composed again from the check's own reads of each
+            try:
+                source = _composed(lambda url: _read_file(layer, url, profile, cache_dir), sheets)
+                results.append({"tile": name, "file": " + ".join(cache.clean_url(u) for u, _ in sheets),
+                                **compare(values, source)})
+            except (rio.errors.RasterioError, RuntimeError, zipfile.BadZipFile) as e:
+                problems.append(f"{name}: {cache.clean_error(e)}")
+            continue
         for url in _sources_of(layer, tile):
             try:
                 resampling = Resampling.average if getattr(layer, "average", 1) > 1 else Resampling.nearest
@@ -497,6 +645,10 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
                     source = _read_member(layer, tile, profile)
                 elif isinstance(layer, src.InegiSheets):
                     source = _read_grid(layer, url, tile, profile)
+                elif getattr(layer, "members", None) == r"\.lem$":
+                    source = _read_lem(url, profile, cache_dir)
+                elif getattr(layer, "members", None) == r"\.txt$" and url.lower().endswith(".zip"):
+                    source = _read_text_sheet(url, profile, cache_dir)
                 elif getattr(getattr(layer, "reader", None), "ranged", False) and url.startswith("http"):
                     source = _read_ranged(url, profile, resampling, cache_dir)
                 else:

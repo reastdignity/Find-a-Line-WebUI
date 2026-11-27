@@ -221,6 +221,17 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # the CKAN record https://www.geospatial.jp/ckan/dataset/yamanashi-pointcloud-2024 and its terms PDF, read
     # 2026-11-26): two at once, as for its sister bucket
     "japan-pointcloud.s3.ap-northeast-1.amazonaws.com": 2,
+    # AIGID's kanagawa-pointcloud bucket (AWS Open Data, tag aws-pds; Kanagawa's 0.5 m MESH grid sheets): no published
+    # limits (the AWS registry's kanagawa_pointcloud.yaml, AIGID's README
+    # https://github.com/aigidjp/opendata_kanagawa_pointcloud and the CKAN records kanagawa-2019-pointcloud to
+    # kanagawa-2024-pointcloud, read 2026-11-27): two at once, as for its sister buckets
+    "kanagawa-pointcloud.s3.ap-northeast-1.amazonaws.com": 2,
+    # Miyagi Prefecture's bucket (its 1 m grid sheets) and its open data portal (the grid list, asked by
+    # tools/miyagi_sheets.py only, redirected to the portal's bucket miyagi-data): no published limits (the portal's
+    # terms https://miyagi.dataeye.jp/pages/terms, the dataset's page /datasets/915 and the list's /resources/1523,
+    # read 2026-11-27); the prefecture pays the egress (not an AWS Open Data bucket): two at once
+    "gic-miyagi.s3.ap-northeast-1.amazonaws.com": 2,
+    "miyagi.dataeye.jp": 2,
     # The CSDI Portal's bulk-data host (CEDD's 2020 lidar sheets of Hong Kong) and the portal (the FeatureServer of
     # their index, asked by tools/hong_kong_sheets.py only): no published limits (the CSDI Portal's Terms and
     # Conditions of Use, https://portal.csdi.gov.hk/csdi-webpage/doc/TNC, its FAQ,

@@ -285,7 +285,7 @@ NEIGHBOUR_CUBES = {
     "aosta_valley": "aosta_valley",
     "hamburg": "hamburg",
     "ontario": "ontario",
-    "tokyo": "tokyo", "shizuoka": "shizuoka", "yamanashi": "yamanashi",
+    "tokyo": "tokyo", "shizuoka": "shizuoka", "yamanashi": "yamanashi", "kanagawa": "kanagawa",
     "wallonia": "wallonia"}
 
 

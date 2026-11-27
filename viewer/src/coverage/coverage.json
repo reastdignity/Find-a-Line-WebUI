@@ -965,6 +965,23 @@
    "survey": "2014",
    "trees": "yes"
   },
+  "jp-04": {
+   "added": "2026-11-27",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Miyagi Prefecture",
+   "res": [
+    1
+   ],
+   "source": "miyagi",
+   "survey": "2023",
+   "trees": "no"
+  },
   "jp-13": {
    "added": "2026-11-15",
    "level": 1,
@@ -980,6 +997,23 @@
    ],
    "source": "tokyo",
    "survey": "2022–2023",
+   "trees": "no"
+  },
+  "jp-14": {
+   "added": "2026-11-27",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Kanagawa Prefecture",
+   "res": [
+    1
+   ],
+   "source": "kanagawa",
+   "survey": "2019–2024",
    "trees": "no"
   },
   "jp-19": {
@@ -1493,7 +1527,9 @@
    "gb-wls"
   ],
   "jp": [
+   "jp-04",
    "jp-13",
+   "jp-14",
    "jp-19",
    "jp-22"
   ],
