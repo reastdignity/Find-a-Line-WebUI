@@ -147,7 +147,7 @@ def test_without_parents_every_code_is_its_own_country(monkeypatch):
     assert {row.name: row.continent for row in rows} == continents
     assert _row(rows, "puerto-rico").country == "Puerto Rico"
     assert _row(rows, "aland").label == "Whole country · finland"
-    assert sum(row.continent == "Europe" for row in rows) == 52
+    assert sum(row.continent == "Europe" for row in rows) == 53
     assert sum(row.continent == "North America" for row in rows) == 18
     assert sum(row.continent == "South America" for row in rows) == 3
 

@@ -103,7 +103,13 @@ through it). DGT's answer to mail 36 does not block the bulk copy, which CC BY 4
 **Decision.** The user's pick, 2026-11-15: "Wallonia"; the approved plan's choice 1 a (no letter given, so the
 recommended option stands): the five province ZIPs per model in EPSG:3812; on the server: "Also i would like do it
 with wallonia", "server fetches and cut all". So: fetched by `cdd_fetch.py fetch-list wallonia` and cut on the
-user's server, read through the hosted mirror.
+user's server, read through the hosted mirror. Changed on 2026-11-21: the server only fetched (all ten ZIPs and the
+fetch's state files, 2026-11-20); the cut and the publish run on the PC that holds the master. On 2026-11-22: "lets
+change, and cut it to 1m resolution", and on which resolutions: "1 m only"; the publishing row: "Approve this
+wording". So both products are cut and published at 1 m only, each pixel the mean of the valid 0.5 m pixels of its
+2 x 2 block. Changed on 2026-11-26: on "1 m only", "store native", and on which levels: "0.5 m only"; the row at
+0.5 m: "Approve this wording". So both products are cut and published at their own 0.5 m pixels only, nothing
+averaged (`wallonia/dtm/0.5m`, `wallonia/dsm/0.5m`); searches, never finer than 1 m, read them onto their grid.
 
 **Data.** SPW, "Relief de la Wallonie - Modèle Numérique de Terrain (MNT) 2021-2022" (record
 https://geoportail.wallonie.be/catalogue/a004e570-99d6-4fe5-b83d-49b774409278.html) and "... Modèle Numérique de
@@ -111,11 +117,16 @@ Surface (MNS) 2021-2022" (record .../5a4c28fe-d30c-493e-861e-a80ebc703b64.html):
 05/03/2022, EPSG:3812, heights "Deuxième Nivellement Général (EPSG:5710)", "précision altimétrique ... de l'ordre de
 0,12 m", the MNT "brute, non lissée". Ten ZIPs (the province ZIPs in EPSG:3812, addresses and sizes in
 `tools/cdd_fetch.py` `LISTS`, read 2026-11-15): 13.9 to 67.3 GB each, 469.6 GB together. Not the EPSG:31370 files
-(three provinces only, older than the corrections of 2024-01-23) nor the whole-region ZIPs. **Open until a ZIP is
-inspected**: one raster or tiles inside, the nodata value, the pixel edges (the origin), whether provinces overlap
-(the province ZIPs sum to 99.79 % (MNT) and 99.71 % (MNS) of the region ZIPs: probably clipped at their borders with
-nodata outside, an inference), and the compression method: Deflate64 needs 7-Zip (`FINDALINE_7ZIP`), which the
-project's image does not have.
+(three provinces only, older than the corrections of 2024-01-23) nor the whole-region ZIPs. **Inspected** on
+2026-11-21 (three of the ten ZIPs): Deflate (zipfile unpacks it, no 7-Zip); one raster per ZIP,
+`RELIEF_WALLONIE_MNT_50CM_2021_2022.tif` or `..._MNS_...` (the same member name in every province's ZIP of a model),
+beside a .tfw, an .aux.xml, a .lyr, a .qml, the licence page and a PDF; float32, LZW, full-width strips of 5-8 rows
+(131 208 x 62 818 px Brabant wallon, 250 833 x 195 069 px Hainaut), no overviews, AREA_OR_POINT=Point; EPSG:3812;
+0.5 m pixels with edges on whole half-metres (origin (0, 0); the MNT and MNS of one province on one transform); nodata
+-9999 (the tag and READ_ME.txt). The provinces are rectangles whose boxes overlap, nodata outside the province: the
+MNS of Brabant wallon and Hainaut over their whole shared box hold 104 507 pixels valid in both, every one identical
+(largest difference 0.0). The .aux.xml histograms reach -136.7 m (Brabant wallon's MNT, whose lowest ground is about
+30 m): artifacts may exist, not measured yet (gate G2).
 
 **Licence.** Both records: "Licence CC-BY 4.0 : L'utilisateur peut utiliser et modifier les données pour en dériver
 une œuvre. Il peut publier les données et l'œuvre dérivée à condition de citer les sources."
@@ -129,28 +140,49 @@ mail 32 is a notice to SPW of the download.
 **Access.** `tools/cdd_fetch.py fetch-list wallonia` (built): no login; the server ignores Range, so a broken file
 starts again; each size must equal the list's.
 
-**To build.**
-1. Inspect the first ZIP (Namur's terrain): the open points above decide `members`, `nodata`, `origin`, `overlap`
-   ("first", or "agree" where provinces overlap) and whether the container needs 7-Zip.
-2. `DATASETS`: dataset `wallonia`, products `dtm` and `dsm` at 0.5 m in EPSG:3812, inputs `Fetched("wallonia",
-   group="MNT")` and `group="MNS"` (the fetch-list's groups), the card with the "Source :" credit and the notice of
-   the changes the MNT record asks for.
-3. Catalogue: a source `wallonia` (country "be", region be-wal as the survey names it), mirror `GridTiles` for both
-   models, default resolution 1 m; offline box (49.49, 50.82, 2.83, 6.41) (wave 0); neighbours `france`,
-   `luxembourg` and the German Länder its boxes touch (wave 0; `luxembourg`'s entry names Wallonia as a later
-   neighbour; `tools/border_study.py boxes`, the six-neighbour cap of `countcube.PARTNERS`); orthophoto SPW's
-   https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_LAST/MapServer (CC BY 4.0, credit "Source :
-   Service public de Wallonie (SPW) - Orthophotos - Vues aériennes les plus récentes (2025-09-20)
-   https://geodata.wallonie.be/id/dfc9f3a2-adff-4b7f-ab77-8a890c4cabbb"); sample and regression place the Rochers de
-   Freyr (50.218, 4.894), radius 800 m, lines 20-150 m (wave 0, approximate); Rocher Bayard, Marche-les-Dames,
-   Comblain-au-Pont and Hotton for the checks.
-4. Tests as Portugal's.
+**Built** (2026-11-23, the task of local/wallonia-2026-11-21):
+1. `DATASETS["wallonia"]` (`tools/mirror_tiles.py`): products `dtm` and `dsm` at 1 m in EPSG:3812, origin (0, 0),
+   inputs `Fetched("wallonia", group="MNT", members=("*.tif",))` and `group="MNS"`, `nodata=(-9999.0,)`,
+   `overlap="agree"`, no floor, `average=2`: the tool's new `Product.average` (the inputs' pixel is res / average;
+   footprints, masks and the overlap rule on the 0.5 m pixels, then each pixel the mean of the valid ones of its
+   block, `_block_means`; the products of before cut bit for bit as before). The card names every change (the mean,
+   the cut, the join, the masks, LERC) as the MNT record asks; `PUBLISHABLE["wallonia"]` (`tools/mirror_publish.py`)
+   with the approved wording.
+2. Catalogue `sources/catalogue/belgium.py`: the source `wallonia` (country "be", region be-wal, Nominatim's
+   "Wallonie"), mirror `GridTiles` at `wallonia/dtm/1m` and `wallonia/dsm/1m`, default resolution 1 m, each layer its
+   record's credit; `bbox` the region's rectangle (49.49, 50.82, 2.83, 6.41: the neighbours' fill and the area
+   download over all of Wallonia), offline a staircase of 38 boxes inside the region's outline, so French and
+   Flemish places keep their choice of before offline; `belgium` after Luxembourg in FAMILIES (Arlon and Martelange
+   stay in Luxembourg's box offline); orthophoto SPW's ORTHO_LAST as its WMS (checked live on 2026-11-23: the
+   capabilities and a JPEG of Freyr)
+   (https://geoservices.wallonie.be/arcgis/services/IMAGERIE/ORTHO_LAST/MapServer/WMSServer, layer 0, EPSG:4326),
+   credit "Source : Service public de Wallonie (SPW) - Orthophotos - Vues aériennes les plus récentes (2025-09-20)
+   https://geodata.wallonie.be/id/dfc9f3a2-adff-4b7f-ab77-8a890c4cabbb"; sample the Rochers de Freyr (50.218, 4.894).
+   Neighbours by `tools/border_study.py boxes` (2026-11-23): every candidate touches, each direction at 100 % but
+   Wallonia's grid towards North Rhine-Westphalia (71 %: its boxes stop at 6.20 E between 50.32 and 50.75 N; a
+   border box (50.38, 50.75, 6.00, 6.20) gives 99.8 %). Declared both ways (each lists it last): `luxembourg`,
+   `north_rhine_westphalia` with that border box (the user, 2026-11-23: "Add NRW") and `netherlands`; not `france`
+   and `rhineland_palatinate` (six each, the cap; the user, 2026-11-23: "Leave it, note in roadmap": docs/roadmap.md,
+   batch 6).
+3. The coverage area be-wal (Natural Earth's five Walloon provinces, `tools/coverage_shapes.py` `MERGED`), README's
+   rows, `tools/raster_overlap.py` (the seams and low values of the inputs, for G1 and G2), the tests.
+4. Changed 2026-11-26 (the user's decision above): both products at 0.5 m with `average` 1, the cut's plain path
+   (tiles of 4000 px; the card and the row name no mean); the catalogue's `GridTiles` at native 0.5 m (cache folders
+   `...-0.5m-2km`, mirror `wallonia/dtm/0.5m` and `wallonia/dsm/0.5m`, tiles of an estimated 19.2 and 22.8 MB until
+   the cut measures them), the default resolution still 1 m: the mosaic averages the valid 0.5 m pixels of each 2 x 2
+   block, as for Luxembourg and the Netherlands. `Product.average` stays in the tool, used by no product.
+
+**Left.** G1 (`raster_overlap.py` on every neighbouring province pair of each model) and G2 (the low values per
+province; a floor only on the user's word after them, which changes the publishing row's sentence); the cut on the
+PC (`tools/mirror_tiles.py all wallonia`), `verify`, the publish; then `tools/check_source.py` and the probe at
+Freyr, and the regression entry (R94: the Rochers de Freyr, radius 800 m, lines 20-150 m, `needs_path`; Rocher
+Bayard, Marche-les-Dames, Comblain-au-Pont and Hotton for the checks).
 
 **Acceptance.** Ten ZIPs of the listed sizes; both products final and `verify` ok; `check_source` PASS at Freyr; the
 regression entry's lines checked on the map (Freyr's walls over the Meuse).
 
-**Blocks today.** The ZIPs' inspection; the fetch and the cut on the user's server; the hosted mirror. Mail 32 is a
-courtesy notice, not a condition.
+**Blocks today.** The gates G1 and G2, then the cut and the publish from the PC (the inputs complete since
+2026-11-22). Mail 32 is a courtesy notice, not a condition.
 
 ## 3. Valle d'Aosta's surface model
 

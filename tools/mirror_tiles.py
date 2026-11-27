@@ -60,14 +60,21 @@ assembled from the pixels of every raster that covers it, in the order of the in
 product's rule: "first" (the first listed wins) or "agree" (within the 5 mm bound, else an error naming the tile).
 Masks per product: the files' own nodata, the `nodata` values, the `sea` value, an optional `floor` (every value
 below it) and NaN. The CRS is the product's, never the file's (a file's own label, when another, is recorded in the
-index as `input_crs`). Tiles are written in tools/sk_tiles.py's encoding (COG LERC_ZSTD within 5 mm,
-`sk_tiles._write`); index.json lists every tile of the extent with its sha256 (null: no data). The datasets of
-before (Madeira 2 m, Valle d'Aosta) go the same way and keep their index keys and published cards; a folder an
-earlier version of this tool left unfinished (an index saying "partial") is left alone: move it away to cut again.
+index as `input_crs`). A product may be cut at a whole multiple of its inputs' pixel (`average`; none today, every
+product is cut at its inputs' own pixels, Wallonia's at 0.5 m): the footprints, the masks and the overlap rule
+work on the inputs' pixels, then each pixel is the mean of the valid input pixels of its average x average block, in
+float64 (sources.readers.download._block_means, the rule of tools/sk_tiles.py average; a block without one is no
+data; 2 km tiles hold whole blocks); its index names `average` and `input_resolution`, its journal rule the factor,
+and verify compares a sampled pixel with the mean of its block read straight from the inputs. Tiles are written in
+tools/sk_tiles.py's encoding (COG LERC_ZSTD within 5 mm, `sk_tiles._write`); index.json lists every tile of the
+extent with its sha256 (null: no data). The datasets of before (Madeira 2 m, Valle d'Aosta) go the same way and keep
+their index keys and published cards; a folder an earlier version of this tool left unfinished (an index saying
+"partial") is left alone: move it away to cut again.
 
 Memory: the cut works tile by tile, `--threads` writers and a GDAL cache within `--max-memory-gb`. The bound is an
 estimate (GDAL's cache, TILE_BYTES_PER_PX for each tile in flight and the one being assembled, BASE_MB for the
-process; GDAL's own buffers and the open files are not counted): the cut refuses a bound below one tile, and in a
+process; GDAL's own buffers and the open files are not counted; the tile being assembled of an averaged product holds
+its input pixels, TILE_BYTES_PER_PX + AVERAGE_BYTES_PER_PX each): the cut refuses a bound below one tile, and in a
 container the container's memory limit is the guard.
 
     python tools/mirror_tiles.py download porto-santo --work W          # the declared files (resumed where allowed)
@@ -86,10 +93,12 @@ sha256, finds every file in the folder the index does not list, compares the til
 the index's keys and the inputs with the journal's feeders, and compares sampled tiles (`--samples`, by default 1 %
 of the tiles with data, at least 8, at most 500; `--seed`, recorded) with the inputs twice: re-assembled from
 footprints read again, and POINTS pixels each read straight from the input rasters through their own transforms with
-the masks applied apart. It judges against the inputs the cut read (inputs.jsonl): an input that came later is no
-part of the edition (one line), a tile whose inputs are gone or changed is not checkable, never a failure. A verify
-that compares no tile with data is "not checkable" (ok null; status: final, not verified), and keeps an earlier
-passing verify.json of the same index.json. It writes verify.json beside the index.
+the masks applied apart (an averaged product's also up to EDGE_BLOCKS blocks per tile of each of EDGE_KINDS: partly
+valid, on a seam, joined from two rasters that touch; found from the inputs; verify.json counts those compared).
+It judges against the inputs the cut read (inputs.jsonl): an input that came later is no part of the edition (one
+line), a tile whose inputs are gone or changed is not checkable, never a failure. A verify that compares no tile
+with data is "not checkable" (ok null; status: final, not verified), and keeps an earlier passing verify.json of
+the same index.json. It writes verify.json beside the index.
 
 In a container of the project's image (Linux). The image holds no tools/ (.dockerignore), so the clone's is mounted
 too; the container runs as uid 10001 unless --user says otherwise, the mounted folders must be writable by that user,
@@ -159,6 +168,8 @@ THREADS = 6            # tile writers (a small home server's cores)
 MAX_MEMORY_GB = 8.0    # the cut's estimated bound, GDAL's cache included (see the module's docstring)
 BASE_MB = 300          # Python, GDAL and the libraries before any tile
 TILE_BYTES_PER_PX = 24  # a tile in flight: its float32 buffer, a float64 read window at worst, the masks, LERC's copy
+AVERAGE_BYTES_PER_PX = 24  # an averaged tile being assembled, per input pixel besides those: the float64 copy, the
+                           # float64 values with 0 where invalid and the validity mask of _block_means
 # A fetched file whose bytes are not those the fetch recorded
 SHA_MISMATCH = ("its sha256 is not the one done.jsonl records: remove the file and its line from done.jsonl, then run "
                 "the fetch tool (tools/cdd_fetch.py) again")
@@ -166,6 +177,8 @@ SHA_MISMATCH = ("its sha256 is not the one done.jsonl records: remove the file a
 # cut again (product_rule)
 CUT_VERSION = 1
 POINTS = 300           # verify: pixels of each sampled tile also read straight from the inputs
+EDGE_BLOCKS = 50       # ... and of an averaged product at most so many blocks of each of EDGE_KINDS
+EDGE_KINDS = ("partial", "seam", "joined")  # partly valid; a pixel valid in two rasters; two rasters that touch
 VERIFY_EPS = MAX_Z_ERROR + 1e-4  # LERC's bound and float32 rounding at heights of a few thousand metres
 NAME = re.compile(r"^[a-z0-9_-]+$")
 NOT_INPUTS = (".part", ".crdownload", ".tmp", ".new")
@@ -259,6 +272,21 @@ class Product:
     overlap: str = "first"           # "first": the first listed wins; "agree": within MAX_Z_ERROR, else an error
     about: str = ""                  # the card's sentence on what the product is and where it comes from
     card_changes: str = ""           # a change the card names besides the cut's own (a label replaced, a type)
+    average: int = 1                 # the inputs' pixel is res / average; above 1 each pixel is the mean of the valid
+                                     # input pixels of its average x average block (no product today)
+
+
+def input_res(product: Product) -> float:
+    """The inputs' pixel size: the product's own, or res / average for a product averaged from finer inputs (whose
+    blocks never straddle two tiles: TILE_M is a whole number of output pixels from the origin)."""
+    if not isinstance(product.average, int) or isinstance(product.average, bool) or product.average < 1:
+        raise ValueError(f"{product.name}: average {product.average!r} is not a whole number of 1 or more")
+    if product.average == 1:
+        return product.res
+    res = product.res / product.average
+    if tile_px(res) != tile_px(product.res) * product.average:
+        raise ValueError(f"{product.name}: {res:g} m input pixels do not make whole {product.res:g} m blocks of a tile")
+    return res
 
 
 @dataclass(frozen=True)
@@ -277,6 +305,7 @@ class Dataset:
     card: Optional[str] = None
     legacy: bool = False  # an index of before (no keys beyond those of 2026-11-15)
     key: str = ""         # a dataset of before: its name in DATASETS (the index's "dataset")
+    heading: str = ""     # the card's first line when it is not "<title> as 2 km tiles" (an approved row's title)
 
 
 PORTO_SANTO_ZIP = Url("https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip", 114_126_877)
@@ -294,6 +323,37 @@ def _island(name: str, island: str, member: str, crs: str, crs_name: str, nodata
                       about=f"{member} of {PORTO_SANTO_ZIP.url} ({crs_name}); {about}")
     return Dataset(name, f"{island}: DTM 5 m (DROTe, 2018-2019)", DROTE, "No conditions apply (SNIG record abba9a83)",
                    f"DTM 5 m: {DROTE}, 2018-2019", (product,), record=MADEIRA_5M_RECORD, not_endorsed="DROTe")
+
+
+# Wallonia: SPW's "Relief de la Wallonie" MNT and MNS 2021-2022 (lidar of 19/02/2021 to 05/03/2022, 0.5 m), five
+# province ZIPs per model in EPSG:3812 fetched by tools/cdd_fetch.py fetch-list wallonia (the groups MNT and MNS).
+# Inspected 2026-11-21: Deflate; one raster per ZIP (RELIEF_WALLONIE_MN{T,S}_50CM_2021_2022.tif), float32 in LZW
+# full-width strips (a tiled copy in --work), AREA_OR_POINT=Point; pixel edges on whole half-metres (origin (0, 0));
+# nodata -9999; the provinces are rectangles whose boxes overlap, nodata outside the province, their shared pixels
+# equal (MNS Brabant wallon and Hainaut: 104 507 pixels valid in both, all identical), hence "agree". Cut at its own
+# 0.5 m pixels only, nothing averaged (the user's decision of 2026-11-26: "store native", "0.5 m only"; it replaced
+# that of 2026-11-22, 1 m only, each pixel the mean of 2 x 2); searches read the tiles onto their grid. Licence CC BY
+# 4.0; the credits verbatim from the records (2026-11-15; the MNS's also in its ATOM feed of 2026-11-21); the MNT's
+# record asks the changes to be named ("mention explicite des modifications apportées à la donnée"): the card names
+# every one
+SPW = "Service public de Wallonie (SPW)"
+WALLONIA_MNT_RECORD = "https://geoportail.wallonie.be/catalogue/a004e570-99d6-4fe5-b83d-49b774409278.html"
+WALLONIA_MNS_RECORD = "https://geoportail.wallonie.be/catalogue/5a4c28fe-d30c-493e-861e-a80ebc703b64.html"
+WALLONIA_CREDITS = (
+    "Source : Service public de Wallonie (SPW) - Relief de la Wallonie - Modèle Numérique de Terrain (MNT) 2021-2022 "
+    "(2024-01-23) https://geodata.wallonie.be/id/a004e570-99d6-4fe5-b83d-49b774409278",
+    "Source : Service public de Wallonie (SPW) - Relief de la Wallonie - Modèle Numérique de Surface (MNS) 2021-2022 "
+    "(2024-01-23) https://geodata.wallonie.be/id/5a4c28fe-d30c-493e-861e-a80ebc703b64")
+
+
+def _wallonia(name: str, group: str, model: str, record: str) -> Product:
+    """One model of SPW's 2021-2022 lidar: its five province ZIPs, cut at their own 0.5 m pixels."""
+    return Product(name, 0.5, "EPSG:3812", (0.0, 0.0), (Fetched("wallonia", group=group, members=("*.tif",)),),
+                   f"{model} 2021-2022 (SPW, lidar 2021-2022, 0.5 m)",
+                   "Deuxième Nivellement Général (EPSG:5710)", nodata=(-9999.0,), overlap="agree",
+                   about=f"the five province ZIPs of SPW's \"Relief de la Wallonie - {model} 2021-2022\" (record "
+                         f"{record}), each one raster RELIEF_WALLONIE_{group}_50CM_2021_2022.tif of 0.5 m pixels in "
+                         "ETRS89 / Belgian Lambert 2008 (EPSG:3812), lidar of 19/02/2021 to 05/03/2022")
 
 
 # Two shapes: a dict of before (one URL, one ZIP member, one product) or a Dataset. The CRS of every product is the
@@ -334,6 +394,15 @@ DATASETS: Dict[str, Union[Dict, Dataset]] = {
     "selvagens": _island("selvagens", "Selvagens", "Selvagens_5m.tif", "EPSG:5016",
                          "PTRA08 / UTM zone 28N, EPSG:5016", (-32768.0, -999.0), None,
                          "Selvagem Grande, Selvagem Pequena and Ilhéu de Fora", floor=-1.0),
+    "wallonia": Dataset(
+        "wallonia", "Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW)", SPW,
+        "CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)", "; ".join(WALLONIA_CREDITS),
+        (_wallonia("dtm", "MNT", "Modèle Numérique de Terrain (MNT)", WALLONIA_MNT_RECORD),
+         _wallonia("dsm", "MNS", "Modèle Numérique de Surface (MNS)", WALLONIA_MNS_RECORD)),
+        record=WALLONIA_MNT_RECORD, not_endorsed="the Service public de Wallonie (SPW)",
+        # the publishing row's title and not-endorsed sentence (the user's approval of 2026-11-22, the title at 0.5 m
+        # approved 2026-11-26)
+        heading="Wallonia: MNT and MNS 2021-2022, lidar 2021-2022, 0.5 m (SPW), as 2 km tiles"),
 }
 
 
@@ -973,7 +1042,8 @@ def _extract_product(ds: "Dataset", prod: "Product", work: str, inputs: Optional
     state = State(work, ds, prod)
     try:
         for raster in r.rasters:
-            state.footprint(raster, prod, lambda r_=raster: readable(r_, work, prod.res, max_memory_gb, files, prod))
+            state.footprint(raster, prod, lambda r_=raster: readable(r_, work, input_res(prod), max_memory_gb, files,
+                                                                     prod))
     finally:
         state.close()
     return paths
@@ -1271,7 +1341,7 @@ def footprint(path: str, product: Product) -> Footprint:
 
 
 def _footprint_of(src, product: Product, path: str) -> Footprint:
-    res, (ox, oy) = product.res, product.origin
+    res, (ox, oy) = input_res(product), product.origin
     if src.count != 1 or src.transform.b or src.transform.d or src.transform.e >= 0:
         raise ValueError(f"{path}: one band, north up, without rotation expected")
     if not (math.isclose(src.res[0], res, rel_tol=1e-9) and math.isclose(src.res[1], res, rel_tol=1e-9)):
@@ -1286,7 +1356,7 @@ def _footprint_of(src, product: Product, path: str) -> Footprint:
 
 def tiles_of(fp: Footprint, product: Product) -> Tuple[range, range]:
     """The rows (from the top) and columns of tiles a footprint touches."""
-    (ox, oy), res = product.origin, product.res
+    (ox, oy), res = product.origin, input_res(product)
     right, bottom = fp.left + fp.width * res, fp.top - fp.height * res
     rows = range(math.ceil((fp.top - oy) / TILE_M) - 1, math.floor((bottom - oy) / TILE_M) - 1, -1)
     cols = range(math.floor((fp.left - ox) / TILE_M), math.ceil((right - ox) / TILE_M))
@@ -1317,8 +1387,10 @@ class State:
 
     @staticmethod
     def _stamp(raster: Raster, product: Product) -> str:
-        # the file's size and time, and the grid it was placed on (another origin is checked again)
-        return f"{file_stamp(raster.path)}:{product.res:g}:{product.origin[0]:g}:{product.origin[1]:g}"
+        # the file's size and time, and the grid it was placed on (another origin is checked again; an averaged
+        # product's footprints are on its inputs' pixels)
+        return f"{file_stamp(raster.path)}:{product.res:g}:{product.origin[0]:g}:{product.origin[1]:g}" + \
+            (f":x{product.average}" if product.average != 1 else "")
 
     def cached(self, raster: Raster, product: Product) -> Optional[Footprint]:
         row = self.known.get(raster.id)
@@ -1395,17 +1467,27 @@ def _write(path: str, tile: np.ndarray, crs: str, transform):
     _site("tile.after_replace")
 
 
-def mask(values: np.ndarray, product: Product, file_nodata: Optional[float]) -> np.ndarray:
-    """values as float32 with NaN for every no-data value: the file's own, the product's nodata and sea values, every
-    value below its floor (compared as float32, as the values are kept)."""
+def no_data(values: np.ndarray, product: Product, file_nodata: Optional[float]) -> np.ndarray:
+    """Which values are no data, the one rule of the cut (mask) and of verify's checks apart from it (_input_masks,
+    _point_problems): not finite, the file's own nodata, the product's nodata and sea values, below its floor; each
+    compared as float32 against the float32 of the value (as the tiles keep the values: a pixel equal to
+    float32(floor) is kept whatever the floor's float64)."""
     values = values.astype(np.float32, copy=False)
+    bad = ~np.isfinite(values)
     for value in tuple(product.nodata) + ((file_nodata,) if file_nodata is not None else ()) + \
             ((product.sea,) if product.sea is not None else ()):
         if not np.isnan(value):
-            values[values == np.float32(value)] = np.nan
+            bad |= values == np.float32(value)
     if product.floor is not None:
         with np.errstate(invalid="ignore"):
-            values[values < np.float32(product.floor)] = np.nan
+            bad |= values < np.float32(product.floor)
+    return bad
+
+
+def mask(values: np.ndarray, product: Product, file_nodata: Optional[float]) -> np.ndarray:
+    """values as float32 with NaN for every no-data value (no_data)."""
+    values = values.astype(np.float32, copy=False)
+    values[no_data(values, product, file_nodata)] = np.nan
     return values
 
 
@@ -1415,9 +1497,11 @@ class Overlap(ValueError):
 
 def assemble(key: Tuple[int, int], product: Product, footprints: Sequence[Tuple[str, Footprint]],
              handles: Dict[str, "rio.DatasetReader"]) -> np.ndarray:
-    """Tile (i, j) from every footprint covering it, in their order, by the product's overlap rule; NaN for no data."""
+    """Tile (i, j) from every footprint covering it, in their order, by the product's overlap rule; NaN for no data.
+    An averaged product's tile is put together on the inputs' pixels (the masks and the overlap rule on those), then
+    each pixel is the mean of the valid input pixels of its block (_block_means, in float64; NaN where none)."""
     i, j = key
-    res, (ox, oy) = product.res, product.origin
+    res, (ox, oy) = input_res(product), product.origin
     px = tile_px(res)
     tile = np.full((px, px), np.nan, dtype=np.float32)
     tile_left, tile_top = ox + i * TILE_M, oy + (j + 1) * TILE_M
@@ -1443,6 +1527,9 @@ def assemble(key: Tuple[int, int], product: Product, footprints: Sequence[Tuple[
             raise ValueError(f"overlap {product.overlap!r}: 'first' or 'agree'")
         fill = new & ~have
         target[fill] = values[fill]
+    if product.average != 1:
+        from sources.readers.download import _block_means  # the project's rule of averaged tiles (sk_tiles.average)
+        return _block_means(tile.astype(np.float64), product.average).astype(np.float32)
     return tile
 
 
@@ -1472,7 +1559,7 @@ def plan(product: Product, rasters: Sequence[Raster], work: str, state: State,
         footprints, input_crs = [], {}
         for raster in rasters:
             fp = state.footprint(raster, product,
-                                 lambda r=raster: readable(r, work, product.res, max_memory_gb, files, product))
+                                 lambda r=raster: readable(r, work, input_res(product), max_memory_gb, files, product))
             footprints.append((raster.id, fp))
             if fp.crs_label is not None and not _same_crs(fp.crs_label, product.crs):
                 input_crs.setdefault(fp.crs_label, []).append(raster.id)
@@ -1539,14 +1626,18 @@ def final_state(out: str, ds: Dataset, product: Product) -> Optional[str]:
 
 
 def _workers(product: Product, threads: int, max_memory_gb: float) -> Tuple[int, int]:
-    """(tiles written at once, GDAL's cache in MB) within the bound; ValueError when not one tile fits."""
+    """(tiles written at once, GDAL's cache in MB) within the bound; ValueError when not one tile fits. The tiles in
+    flight hold their output pixels; the one being assembled holds its inputs' pixels (an averaged product's: average²
+    of them per output pixel, and the float64 copy and sum of the mean, AVERAGE_BYTES_PER_PX more each)."""
     cache_bytes, left = _budget(max_memory_gb)
     per_tile = tile_px(product.res) ** 2 * TILE_BYTES_PER_PX
-    workers = min(max(1, threads), left // per_tile - 1)  # one more tile is being assembled
+    assembling = per_tile if product.average == 1 else \
+        tile_px(input_res(product)) ** 2 * (TILE_BYTES_PER_PX + AVERAGE_BYTES_PER_PX)
+    workers = min(max(1, threads), (left - assembling) // per_tile)
     if workers < 1:
         raise ValueError(f"--max-memory-gb {max_memory_gb:g}: too little for one tile of {product.res:g} m "
-                         f"({2 * per_tile / 1e9:.2f} GB beside GDAL's cache of {cache_bytes / 1e9:.2f} GB and "
-                         f"{BASE_MB} MB of base)")
+                         f"({(per_tile + assembling) / 1e9:.2f} GB beside GDAL's cache of {cache_bytes / 1e9:.2f} GB "
+                         f"and {BASE_MB} MB of base)")
     return int(workers), cache_bytes >> 20
 
 
@@ -1567,6 +1658,8 @@ def product_rule(product: Product) -> str:
     encoding): a tile journaled under another rule is cut again."""
     rule = [product.res, product.crs, list(product.origin), list(product.nodata), product.sea, product.floor,
             product.overlap, TILE_M, MAX_Z_ERROR, CUT_VERSION]
+    if product.average != 1:  # the products of before keep their rule (and their journals)
+        rule.append(["average", product.average])
     return hashlib.sha1(json.dumps(rule).encode("utf-8")).hexdigest()[:16]
 
 
@@ -1838,6 +1931,8 @@ def _index(ds: Dataset, product: Product, p: Plan, r: Resolved, done: Dict[str, 
     if product.floor is not None:
         masks["below"] = product.floor
     index.update(inputs=len(p.footprints), overlap=product.overlap, masks=masks)
+    if product.average != 1:  # each pixel the mean of the valid input pixels of its average x average block
+        index.update(average=product.average, input_resolution=input_res(product))
     if p.input_crs:
         index["input_crs"] = {label: (ids if len(ids) <= 20 else ids[:20] + [f"... {len(ids) - 20} more"])
                               for label, ids in p.input_crs.items()}
@@ -1902,7 +1997,7 @@ def card_text(ds: Dataset, out: Optional[str] = None) -> str:
             raise ValueError(f"{ds.name}: a fixed card describes one product; with more the card is generated "
                              "(remove card=)")
         return ds.card
-    lines = [f"# {ds.title} as 2 km tiles", ""]
+    lines = [f"# {ds.heading or ds.title + ' as 2 km tiles'}", ""]
     lines += [f"Made from the data of **{ds.provider}**" + (f" ({ds.record})" if ds.record else "") + ".",
               f"Licence: {ds.licence}. Attribution: {ds.attribution}.", ""]
     for product in ds.products:
@@ -1924,11 +2019,17 @@ def card_text(ds: Dataset, out: Optional[str] = None) -> str:
         lines += [f"## `{folder}`: {product.title}", ""]
         if product.about:
             lines += [f"Source: {product.about}.", ""]
-        lines += [f"Changes made: cut into 2 km x 2 km Cloud Optimized GeoTIFFs on its own {product.res:g} m pixel "
-                  f"grid in {product.crs} (tile (i, j) starts at x = 2000 i + {ox:g}, y = 2000 j + {oy:g})"
+        fine = input_res(product)
+        mean = (f"each {product.res:g} m pixel is the mean of the valid {fine:g} m pixels of its {product.average} x "
+                f"{product.average} block (a block without one is no data); " if product.average != 1 else "")
+        grid = (f"its own {product.res:g} m pixel grid" if product.average == 1 else
+                f"a {product.res:g} m pixel grid on the edges of the {fine:g} m pixels")
+        lines += [f"Changes made: {mean}cut into 2 km x 2 km Cloud Optimized GeoTIFFs on {grid} "
+                  f"in {product.crs} (tile (i, j) starts at x = 2000 i + {ox:g}, y = 2000 j + {oy:g})"
                   + (f", the inputs joined where they meet ({rule})" if joined else "")
                   + f"; {', '.join(masks[:-1]) + ' and ' + masks[-1] if len(masks) > 1 else masks[0]} made no "
-                  "data; stored with LERC compression with a maximum error of "
+                  + ("data" if product.average == 1 else f"data (on the {fine:g} m pixels, before the mean)")
+                  + "; stored with LERC compression with a maximum error of "
                   "5 mm" + (f"; {product.card_changes}" if product.card_changes else "")
                   + f". Heights {product.heights}; values are not otherwise changed."
                   + (f" Cut without {len(missing)} sheets the provider did not deliver: {', '.join(missing)}."
@@ -2011,19 +2112,92 @@ def _own_reading(paths: Sequence[Tuple[str, str]], product: Product) -> Dict[str
     return found
 
 
+def _input_masks(src, product: Product, values: np.ndarray) -> np.ndarray:
+    """The valid input pixels of values read from src (no_data's rule, read apart from the cut)."""
+    return ~no_data(values, product, src.nodata)
+
+
+def _edge_blocks(key: str, product: Product, readers: Sequence[Tuple[str, str, Tuple]], rng: random.Random,
+                 handles: Dict[str, "rio.DatasetReader"], most: int = EDGE_BLOCKS) -> Tuple[Tuple, Dict[str, int]]:
+    """An averaged product's blocks of a tile where its mean can go wrong, found from the input rasters themselves
+    (each read through its own transform, masked apart): partly valid (1 to average² - 1 valid input pixels), on a
+    seam (an input pixel valid in two rasters) and joined (valid pixels from two rasters or more, none valid in both:
+    rasters that touch). At most `most` of each kind, chosen by rng. ((rows, cols, kinds) of the chosen blocks on the
+    tile's pixels, {"<kind>_found": n} for each of EDGE_KINDS)."""
+    i, j = map(int, key.split("_"))
+    a, fine, (ox, oy) = product.average, input_res(product), product.origin
+    n = tile_px(fine)
+    left, top = ox + i * TILE_M, oy + (j + 1) * TILE_M
+    valid = np.zeros((n, n), dtype=bool)
+    twice = np.zeros((n, n), dtype=bool)  # a pixel valid in two rasters
+    # the first raster with a value (the one the tile takes it from): its index among the rasters over this tile
+    owner = np.full((n, n), -1, dtype=np.int32)
+    k = 0
+    for _, path, (b_left, b_bottom, b_right, b_top) in readers:
+        if b_right <= left or b_left >= left + TILE_M or b_top <= top - TILE_M or b_bottom >= top:
+            continue
+        if path not in handles:
+            handles[path] = rio.open(path)
+        src = handles[path]
+        c0 = int(np.floor((left - src.transform.c) / src.transform.a + 0.5))
+        r0 = int(np.floor((src.transform.f - top) / -src.transform.e + 0.5))
+        r_in, r_end, c_in, c_end = max(r0, 0), min(r0 + n, src.height), max(c0, 0), min(c0 + n, src.width)
+        if r_in >= r_end or c_in >= c_end:
+            continue
+        ok = _input_masks(src, product, src.read(1, window=Window(c_in, r_in, c_end - c_in, r_end - r_in)))
+        window = (slice(r_in - r0, r_end - r0), slice(c_in - c0, c_end - c0))
+        twice[window] |= valid[window] & ok
+        first = owner[window]
+        first[ok & ~valid[window]] = k
+        valid[window] |= ok
+        k += 1
+
+    def blocks(grid):
+        return grid.reshape(n // a, a, n // a, a)
+    per_block = blocks(valid).sum(axis=(1, 3))
+    seam = blocks(twice).any(axis=(1, 3))
+    lowest = blocks(np.where(valid, owner, np.iinfo(np.int32).max)).min(axis=(1, 3))
+    highest = blocks(owner).max(axis=(1, 3))
+    joined = (per_block > 0) & (lowest != highest) & ~seam
+    rows, cols, kinds, counts = [], [], [], {}
+    for kind, where in zip(EDGE_KINDS, ((per_block > 0) & (per_block < a * a), seam, joined)):
+        found = list(zip(*np.nonzero(where)))
+        chosen = sorted(rng.sample(found, min(most, len(found))))
+        rows += [r for r, _ in chosen]
+        cols += [c for _, c in chosen]
+        kinds += [kind] * len(chosen)
+        counts[f"{kind}_found"] = len(found)
+    return (np.array(rows, dtype=int), np.array(cols, dtype=int), kinds), counts
+
+
 def _point_problems(key: str, got: np.ndarray, product: Product, readers: Sequence[Tuple[str, str, Tuple]],
-                    rng: random.Random, n: int, handles: Dict[str, "rio.DatasetReader"]) -> Tuple[List[str], int]:
-    """A check apart from the cut's own reading: n random pixels of a tile, their centres' coordinates in the
-    dataset's CRS read straight from the input rasters through each raster's own transform (the rasters chosen by
-    their own bounds), masked by these few lines (not mask()), the first raster with a value taken; compared with the
-    tile within 5 mm and for no data. The problems found and the pixels compared."""
+                    rng: random.Random, n: int, handles: Dict[str, "rio.DatasetReader"],
+                    extra: Optional[Tuple[np.ndarray, np.ndarray, List[str]]] = None,
+                    counted: Optional[Dict[str, int]] = None) -> Tuple[List[str], int]:
+    """A check apart from the cut's own reading: n random pixels of a tile (and the pixels of extra, (rows, cols,
+    kinds): an averaged product's edge blocks), their centres' coordinates in the dataset's CRS read straight from the
+    input rasters through each raster's own transform (the rasters chosen by their own bounds), masked by no_data's
+    rule (not through mask()), the first raster with a value taken; compared with the tile within 5 mm and for no
+    data. An averaged product's pixel is compared with the mean of its block's input pixels, each read so (the sum
+    of the valid ones over their count, here). counted: per kind of extra, the blocks compared (a value on both
+    sides) added as "<kind>_compared". The problems found and the random pixels compared."""
     i, j = map(int, key.split("_"))
     px, res, (ox, oy) = got.shape[0], product.res, product.origin
-    rows = np.array([rng.randrange(px) for _ in range(n)])
-    cols = np.array([rng.randrange(px) for _ in range(n)])
+    rows = np.array([rng.randrange(px) for _ in range(n)], dtype=int)
+    cols = np.array([rng.randrange(px) for _ in range(n)], dtype=int)
+    random_points = n
+    if extra is not None and len(extra[0]):
+        rows, cols = np.concatenate([rows, extra[0]]), np.concatenate([cols, extra[1]])
+        n = rows.size
     xs = ox + i * TILE_M + (cols + 0.5) * res
     ys = oy + (j + 1) * TILE_M - (rows + 0.5) * res
-    found = np.full(n, np.nan)
+    a = product.average
+    if a != 1:  # the centres of each sampled pixel's a x a input pixels: n rows of a * a points
+        offsets = (np.arange(a) + 0.5) * input_res(product)
+        dy, dx = np.meshgrid(offsets, offsets, indexing="ij")
+        xs = ((ox + i * TILE_M + cols * res)[:, None] + dx.reshape(-1)[None, :]).reshape(-1)
+        ys = ((oy + (j + 1) * TILE_M - rows * res)[:, None] - dy.reshape(-1)[None, :]).reshape(-1)
+    found = np.full(xs.size, np.nan)
     left, right, bottom, top = ox + i * TILE_M, ox + (i + 1) * TILE_M, oy + j * TILE_M, oy + (j + 1) * TILE_M
     for rid, path, (b_left, b_bottom, b_right, b_top) in readers:
         if b_right <= left or b_left >= right or b_top <= bottom or b_bottom >= top:
@@ -2040,16 +2214,21 @@ def _point_problems(key: str, got: np.ndarray, product: Product, readers: Sequen
         r0, r1, c0, c1 = rr[inside].min(), rr[inside].max() + 1, cc[inside].min(), cc[inside].max() + 1
         block = src.read(1, window=Window(c0, r0, c1 - c0, r1 - r0)).astype(np.float64)
         v = block[rr[inside] - r0, cc[inside] - c0]
-        bad = ~np.isfinite(v)
-        for value in list(product.nodata) + [src.nodata, product.sea]:
-            if value is not None and not np.isnan(value):
-                bad |= v.astype(np.float32) == np.float32(value)
-        if product.floor is not None:
-            bad |= v < product.floor
-        v[bad] = np.nan
+        v[no_data(v, product, src.nodata)] = np.nan
         slots = np.flatnonzero(inside)
         found[slots[~np.isnan(v)]] = v[~np.isnan(v)]
+    if a != 1:
+        blocks = found.reshape(n, a * a)
+        valid = ~np.isnan(blocks)
+        count = valid.sum(axis=1)
+        total = np.where(valid, blocks, 0.0).sum(axis=1)
+        found = np.full(n, np.nan)
+        found[count > 0] = total[count > 0] / count[count > 0]
     tile_values = got[rows, cols].astype(np.float64)
+    if counted is not None and extra is not None:
+        compared = ~np.isnan(tile_values[random_points:]) & ~np.isnan(found[random_points:])
+        for kind in dict.fromkeys(extra[2]):
+            counted[f"{kind}_compared"] = int(sum(c for c, k in zip(compared, extra[2]) if k == kind))
     problems = []
     nodata = np.isnan(tile_values) != np.isnan(found)
     if nodata.any():
@@ -2059,7 +2238,7 @@ def _point_problems(key: str, got: np.ndarray, product: Product, readers: Sequen
         worst = float(np.max(np.abs(tile_values[both] - found[both])))
         if worst > VERIFY_EPS:
             problems.append(f"{key}: pixels read straight from the inputs differ by up to {worst:.4f} m")
-    return problems, n
+    return problems, random_points
 
 
 def _touched(bounds: Tuple[float, float, float, float], product: Product) -> set:
@@ -2124,6 +2303,14 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
                     if row.get("id")} if os.path.exists(os.path.join(folder, INPUTS_FILE)) else None
         rasters = r.rasters if recorded is None else [x for x in r.rasters if x.id in recorded]
         if recorded is not None:
+            # Judged in the cut's own order of the rasters (inputs.jsonl's: which raster a seam's pixel came from),
+            # whatever the order of now (a fetch's done.jsonl written again)
+            cut_order = {rid: n for n, rid in enumerate(recorded)}
+            ordered = sorted(rasters, key=lambda x: cut_order[x.id])
+            if [x.id for x in ordered] != [x.id for x in rasters]:
+                notes.append("the inputs' order of now differs from the cut's: judged in the cut's order "
+                             "(inputs.jsonl)")
+            rasters = ordered
             later = [x.id for x in r.rasters if x.id not in recorded]
             if later:
                 notes.append(f"{len(later)} inputs arrived after this product was cut (not part of this edition): a "
@@ -2135,7 +2322,7 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
         present = {x.id: x for x in rasters}
         _, cache_mb = _workers(product, 1, max_memory_gb)
         with rio.Env(GDAL_CACHEMAX=cache_mb):
-            paths = [(x.id, readable(x, work, product.res, max_memory_gb, files)) for x in rasters]
+            paths = [(x.id, readable(x, work, input_res(product), max_memory_gb, files)) for x in rasters]
             own = _own_reading(paths, product)
             bounds = {rid: b for rid, (b, _) in own.items()}
             readers = [(rid, path, bounds[rid]) for rid, path in paths]
@@ -2213,11 +2400,19 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
                                     f"({int(np.sum(np.isnan(got) != np.isnan(expected)))} px)")
                 if worst > VERIFY_EPS:
                     problems.append(f"{key}: differs from the inputs by {worst:.4f} m")
-                found, n = _point_problems(key, got, product, readers, rng, points, handles)
+                extra, edges = None, {}
+                if product.average != 1:  # the blocks where a mean can go wrong, from the inputs themselves
+                    extra, edges = _edge_blocks(key, product, readers, rng, handles)
+                    edges.update({f"{kind}_compared": 0 for kind in EDGE_KINDS})
+                found, n = (_point_problems(key, got, product, readers, rng, points, handles) if extra is None else
+                            _point_problems(key, got, product, readers, rng, points, handles, extra=extra,
+                                            counted=edges))
+                problems += [f"{key}: {kind} blocks found but none compared" for kind in EDGE_KINDS
+                             if edges and edges[f"{kind}_found"] and not edges[f"{kind}_compared"]]
                 problems += found
                 pixels += n
                 compared.append({"tile": key, "data": True, "max_diff_m": round(worst, 5),
-                                 "valid_px": int(both.sum())})
+                                 "valid_px": int(both.sum()), **edges})
     finally:
         for h in handles.values():
             h.close()

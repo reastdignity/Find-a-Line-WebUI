@@ -22,7 +22,7 @@ IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", 
        "france_spm", "france_mayotte", "france_reunion", "france_reunion_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "porto_santo", "desertas", "selvagens", "madeira", "spain_canarias", "spain", "mexico", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "ontario", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "northern_ireland", "northern_ireland_10m", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "hamburg", "bremen", "bremerhaven", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "sardinia", "aosta_valley", "tuscany", "tinitaly", "luxembourg", "denmark",
-       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "cyprus", "estonia", "rio_de_janeiro", "tokyo", "shizuoka", "hong_kong", "europe", "copernicus", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "cyprus", "estonia", "rio_de_janeiro", "tokyo", "shizuoka", "hong_kong", "wallonia", "europe", "copernicus", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'czechia': {'crs': 'EPSG:5514',
@@ -2574,6 +2574,35 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                    'cell': (750, 600),
                                    'origin': (800000, 800000),
                                    'members': '\\.tif$'}},
+            'wallonia': {'crs': 'EPSG:3812',
+                         'countries': ('be',),
+                         'bbox': (49.49, 50.82, 2.83, 6.41),
+                         'fallbacks': ['europe'],
+                         'grid_origin': (0.0, 0.0),
+                         'default_resolution': 1.0,
+                         'instead_without_data': None,
+                         'local_crs': 'utm_crs',
+                         'ortho': 'belgium/wallonia-ortho/live',
+                         'credits': ['Relief de la Wallonie MNT 2021-2022 (SPW, Wallonia)',
+                                     'Relief de la Wallonie MNS 2021-2022 (SPW, Wallonia)'],
+                         'nmt': {'class': 'GridTiles',
+                                 'description': 'Wallonia MNT 0.5 m (terrain)',
+                                 'folder': 'belgium/wallonia-mnt/2022/epsg3812-0.5m-2km',
+                                 'prefix': None,
+                                 'native_res': 0.5,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'Relief de la Wallonie MNT 2021-2022 (SPW, Wallonia)',
+                                 'shift': (0.0, 0.0)},
+                         'nmpt': {'class': 'GridTiles',
+                                  'description': 'Wallonia MNS 0.5 m (trees, buildings)',
+                                  'folder': 'belgium/wallonia-mns/2022/epsg3812-0.5m-2km',
+                                  'prefix': None,
+                                  'native_res': 0.5,
+                                  'processing': 1,
+                                  'ttl_days': None,
+                                  'credit': 'Relief de la Wallonie MNS 2021-2022 (SPW, Wallonia)',
+                                  'shift': (0.0, 0.0)}},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -2873,6 +2902,9 @@ PATHS = [
     ("shizuoka", "nmt", "sheetset", "shizuoka/lp-grid/s/OF/04/2019_08OF0485_0123abcd.tif", None),
     ("hong_kong", "nmt", (48, 40), "hong_kong/dtm-2020/7SW/7SW25C.tif", (48, 40)),
     ("hong_kong", "nmpt", (49, 39), "hong_kong/dsm-2020/11NW/11NW5B.tif", (49, 39)),
+    # The Rochers de Freyr's tile (343, 300) of Wallonia's 0.5 m tiles
+    ("wallonia", "nmt", (0.5, 343, 300), "belgium/wallonia-mnt/2022/epsg3812-0.5m-2km/34_30/343_300.tif", None),
+    ("wallonia", "nmpt", (0.5, 343, 300), "belgium/wallonia-mns/2022/epsg3812-0.5m-2km/34_30/343_300.tif", None),
 ]
 
 
@@ -3230,7 +3262,27 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("cn-hk", (22.55, 22.554, 114.236, 114.449)), ("cn-hk", (22.554, 22.558, 114.151, 114.220)),
          ("cn-hk", (22.554, 22.558, 114.244, 114.444)), ("cn-hk", (22.558, 22.562, 114.157, 114.178)),
          ("cn-hk", (22.558, 22.562, 114.255, 114.439)), ("cn-hk", (22.562, 22.566, 114.266, 114.434)),
-         ("cn-hk", (22.566, 22.569, 114.290, 114.371))]
+         ("cn-hk", (22.566, 22.569, 114.290, 114.371)),
+         # Wallonia (2026-11-23): bands inside the region, after Luxembourg's box
+         ("be-wal", (49.55, 49.60, 5.49, 5.74)), ("be-wal", (49.60, 49.65, 5.42, 5.82)),
+         ("be-wal", (49.65, 49.70, 5.35, 5.80)), ("be-wal", (49.70, 49.75, 5.27, 5.76)),
+         ("be-wal", (49.75, 49.80, 5.10, 5.71)), ("be-wal", (49.80, 49.85, 4.90, 4.92)),
+         ("be-wal", (49.80, 49.85, 5.00, 5.71)), ("be-wal", (49.85, 49.90, 4.87, 5.70)),
+         ("be-wal", (49.90, 49.95, 4.87, 5.71)), ("be-wal", (49.95, 50.00, 4.83, 5.74)),
+         ("be-wal", (50.00, 50.05, 4.22, 4.58)), ("be-wal", (50.00, 50.05, 4.85, 5.79)),
+         ("be-wal", (50.05, 50.10, 4.22, 4.65)), ("be-wal", (50.05, 50.10, 4.87, 5.83)),
+         ("be-wal", (50.10, 50.15, 4.21, 4.69)), ("be-wal", (50.10, 50.15, 4.88, 5.85)),
+         ("be-wal", (50.15, 50.20, 4.18, 4.77)), ("be-wal", (50.15, 50.20, 4.88, 5.93)),
+         ("be-wal", (50.20, 50.25, 4.21, 6.14)), ("be-wal", (50.25, 50.30, 4.21, 6.18)),
+         ("be-wal", (50.30, 50.35, 4.11, 6.27)), ("be-wal", (50.35, 50.40, 3.69, 3.73)),
+         ("be-wal", (50.35, 50.40, 3.97, 6.33)), ("be-wal", (50.40, 50.45, 3.66, 6.30)),
+         ("be-wal", (50.45, 50.50, 3.66, 6.17)), ("be-wal", (50.50, 50.55, 3.57, 6.15)),
+         ("be-wal", (50.55, 50.60, 3.28, 6.15)), ("be-wal", (50.60, 50.65, 3.27, 6.12)),
+         ("be-wal", (50.65, 50.70, 3.25, 3.88)), ("be-wal", (50.65, 50.70, 4.08, 4.19)),
+         ("be-wal", (50.65, 50.70, 4.32, 5.05)), ("be-wal", (50.65, 50.70, 5.19, 6.04)),
+         ("be-wal", (50.70, 50.75, 3.25, 3.29)), ("be-wal", (50.70, 50.75, 3.45, 3.52)),
+         ("be-wal", (50.70, 50.75, 3.68, 3.75)), ("be-wal", (50.70, 50.75, 4.66, 4.90)),
+         ("be-wal", (50.70, 50.75, 4.97, 4.99)), ("be-wal", (50.70, 50.75, 5.53, 5.68))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):
@@ -3447,6 +3499,8 @@ ATTRIBUTIONS = {
                  "Department; source: the Government of the Hong Kong Special Administrative Region (Civil Engineering "
                  "and Development Department), through the Common Spatial Data Infrastructure (CSDI) Portal, available "
                  "under the CSDI terms and conditions",
+    "wallonia": "Source : Service public de Wallonie (SPW) - Relief de la Wallonie - Modèle Numérique de Terrain (MNT) "
+                "2021-2022 (2024-01-23) https://geodata.wallonie.be/id/a004e570-99d6-4fe5-b83d-49b774409278",
 }
 ORTHOS = {  # source: (attribution, attribution_url)
     "islandsdem10": ("\"Grunnkort - Loftmynd\" by Náttúrufræðistofnun is licensed under CC BY 4.0", src.CC_BY[1]),
@@ -3489,6 +3543,9 @@ ORTHOS = {  # source: (attribution, attribution_url)
     "madeira": ("Ortofotomapa 2023, DROTe, Região Autónoma da Madeira",
                 "https://snig.dgterritorio.gov.pt/rndg/srv/por/catalog.search#/metadata/"
                 "08c3bd64-ccd2-4bde-a8b2-b915bff64dd9"),
+    "wallonia": ("Source : Service public de Wallonie (SPW) - Orthophotos - Vues aériennes les plus récentes "
+                 "(2025-09-20) https://geodata.wallonie.be/id/dfc9f3a2-adff-4b7f-ab77-8a890c4cabbb",
+                 "https://geodata.wallonie.be/id/dfc9f3a2-adff-4b7f-ab77-8a890c4cabbb"),
 }
 
 
@@ -3557,3 +3614,170 @@ def test_processed_note_in_the_viewer():
         ts = f.read()
     declaration = re.search(r"export const PROCESSED_NOTE = (.*?);", ts, re.S).group(1)
     assert "".join(re.findall(r'"([^"]*)"', declaration)) == src.credit.PROCESSED_NOTE
+
+
+def test_wallonia_declared():
+    """Wallonia (SPW, our own 0.5 m tiles, the user's decision of 2026-11-26): each model's layer reads its mirror
+    folder on the products' grid and carries its own record's credit; the source's attribution names both, the
+    terrain model's first. The working resolution stays 1 m (README: never finer than 1 m), read from the 0.5 m
+    tiles (no other resolution is kept)."""
+    s = src.SOURCES["wallonia"]
+    assert [s.nmt.mirror, s.nmpt.mirror] == ["wallonia/dtm/0.5m", "wallonia/dsm/0.5m"]
+    assert all(layer.origin == s.grid_origin == (0.0, 0.0) and layer.crs == s.crs == "EPSG:3812" and
+               layer.tile_m == 2000 and layer.native_res == 0.5 and not layer.averaged for layer in (s.nmt, s.nmpt))
+    assert s.default_resolution == 1.0 and s.nmt.resolution(1.0, "EPSG:3812") == 0.5
+    assert [s.nmt._bytes, s.nmpt._bytes] == [19.2e6, 22.8e6]  # estimates until the cut measures them
+    assert [s.nmt.credit, s.nmpt.credit] == list(s.credits) and all(c.licence == "CC BY 4.0" for c in s.credits)
+    assert s.nmpt.credit.attribution == ("Source : Service public de Wallonie (SPW) - Relief de la Wallonie - Modèle "
+                                         "Numérique de Surface (MNS) 2021-2022 (2024-01-23) "
+                                         "https://geodata.wallonie.be/id/5a4c28fe-d30c-493e-861e-a80ebc703b64")
+    assert s.attribution == "; ".join(c.attribution for c in s.credits)
+    assert s.regions == ("be-wal",) and src.AREA_NAMES["be-wal"] == "Wallonie"
+    assert s.neighbours == ("luxembourg", "north_rhine_westphalia", "netherlands")
+    for other in s.neighbours:
+        assert src.SOURCES[other].neighbours[-1] == "wallonia" and len(src.SOURCES[other].neighbours) <= 6
+    assert src.SOURCES["north_rhine_westphalia"].border_boxes == ((50.38, 50.75, 6.00, 6.20),)
+    assert s.bbox == (49.49, 50.82, 2.83, 6.41) and s.bbox not in [box for _, box in s.offline]
+
+
+# --source auto offline around Wallonia (2026-11-23): (place, lat, lon, the source before Wallonia was added, now).
+# Only Walloon places change, from europe to wallonia; France and Flanders keep their choice; Arlon and Martelange
+# stay in Luxembourg's box and Sankt Vith and Monschau in Rhineland-Palatinate's, which come first (old facts of
+# those boxes); places along Wallonia's borders (Bouillon, Kelmis) lie outside its staircase and take europe
+OFFLINE_AROUND_WALLONIA = [
+    ("Givet FR", 50.137, 4.825, "europe", "europe"), ("Givet east FR", 50.1310, 4.8706, "europe", "europe"),
+    ("Charleville-Mezieres FR", 49.77, 4.72, "europe", "europe"),
+    ("Sedan FR", 49.70, 4.94, "europe", "europe"), ("Maubeuge FR", 50.28, 3.97, "europe", "europe"),
+    ("Hirson FR", 49.92, 4.08, "france", "france"), ("Lille FR", 50.63, 3.06, "france", "france"),
+    ("Longwy FR", 49.52, 5.76, "luxembourg", "luxembourg"), ("Ronse BE-VLG", 50.746, 3.60, "europe", "europe"),
+    ("Tongeren BE-VLG", 50.78, 5.46, "europe", "europe"), ("Voeren BE-VLG", 50.75, 5.80, "netherlands", "netherlands"),
+    ("Brussels BE-BRU", 50.85, 4.35, "europe", "europe"), ("Arlon BE-WAL", 49.683, 5.816, "luxembourg", "luxembourg"),
+    ("Martelange BE-WAL", 49.83, 5.74, "luxembourg", "luxembourg"), ("Liege BE-WAL", 50.63, 5.57, "europe", "wallonia"),
+    ("Namur BE-WAL", 50.465, 4.867, "europe", "wallonia"), ("Dinant BE-WAL", 50.26, 4.912, "europe", "wallonia"),
+    ("Mons BE-WAL", 50.454, 3.952, "europe", "wallonia"), ("Tournai BE-WAL", 50.607, 3.389, "europe", "wallonia"),
+    ("Eupen BE-WAL", 50.63, 6.03, "europe", "wallonia"),
+    ("Sankt Vith BE-WAL", 50.28, 6.127, "rhineland_palatinate", "rhineland_palatinate"),
+    ("Bouillon BE-WAL", 49.794, 5.067, "europe", "europe"), ("Virton BE-WAL", 49.568, 5.533, "europe", "wallonia"),
+    ("Freyr BE-WAL", 50.218, 4.894, "europe", "wallonia"), ("Kelmis BE-WAL", 50.716, 6.01, "europe", "europe"),
+    ("Aachen DE", 50.776, 6.08, "north_rhine_westphalia", "north_rhine_westphalia"),
+    ("Monschau DE", 50.556, 6.24, "rhineland_palatinate", "rhineland_palatinate"),
+    ("Vaals NL", 50.77, 6.02, "north_rhine_westphalia", "north_rhine_westphalia"),
+    ("Eijsden NL", 50.776, 5.71, "netherlands", "netherlands"), ("Luxembourg LU", 49.61, 6.13, "luxembourg", "luxembourg"),
+    ("Clervaux LU", 50.054, 6.03, "luxembourg", "luxembourg")]
+
+
+def test_offline_around_wallonia(monkeypatch, tmp_path):
+    """Offline (Nominatim refused; every source taken as available) the places around Wallonia take the sources of
+    the table: Wallonia's staircase of boxes takes no French, Flemish, Dutch, German or Luxembourg place (they keep
+    the choice of before), and with Wallonia taken out every place takes the source of before."""
+    import requests
+    from sources import choose
+
+    def refused(*args, **kwargs):
+        raise requests.ConnectionError("offline")
+    monkeypatch.setattr(osm, "reverse", refused)
+    monkeypatch.setattr(choose, "_cannot_use", lambda source, reach: None)
+
+    def chosen():
+        return [choose.choose_source("auto", lat, lon, str(tmp_path))[0].id for _, lat, lon, _, _ in
+                OFFLINE_AROUND_WALLONIA]
+    assert chosen() == [after for *_, after in OFFLINE_AROUND_WALLONIA]
+    assert all(name.endswith("BE-WAL") for name, _, _, before, after in OFFLINE_AROUND_WALLONIA if before != after)
+    monkeypatch.setattr(choose, "SOURCES", {k: v for k, v in choose.SOURCES.items() if k != "wallonia"})
+    monkeypatch.setattr(choose, "OFFLINE_BOXES", [b for s in choose.SOURCES.values() for b in s.offline])
+    assert chosen() == [before for *_, before, _ in OFFLINE_AROUND_WALLONIA]
+
+
+def test_online_wallonia_beyond_its_offline_boxes(monkeypatch, tmp_path):
+    """Online (Nominatim answers BE and BE-WAL) the Walloon places along the borders, outside the offline staircase,
+    take wallonia: its bbox, the region's rectangle, holds them; Flanders (BE-VLG) takes europe."""
+    from sources import choose
+
+    def answer(region):
+        return lambda *args, **kwargs: {"address": {"country_code": "be", "ISO3166-2-lvl4": region}}
+    monkeypatch.setattr(choose, "_cannot_use", lambda source, reach: None)
+    for name, lat, lon in (("Bouillon", 49.794, 5.067), ("Kelmis", 50.716, 6.01), ("Comines", 50.77, 3.0)):
+        assert not any(s <= lat <= n and w <= lon <= e for _, (s, n, w, e) in src.SOURCES["wallonia"].offline), name
+        monkeypatch.setattr(osm, "reverse", answer("BE-WAL"))
+        assert choose.choose_source("auto", lat, lon, str(tmp_path))[0].id == "wallonia", name
+    monkeypatch.setattr(osm, "reverse", answer("BE-VLG"))
+    assert choose.choose_source("auto", 50.746, 3.60, str(tmp_path))[0].id == "europe"  # Ronse
+
+
+def _martelange_grid():
+    """Luxembourg's 1 m grid across the Belgian border at Martelange (500 x 400 m), its west a gap reaching the
+    grid's edge (Belgium: no data of Luxembourg's there)."""
+    import grid as gd
+    import numpy as np
+    import pyproj
+    x, y = pyproj.Transformer.from_crs(4326, "EPSG:2169", always_xy=True).transform(5.74, 49.83)
+    x, y = round(x), round(y)
+    grid = gd.make_grid((x - 250.0, y - 200.0, x + 250.0, y + 200.0), 1.0, "EPSG:2169", (0.0, 0.0))
+    band = np.full((grid.height, grid.width), 300.0, np.float32)
+    band[:, :200] = np.nan
+    return grid, band
+
+
+def test_a_neighbour_not_published_leaves_the_border_as_before(tmp_path, http_server, monkeypatch, capsys):
+    """A neighbour whose dataset the data server does not publish (wallonia, neither listed nor there) does not break
+    the source next to it: Luxembourg's grid at the Belgian border asks wallonia's index (neighbours have no start
+    check: docs/mirror-hosting/spec.md C.3), gets 404 twice (the first and once more after net's pause), and leaves
+    the gaps with today's line; the grid, the pixels filled and the counts are those of a fill whose neighbours lack
+    wallonia (as before it was declared), and nothing of wallonia is cached. With the data server off, wallonia is
+    unavailable and skipped without a request. Offline (a dead proxy for every other host): France's bbox reaches the
+    grid too, and whatever its layers do there, they do it alike in every case."""
+    import contextlib
+    import numpy as np
+    from sources.readers import tilebases
+    from test_mirror_client import OFFLINE_ENV, Mirror, make_mirror, set_url
+    for key, value in OFFLINE_ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("FINDALINE_MIRROR", raising=False)
+    pauses = []
+    monkeypatch.setattr(src.net, "_sleep", pauses.append)
+    monkeypatch.setattr(src.net, "LIMITS_AS", {})
+    monkeypatch.setattr(tilebases, "_LISTS", {})
+    served = Mirror(http_server, make_mirror(tmp_path / "served"))  # the data server publishes test/dtm/1m only
+    luxembourg = src.SOURCES["luxembourg"]
+    neighbours = [src.SOURCES[n] for n in luxembourg.neighbours]
+    before = [n for n in neighbours if n.id != "wallonia"]
+    assert neighbours[-1].id == "wallonia" and len(before) == 3
+    grid, band = _martelange_grid()
+    results = {}
+    try:
+        for case, url, chain in (("before", served.url, before), ("unpublished", served.url, neighbours),
+                                 ("off", "off", neighbours)):
+            set_url(url)
+            folder = tmp_path / case
+            folder.mkdir()
+            path = str(folder / "nmt.npy")
+            np.save(path, band)
+            asked, paused = len(served.asked()), len(pauses)
+            filled, counts = src.filling.fill_from_neighbours(path, None, grid, chain, str(folder / "cache"),
+                                                              str(folder / "joined.npy"))
+            out = capsys.readouterr().out
+            results[case] = dict(filled=filled, counts=[(s.id, n) for s, n in counts], grid=np.load(path),
+                                 asked=served.asked()[asked:], pauses=len(pauses) - paused, out=out,
+                                 lines=[x for x in out.splitlines() if "not filled" in x and "Wallonia" not in x],
+                                 cached=sorted(p.relative_to(folder / "cache").as_posix()
+                                               for p in (folder / "cache").rglob("*") if p.is_file()))
+    finally:
+        set_url("off")
+    first, unpublished, off = results["before"], results["unpublished"], results["off"]
+    assert first["filled"] is None and all(n == 0 for _, n in first["counts"])
+    assert np.array_equal(first["grid"], band, equal_nan=True) and first["asked"] == []
+    for case in (unpublished, off):  # wallonia changes nothing: the same grid, counts and other neighbours' lines
+        assert case["filled"] is None and case["counts"] == first["counts"] and case["lines"] == first["lines"]
+        assert np.array_equal(case["grid"], first["grid"], equal_nan=True)
+        assert [p for p in case["cached"] if p.startswith("belgium/")] in ([], ["belgium/index.sqlite"])
+    import sqlite3
+    with contextlib.closing(sqlite3.connect(tmp_path / "unpublished" / "cache" / "belgium" / "index.sqlite")) as db:
+        assert db.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0  # no tile, no "missing" row
+    assert "SPW Wallonia" not in first["out"]
+    assert unpublished["asked"] == ["/v1/tiles/wallonia/dtm/0.5m/index.json"] * 2
+    assert unpublished["pauses"] == first["pauses"] + 1  # the one pause before asking the index again
+    assert "Gaps at the border not filled from SPW Wallonia (MNT / MNS 2021-2022): " in unpublished["out"]
+    assert ("server at 127.0.0.1 (HTTP 404): this dataset or resolution is not published there, also after taking the "
+            "index again") in unpublished["out"]
+    assert off["asked"] == [] and off["pauses"] == first["pauses"]
+    assert "Gaps at the border not filled from SPW Wallonia (MNT / MNS 2021-2022): " in off["out"]

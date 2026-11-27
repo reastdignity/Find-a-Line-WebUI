@@ -165,7 +165,7 @@ def test_served_patterns_match_the_names_of_the_client():
 
     folders = _mirror_folders()
     assert {"slovakia/dmr5/1m", "madeira/dtm/2m", "aosta/dtm/2m"} <= set(folders)
-    native = {"1m": 1.0, "2m": 2.0}
+    native = {"0.5m": 0.5, "1m": 1.0, "2m": 2.0}  # Wallonia's at 0.5 m (2026-11-26)
     for folder in folders:
         res = native[folder.rsplit("/", 1)[1]]
         for other in (res, 2.0, 5.0, 0.5):

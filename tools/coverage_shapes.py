@@ -50,7 +50,9 @@ MERGED = {"es-cn": ("ES-GC", "ES-TF"),
           # Valle d'Aosta: its one province of Natural Earth (Aoste)
           "it-23": ("IT-AO",),
           # Tuscany: its ten provinces of Natural Earth
-          "it-52": ("IT-AR", "IT-FI", "IT-GR", "IT-LI", "IT-LU", "IT-MS", "IT-PI", "IT-PO", "IT-PT", "IT-SI")}
+          "it-52": ("IT-AR", "IT-FI", "IT-GR", "IT-LI", "IT-LU", "IT-MS", "IT-PI", "IT-PO", "IT-PT", "IT-SI"),
+          # Wallonia: its five provinces of Natural Earth (the region's ISO code is not among its units)
+          "be-wal": ("BE-WBR", "BE-WHT", "BE-WLG", "BE-WLX", "BE-WNA")}
 # Regions without an admin-1 unit of their own: their country's outline (a lower-case code), or an admin-1 unit's (an
 # ISO 3166-2 code), within a box (south, north, west, east): Jan Mayen from Norway; the Land Bremen's two cities, each a
 # source of its own (de-hb the city of Bremen, de-hb-bhv Bremerhaven: our code, ISO 3166-2 names neither city);
