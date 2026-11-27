@@ -55,6 +55,14 @@ downloads from 16 MB);
 `tests/test_mirror_deploy.py` reads it all statically; `tests/test_mirror_pairs.py` the pairs with the client and the
 publish tool.
 
+`.github/workflows/mirror-watch.yml`: the mirror's watch (docs/mirror-hosting/watch.md), on the 1st of each month at
+06:17 UTC and by hand: `tools/mirror_watch.py check --previous previous/result.json --json-out result.json` with the
+runner's own python3 (no project dependency), its exit code the run's; the previous run's result found through the
+artifacts API (this repository's runs of the branch, not a fork's) and fetched with `gh run download` (a failing
+look-up is a warning and the check runs anyway: the step cannot end the job); the result kept as the artifact
+`mirror-watch-result` for 90 days (`actions/upload-artifact`, pinned by its commit, the one action beside checkout).
+`tests/test_mirror_watch.py` `test_the_monthly_workflow` reads it.
+
 ## `deploy/monitoring/`
 
 The monitoring of the public site (docs/monitoring.md the plan, docs/deployment.md section 15): `compose.yaml`

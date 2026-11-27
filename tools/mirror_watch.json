@@ -1,0 +1,262 @@
+{
+  "about": "tools/mirror_watch.py's baseline: what each provider answered when its record was adopted (public facts only); rewritten by `adopt`, never by hand",
+  "signals": {
+    "file https://opendata.skgeodesy.sk/static/LLS/DMR5/DMR5_0_sjtsk03_bpv.zip": {
+      "kind": "file",
+      "url": "https://opendata.skgeodesy.sk/static/LLS/DMR5/DMR5_0_sjtsk03_bpv.zip",
+      "read": "2026-11-23",
+      "size": 197707257567,
+      "last_modified": "Wed, 26 Jun 2024 08:41:35 GMT",
+      "etag": "\"667bd43f-2e084556df\""
+    },
+    "file https://opendata.skgeodesy.sk/static/LLS/DMP1/DMP1_0_sjtsk03_bpv.zip": {
+      "kind": "file",
+      "url": "https://opendata.skgeodesy.sk/static/LLS/DMP1/DMP1_0_sjtsk03_bpv.zip",
+      "read": "2026-11-23",
+      "size": 155103705912,
+      "last_modified": "Wed, 26 Jun 2024 07:23:33 GMT",
+      "etag": "\"667bc1f5-241ce6bb38\""
+    },
+    "listing https://www.skgeodesy.sk/geoportal/zbgis/lls/poskytovanie/": {
+      "kind": "listing",
+      "url": "https://www.skgeodesy.sk/geoportal/zbgis/lls/poskytovanie/",
+      "read": "2026-11-23",
+      "patterns": [
+        "href=[\"'](https://opendata\\.skgeodesy\\.sk/static/LLS/(?!Footprints/)[^\"']+\\.zip)[\"']"
+      ],
+      "items": [
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT04/LOT04_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT04/LOT04_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT04/LOT04_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT04/LOT04_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT06/LOT06_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT06/LOT06_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT06/LOT06_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT06/LOT06_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT07/LOT07_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT07/LOT07_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT07/LOT07_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT07/LOT07_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT08/LOT08_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT08/LOT08_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT08/LOT08_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT08/LOT08_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT09/LOT09_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT09/LOT09_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT09/LOT09_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT09/LOT09_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT10/LOT10_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT10/LOT10_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT10/LOT10_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT10/LOT10_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT11/LOT11_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT11/LOT11_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT11/LOT11_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT11/LOT11_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT12/LOT12_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT12/LOT12_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT12/LOT12_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT12/LOT12_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT13/LOT13_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT13/LOT13_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT13/LOT13_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT13/LOT13_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT16/LOT16_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT16/LOT16_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT16/LOT16_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT16/LOT16_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT17/LOT17_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT17/LOT17_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT17/LOT17_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT17/LOT17_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT20/LOT20_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT20/LOT20_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT20/LOT20_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT20/LOT20_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT27/LOT27_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT27/LOT27_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT27/LOT27_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT27/LOT27_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT29/LOT29_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT29/LOT29_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT29/LOT29_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT29/LOT29_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT31/LOT31_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT31/LOT31_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT31/LOT31_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT31/LOT31_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT32/LOT32_DMP2_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT32/LOT32_DMP2_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT32/LOT32_DMR6_etrs89_tm34.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/2_cyklus/LOT32/LOT32_DMR6_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/DMP1/DMP1_0_sjtsk03_bpv.zip",
+        "https://opendata.skgeodesy.sk/static/LLS/DMR5/DMR5_0_sjtsk03_bpv.zip"
+      ]
+    },
+    "file https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip": {
+      "kind": "file",
+      "url": "https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip",
+      "read": "2026-11-23",
+      "size": 460132910,
+      "last_modified": "Fri, 12 Jun 2026 14:33:41 GMT",
+      "etag": "\"f6d7b6f35b512ab7a247ccb7179c8b63\""
+    },
+    "listing https://snig.dgterritorio.gov.pt/rndg/srv/api/records/abba9a83-cb1c-4d2c-ad1d-ccb592247754/formatters/xml": {
+      "kind": "listing",
+      "url": "https://snig.dgterritorio.gov.pt/rndg/srv/api/records/abba9a83-cb1c-4d2c-ad1d-ccb592247754/formatters/xml",
+      "read": "2026-11-23",
+      "patterns": [
+        "<gco:Date>([^<]+)</gco:Date>",
+        "<gco:DateTime>([^<]+)</gco:DateTime>",
+        "(?s)<gmd:URL>([^<]+)</gmd:URL>\\s*</gmd:linkage>\\s*<gmd:protocol>\\s*<gco:CharacterString>WWW:DOWNLOAD[^<]*</gco:CharacterString>"
+      ],
+      "items": [
+        "2008-06-01",
+        "2013-12-10",
+        "2018-04-03",
+        "2018-11-30T00:00:00",
+        "2019-05-22",
+        "2019-06-19T00:00:00",
+        "2019-07-26T00:00:00",
+        "2019-09-15T00:00:00",
+        "2019-10-15",
+        "2019-10-15T00:00:00",
+        "2026-06-12",
+        "https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip",
+        "https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip"
+      ]
+    },
+    "file https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip": {
+      "kind": "file",
+      "url": "https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip",
+      "read": "2026-11-22",
+      "size": 114126877,
+      "last_modified": "Fri, 12 Jun 2026 13:57:50 GMT",
+      "etag": "\"69e5ef261551bca5e7038d320f91c807\""
+    },
+    "file https://geoprodotti.regione.vda.it/download/DTM0508_002/DTM0508_002_UNICO.zip": {
+      "kind": "file",
+      "url": "https://geoprodotti.regione.vda.it/download/DTM0508_002/DTM0508_002_UNICO.zip",
+      "read": "2026-11-22",
+      "size": 2604729175,
+      "last_modified": "Wed, 09 Jul 2025 10:24:15 GMT",
+      "etag": "\"1ff2eb9ebbf0db1:0\""
+    },
+    "listing https://geoportale.regione.vda.it/download/dtm/": {
+      "kind": "listing",
+      "url": "https://geoportale.regione.vda.it/download/dtm/",
+      "read": "2026-11-22",
+      "patterns": [
+        "geodownload\\.asp\\?carta=([A-Za-z0-9_]+)",
+        "metadata_documents/([A-Za-z0-9_.%-]+\\.pdf)"
+      ],
+      "items": [
+        "CC_BY_DTM_v2.pdf",
+        "DTM05",
+        "DTM0508",
+        "DTM08",
+        "DTM2022_DORA",
+        "DTM99",
+        "DTM_1999.pdf",
+        "DTM_2005_2008_ORTOMETRICA.pdf",
+        "DTM_2005_ORTOMETRICA.pdf",
+        "DTM_2008_ORTOMETRICA.pdf",
+        "DTM_2022_DORA_ORTOMETRICA.pdf",
+        "Specifiche_LIDAR.pdf"
+      ]
+    },
+    "feed https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/a004e570-99d6-4fe5-b83d-49b774409278/atom_dataset.xml": {
+      "kind": "feed",
+      "url": "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/a004e570-99d6-4fe5-b83d-49b774409278/atom_dataset.xml",
+      "read": "2026-11-22",
+      "entries": "_GEOTIFF_3812_PROV$",
+      "updated": {
+        "https://geodata.wallonie.be/a004e570-99d6-4fe5-b83d-49b774409278/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV": "2024-05-27T09:36:05Z"
+      },
+      "lengths": {
+        "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/a004e570-99d6-4fe5-b83d-49b774409278/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV_BRABANT_WALLON.zip": 13919501421,
+        "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/a004e570-99d6-4fe5-b83d-49b774409278/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV_HAINAUT.zip": 47398087781,
+        "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/a004e570-99d6-4fe5-b83d-49b774409278/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV_LIEGE.zip": 48579593210,
+        "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/a004e570-99d6-4fe5-b83d-49b774409278/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV_LUXEMBOURG.zip": 55936435422,
+        "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/a004e570-99d6-4fe5-b83d-49b774409278/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV_NAMUR.zip": 46315489746
+      }
+    },
+    "feed https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/5a4c28fe-d30c-493e-861e-a80ebc703b64/atom_dataset.xml": {
+      "kind": "feed",
+      "url": "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/5a4c28fe-d30c-493e-861e-a80ebc703b64/atom_dataset.xml",
+      "read": "2026-11-22",
+      "entries": "_GEOTIFF_3812_PROV$",
+      "updated": {
+        "https://geodata.wallonie.be/5a4c28fe-d30c-493e-861e-a80ebc703b64/RELIEF_WALLONIE_MNS_50CM_2021_2022_GEOTIFF_3812_PROV": "2024-05-27T09:40:43Z"
+      },
+      "lengths": {
+        "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/5a4c28fe-d30c-493e-861e-a80ebc703b64/RELIEF_WALLONIE_MNS_50CM_2021_2022_GEOTIFF_3812_PROV_BRABANT_WALLON.zip": 16928007009,
+        "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/5a4c28fe-d30c-493e-861e-a80ebc703b64/RELIEF_WALLONIE_MNS_50CM_2021_2022_GEOTIFF_3812_PROV_HAINAUT.zip": 59195352259,
+        "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/5a4c28fe-d30c-493e-861e-a80ebc703b64/RELIEF_WALLONIE_MNS_50CM_2021_2022_GEOTIFF_3812_PROV_LIEGE.zip": 58215171576,
+        "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/5a4c28fe-d30c-493e-861e-a80ebc703b64/RELIEF_WALLONIE_MNS_50CM_2021_2022_GEOTIFF_3812_PROV_LUXEMBOURG.zip": 67265946378,
+        "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/5a4c28fe-d30c-493e-861e-a80ebc703b64/RELIEF_WALLONIE_MNS_50CM_2021_2022_GEOTIFF_3812_PROV_NAMUR.zip": 55838449055
+      }
+    },
+    "listing https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/a004e570-99d6-4fe5-b83d-49b774409278/atom_dataset.xml": {
+      "kind": "listing",
+      "url": "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/a004e570-99d6-4fe5-b83d-49b774409278/atom_dataset.xml",
+      "read": "2026-11-22",
+      "patterns": [
+        "(?s)<entry\\b[^>]*>.*?<id>([^<]+)</id>"
+      ],
+      "items": [
+        "https://geodata.wallonie.be/a004e570-99d6-4fe5-b83d-49b774409278/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_31370_PROV",
+        "https://geodata.wallonie.be/a004e570-99d6-4fe5-b83d-49b774409278/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV",
+        "https://geodata.wallonie.be/a004e570-99d6-4fe5-b83d-49b774409278/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_REGION"
+      ]
+    },
+    "listing https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/5a4c28fe-d30c-493e-861e-a80ebc703b64/atom_dataset.xml": {
+      "kind": "listing",
+      "url": "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/5a4c28fe-d30c-493e-861e-a80ebc703b64/atom_dataset.xml",
+      "read": "2026-11-22",
+      "patterns": [
+        "(?s)<entry\\b[^>]*>.*?<id>([^<]+)</id>"
+      ],
+      "items": [
+        "https://geodata.wallonie.be/5a4c28fe-d30c-493e-861e-a80ebc703b64/RELIEF_WALLONIE_MNS_50CM_2021_2022_GEOTIFF_3812_PROV",
+        "https://geodata.wallonie.be/5a4c28fe-d30c-493e-861e-a80ebc703b64/RELIEF_WALLONIE_MNS_50CM_2021_2022_GEOTIFF_3812_REGION"
+      ]
+    },
+    "listing https://metawal.wallonie.be/geonetwork/srv/fre/csw?service=CSW&version=2.0.2&request=GetRecords&typeNames=csw:Record&resultType=results&elementSetName=brief&maxRecords=100&sortBy=Identifier:A&constraintLanguage=CQL_TEXT&constraint_language_version=1.1.0&constraint=Title%20like%20%27%25Relief%25%27%20AND%20Title%20like%20%27%25Wallonie%25%27%20AND%20Type%20%3D%20%27dataset%27": {
+      "kind": "listing",
+      "url": "https://metawal.wallonie.be/geonetwork/srv/fre/csw?service=CSW&version=2.0.2&request=GetRecords&typeNames=csw:Record&resultType=results&elementSetName=brief&maxRecords=100&sortBy=Identifier:A&constraintLanguage=CQL_TEXT&constraint_language_version=1.1.0&constraint=Title%20like%20%27%25Relief%25%27%20AND%20Title%20like%20%27%25Wallonie%25%27%20AND%20Type%20%3D%20%27dataset%27",
+      "read": "2026-11-22",
+      "patterns": [
+        "(numberOfRecordsMatched=\\\"\\d+\\\")",
+        "(?s)<dc:identifier[^>]*>([^<]+)</dc:identifier>\\s*<dc:title[^>]*>([^<]+)</dc:title>"
+      ],
+      "items": [
+        "08bf2e5b-c513-468a-b5a8-31e2c747b259 INSPIRE - Modèle Numérique de Terrain (MNT) 2013-2014 - Relief de la Wallonie (BE)",
+        "0bc90b40-74f9-43d6-9a18-468a65e6f048 Relief de la Wallonie - Modèle Numérique de Terrain (MNT) 2013-2014 - Sans interpolation",
+        "0ebebb42-90d2-4262-bc2f-89181a85839d Relief de la Wallonie - Modèle Numérique de Terrain (MNT) 2013-2014 - Densité des mesures",
+        "1eafd629-0b5e-4816-a496-e69676eae65b INSPIRE - Modèle Numérique de Terrain (MNT) 2021-2022 - Relief de la Wallonie (BE)",
+        "1f13febe-5b6f-4bbc-863f-9ea8d786b532 Relief de la Wallonie – Modèle Numérique des Pentes 2013-2014",
+        "24b1f260-00ee-4441-a96b-69e470666ca5 Relief de la Wallonie – Modèle Numérique des Pentes 2013-2014 classifié",
+        "2e940e86-43d9-4640-8b27-a0b295bea811 INSPIRE - Modèle Numérique de Surface (MNS) 2013-2014 - Relief de la Wallonie (BE)",
+        "300a9c30-f7de-474e-98f1-b43f5296e880 Relief de la Wallonie - Combinaison MNT, MNS et Hillshade 2013-2014",
+        "4ff6714d-61ae-485f-94e5-e6a2bebdf7ef Relief de la Wallonie - Modèle Numérique de Surface (MNS) 2013-2014 – Hillshade",
+        "5a4c28fe-d30c-493e-861e-a80ebc703b64 Relief de la Wallonie - Modèle Numérique de Surface (MNS) 2021-2022",
+        "6029e738-f828-438b-b10a-85e67f77af92 Relief de la Wallonie - Modèle Numérique de Terrain (MNT) 2013-2014",
+        "7d23d8ab-962a-493f-8771-2054e06ad36f Relief de la Wallonie - Modèle Numérique de Surface (MNS) 2013-2014",
+        "89b00953-efdb-449b-baec-1c8e7ce483b5 Relief de la Wallonie - Modèle Numérique de Terrain (MNT) 2021-2022 - Hillshade",
+        "95bdf4ee-f6d9-4d15-a321-14c26964ac96 INSPIRE - Modèle Numérique de Terrain (MNS) 2021-2022 - Relief de la Wallonie (BE)",
+        "99e28f0e-3100-457f-93a6-a61e089035be Relief de la Wallonie – Ruptures de pente issues du Modèle Numérique de Terrain LiDAR 2013-2014 [RASTER] (visualisation)",
+        "a004e570-99d6-4fe5-b83d-49b774409278 Relief de la Wallonie - Modèle Numérique de Terrain (MNT) 2021-2022",
+        "b93ad159-5806-47ae-9b21-37a3c0b3ed49 Relief de la Wallonie – Lignes des ruptures de pente issues du Modèle Numérique de Terrain LiDAR 2013-2014",
+        "c8556b0a-132b-475f-a929-d31bbd0e61f6 Relief de la Wallonie - Modèle Numérique de Hauteur (MNH) 2021-2022",
+        "cba32282-d75c-4157-bfb4-1aa2e08bf29c Relief de la Wallonie - Modèle Numérique de Surface (MNS) 2013-2014 - Densité des mesures",
+        "d7e2fe03-9c6d-4a37-bce3-1af79688e00c Relief de la Wallonie - Modèle Numérique de Surface (MNS) 2021-2022 – Hillshade",
+        "e82665e2-4f89-4b7b-87a0-e77a4d4d9c5b Relief de la Wallonie - Modèle Numérique de Surface - 1m (MNS) 2021-2022",
+        "e8c2e398-a196-4886-bfe0-27424a3ae316 Relief de la Wallonie - Modèle Numérique de Terrain (MNT) 2013-2014 - Sans interpolation hillshade",
+        "f3cdf392-a569-423e-889e-186c5e647cd3 Relief de la Wallonie - Modèle Numérique de Terrain (MNT) 2013-2014 - Hillshade",
+        "fe13bc84-e371-46ca-9632-8ad4139f1ee5 Relief de la Wallonie - Modèle Numérique de Terrain - 1m (MNT) 2021-2022",
+        "numberOfRecordsMatched=\"24\""
+      ]
+    }
+  }
+}
