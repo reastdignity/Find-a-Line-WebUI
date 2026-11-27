@@ -141,6 +141,12 @@ class Source:
     # surface model of a survey's points; not FABDEM + Copernicus, whose difference is by
     # construction the trees and buildings FABDEM removed (on the same pixels)
     obstacles: bool = True
+    # The fallbacks fill the surface model's gaps only where they fill the terrain's too
+    # (filling.fill_gaps' surface_with_terrain, read from the search's own source): a surface gap
+    # over the source's own terrain stays empty (the lines there "not measured", the search warns)
+    # instead of taking the fallback's 30 m surface. spain: MDS05 holds no data over land MDT05
+    # covers (Ceuta, Melilla); False: every surface gap filled once the terrain has any gap
+    fallback_surface_with_terrain: bool = False
 
     def __post_init__(self):
         if self.default_resolution is None:

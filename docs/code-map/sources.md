@@ -586,7 +586,9 @@ what a person sees in the 3D view as a wall straight down to the water) and `sho
 `SHORE_BAND` pixels into bands, outlined strip by strip with rasterio's `shapes`, joined and `normalize`d, simplified
 by `SHORE_SIMPLIFY` pixels in WGS84, each band's length the longer side of a rectangle of its area and outline less
 the growth, under `SHORE_MIN_M` left out of the list: `{rim_min, segments: [{kind, px, m, ring}], totals}`),
-`fill_gaps_chain`: `Source.more_fallbacks` in turn (`steps`: each fallback's mask path, the first the union);
+`fill_gaps_chain`: `Source.more_fallbacks` in turn (`steps`: each fallback's mask path, the first the union;
+`surface_with_terrain`, the primary source's `Source.fallback_surface_with_terrain`, on for `spain`: a fallback
+writes a surface pixel only where the terrain was a gap when that fallback started);
 `terrain_origins` where a search area's land got its terrain after the gap filling (the land as the statistics'
 `water_with_data` leaves it: the source's own pixels, the neighbours', each fallback's; the fallbacks' regions
 outlined as the shore's, holes kept, under `FALLBACK_MIN_M2` and beyond `FALLBACK_REGIONS_MAX` left out of the list:

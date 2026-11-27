@@ -440,19 +440,19 @@
      "Copernicus water body mask"
     ]
    },
-   "spain/mds05/live": {
+   "spain/mds05-zeros-nodata/live": {
     "files": {
-     "spain/mds05/live/epsg25830-5m-2000px-asc/89_461.tif": "6602d5d0d117a2496f1f8bc8b2f8d8957e41a9fcbc02833bf3ed3f4bb3a16f82",
-     "spain/mds05/live/epsg25830-5m-2000px-asc/90_461.tif": "cba795e967956063154433c0975e65bb3a215c3e1d2b805d25282358b1bfdbf4"
+     "spain/mds05-zeros-nodata/live/epsg25830-5m-2000px-asc/89_461.tif": "6602d5d0d117a2496f1f8bc8b2f8d8957e41a9fcbc02833bf3ed3f4bb3a16f82",
+     "spain/mds05-zeros-nodata/live/epsg25830-5m-2000px-asc/90_461.tif": "cba795e967956063154433c0975e65bb3a215c3e1d2b805d25282358b1bfdbf4"
     },
     "layers": [
      "MDS05 (trees, buildings) Spain"
     ]
    },
-   "spain/mdt05/live": {
+   "spain/mdt05-zeros-nodata/live": {
     "files": {
-     "spain/mdt05/live/epsg25830-5m-2000px-asc/89_461.tif": "29105d20ec8b762bf40c1dd82b0998f50ea9132a2831a50899cf269620d7bc4c",
-     "spain/mdt05/live/epsg25830-5m-2000px-asc/90_461.tif": "c4565ce95abbc60b6ba6ec5f72413e84d708bc3aac53e79659929f1ff550fb49"
+     "spain/mdt05-zeros-nodata/live/epsg25830-5m-2000px-asc/89_461.tif": "29105d20ec8b762bf40c1dd82b0998f50ea9132a2831a50899cf269620d7bc4c",
+     "spain/mdt05-zeros-nodata/live/epsg25830-5m-2000px-asc/90_461.tif": "c4565ce95abbc60b6ba6ec5f72413e84d708bc3aac53e79659929f1ff550fb49"
     },
     "layers": [
      "MDT05 (terrain) Spain"
@@ -5100,6 +5100,73 @@
   "left_out": [],
   "mixed": false,
   "source": "usa",
+  "versions": {
+   "gdal": "3.12.2",
+   "proj": "9.7.1",
+   "rasterio": "1.5.2"
+  }
+ },
+ "R96": {
+  "access_skipped": null,
+  "area": {
+   "inputs": null,
+   "shape": "c3b345bbf2a880279a288a4926e40c357913c9267efbe76d9918ffd426326ad0",
+   "type": "circle"
+  },
+  "coastline": {
+   "edition": "2026-10-23"
+  },
+  "folders": {
+   "copernicus30/2021/dem": {
+    "files": {
+     "copernicus30/2021/dem/N35W006.tif": "144d37ac7825c9ba1b22c52ae2aa8ee01cbaef235c9d020eb42b1d285e106673"
+    },
+    "layers": [
+     "Copernicus DEM GLO-30 (surface)"
+    ]
+   },
+   "copernicus30/2021/wbm": {
+    "files": {
+     "copernicus30/2021/wbm/N35W006.tif": "d628fb2b82afcf2274143c2eb0c25954d7a8d8af68e3964c79720cc9aeaf9c6a"
+    },
+    "layers": [
+     "Copernicus water body mask"
+    ]
+   },
+   "fabdem/v1-2": {
+    "files": {
+     "fabdem/v1-2/N35W006.tif": "3313babc4ac3c1e5a48c39906848b391655fdad5990bd0cc3128dcf1842d3fee"
+    },
+    "layers": [
+     "FABDEM (terrain)"
+    ]
+   },
+   "spain/mds05-zeros-nodata/live": {
+    "files": {
+     "spain/mds05-zeros-nodata/live/epsg25830-5m-2000px-asc/28_396.tif": "03d15157c6afc686554522723e25aee507e52ed515743e5fe7168f049d26507a",
+     "spain/mds05-zeros-nodata/live/epsg25830-5m-2000px-asc/28_397.tif": "911b31dcc06b6bd5ddb1017c2c8b40dbdaf239a4401a2825011b6febb2e310c0",
+     "spain/mds05-zeros-nodata/live/epsg25830-5m-2000px-asc/29_396.tif": "f2d7cacc5306ef0bf50fd47d9ebcc6455022bb17f27a0668e9d528da9dce93e6",
+     "spain/mds05-zeros-nodata/live/epsg25830-5m-2000px-asc/29_397.tif": "157da059a9d50ecef531876185e85bcd005a4deb7b1f782566183490aae69c4e"
+    },
+    "layers": [
+     "MDS05 (trees, buildings) Spain"
+    ]
+   },
+   "spain/mdt05-zeros-nodata/live": {
+    "files": {
+     "spain/mdt05-zeros-nodata/live/epsg25830-5m-2000px-asc/28_396.tif": "03d15157c6afc686554522723e25aee507e52ed515743e5fe7168f049d26507a",
+     "spain/mdt05-zeros-nodata/live/epsg25830-5m-2000px-asc/28_397.tif": "94045f1ed631ca4c77942768635388ff46eb65cce280015d4bcb0ba2573c2590",
+     "spain/mdt05-zeros-nodata/live/epsg25830-5m-2000px-asc/29_396.tif": "f2d7cacc5306ef0bf50fd47d9ebcc6455022bb17f27a0668e9d528da9dce93e6",
+     "spain/mdt05-zeros-nodata/live/epsg25830-5m-2000px-asc/29_397.tif": "e7774a330386b1d089e9ba2c1f6090019b8e120072a44f3dd921d6ea37c03e3c"
+    },
+    "layers": [
+     "MDT05 (terrain) Spain"
+    ]
+   }
+  },
+  "left_out": [],
+  "mixed": false,
+  "source": "spain",
   "versions": {
    "gdal": "3.12.2",
    "proj": "9.7.1",

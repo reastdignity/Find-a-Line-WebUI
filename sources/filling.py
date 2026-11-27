@@ -707,7 +707,7 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
               exclude: Optional[np.ndarray] = None, name: str = "gap",
               window: Optional[Tuple[slice, slice]] = None, surface_from_terrain: bool = True,
               rows: Optional[int] = None, resampling: Optional[str] = None,
-              same_resolution: Optional[str] = None) -> Tuple[str, int, int]:
+              same_resolution: Optional[str] = None, surface_with_terrain: bool = False) -> Tuple[str, int, int]:
     """Fill the remaining gaps in the data on land from another source.
 
     Each gap gets the other source shifted by the median height difference in a
@@ -728,10 +728,15 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
     next to out_path while a pair is filled, the labels of its gaps the one array of the whole
     grid: _fill), the same values. resampling, same_resolution: how the fallback's rasters are
     reprojected (mosaic.build_mosaic's; None: its own choice).
+    surface_with_terrain (Source.fallback_surface_with_terrain of the search's source): the surface's
+    gaps are filled only on the terrain's gaps as they were when this call started (a pixel whose
+    terrain a neighbour or an earlier fallback filled counts as terrain data); False: every gap of
+    the surface on land, once the terrain has any.
     """
     if rows is not None:
         return _fill_gaps_rows(elevation_path, surface_path, grid, fallback, cache_dir, out_path, update, exclude,
-                               name, window, surface_from_terrain, rows, resampling, same_resolution)
+                               name, window, surface_from_terrain, rows, resampling, same_resolution,
+                               surface_with_terrain)
     work = os.path.dirname(out_path)
     elevation = np.load(elevation_path, mmap_mode="r+")
     filled = np.isnan(elevation)
@@ -750,6 +755,8 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
     sub = _subgrid(grid, window) if window is not None else grid
     for target, layer, name, which in pairs:
         gaps = np.isnan(target) if exclude is None else np.isnan(target) & ~exclude
+        if surface_with_terrain and which == "surface":
+            gaps &= filled  # the terrain's gaps of the start (filled changes only after the loop)
         if not gaps.any():
             continue
         # A neighbour has no data beyond its border: no line about its tiles without data
@@ -772,14 +779,17 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
     return out_path, int(filled.sum()), written
 
 
-def _gaps_rows(target: np.ndarray, exclude: Optional[np.ndarray], out: np.ndarray, rows: int) -> bool:
-    """The gaps of target (NaN, outside exclude) into out (a new mask: a strip without gaps stays
-    pages nothing ever wrote), strip by strip; whether there is any."""
+def _gaps_rows(target: np.ndarray, exclude: Optional[np.ndarray], out: np.ndarray, rows: int,
+               within: Optional[np.ndarray] = None) -> bool:
+    """The gaps of target (NaN, outside exclude, inside the mask within when given) into out (a new
+    mask: a strip without gaps stays pages nothing ever wrote), strip by strip; whether there is any."""
     found = False
     for r0, r1, _, _ in strips(target.shape[0], rows):
         gaps = np.isnan(target[r0:r1])
         if exclude is not None:
             gaps &= ~np.asarray(exclude[r0:r1], dtype=bool)
+        if within is not None:
+            gaps &= np.asarray(within[r0:r1], dtype=bool)
         if gaps.any():
             out[r0:r1] = gaps
             found = True
@@ -790,7 +800,8 @@ def _fill_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Grid
                     cache_dir: str, out_path: str, update: Optional[str], exclude: Optional[np.ndarray],
                     name: str, window: Optional[Tuple[slice, slice]], surface_from_terrain: bool,
                     rows: int, resampling: Optional[str] = None,
-                    same_resolution: Optional[str] = None) -> Tuple[str, int, int]:
+                    same_resolution: Optional[str] = None,
+                    surface_with_terrain: bool = False) -> Tuple[str, int, int]:
     """fill_gaps in strips of rows (its values)."""
     work = os.path.dirname(out_path)
     elevation = np.load(elevation_path, mmap_mode="r+")
@@ -811,7 +822,8 @@ def _fill_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Grid
         if gaps is None:
             gaps_path = os.path.join(work, f"{name}_{which}_gaps.npy")
             gaps = new_mask(gaps_path, target.shape)
-            if not _gaps_rows(target, exclude, gaps, rows):
+            # surface_with_terrain: only on the terrain's gaps of the start (filled changes only after the loop)
+            if not _gaps_rows(target, exclude, gaps, rows, within=filled if surface_with_terrain else None):
                 del gaps
                 remove_grid(gaps_path)
                 continue
@@ -1103,11 +1115,14 @@ def _or_rows(out_path: str, more_path: str, rows: int):
 def fill_gaps_chain(elevation_path: str, surface_path: Optional[str], grid: Grid, fallbacks: List["Source"],
                     cache_dir: str, out_path: str, update: Optional[str] = None,
                     exclude: Optional[np.ndarray] = None, rows: Optional[int] = None,
-                    steps: Optional[List[str]] = None) -> Tuple[str, List[Tuple["Source", int]]]:
+                    steps: Optional[List[str]] = None,
+                    surface_with_terrain: bool = False) -> Tuple[str, List[Tuple["Source", int]]]:
     """Fill the gaps on land from each fallback in turn (fill_gaps), each only what the ones
     before it left (most sources have one; Alaska: its IfSAR, then the 1/3″ DEM). Saves the
     mask of all filled pixels to out_path; returns (out_path, [(fallback, filled pixels)]).
     rows: in strips (fill_gaps), the masks joined strip by strip.
+    surface_with_terrain: the search's source's Source.fallback_surface_with_terrain (never a
+    fallback's), passed to each fill_gaps.
     steps: a list the masks' paths are appended to, one per fallback: the first is out_path (all
     the fallbacks' pixels once the chain is done), each later one that fallback's own pixels (the
     fallbacks fill disjoint pixels: terrain_origins tells the first's from the union less the rest)."""
@@ -1115,7 +1130,8 @@ def fill_gaps_chain(elevation_path: str, surface_path: Optional[str], grid: Grid
     for n, fallback in enumerate(fallbacks):
         step = out_path if n == 0 else f"{os.path.splitext(out_path)[0]}{n}.npy"
         _, pixels, _ = fill_gaps(elevation_path, surface_path, grid, fallback, cache_dir, step, update,
-                                 exclude=exclude, name="gap" if n == 0 else f"gap{n}", rows=rows)
+                                 exclude=exclude, name="gap" if n == 0 else f"gap{n}", rows=rows,
+                                 surface_with_terrain=surface_with_terrain)
         counts.append((fallback, pixels))
         if steps is not None:
             steps.append(step)

@@ -180,6 +180,19 @@ Scripts from the 2026-10-25 research lived in the session scratchpad; the comman
 ## 5. Pitfalls met, in detail
 The rules in `.claude/rules/sources.md` point here for their measurements and examples.
 
+- **Spain's zeros** (2026-11-26/27): IGN's WCS answers 0.000 without nodata for the sea and beyond its data (the
+  blocks around Ceuta and Melilla, the borders at Elvas and Banyuls); a search there found false cliffs at the
+  blocks' edges (four false top spots in 5 km west of Ceuta). `spain` takes exact zeros as no data in MDT05 and
+  MDS05 (`zero_is_nodata`; real land at exactly 0.000 m becomes a gap: 38 px in Melilla), `spain_canarias` keeps
+  them (its sea is 0 in the data). The two sources read one MDS05 coverage with different zero rules, so `spain`
+  has folders of its own (`spain.SPAIN_MDT_FOLDER`, `SPAIN_MDS_FOLDER`): a cached tile means one thing, and an
+  older checkout on the same cache keeps its tiles. MDS05 holds only zeros over the land MDT05 covers around Ceuta
+  and Melilla: `spain`'s fallback fills its surface only on terrain gaps
+  (`Source.fallback_surface_with_terrain`), so lines there read "surface not measured"; a line that crosses sea
+  the terrain model has no data for is measured on those sea pixels alone (the roadmap's "A surface model that
+  covers less than the terrain"). `tools/check_source.py spain` at Monte Hacho fails the surface's `shift` and
+  `valid` checks (0 % valid): the true state.
+
 - **Services beyond their extent** (the rule's "WCS services differ"): the Environment Agency answers HTTP 500 (not
   404) for a tile wholly outside its coverage; Mecklenburg-Vorpommern's MapServer answers 400 for one wholly outside
   and stores the sea and the extent outside the Land as 0 in both layers; Hesse's rasdaman answers 404 beyond its

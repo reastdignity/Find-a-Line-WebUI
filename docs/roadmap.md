@@ -2000,6 +2000,41 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 - **No shell anywhere**: the worker calls `run_search()` directly.
 
 ## To check
+- **A surface model that covers less than the terrain: one rule for every source** (the user, 2026-11-27: "Do 3
+  and puth 4 into roadmap", after Spain's zeros; tag `history/spain-zeros`). Around Ceuta and Melilla IGN's MDS05 holds
+  only zeros (no data since that branch) over land MDT05 covers. Five things were seen there; `spain` got a switch
+  for the first (`Source.fallback_surface_with_terrain`), the rest is as it was. All five are general rules, so
+  each needs measuring before it changes: the regression set says how many entries move.
+  1. *The fill of the surface.* `filling.fill_gaps` returns at once when the terrain has no gap on land, and
+     fills **every** gap of the surface from the fallback when it has one: in a 2 km search at Melilla 38 px of
+     terrain gap gave 155 697 px of surface (the whole city) to the 30 m radar model, and a 5 km search at Ceuta
+     marked 2 923 of 4 797 lines "over trees". So whether a surface gap is filled depends on a gap elsewhere in
+     the grid. The rule `spain` has: a fallback fills a surface pixel only where the terrain was a gap when that
+     fallback started (Ceuta: 0 over trees, all 4 797 lines "not measured", 281 clear spots). As the rule of
+     every source the switch goes away. First: which sources can have surface gaps beyond terrain gaps (by the
+     catalogue: a surface layer with `zero_is_nodata` where the terrain has none, Hesse and North
+     Rhine-Westphalia; both layers with it, Mecklenburg-Vorpommern, Denmark, Norway; different products for the
+     two, Estonia; 50 of 89 sources have a surface layer) and how many entries move.
+  2. *A line partly over an empty surface.* `helpers.evaluate_line` and `linesearch._evaluate` take the lowest
+     surface clearance over the pixels that have a surface: a line is "not measured" only when none has. At
+     Melilla 445 of 2 554 lines cross sea the terrain model has no data for (`fill_water` gives that sea a surface
+     of 0 m), so they read clear with a number from their sea pixels alone, on 429 of them above the terrain's
+     clearance (by up to 56 m), a median 40 % of their span unknown. The user chose to keep and document it
+     (2026-11-27). The general rule would be: a land pixel without a surface under the span makes the line "not
+     measured" (the kernels, `lineprofiles._profiles` and `line_profile` together; checksums move wherever a
+     surface model has holes), or a mark "partly measured" per line (a new column and a viewer change).
+  3. *The warning's share.* `search.prepare_data`'s surface coverage counts the filled sea as having a surface:
+     Ceuta's 5 km search shows 54 % without a surface model where 96 % of the land has none. A land-only share
+     leaves out `fill_water`'s mask; only the printed number changes.
+  4. *The 3D view.* `canopy_of_line` draws an empty surface as 0, the same as bare ground: "no trees" and "not
+     measured" look alike. The profile's chart joins the surface band across an empty stretch.
+  5. *A surface fill with nothing to match.* `_fill` shifts a filled gap by the median difference in a ring
+     around it; where the surface has no pixel at all, its gaps are filled without a shift while the terrain on
+     the same pixels is shifted. Measured on the filled land beyond Spain's data: Ceuta, terrain shifted by
+     -0.44 m, the filled surface a median 1.20 m above the filled terrain; Melilla, terrain +2.21 m, the surface
+     a median 2.02 m **below** it (84 % of the pixels: bare ground reads as no obstacle either way, but the
+     opposite sign would make obstacles of it). No line of the stored searches runs over that land. A possible
+     rule: the surface's gaps take the terrain's shift when the surface has nothing to match against.
 - **The check of cached tiles by folder for every search** (a possible improvement, noted on the user's word of
   2026-11-18; docs/performance.md, "The check of cached tiles"). A pass of `tools/area_download.py` asks whether its
   tiles' files are there by one listing per folder (`sources.layer.EXISTING`, `cache.due_many(exists=)`): Utah's

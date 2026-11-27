@@ -82,7 +82,9 @@ def prepare_layer(layer: Layer, grid: Grid, cache_dir: str, out_path: str, label
     if download:
         layer.download(grid, cache_dir, update, label)
     tiles = (layer.tiles(grid) or []) if layer.folder and not quiet else []  # local files are not in the cache
-    empty = cache.states(cache_dir, [layer.tile_path(cache_dir, t) for t in tiles]).count("missing")
+    # At the layer's processing: a row of another one answers None, so a layer of processing 2 (Bremerhaven's DOM1)
+    # never counted its tiles without data
+    empty = cache.states(cache_dir, [layer.tile_path(cache_dir, t) for t in tiles], layer.processing).count("missing")
     if empty:  # normal over the sea; on land a sign of a lost tile (see the regression tests)
         print(f"{layer.description}: {empty} of {len(tiles)} tiles without data (the service has none there)")
     files = layer.files(grid, cache_dir)

@@ -1212,7 +1212,8 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                 filled_path, filled = src.fill_gaps_chain(elevation_path, surface_path, grid,
                                                           [src.SOURCES[f] for f in source.fallbacks], cache_dir,
                                                           os.path.join(work, "filled.npy"), p.update, exclude=sea_zone,
-                                                          rows=rows, steps=steps)
+                                                          rows=rows, steps=steps,
+                                                          surface_with_terrain=source.fallback_surface_with_terrain)
             for fallback, filled_px in joined + filled:
                 if filled_px:
                     emit("info", f"Filled {filled_px * plan.resolution ** 2 / 1e6:.2f} km² of gaps in the data "
