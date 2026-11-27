@@ -77,6 +77,12 @@ index vector tile over Mikurajima (fields MESH_NO, URL). Tokyo Metropolitan Gove
 untouched, each re-zipped alone. VIRTUAL SHIZUOKA point cloud data (Shizuoka Prefecture),
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (modified: cut).
 
+`yamanashi/`: three of Yamanashi Prefecture's 0.5 m ground-model sheets (folder `03`) as the bucket
+`japan-pointcloud` served them on 2026-11-26, unchanged, for `tests/test_japan.py`: `08KD1638.zip` a border sheet
+(158 x 222 px of its 800 x 600, 22 877 valid), `08LD4359.zip` a sliver (1 x 3 px), `08LE9188.zip` mid Lake Motosu
+(800 x 600 px, none valid). Yamanashi Prefecture, 山梨県点群データ（航空LP・MMS）,
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 `hong_kong/`: CEDD's 2020 lidar sheets as the CSDI Portal served them on 2026-11-16, for `tests/test_hong_kong.py`:
 `sheets.json`, rows of the index (the FeatureServer's layers DTM_2020 and DSM_2020 as `tools/hong_kong_sheets.py`
 keeps them: code, file name, URL, footprint in EPSG:2326), 23 terrain and 4 surface sheets spread over the 17 maps;

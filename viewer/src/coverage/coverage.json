@@ -982,6 +982,19 @@
    "survey": "2022–2023",
    "trees": "no"
   },
+  "jp-19": {
+   "added": "2026-11-26",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Yamanashi Prefecture",
+   "res": [
+    1
+   ],
+   "source": "yamanashi",
+   "survey": "2019–2022",
+   "trees": "yes"
+  },
   "jp-22": {
    "added": "2026-11-15",
    "level": 1,
@@ -1481,6 +1494,7 @@
   ],
   "jp": [
    "jp-13",
+   "jp-19",
    "jp-22"
   ],
   "pt": [

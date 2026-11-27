@@ -1211,3 +1211,415 @@ def test_tiles_to_ask_under_an_outline(kind):
         owners = {(math.floor(a / 0.25) * 0.25, math.floor(o / 0.25) * 0.25) for a, o in zip(lats, lons)}
         assert owners <= asked, (level, owners - asked)
     assert len({lon for _, lon in asked}) == 2  # both sides of the line
+
+
+# --- Yamanashi --------------------------------------------------------------------------------------------------------
+YM_RECORDED = os.path.join(HERE, "data", "recorded", "yamanashi")
+
+
+def _ym_key(code, sequence="03", publication=2024):
+    return f"Yamanashi/{publication}/{sequence}/LP/Grid/TIFF/08/{code[2:4]}/{code[4:6]}/{code}.zip"
+
+
+def _ym_recorded(code):
+    with open(os.path.join(YM_RECORDED, f"{code}.zip"), "rb") as f:
+        return f.read()
+
+
+@pytest.fixture
+def yamanashi(http_server, monkeypatch):
+    """The catalogue's two Yamanashi layers on the local server."""
+    for layer in (japan.YM_DTM, japan.YM_DSM):
+        monkeypatch.setattr(layer, "bucket", http_server.base)
+        monkeypatch.setattr(layer.index.listing, "url", http_server.base)
+        layer.index._listed.clear()
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    return japan.YM_DTM
+
+
+def _ym_grid(code, margin=1.0):
+    left, bottom, right, top = japan.YM_DTM.levels["s"].edges(japan.jp_cell(8, code))
+    return make_grid((left + margin, bottom + margin, right - margin, top - margin), 0.5, japan.YM_CRS)
+
+
+def test_yamanashi_keys_and_prefixes():
+    """The keys each product takes (its own sequence folder of the publication 2024, a sheet's own folders) and the
+    prefixes a box asks: under Yamanashi/ only, never under another prefecture's top folder of the bucket."""
+    cell = japan.jp_cell(8, "08KD3949")
+    for sequence in ("03", "02", "01"):
+        parse = japan.ym_key(sequence)
+        assert parse(_ym_key("08KD3949", sequence)) == (2024, "s", cell)
+        others = [s for s in ("01", "02", "03") if s != sequence]
+        assert all(parse(_ym_key("08KD3949", other)) is None for other in others)
+        assert parse(_ym_key("08KD3949", sequence, 2026)) is None  # another publication: set by hand
+        assert parse(_ym_key("08KD3949", sequence).replace("/TIFF/", "/TXT/")) is None
+        assert parse(_ym_key("08KD3949", sequence).replace("/39/08KD", "/38/08KD")) is None  # not its folder
+        assert parse(_ym_key("08KD3949", sequence).replace("Yamanashi/", "Tokyo/")) is None
+    box = (cell[0] * 400 - 50_000, cell[1] * 300, cell[0] * 400 + 100, cell[1] * 300 + 100)  # x -50 400..-300
+    prefixes = japan.ym_prefixes("03")
+    assert prefixes("Yamanashi/", box) == ["Yamanashi/2024/03/LP/Grid/TIFF/08/KC/",
+                                            "Yamanashi/2024/03/LP/Grid/TIFF/08/KD/"]
+    assert prefixes("Tokyo/", box) == [] and prefixes("Hyogo/", box) == []
+    assert japan.ym_prefixes("02")("Yamanashi/", box)[1] == "Yamanashi/2024/02/LP/Grid/TIFF/08/KD/"
+
+
+@pytest.mark.parametrize("sequence, product", [("02", "dsm2"), ("01", "dsm1")])
+def test_yamanashi_surface_constant(sequence, product):
+    """Both values of YM_SURFACE: the layer of each lists its own folder and keeps its own cache folder, index
+    answers and description; the catalogue's surface model is DSM2 (the baselines rest on it)."""
+    layer = japan.ym_layer(sequence)
+    assert layer.folder == f"yamanashi/{product}/2024" and layer.index.prefix == product
+    assert layer.index.top == "yamanashi" and layer.description.endswith(f"(surface, {product.upper()})")
+    assert layer.prefixes("Yamanashi/", (0, -1, 1, 0)) == [f"Yamanashi/2024/{sequence}/LP/Grid/TIFF/08/KE/"]
+    assert layer.parse(_ym_key("08KD3949", sequence)) is not None and layer.parse(_ym_key("08KD3949")) is None
+    assert layer.levels["s"].cell == japan.SHEET_500 and layer.members == r"\.tif$"
+    assert japan.YM_SURFACE == "02" and src.SOURCES["yamanashi"].nmpt is japan.YM_DSM
+    assert japan.YM_DSM.folder == "yamanashi/dsm2/2024" and japan.YM_DTM.folder == "yamanashi/dem/2024"
+    assert japan.YM_DTM.index.prefix == "dem" and "DSM2" in src.SOURCES["yamanashi"].description
+    # the source built with this value: its surface layer and every text naming it follow the one value
+    other = "DSM2" if product == "dsm1" else "DSM1"
+    source = japan.ym_source(sequence)
+    assert source.nmpt.folder == layer.folder and source.nmt is japan.YM_DTM
+    assert source.name == "Yamanashi (lidar 0.5 m)"
+    for text in (source.description, source.note, source.listing.surface):
+        assert product.upper() in text and other not in text, text
+    assert japan.YM_SURFACE_TEXT[sequence] in source.description and japan.YM_SURFACE_TEXT[sequence] in source.note
+    assert ("without power lines" in source.note) == (sequence == "02")
+    if sequence == japan.YM_SURFACE:  # the catalogue's entry is this builder's
+        catalogue = src.SOURCES["yamanashi"]
+        assert (catalogue.description, catalogue.note, catalogue.listing) == (source.description, source.note,
+                                                                             source.listing)
+
+
+@pytest.mark.parametrize("code, shape, valid", [
+    ("08KD1638", (222, 158), 22877),   # on the prefecture's border: 158 x 222 px of its 800 x 600
+    ("08LD4359", (3, 1), 3),           # a sliver: 1 x 3 px
+])
+def test_yamanashi_border_sheets_on_their_box(yamanashi, http_server, tmp_path, code, shape, valid):
+    """The publisher's border sheets (recorded 2026-11-26) are composed on their sheet's box: 800 x 600 px in
+    EPSG:6676, the file's pixels where the file has them (its own pixel edges on the sheet's lattice), the rest no
+    data; only Yamanashi/ is listed, never another prefecture's folder."""
+    import zipfile
+    from rasterio.io import MemoryFile
+    data = _ym_recorded(code)
+    tokyo_key = "Tokyo/2023/01/LP/Grid/TIFF/09/KC/63/09KC6361.zip"
+    _bucket(http_server, {_ym_key(code): data, tokyo_key: b"not asked"})
+    cache_dir = str(tmp_path)
+    grid = _ym_grid(code)
+    _search(yamanashi, grid, cache_dir)
+    (path,) = yamanashi.files(grid, cache_dir)
+    assert path.replace(os.sep, "/").split("/yamanashi/dem/2024/s/")[1].startswith(f"{code[2:4]}/{code[4:6]}/2024_{code}_")
+    cell = japan.jp_cell(8, code)
+    left, top = cell[0] * 400, (cell[1] + 1) * 300
+    with rio.open(path) as tile:
+        values = tile.read(1)
+        assert tile.crs.to_epsg() == 6676 and tile.shape == (600, 800)
+        assert tile.transform.almost_equals(from_origin(left, top, 0.5, 0.5))
+    with zipfile.ZipFile(io.BytesIO(data)) as z, MemoryFile(z.read(f"{code}.tif")) as mem, mem.open() as own:
+        assert own.shape == shape
+        mine = own.read(1)
+        col, row = round((own.transform.c - left) / 0.5), round((top - own.transform.f) / 0.5)
+    mine = np.where(mine > 1e30, np.nan, mine)
+    part = values[row:row + shape[0], col:col + shape[1]]
+    assert np.array_equal(np.isnan(part), np.isnan(mine)) and np.allclose(part, mine, atol=0.006, equal_nan=True)
+    assert np.count_nonzero(~np.isnan(values)) == valid
+    assert not any(r.path.startswith("/Tokyo") for r in http_server.requests())
+    prefixes = {dict(r.query).get("prefix") for r in http_server.requests() if r.path == "/"}
+    assert "" in prefixes and f"Yamanashi/2024/03/LP/Grid/TIFF/08/{code[2:4]}/" in prefixes
+    assert all(p == "" or p.startswith("Yamanashi/2024/03/LP/Grid/TIFF/08/") for p in prefixes)
+    assert yamanashi.used(grid, cache_dir)["credit"]["data"] == japan.YM_CREDIT.data
+
+
+def test_yamanashi_lake_sheet_without_data(yamanashi, http_server, tmp_path):
+    """A listed sheet whose file has no valid pixel (08LE9188, mid Lake Motosu, as published) is recorded as without
+    data, never an error and never asked again by the next search; a sheet the listing lacks is never asked."""
+    code = "08LE9188"
+    _bucket(http_server, {_ym_key(code): _ym_recorded(code)})
+    cache_dir = str(tmp_path)
+    cell = japan.jp_cell(8, code)
+    left, bottom, right, top = yamanashi.levels["s"].edges(cell)
+    grid = make_grid((left + 1, bottom + 1, right + 399, top - 1), 0.5, japan.YM_CRS)  # and the unlisted east sheet
+    _search(yamanashi, grid, cache_dir)
+    (sheet,) = yamanashi.tiles(grid)
+    assert (sheet.i, sheet.j) == cell
+    assert not os.path.exists(yamanashi.tile_path(cache_dir, sheet))
+    assert not cache.due(cache_dir, yamanashi.tile_path(cache_dir, sheet))  # recorded: no data
+    _search(yamanashi, grid, cache_dir)
+    assert _zips(http_server) == 1 and yamanashi.files(grid, cache_dir) == []
+
+
+def test_yamanashi_listed_file_missing_is_an_error(yamanashi, http_server, tmp_path):
+    """A listed key the bucket no longer gives (404 NoSuchKey) is an error of its sheet, nothing recorded."""
+    code = "08KD1638"
+    objects = {_ym_key(code): _ym_recorded(code)}
+    _bucket(http_server, objects)
+    cache_dir = str(tmp_path)
+    yamanashi._use(cache_dir)
+    (sheet,) = yamanashi.tiles(_ym_grid(code))
+    del objects[_ym_key(code)]
+    with pytest.raises(RuntimeError, match="404"):
+        yamanashi._download_and_record(sheet, cache_dir)
+    assert cache.due(cache_dir, yamanashi.tile_path(cache_dir, sheet))
+
+
+def test_yamanashi_catalogue_entry():
+    """The catalogue's own settings: region jp-19, zone VIII, the terrain from 03 and the surface from 02 in
+    japan-pointcloud, two connections at once, the credit; its offline boxes meet neither Tokyo's nor Shizuoka's."""
+    source = src.SOURCES["yamanashi"]
+    assert source.regions == ("jp-19",) and source.countries == ("jp",) and source.crs == "EPSG:6676"
+    assert source.nmt is japan.YM_DTM and source.nmpt is japan.YM_DSM and source.credits == (japan.YM_CREDIT,)
+    assert japan.YM_DTM.bucket == japan.YM_DSM.bucket == "https://japan-pointcloud.s3.ap-northeast-1.amazonaws.com"
+    assert japan.YM_DTM.index.listing.url == japan.YM_DTM.bucket and japan.YM_DTM.folders_pattern == "Yamanashi/"
+    assert japan.YM_DTM.prefixes("Yamanashi/", (0, -1, 1, 0))[0].startswith("Yamanashi/2024/03/")
+    assert japan.YM_DSM.prefixes("Yamanashi/", (0, -1, 1, 0))[0].startswith("Yamanashi/2024/02/")
+    # the catalogue's own two layers: each takes its own folder's keys only, lists and caches apart
+    key3, key2 = _ym_key("08KD3949", "03"), _ym_key("08KD3949", "02")
+    assert japan.YM_DTM.parse(key3) == japan.YM_DSM.parse(key2) == (2024, "s", japan.jp_cell(8, "08KD3949"))
+    assert japan.YM_DTM.parse(key2) is None and japan.YM_DSM.parse(key3) is None
+    assert (japan.YM_DTM.folder, japan.YM_DTM.index.prefix) == ("yamanashi/dem/2024", "dem")
+    assert (japan.YM_DSM.folder, japan.YM_DSM.index.prefix) == ("yamanashi/dsm2/2024", "dsm2")
+    assert japan.YM_DTM.index.top == japan.YM_DSM.index.top == "yamanashi"
+    assert japan.YM_DTM.reader.sheet.members == japan.YM_DSM.reader.sheet.members == r"\.tif$"
+    assert japan.YM_DTM.credit is japan.YM_DSM.credit is japan.YM_CREDIT
+    assert (japan.YM_DTM.bytes_per_tile(), japan.YM_DSM.bytes_per_tile()) == (0.95e6, 1.33e6)
+    assert src.net.HOST_SLOTS_OF["japan-pointcloud.s3.ap-northeast-1.amazonaws.com"] == 2
+    assert source.neighbours == ("tokyo", "shizuoka")
+    assert src.SOURCES["tokyo"].neighbours == ("yamanashi",) and src.SOURCES["shizuoka"].neighbours == ("yamanashi",)
+
+
+def test_yamanashi_offline_boxes():
+    """Yamanashi's offline boxes (region jp-19) come before Tokyo's and Shizuoka's (theirs hold its land south of the
+    five lakes and on its eastern edge; the first box holding a point wins) and keep off their land: of the coverage
+    map's outlines (viewer/src/coverage/shapes.json) they hold most of jp-19 and little of jp-13 and jp-22; the
+    points of a few sheets' centres choose Yamanashi offline, and Tokyo and Shizuoka keep their own places."""
+    import json
+    import math
+    from shapely.geometry import box, shape
+    from shapely.ops import unary_union
+    source = src.SOURCES["yamanashi"]
+    assert all(region == "jp-19" for region, _ in source.offline) and source.border_boxes == japan.YM_BORDER_BOXES
+    order = list(src.SOURCES)
+    assert order.index("yamanashi") < order.index("tokyo") < order.index("shizuoka")
+    with open(os.path.join(os.path.dirname(HERE), "viewer", "src", "coverage", "shapes.json"), encoding="utf-8") as f:
+        outlines = {x["properties"]["id"]: shape(x["geometry"]) for x in json.load(f)["features"]
+                    if x["properties"]["id"] in ("jp-13", "jp-19", "jp-22")}
+    ours = unary_union([box(w, s, e, n) for _, (s, n, w, e) in source.offline])
+    km2 = {k: g.intersection(ours).area * 111.32 ** 2 * math.cos(math.radians(35.6)) for k, g in outlines.items()}
+    # measured 2026-11-26 (the boxes of the cells): a box grown or moved by a cell (0.01 x 0.05 degree, about 4.5
+    # km²) changes one of them
+    assert km2 == {"jp-19": pytest.approx(4377.98, abs=0.5), "jp-13": pytest.approx(13.92, abs=0.5),
+                   "jp-22": pytest.approx(44.76, abs=0.5)}, km2
+    from sources import choose
+
+    def offline(lat, lon):
+        return next((region for region, (s, n, w, e) in choose.OFFLINE_BOXES if s <= lat <= n and w <= lon <= e),
+                    None)
+    # Yamanashi's own places (Mizugaki, Minobu, Kofu, Uenohara's east), two of them in a sister's box too (Minobu in
+    # Shizuoka's, Uenohara's east, 1.4 km inside Yamanashi, in Tokyo's)
+    for lat, lon in ((35.8946, 138.5948), (35.3700, 138.4400), (35.6622, 138.5683), (35.6700, 139.0600)):
+        assert offline(lat, lon) == "jp-19", (lat, lon)
+    # The neighbours' land next to Yamanashi's boxes (0.3-0.5 km outside them, at least 0.3 km inside the neighbour by
+    # Natural Earth's admin-1 1:10m outlines, 2026-11-26): the cells its land did not win; a box grown over them takes
+    # them. Tokyo's and Shizuoka's keep their own boxes; Nagano's, Saitama's and Kanagawa's have none (Kanagawa's at
+    # Lake Yamanaka's south lies in a Shizuoka box, as before Yamanashi)
+    for lat, lon, code in ((35.802, 138.972, "jp-13"), (35.676, 139.084, "jp-13"), (35.728, 139.004, "jp-13"),
+                           (35.548, 138.228, "jp-22"), (35.348, 138.522, "jp-22"), (35.402, 138.228, "jp-22"),
+                           (35.852, 138.198, None), (35.952, 138.328, None), (35.802, 138.178, None),  # Nagano
+                           (35.854, 138.814, None), (35.854, 138.864, None), (35.904, 138.718, None),  # Saitama
+                           (35.548, 139.112, None), (35.398, 138.922, "jp-22"), (35.598, 139.122, None)):  # Kanagawa
+        assert offline(lat, lon) == code, (lat, lon, offline(lat, lon))
+
+
+def _sheet_tif_zip(code, value, zone=8, crs="EPSG:6676"):
+    """A ZIP of one GeoTIFF of a whole 1/500 sheet (800 x 600 px of 0.5 m) holding one value, as Yamanashi's and
+    Tokyo's sheets are published (float32, nodata 1.70141e38, on the sheet's box)."""
+    from rasterio.io import MemoryFile
+    i, j = japan.jp_cell(zone, code)
+    with MemoryFile() as memfile:
+        with memfile.open(driver="GTiff", width=800, height=600, count=1, dtype="float32", crs=crs,
+                          nodata=1.70141e38, transform=from_origin(i * 400, (j + 1) * 300, 0.5, 0.5)) as dst:
+            dst.write(np.full((600, 800), value, dtype=np.float32), 1)
+        return _zip(f"{code}.tif", memfile.read())
+
+
+def _paged_bucket(http_server, objects):
+    """A bucket answering ListObjectsV2 page by page: max-keys keys a page, the continuation token the index of the
+    next key (the delimiter listing of the top folders in one page), GET of its keys, 404 NoSuchKey otherwise."""
+    def answer(request):
+        query = dict(request.query)
+        if request.path == "/" and query.get("list-type") == "2":
+            prefix = query.get("prefix", "")
+            keys = sorted(k for k in objects if k.startswith(prefix))
+            if query.get("delimiter") == "/":
+                folders = sorted({prefix + k[len(prefix):].split("/", 1)[0] + "/" for k in keys
+                                  if "/" in k[len(prefix):]})
+                body = (f"<ListBucketResult xmlns='{NS}'><IsTruncated>false</IsTruncated>"
+                        + "".join(f"<CommonPrefixes><Prefix>{escape(p)}</Prefix></CommonPrefixes>" for p in folders))
+            else:
+                start, size = int(query.get("continuation-token", "0")), int(query.get("max-keys", "1000"))
+                page, more = keys[start:start + size], start + size < len(keys)
+                body = (f"<ListBucketResult xmlns='{NS}'><IsTruncated>{'true' if more else 'false'}</IsTruncated>"
+                        + (f"<NextContinuationToken>{start + size}</NextContinuationToken>" if more else "")
+                        + "".join(f"<Contents><Key>{escape(k)}</Key><LastModified>2025-12-11T08:12:45.000Z"
+                                  f"</LastModified><ETag>&quot;{abs(hash(objects[k])) % 10 ** 12:012x}&quot;</ETag>"
+                                  f"<Size>{len(objects[k])}</Size></Contents>" for k in page))
+            return Answer(200, (body + "</ListBucketResult>").encode(), {"Content-Type": "application/xml"})
+        key = request.path.lstrip("/")
+        if key in objects:
+            return Answer(200, objects[key], {"Content-Type": "application/x-zip-compressed"})
+        return Answer(404, b"<Error><Code>NoSuchKey</Code></Error>", {"Content-Type": "application/xml"})
+    http_server.route("/", answer)
+
+
+def _row_of_sheets(first, count):
+    """count sheets of one row from the sheet `first` eastwards (codes), and a grid of 1 m over them."""
+    i, j = japan.jp_cell(8, first)
+    codes = [japan.jp_sheet(8, i + k, j) for k in range(count)]
+    grid = make_grid((i * 400 + 1, j * 300 + 1, (i + count) * 400 - 1, (j + 1) * 300 - 1), 1.0, japan.YM_CRS)
+    return codes, grid
+
+
+def test_yamanashi_paged_listing(yamanashi, http_server, tmp_path, monkeypatch):
+    """A block listed in pages (2 keys a page here; LE holds 10 pages of 1 000 on the bucket): the catalogue's terrain
+    layer follows the continuation tokens of its own prefix and gets every sheet of the block, the 7 keys of 03 over
+    4 pages; the 02 and Tokyo keys beside them are never listed by it nor downloaded."""
+    codes, grid = _row_of_sheets("08KD3941", 5)
+    objects = {_ym_key(c, "03"): _sheet_tif_zip(c, 1000.0 + k) for k, c in enumerate(codes)}
+    objects.update({_ym_key(c, "03"): _sheet_tif_zip(c, 9.0) for c in ("08KD3911", "08KD3912")})  # same block
+    objects.update({_ym_key(c, "02"): b"surface" for c in codes})
+    objects["Tokyo/2023/01/LP/Grid/TIFF/09/KD/39/09KD3941.zip"] = b"another prefecture"
+    _paged_bucket(http_server, objects)
+    monkeypatch.setattr(yamanashi.index.listing, "max_keys", 2)
+    cache_dir = str(tmp_path)
+    _search(yamanashi, grid, cache_dir)
+    pages = [dict(r.query) for r in http_server.requests() if r.path == "/" and "delimiter" not in dict(r.query)]
+    block = [q for q in pages if q["prefix"] == "Yamanashi/2024/03/LP/Grid/TIFF/08/KD/"]
+    # each index tile asking the block went through its 4 pages, in order
+    assert block and [q.get("continuation-token") for q in block] == [None, "2", "4", "6"] * (len(block) // 4)
+    assert all(q["prefix"].startswith("Yamanashi/2024/03/") for q in pages)
+    files = yamanashi.files(grid, cache_dir)
+    assert sorted(os.path.basename(p).split("_")[1] for p in files) == sorted(codes)
+    for path in files:
+        code = os.path.basename(path).split("_")[1]
+        with rio.open(path) as tile:
+            assert np.allclose(tile.read(1), 1000.0 + codes.index(code), atol=0.006)
+    zips = {r.path for r in http_server.requests() if r.path.endswith(".zip")}
+    assert zips == {"/" + _ym_key(c, "03") for c in codes}
+
+
+def test_yamanashi_surface_layer_downloads_its_own_sheets(yamanashi, http_server, tmp_path, monkeypatch):
+    """The catalogue's surface layer (the source's nmpt, DSM2) lists 02 only (in pages too), reads 02's ZIP of a
+    sheet and caches it as yamanashi/dsm2/2024/s/<letters>/<digits>/2024_<sheet>_<key>.tif with 02's heights; the
+    terrain's and DSM1's files of the same sheet are never asked."""
+    layer = src.SOURCES["yamanashi"].nmpt
+    assert layer is japan.YM_DSM
+    codes, grid = _row_of_sheets("08KD3941", 3)
+    objects = {}
+    for c in codes:
+        objects[_ym_key(c, "03")] = _sheet_tif_zip(c, 10.0)
+        objects[_ym_key(c, "02")] = _sheet_tif_zip(c, 30.0)
+        objects[_ym_key(c, "01")] = _sheet_tif_zip(c, 50.0)
+    _paged_bucket(http_server, objects)
+    monkeypatch.setattr(layer.index.listing, "max_keys", 2)
+    cache_dir = str(tmp_path)
+    layer.index._listed.clear()
+    layer.download(grid, cache_dir, None, "surface")
+    files = layer.files(grid, cache_dir)
+    assert len(files) == 3
+    for path in files:
+        rel = os.path.relpath(path, cache_dir).replace(os.sep, "/")
+        code = os.path.basename(path).split("_")[1]
+        assert rel.startswith(f"yamanashi/dsm2/2024/s/{code[2:4]}/{code[4:6]}/2024_{code}_"), rel
+        with rio.open(path) as tile:
+            assert np.allclose(tile.read(1), 30.0, atol=0.006)
+    zips = {r.path for r in http_server.requests() if r.path.endswith(".zip")}
+    assert zips == {"/" + _ym_key(c, "02") for c in codes}
+    prefixes = {dict(r.query).get("prefix") for r in http_server.requests() if r.path == "/"}
+    assert "Yamanashi/2024/02/LP/Grid/TIFF/08/KD/" in prefixes
+    assert all(p == "" or p.startswith("Yamanashi/2024/02/LP/Grid/TIFF/08/") for p in prefixes)
+    pages = [dict(r.query) for r in http_server.requests() if r.path == "/" and "delimiter" not in dict(r.query)]
+    assert any(q.get("continuation-token") for q in pages)  # 02's KD block in pages too
+    assert os.path.isfile(layer.index_path(cache_dir, *_owner_tile(codes[0])))  # yamanashi/sheet-index/dsm2/...
+    assert "sheet-index/dsm2/" in layer.index_path(cache_dir, 35.75, 138.5).replace(os.sep, "/")
+
+
+def _owner_tile(code):
+    from rasterio.warp import transform
+    i, j = japan.jp_cell(8, code)
+    lons, lats = transform(japan.YM_CRS, "EPSG:4326", [(i + 0.5) * 400], [(j + 0.5) * 300])
+    return math.floor(lats[0] / 0.25) * 0.25, math.floor(lons[0] / 0.25) * 0.25
+
+
+def _border_scene(tmp_path, lat, lon):
+    """A Yamanashi grid of 800 x 300 px of 1 m in EPSG:6676 whose western half holds its data (100 m) and whose
+    eastern half, reaching the grid's edge, has none (across a border): (grid, elevation path, cells of the two
+    halves' sheets)."""
+    from rasterio.warp import transform
+    xs, ys = transform("EPSG:4326", japan.YM_CRS, [lon], [lat])
+    i, j = int(xs[0] // 400), int(ys[0] // 300)
+    grid = make_grid((i * 400, j * 300, (i + 2) * 400, (j + 1) * 300), 1.0, japan.YM_CRS)
+    from shapely.geometry import box
+    grid.area_shape = box(*grid.bounds)  # the footprint: the whole grid (a search's area), not a circle in it
+    elevation = np.full((grid.height, grid.width), 100.0, np.float32)
+    elevation[:, grid.width // 2:] = np.nan
+    path = str(tmp_path / "nmt.npy")
+    np.save(path, elevation)
+    return grid, path, (i, j), (i + 1, j)
+
+
+def test_yamanashi_gap_filled_from_shizuoka_as_a_seam(shizuoka, http_server, tmp_path):
+    """The neighbour fill of the catalogue's pair: a Yamanashi grid by the Shizuoka border (Nanbu, inside Shizuoka's
+    offline boxes) with no data in its eastern half gets Shizuoka's sheet there (its listing and ZIP on the local
+    bucket), counted as Shizuoka's and kept in the joined mask (a seam: Data.joined, no anchors on its edge), never in
+    the mask of the filled pixels; its own data stay."""
+    assert "shizuoka" in src.SOURCES["yamanashi"].neighbours and "yamanashi" in src.SOURCES["shizuoka"].neighbours
+    grid, path, _, east = _border_scene(tmp_path, 35.30, 138.55)
+    code = japan.jp_sheet(8, *east)
+    _bucket(http_server, {f"2019/LP/Grid/08/{code[2:4]}/{code[4:6]}/{code}.zip": _zip(f"{code}_DEM.txt",
+                                                                                       _sheet_text(code, 120.0))})
+    src.mosaic.used_data.clear()
+    try:
+        out = str(tmp_path / "joined.npy")
+        joined_path, counts = src.filling.fill_from_neighbours(path, None, grid, [src.SOURCES["shizuoka"]],
+                                                               str(tmp_path / "cache"), out)
+        result = np.load(path)
+        assert joined_path == out and [(s.id, n) for s, n in counts] == [("shizuoka", 400 * 300)]
+        assert np.allclose(result[:, 400:], 120.0, atol=0.006) and np.allclose(result[:, :400], 100.0)
+        joined = np.load(out)
+        assert joined[:, 400:].all() and not joined[:, :400].any()
+        assert any(u.get("credit", {}).get("data") == japan.SZ_CREDIT.data for u in src.mosaic.used_data)
+        assert not np.isnan(result).any()  # nothing left for the fallback: no pixel of the seam is "filled"
+    finally:
+        src.mosaic.used_data.clear()
+
+
+def test_yamanashi_gap_filled_from_tokyo_across_zones(tokyo, http_server, tmp_path, monkeypatch):
+    """The same for Tokyo (zone IX sheets onto Yamanashi's zone VIII grid, inside Tokyo's boxes by Kosuge): every
+    Tokyo sheet under the gap from its table and bucket, the gap Tokyo's heights, a seam, never filled."""
+    from rasterio.warp import transform, transform_bounds
+    grid, path, _, _ = _border_scene(tmp_path, 35.745, 139.00)
+    left, bottom, right, top = transform_bounds(japan.YM_CRS, japan.TK_CRS, *grid.bounds)
+    middle = (grid.bounds[0] + grid.bounds[2]) / 2
+    codes = set()
+    for i in range(int(left // 400), int(right // 400) + 1):  # Tokyo's sheets wholly over the gap (no overlap with
+        for j in range(int(bottom // 300), int(top // 300) + 1):  # the data, so no offset to match: as they are)
+            xs, _ = transform(japan.TK_CRS, japan.YM_CRS, [i * 400, i * 400], [j * 300, (j + 1) * 300])
+            if min(xs) > middle + 2:
+                codes.add(japan.jp_sheet(9, i, j))
+    assert codes
+    for code in codes:
+        http_server.add(f"/2023/dig/grd50/{code}.zip", _sheet_tif_zip(code, 120.0, zone=9, crs="EPSG:6677"))
+    monkeypatch.setattr(japan, "_tk_table", lambda: {code: (2023,) for code in codes})
+    src.mosaic.used_data.clear()
+    try:
+        out = str(tmp_path / "joined.npy")
+        joined_path, counts = src.filling.fill_from_neighbours(path, None, grid, [src.SOURCES["tokyo"]],
+                                                               str(tmp_path / "cache"), out)
+        result = np.load(path)
+        joined = np.load(out)
+        assert joined_path == out and [s.id for s, _ in counts] == ["tokyo"]
+        assert counts[0][1] == int(joined.sum()) > 0.5 * 400 * 300  # most of the gap under the sheets served
+        assert np.allclose(result[joined], 120.0, atol=0.006) and np.allclose(result[:, :400], 100.0)
+        assert not joined[:, :400].any() and np.isnan(result[:, 400:][~joined[:, 400:]]).all()
+    finally:
+        src.mosaic.used_data.clear()

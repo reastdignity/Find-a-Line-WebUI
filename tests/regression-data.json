@@ -5106,6 +5106,107 @@
    "rasterio": "1.5.2"
   }
  },
+ "R95": {
+  "access_skipped": null,
+  "area": {
+   "inputs": null,
+   "shape": "bb502045cc22adcb197629ebe7cd955a2f8a29141ab3779aad91e030c7f15496",
+   "type": "circle"
+  },
+  "coastline": null,
+  "folders": {
+   "copernicus30/2021/wbm": {
+    "files": {
+     "copernicus30/2021/wbm/N35E138.tif": "d5d4e2a0728799e05299fb62031927fdb99ad4411e5539b207e640c0de60864c"
+    },
+    "layers": [
+     "Copernicus water body mask"
+    ]
+   },
+   "yamanashi/dem/2024": {
+    "files": {
+     "yamanashi/dem/2024/s/KE/31/2024_08KE3168_b75be9be.tif": "83f5423e8d4e53bc1d0402504e5ada7bf0842be749a3fe4397abae3dff5d8307",
+     "yamanashi/dem/2024/s/KE/31/2024_08KE3169_41156b7f.tif": "0666f5b50946536969b6db7da10a3eb3fc598fa27fe7ab7e896ff75f3f7d9ca1",
+     "yamanashi/dem/2024/s/KE/31/2024_08KE3178_26138e6f.tif": "c8c41dce35d6cc9afa37c5be0e7b38e7927412f20d93937e4d2b003916c686b8",
+     "yamanashi/dem/2024/s/KE/31/2024_08KE3179_f4a7c632.tif": "7ae694c7d2ed738f6067cf9913cf599e7340e39b8d6bffea08e1bf049fd34072",
+     "yamanashi/dem/2024/s/KE/31/2024_08KE3188_cc4a6e70.tif": "730ad99d79f22d6b44b0fe5a463153278c937d4406d5fd7aa58467ba62ca5870",
+     "yamanashi/dem/2024/s/KE/31/2024_08KE3189_8a32076d.tif": "1d59236db3f3c34270efef68488ca507272d180a2fa742ff9a3fcdffddced32e",
+     "yamanashi/dem/2024/s/KE/31/2024_08KE3198_7bb8011c.tif": "2298459a975c5c14a3e6f920a52d16dc34416cd4f7f7f7df2fa504594407d0ef",
+     "yamanashi/dem/2024/s/KE/31/2024_08KE3199_92f2e983.tif": "36a061c904203daebaeb26f38a9e2f9fc7b6b505629879037a532b5f882ed8d4",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3260_10c0f35a.tif": "6520430ff61ad8a402fd8b1548a635eaa7142396d5008230ba4df7f6f601f36f",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3261_a0329ae7.tif": "0b3f9e26a835faefd65a34d2cb70c0b79cfc3a263b692a7ff4fa29ddb84618fc",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3262_6ed7acac.tif": "a028bc8f3fb51dbc90d99e14b8b2122863f8aadcf0e9376d06edeb9a331af643",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3270_2a70c69b.tif": "6cca4b737be621fce5d605d3bf5312b2a7c08795ee54ee1b2d72f6d14b308ca8",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3271_1d3b0496.tif": "6b51723bb30797ebf5e8b2d3c3eef18c121c9232b06602076b9576fbbc3a1a3d",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3272_3d73d58c.tif": "a4cd1893b993d83e44df3ae936625a9bb9b98202f0b624444e6418c588748766",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3280_1f8dfebb.tif": "de58eccea9288decfa17d7aace4868203d5896f03cda09481e2fb145ea885d33",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3281_7f2a4a55.tif": "989b0a800e7b6a9302dd296fb95efff9057da339b3d4fc8c9231235b84211631",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3282_1ee4594a.tif": "8e38125d6035c36a037c40e1166bb99686812205e0a9a8bb2a16dcb598d90417",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3290_8b323033.tif": "59cb5a97f7228ae2db167cc1a7a75a9dbd11ecbff40d84c464adf92338521626",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3291_b270824f.tif": "1f6f45429617f2c3cbf304908017df4f04189e7f689fdc19c7e767eb551c1dff",
+     "yamanashi/dem/2024/s/KE/32/2024_08KE3292_1f948513.tif": "7065ca57bce61e61924d5a8358a9676ff5fb3003330fc6f4155d6cd9e74fe447",
+     "yamanashi/dem/2024/s/KE/41/2024_08KE4108_f77a5795.tif": "441454abf7da520df21bcbd973875444f4e343747dd1a5c01ed9f567ba2b9216",
+     "yamanashi/dem/2024/s/KE/41/2024_08KE4109_20b4d00d.tif": "b28cdbe559f79ae987cc50b61f2f60a0d422ca07c94c546812e6c649bed8eb56",
+     "yamanashi/dem/2024/s/KE/41/2024_08KE4118_6128754c.tif": "c04c58cf65a2a36e911ad0852727f4722f65ec7746c87ce4157d3634828757b5",
+     "yamanashi/dem/2024/s/KE/41/2024_08KE4119_1ca75f9c.tif": "3184d524e674fd019f75d93501238e19751293d83533180d518a7b5a4198efd1",
+     "yamanashi/dem/2024/s/KE/42/2024_08KE4200_0f799dfa.tif": "03a7cb1862917aa8e75e741f2b3f5e7794a9a833d7ab983c25d5fb80b1c80e3d",
+     "yamanashi/dem/2024/s/KE/42/2024_08KE4201_1e785084.tif": "044c5527e1beb949ba2d9a5a1a99c5c99bb61440dd34f7700853c994fee2a53f",
+     "yamanashi/dem/2024/s/KE/42/2024_08KE4202_87aee7ea.tif": "8720aaa658310bfaf595877323a3479bc573c475c42a51708a3011fd970bb8b8",
+     "yamanashi/dem/2024/s/KE/42/2024_08KE4210_676587ac.tif": "a748ab31765334b3046974e57103162685ac7e80da20c1c8770cc95432fc5f58",
+     "yamanashi/dem/2024/s/KE/42/2024_08KE4211_e4a1ba7d.tif": "a62072dc98393cc4b3fcb61d60e5b1cce830d3b7a8df77e2c507763872666b79",
+     "yamanashi/dem/2024/s/KE/42/2024_08KE4212_976afca5.tif": "9ff6ebe38c0296eb61e62d94a3a283b2b88e57e0da7582d1d312fb0730f2281f"
+    },
+    "layers": [
+     "Yamanashi point cloud grid 0.5 m (terrain)"
+    ]
+   },
+   "yamanashi/dsm2/2024": {
+    "files": {
+     "yamanashi/dsm2/2024/s/KE/31/2024_08KE3168_69595366.tif": "dedba1c4c21089a6822c5e5fb0c48dc76346f65470fb2756115577abe4443e88",
+     "yamanashi/dsm2/2024/s/KE/31/2024_08KE3169_fdde7785.tif": "1d7801035d7eea88a832c89954e79b4f2e754cb7be8e98060d0f030b6207dd53",
+     "yamanashi/dsm2/2024/s/KE/31/2024_08KE3178_c19f3a45.tif": "1f48df382aeea527352be79e548b4055d7d1ac1b2cb56b6b9fb826efc1eba48a",
+     "yamanashi/dsm2/2024/s/KE/31/2024_08KE3179_293b160c.tif": "7718f035c30abdd6181b5219e33f63cecdbae08b874f0309c317bdd7c9e7da5a",
+     "yamanashi/dsm2/2024/s/KE/31/2024_08KE3188_0fd0ecf5.tif": "6a2945feecb5422a52995c11a0692f0c8468a86bd507583735058f993fbf534e",
+     "yamanashi/dsm2/2024/s/KE/31/2024_08KE3189_b465281c.tif": "753360710993752b7035460a338f82e5d69105a0cb527d0fe574e2e845eb9b88",
+     "yamanashi/dsm2/2024/s/KE/31/2024_08KE3198_e8c8e626.tif": "2da8893e033d592f6da0c5374db985b707f99455c030ea56a4c3c5a69491fd9a",
+     "yamanashi/dsm2/2024/s/KE/31/2024_08KE3199_f69a566a.tif": "2c27fb2f4d1558a5c0d9eae718efb2885c98663a0e6552844d05944ee013690e",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3260_2ccd2f5b.tif": "85a9686aa5ee197cd938868963ec6df5534b426c619134949cda35a76af123e0",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3261_c36bd3fe.tif": "337bf3f3fe68eed20b4d67ee26c267c9e16fc6dea850a7e7c0c7f01abbc4654b",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3262_78e8d994.tif": "000d0454dce577fb2e3ac96555dd3602871b764a7b0b01631da60d1f17623de6",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3270_a94e4320.tif": "0c3622bd3da96395ca0b3494619bbb96a708cdd1d6d74ec17cc2c1e6e17dc303",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3271_75fe8efd.tif": "f528440dffc585f9226c2949afd7a30d85f96827cc512751f630b5a976327284",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3272_4fa60ed4.tif": "90592f1619e700afa0e7a05d1016440af9749ab92073624fca5c835d7b2765b5",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3280_fd853907.tif": "ab5af5f4766a22c07b3db9ec7d55086435f066b5a21795ece55de47b90d45e0e",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3281_9b56345c.tif": "b0c3eebf2f5f63f83a4bc293b7955ef786b5d44b540caf3cbf2b3325e0af44a4",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3282_4dad2ddb.tif": "d26b0d3cba50c344f47b5a8e41210b99e061f043d8ce3b41f87686f111628c10",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3290_ba2964d7.tif": "d4d8e68bc787c6e50497092fe667aed009e4b82ff6590a9b63b505a3f6765a35",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3291_babb8c94.tif": "6a5273f98ab353beab803a0878cd19ade4e5b26e4ac7130b7385affaf771e966",
+     "yamanashi/dsm2/2024/s/KE/32/2024_08KE3292_cfe890a0.tif": "0104e66ce0462942c2a0a0eac11601e9ec8d39bcfbca5179e3806d17567cfd24",
+     "yamanashi/dsm2/2024/s/KE/41/2024_08KE4108_3ba0f0ec.tif": "a4510f00f1a30b520d2a89e745080fa06314eca81f0746149f7177c97f32c346",
+     "yamanashi/dsm2/2024/s/KE/41/2024_08KE4109_ff926ed9.tif": "74fa36888460f0dd84d5e24759ad4e1b49cec5908bb7a13173790736f877d8ae",
+     "yamanashi/dsm2/2024/s/KE/41/2024_08KE4118_3b2e05e4.tif": "88c80b2f24f85f5794c2000612e9f6e84beb12a568036561aa136dfa6c295ca4",
+     "yamanashi/dsm2/2024/s/KE/41/2024_08KE4119_9e2e3bbd.tif": "032e11165042aaa504c32c3b7d6dcb62ed0f7497048d8bb0dd707d912f8829fd",
+     "yamanashi/dsm2/2024/s/KE/42/2024_08KE4200_b28f20b8.tif": "e4fe83e12a45cbb5fd810064d783cc2e6609eba401ce199d0d657e2b2c482b62",
+     "yamanashi/dsm2/2024/s/KE/42/2024_08KE4201_be83dcf5.tif": "a0bf03b78300fa4018f768a5158d523c0b01c1552190f6718b576c75430f5779",
+     "yamanashi/dsm2/2024/s/KE/42/2024_08KE4202_5d6cd947.tif": "aea2dea9b57ecc12207ed55326f5999aca2bf29312ad7dd29c64bfd2db053791",
+     "yamanashi/dsm2/2024/s/KE/42/2024_08KE4210_9eed9ed6.tif": "a501cc9bd125649550b801e8d16e0f0f7598697bd7574866a676985b856c94d5",
+     "yamanashi/dsm2/2024/s/KE/42/2024_08KE4211_3f3f3a4b.tif": "bde5d1b8aa1fb3ae28a81c2f1052e407609e18823b4f7a6876df8e9c6fee10b4",
+     "yamanashi/dsm2/2024/s/KE/42/2024_08KE4212_33f2513f.tif": "48947e0862bc3f43c60ea74cec3b7a3dd7a5c2345479e33880b368601bb49b80"
+    },
+    "layers": [
+     "Yamanashi point cloud grid 0.5 m (surface, DSM2)"
+    ]
+   }
+  },
+  "left_out": [],
+  "mixed": false,
+  "source": "yamanashi",
+  "versions": {
+   "gdal": "3.12.2",
+   "proj": "9.7.1",
+   "rasterio": "1.5.2"
+  }
+ },
  "R96": {
   "access_skipped": null,
   "area": {

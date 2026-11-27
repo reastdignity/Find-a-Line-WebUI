@@ -216,6 +216,11 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # https://github.com/aigidjp/opendata_virtualshizuoka, the AWS registry's virtual_shizuoka.yaml and the
     # prefecture's page https://www.pref.shizuoka.jp/machizukuri/1049255/1052183.html, read 2026-11-15): two at once
     "virtual-shizuoka.s3.ap-northeast-1.amazonaws.com": 2,
+    # AIGID's japan-pointcloud bucket (AWS Open Data, tag aws-pds; Yamanashi's 0.5 m grid sheets): no published limits
+    # (AIGID's README https://github.com/aigidjp/opendata_japan_pointcloud, the AWS registry's japan_pointcloud.yaml,
+    # the CKAN record https://www.geospatial.jp/ckan/dataset/yamanashi-pointcloud-2024 and its terms PDF, read
+    # 2026-11-26): two at once, as for its sister bucket
+    "japan-pointcloud.s3.ap-northeast-1.amazonaws.com": 2,
     # The CSDI Portal's bulk-data host (CEDD's 2020 lidar sheets of Hong Kong) and the portal (the FeatureServer of
     # their index, asked by tools/hong_kong_sheets.py only): no published limits (the CSDI Portal's Terms and
     # Conditions of Use, https://portal.csdi.gov.hk/csdi-webpage/doc/TNC, its FAQ,

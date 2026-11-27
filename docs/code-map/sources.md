@@ -523,7 +523,10 @@ staircases of boxes, areas `de-hb` and `de-hb-bhv`). `portugal` gains `porto_san
 (`TokyoSheets`, a `CellSheetTiles` of 400 × 300 m sheets in zone IX, EPSG:6677, over the static table
 `tokyo_sheets.npz`, `tk_files` newest folder first; region jp-13; `TK_ISLAND_FLOOR` -1 m on the Izu islands' sheets
 only, `floor_of`; `TK_BOXES` the mainland's and the islands' boxes) and `shizuoka` (`S3SheetSets` of the 1/500 and quadrant sheets in zone VIII,
-EPSG:6676, `sz_prefixes`, `sz_key`; region jp-22); `jp_sheet`, `jp_quad_sheet`, `jp_cell`, `jp_quad_cell` and
+EPSG:6676, `sz_prefixes`, `sz_key`; region jp-22) and `yamanashi` (two `S3SheetSets` made by `ym_layer(sequence)`
+over `Yamanashi/2024/<seq>/LP/Grid/TIFF/08/`, `ym_prefixes`, `ym_key`, `block_prefixes` shared with `sz_prefixes`;
+`ym_source(surface)` with `YM_SURFACE` picking DSM2 or DSM1; region jp-19, before `tokyo` and `shizuoka`;
+`YM_BOXES`, `YM_BORDER_BOXES`, Tokyo's `TK_BORDER_BOXES`); `jp_sheet`, `jp_quad_sheet`, `jp_cell`, `jp_quad_cell` and
 `sheet_name` name the plane rectangular grid's sheets. `hong_kong` (new): `hong_kong` (`CellSheetTiles` of 750 ×
 600 m sheets of the Hong Kong 1980 Grid, EPSG:2326, DTM and DSM over `hong_kong_sheets.npz`; `hk_sheet`, `hk_cell`,
 `hk_name`, `hk_files`; region cn-hk, `HK_BOXES` along the boundary; both models lowered by `HK_DATUM_OFFSET`,

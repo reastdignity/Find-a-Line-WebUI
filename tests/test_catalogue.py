@@ -22,7 +22,7 @@ IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", 
        "france_spm", "france_mayotte", "france_reunion", "france_reunion_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "porto_santo", "desertas", "selvagens", "madeira", "spain_canarias", "spain", "mexico", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "ontario", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "northern_ireland", "northern_ireland_10m", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "hamburg", "bremen", "bremerhaven", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "sardinia", "aosta_valley", "tuscany", "tinitaly", "luxembourg", "denmark",
-       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "cyprus", "estonia", "rio_de_janeiro", "tokyo", "shizuoka", "hong_kong", "wallonia", "europe", "copernicus", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "cyprus", "estonia", "rio_de_janeiro", "yamanashi", "tokyo", "shizuoka", "hong_kong", "wallonia", "europe", "copernicus", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'czechia': {'crs': 'EPSG:5514',
@@ -2480,6 +2480,49 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                        'extent': (-4875440.139568845, -2642643.245298926, -4797071.023591221,
                                                   -2601291.8207240254)},
                                'nmpt': None},
+            'yamanashi': {'crs': 'EPSG:6676',
+                          'countries': ('jp',),
+                          'bbox': None,
+                          'fallbacks': ['europe'],
+                          'grid_origin': (0.0, 0.0),
+                          'default_resolution': 1.0,
+                          'instead_without_data': None,
+                          'local_crs': 'utm_crs',
+                          'ortho': None,
+                          'credits': ['Yamanashi Prefecture point cloud data (airborne LP), 0.5 m grids (Yamanashi '
+                                      'Prefecture)'],
+                          'nmt': {'class': 'S3SheetSets',
+                                  'description': 'Yamanashi point cloud grid 0.5 m (terrain)',
+                                  'folder': 'yamanashi/dem/2024',
+                                  'prefix': 'dem',
+                                  'native_res': 0.5,
+                                  'processing': 1,
+                                  'ttl_days': None,
+                                  'credit': 'Yamanashi Prefecture point cloud data (airborne LP), 0.5 m grids '
+                                            '(Yamanashi Prefecture)',
+                                  'shift': (0.0, 0.0),
+                                  'index_url': 'https://japan-pointcloud.s3.ap-northeast-1.amazonaws.com',
+                                  'crs': 'EPSG:6676',
+                                  'folders': 'Yamanashi/',
+                                  'members': '\\.tif$',
+                                  'levels': {'s': ('yamanashi/dem/2024/s', (400, 300), (0.0, 0.0))},
+                                  'level_credits': {}},
+                          'nmpt': {'class': 'S3SheetSets',
+                                   'description': 'Yamanashi point cloud grid 0.5 m (surface, DSM2)',
+                                   'folder': 'yamanashi/dsm2/2024',
+                                   'prefix': 'dsm2',
+                                   'native_res': 0.5,
+                                   'processing': 1,
+                                   'ttl_days': None,
+                                   'credit': 'Yamanashi Prefecture point cloud data (airborne LP), 0.5 m grids '
+                                             '(Yamanashi Prefecture)',
+                                   'shift': (0.0, 0.0),
+                                   'index_url': 'https://japan-pointcloud.s3.ap-northeast-1.amazonaws.com',
+                                   'crs': 'EPSG:6676',
+                                   'folders': 'Yamanashi/',
+                                   'members': '\\.tif$',
+                                   'levels': {'s': ('yamanashi/dsm2/2024/s', (400, 300), (0.0, 0.0))},
+                                   'level_credits': {}}},
             'tokyo': {'crs': 'EPSG:6677',
                       'countries': ('jp',),
                       'bbox': None,
@@ -2900,6 +2943,8 @@ PATHS = [
     ("northern_ireland_10m", "nmt", "zipsheet", "northern_ireland/osni-dtm10m/046_0123abcd.tif", None),
     ("tokyo", "nmt", (-169, -67), "tokyo/grd50/2022-2023/KC/63/09KC6361.tif", (-169, -67)),
     ("shizuoka", "nmt", "sheetset", "shizuoka/lp-grid/s/OF/04/2019_08OF0485_0123abcd.tif", None),
+    ("yamanashi", "nmt", "sheetset-ym", "yamanashi/dem/2024/s/KD/39/2024_08KD3949_0123abcd.tif", None),
+    ("yamanashi", "nmpt", "sheetset-ym", "yamanashi/dsm2/2024/s/KD/39/2024_08KD3949_0123abcd.tif", None),
     ("hong_kong", "nmt", (48, 40), "hong_kong/dtm-2020/7SW/7SW25C.tif", (48, 40)),
     ("hong_kong", "nmpt", (49, 39), "hong_kong/dsm-2020/11NW/11NW5B.tif", (49, 39)),
     # The Rochers de Freyr's tile (343, 300) of Wallonia's 0.5 m tiles
@@ -2922,7 +2967,8 @@ def test_tile_paths(tmp_path, sid, kind, tile, path, tile_of):
             "sar": lambda: src.Sheet(**SAR),
             "inegi": lambda: INEGI_SHEET,
             "zipsheet": lambda: src.zipsheets.ZipSheetTile(46, "0123abcd"),
-            "sheetset": lambda: SheetSet("s", 145, -409, 2019, "0123abcd")}.get(tile, lambda: tile)()
+            "sheetset": lambda: SheetSet("s", 145, -409, 2019, "0123abcd"),
+            "sheetset-ym": lambda: SheetSet("s", -1, -35, 2024, "0123abcd")}.get(tile, lambda: tile)()
     layer = getattr(src.SOURCES[sid], kind)
     cache_dir = str(tmp_path)
     assert os.path.relpath(layer.tile_path(cache_dir, tile), cache_dir).replace(os.sep, "/") == path
@@ -2996,7 +3042,7 @@ def test_layer_surface():
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
     assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony", "bavaria",
                        "rhineland_palatinate", "scotland", "schleswig_holstein", "saarland", "british_columbia",
-                       "sardinia", "tuscany", "hamburg", "ontario", "bremen", "bremerhaven", "shizuoka"}
+                       "sardinia", "tuscany", "hamburg", "ontario", "bremen", "bremerhaven", "shizuoka", "yamanashi"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
     assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "hesse", "mecklenburg_vorpommern",
                    "saxony_anhalt", "south_tyrol", "denmark", "norway", "north_rhine_westphalia", "brandenburg",
@@ -3216,6 +3262,15 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("cy", (34.55, 35.20, 32.25, 34.10)),
          ("ee", (57.50, 59.70, 21.75, 28.25)),
          ("br", (-23.09, -22.75, -43.80, -43.09)),
+         ("jp-19", (35.15, 35.20, 138.41, 138.49)), ("jp-19", (35.20, 35.25, 138.38, 138.51)),
+         ("jp-19", (35.25, 35.30, 138.36, 138.51)), ("jp-19", (35.30, 35.35, 138.24, 138.51)),
+         ("jp-19", (35.35, 35.40, 138.23, 138.52)), ("jp-19", (35.35, 35.40, 138.65, 138.87)),
+         ("jp-19", (35.40, 35.45, 138.24, 138.92)), ("jp-19", (35.45, 35.50, 138.24, 139.01)),
+         ("jp-19", (35.50, 35.55, 138.25, 139.10)), ("jp-19", (35.55, 35.60, 138.23, 139.11)),
+         ("jp-19", (35.60, 35.65, 138.21, 139.12)), ("jp-19", (35.65, 35.70, 138.19, 139.08)),
+         ("jp-19", (35.70, 35.75, 138.19, 139.00)), ("jp-19", (35.75, 35.80, 138.18, 138.97)),
+         ("jp-19", (35.80, 35.85, 138.20, 138.94)), ("jp-19", (35.85, 35.90, 138.30, 138.60)),
+         ("jp-19", (35.85, 35.90, 138.69, 138.76)), ("jp-19", (35.90, 35.95, 138.33, 138.44)),
          ("jp-13", (35.48, 35.55, 139.42, 139.86)), ("jp-13", (35.54, 35.60, 139.34, 139.86)),
          ("jp-13", (35.60, 35.65, 139.16, 139.89)), ("jp-13", (35.65, 35.70, 139.05, 139.93)),
          ("jp-13", (35.70, 35.75, 138.99, 139.93)), ("jp-13", (35.75, 35.80, 138.97, 139.90)),
@@ -3494,6 +3549,7 @@ ATTRIBUTIONS = {
               "区部点群データ、東京都、クリエイティブ・コモンズ・ライセンス 表示4.0国際（https://creativecommons.org/licenses/by/4.0/"
               "deed.ja）"),
     "shizuoka": "VIRTUAL SHIZUOKA point cloud data (Shizuoka Prefecture), CC BY 4.0",
+    "yamanashi": "山梨県点群データ（航空LP・MMS）、山梨県、CC BY 4.0",
     "hong_kong": "LiDAR Data (2020), Civil Engineering and Development Department; intellectual property rights of the "
                  "Government of the Hong Kong Special Administrative Region and the Civil Engineering and Development "
                  "Department; source: the Government of the Hong Kong Special Administrative Region (Civil Engineering "

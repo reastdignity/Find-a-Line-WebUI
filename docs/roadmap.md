@@ -1650,6 +1650,11 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   - *Tokyo and Shizuoka* (`tokyo`, `shizuoka`): 0.5 m lidar terrain grids in sheets of the plane rectangular grid,
     Tokyo's from a static table of 18 891 sheets (`tools/tokyo_sheets.py`), Shizuoka's LP grids from its bucket's
     listing, composed newest first; no surface model. R84 Okutama (9 lines in 5 spots), R85 Jogasaki (1 002 in 22).
+  - *Yamanashi* (`yamanashi`, jp-19; built 2026-11-26, tag `history/yamanashi`): the prefecture's 0.5 m lidar grids
+    of 2019-2022 from AIGID's `japan-pointcloud` bucket (CC BY 4.0), terrain (folder 03) and the surface model
+    without wires (DSM2, folder 02; the user's choice), listed per 1/50000 block; neighbours Tokyo and Shizuoka.
+    Known: lakes are no data in the terrain and are filled as land from the 30 m models; "2024" is the files'
+    publication label. R95 Mizugaki-yama (3 286 lines in 151 spots).
   - *Madeira's other islands* (`porto_santo`, `desertas`, `selvagens`): DROTe's 5 m ZIP, a mirror dataset per island
     group cut by the reworked `tools/mirror_tiles.py` (3.5 MB in all, final and verified, copied into the local
     mirror 2026-11-16); before `madeira` in pt-30, chosen by their boxes. R86 Porto Santo (7 184 lines in 431 spots),

@@ -288,6 +288,8 @@ class SheetSets(Versions):
                 continue
             keys = {s.key for s in sheets}
             folder = os.path.dirname(self.path(cache_dir, sheets[0]))
+            if not os.path.isdir(folder):  # every current set without data, never a file there (a lake's sheet)
+                continue
             for name in os.listdir(folder):
                 other = self._sheet_of(os.path.join(folder, name))
                 if other is not None and (other.level, other.i, other.j) == place and other.key not in keys:

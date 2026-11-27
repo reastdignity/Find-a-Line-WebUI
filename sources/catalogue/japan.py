@@ -1,5 +1,6 @@
-"""Japan: two prefectures' 0.5 m lidar terrain grids, one ZIP per small map sheet of the plane rectangular grid:
-Tokyo's (the Tokyo Digital Twin's point cloud grids, GeoTIFF) and Shizuoka's (VIRTUAL SHIZUOKA's LP grids, text)."""
+"""Japan: three prefectures' 0.5 m lidar grids, one ZIP per small map sheet of the plane rectangular grid: Tokyo's
+(the Tokyo Digital Twin's point cloud grids, GeoTIFF), Shizuoka's (VIRTUAL SHIZUOKA's LP grids, text) and
+Yamanashi's (its point cloud grids, GeoTIFF: terrain and a surface model)."""
 
 import os
 import re
@@ -210,6 +211,9 @@ TK_ISLAND_BOXES = (
     (34.60, 34.85, 139.33, 139.47), (34.30, 34.60, 139.17, 139.32), (34.15, 34.30, 139.05, 139.22),
     (33.75, 34.15, 139.04, 139.65), (32.40, 33.20, 139.60, 139.90))
 TK_BOXES = tuple(("jp-13", box) for box in TK_MAINLAND_BOXES + TK_ISLAND_BOXES)
+# Tokyo's land along Yamanashi's border west of those boxes (they keep off Yamanashi's land), for Yamanashi's gap
+# filling only (tools/border_study.py boxes: 94 % without it, 2026-11-26)
+TK_BORDER_BOXES = ((35.60, 35.92, 138.90, 139.20),)
 
 
 # --- Shizuoka ---------------------------------------------------------------------------------------------------
@@ -233,14 +237,20 @@ SZ_QUAD_YEARS = (2022,)  # the surveys on quadrant sheets
 _SZ_KEY = re.compile(r"(\d{4})/LP/Grid/08/([A-Z]{2})/(\d\d)/(08[A-Z]{2}\d{4})(_2)?\.zip")
 
 
-def sz_prefixes(folder: str, box: Tuple[float, float, float, float]) -> List[str]:
-    """The prefixes of a survey's folder ("2019/") under which the files of a box (left, bottom, right, top in
-    zone VIII) lie: one per 1/50000 sheet (40 x 30 km) over it."""
+def block_prefixes(head: str, box: Tuple[float, float, float, float]) -> List[str]:
+    """The prefixes <head><1/50000 letters>/ of the 1/50000 sheets (40 x 30 km) over a box (left, bottom, right,
+    top in the zone's metres)."""
     left, bottom, right, top = box
     columns = range(max(0, int((left - JP_LEFT) // 40_000)),
                     min(len(JP_COLUMNS) - 1, int((right - JP_LEFT) // 40_000)) + 1)
     rows = range(max(0, int((JP_TOP - top) // 30_000)), min(len(JP_ROWS) - 1, int((JP_TOP - bottom) // 30_000)) + 1)
-    return [f"{folder}LP/Grid/08/{JP_ROWS[r]}{JP_COLUMNS[c]}/" for r in rows for c in columns]
+    return [f"{head}{JP_ROWS[r]}{JP_COLUMNS[c]}/" for r in rows for c in columns]
+
+
+def sz_prefixes(folder: str, box: Tuple[float, float, float, float]) -> List[str]:
+    """The prefixes of a survey's folder ("2019/") under which the files of a box (left, bottom, right, top in
+    zone VIII) lie: one per 1/50000 sheet (40 x 30 km) over it."""
+    return block_prefixes(f"{folder}LP/Grid/08/", box)
 
 
 def sz_key(key: str) -> Optional[Tuple[int, str, Tuple[int, int]]]:
@@ -297,7 +307,168 @@ SZ_BOXES = tuple(("jp-22", box) for box in (
     (35.45, 35.50, 138.11, 138.26), (35.50, 35.55, 138.13, 138.27), (35.54, 35.60, 138.14, 138.26),
     (35.60, 35.65, 138.20, 138.25)))
 
+
+# --- Yamanashi --------------------------------------------------------------------------------------------------
+# Yamanashi Prefecture's point clouds (山梨県点群データ（航空LP・MMS）, G-Spatial's CKAN record yamanashi-pointcloud-2024,
+# the prefecture's 新事業チャレンジ推進課): airborne lidar of the whole prefecture, surveyed in 2019-2022 (令和1-4年) by the
+# prefecture and, for parts, by MLIT's Fujikawa sabo office and by Tokyo (the record's notes), as 0.5 m grids: one ZIP
+# of one GeoTIFF per 1/500 sheet of zone VIII (EPSG:6676) in AIGID's bucket japan-pointcloud (AWS Open Data, the
+# sister of virtual-shizuoka; it also holds Tokyo's, Hyogo's and others' point clouds) at
+# Yamanashi/<YM_PUBLICATION>/<sequence>/LP/Grid/TIFF/08/<1/50000 letters>/<1/5000 digits>/<sheet>.zip. The sequence
+# folders are products (AIGID's README calls them sequence numbers; the record's index layers map them): 03 the
+# ground model (「グラウンドデータを基に作成」), 01 DSM1 (classes 1 and 9: the surface with pylons and power lines), 02
+# DSM2 (class 1: the surface); a TXT variant beside TIFF is not used. Each GeoTIFF is float32, uncompressed, "Area",
+# nodata 1.70141e38, its pixel edges on the sheet's 0.5 m lattice; a sheet on the prefecture's border is smaller
+# than its box (08KD3949: 763 x 600 px, 08LD4359: 1 x 3 px) and is composed on its box. Lakes are no data in the
+# ground model (a sheet wholly water is listed with no valid pixel: 08LE9188, mid Lake Motosu) and the water's
+# surface in both surface models (899.3 m there); a search fills such a gap as land from the fallback (mid Lake
+# Kawaguchi, radius 300 m, 2026-11-26: 33 % of the area from the source, 0.90 km² filled from FABDEM + Copernicus,
+# lakes 0.00 km², shore from surface 0 px). Heights are orthometric; none below 0 m.
+# Versions (2026-11-26): the record's published range "旧" (old: part of the prefecture) is the first publication of
+# 2025-03, gic-yamanashi/2024/gridtif/<sheet>.zip indexed by the vector tiles .../2024/Vectortile/gridtif/; "新" (new:
+# the whole prefecture) is japan-pointcloud, indexed by .../2024/Vectortile2026/<layer>/ (2026-02-27; layers gridtif,
+# dsm1gridtif, dsm2gridtif with MESH_NO and URL). The old files were moved to DEEP_ARCHIVE (not readable without a
+# restore) and copied unchanged (08KE3233: the same ETag) into japan-pointcloud with the rest of the prefecture on
+# 2025-12-11; every key of 03 and 02 carries that date, versioning is off (version ids null). The files are found
+# by the bucket's listing (S3SheetSets, as Shizuoka's): a sheet that is not listed is never asked (the bucket answers
+# 404 NoSuchKey), a listed key that answers 404 is its sheet's error; the ETag is part of each file's name, so a file
+# uploaded again in place is read again. A 0.25° tile's listing is kept cache.TTL_DAYS["sheet-index"] (180) days:
+# a sheet published later is seen when its owner tile is listed again (update.py, or a search after that), the
+# listing's pages the only cost of "no sheet here". The listing of the bucket's top folders sees "Yamanashi/" only:
+# the publication folder and the sequence are fixed here, a new publication is set by hand (new cache folders).
+# No holes on the cliffs where looked (Mizugaki's 08KE3281: 100 % valid, slopes to 88°; 08KD3949 none inside its
+# data). No orthophoto: the record offers its 0.25 m orthophoto as per-sheet ZIPs (index tiles .../ortho/) and the
+# lidar as 3D Tiles (yamanashi-tile.geospatial.jp), no XYZ, WMTS or WMS service.
+# Listed 2026-11-26: 03 37 929 sheets, 36.0 GB; 02 the same sheets, 50.4 GB (11 blocks KD-NE). A block's listing is
+# up to 10 pages of 1 000 keys (LE: 10 000 sheets), asked per product for each 0.25° tile a grid touches: a first search
+# asked 76 requests for 61 sheets at R95 (77.8 MB) and 142 for 60 sheets at Shichiri-iwa (88.3 MB).
+YM_BUCKET = "https://japan-pointcloud.s3.ap-northeast-1.amazonaws.com"
+YM_CRS = "EPSG:6676"
+YM_ZONE = 8
+YM_ROOT = "Yamanashi/"   # the prefecture's top folder in the bucket
+YM_PUBLICATION = 2024    # its publication folder
+YM_TERRAIN = "03"        # the ground model's sequence folder
+YM_SURFACES = {"01": "dsm1", "02": "dsm2"}  # the surface models' sequence folders and their cache names
+# The surface model a search reads (nmpt): DSM2 (02, without power lines and pylons) or DSM1 (01, with them). The
+# user's choice is pending (agent Y's report of 2026-11-26 gives both); the baselines rest on DSM2. The two are not
+# one plus the wires (the cached sheets, 2026-11-26): over a 500 kV line's valley east of Kofu (西群馬幹線) and a
+# 154 kV line at Shichiri-iwa, DSM1 lies below DSM2 on 2-5 % of each sheet's pixels (a median of -0.05 to -0.1 m,
+# down to -10 m) and the wires stand as swaths up to 305 m above DSM2 (8 954-12 843 pixels in a sheet the 500 kV
+# line crosses); inside R95's circle both hold the same values (its lines are equal byte for byte with either)
+YM_SURFACE = "02"
+YM_SURFACE_TEXT = {"01": "DSM1: ground, trees, buildings, power lines and pylons",
+                   "02": "DSM2: ground, trees and buildings, without power lines and pylons"}
+_YM_KEY = re.compile(r"Yamanashi/(\d{4})/(\d\d)/LP/Grid/TIFF/08/([A-Z]{2})/(\d\d)/(08[A-Z]{2}\d{4})\.zip")
+
+
+def ym_product(sequence: str) -> str:
+    """The cache name of a sequence folder's product: dem, dsm1, dsm2."""
+    return "dem" if sequence == YM_TERRAIN else YM_SURFACES[sequence]
+
+
+def ym_prefixes(sequence: str):
+    """The prefixes function of a product (S3SheetSets): under the top folder YM_ROOT, the product's folder of the
+    publication, one prefix per 1/50000 sheet over the box; none under any other top folder (Tokyo's, Hyogo's)."""
+    def prefixes(folder: str, box: Tuple[float, float, float, float]) -> List[str]:
+        if folder != YM_ROOT:
+            return []
+        return block_prefixes(f"{YM_ROOT}{YM_PUBLICATION}/{sequence}/LP/Grid/TIFF/08/", box)
+    return prefixes
+
+
+def ym_key(sequence: str):
+    """The key parser of a product (S3SheetSets): (the publication's year, level "s", cell) of a sheet's ZIP in the
+    product's folder of the publication, None for any other key."""
+    def parse(key: str) -> Optional[Tuple[int, str, Tuple[int, int]]]:
+        match = _YM_KEY.fullmatch(key)
+        if not match or int(match.group(1)) != YM_PUBLICATION or match.group(2) != sequence \
+                or match.group(3) != match.group(5)[2:4] or match.group(4) != match.group(5)[4:6]:
+            return None
+        cell = jp_cell(YM_ZONE, match.group(5))
+        return None if cell is None else (YM_PUBLICATION, "s", cell)
+    return parse
+
+
+# The record (package_show, modified 2026-09-14, read 2026-11-26): 「データは、CC BY 4.0/ODbL のデュアルライセンスです」,
+# license_id cc-by, 「利用規約及び免責事項による」: the terms PDF (YM_TERMS, 2025-03-27: a disclaimer, prohibited conduct,
+# compliance with laws, changes without notice, Japanese law; no credit wording, no request limits). No resource
+# description, nor the index ZIP's maps (sakuinzu.zip: four index PDFs), nor AIGID's README or the AWS registry entry
+# (japan_pointcloud.yaml: CC BY 4.0) prescribes a credit or names an approval: we take CC BY 4.0 (as for Shizuoka),
+# credited with the dataset's title and its owner, the terms linked
+YM_RECORD = "https://www.geospatial.jp/ckan/dataset/yamanashi-pointcloud-2024"
+YM_TERMS = "https://gic-yamanashi.s3.ap-northeast-1.amazonaws.com/2024/doc/license.pdf"
+YM_CREDIT = Credit("Yamanashi Prefecture point cloud data (airborne LP), 0.5 m grids (Yamanashi Prefecture)",
+                   "山梨県点群データ（航空LP・MMS）、山梨県、CC BY 4.0", *CC_BY,
+                   notice=f"Yamanashi Prefecture point cloud data: {YM_RECORD}; terms of use and disclaimer: "
+                          f"{YM_TERMS}")
+# bytes_per_tile: the mean listed ZIP (2026-11-26): 03 36.0 GB / 37 929 = 0.95 MB, 02 50.4 GB / 37 929 = 1.33 MB,
+# 01 50.4 GB (the survey's count); the listed bytes are the estimate where a listing is at hand
+_YM_BYTES = {"03": 0.95e6, "01": 1.33e6, "02": 1.33e6}
+
+
+def ym_layer(sequence: str) -> S3SheetSets:
+    """The layer of a product (a sequence folder): its sheets listed under the publication's folder, cached as
+    yamanashi/<product>/<publication>/s/<letters>/<digits>/<year>_<sheet>_<key>.tif, its index answers under
+    yamanashi/sheet-index/<product>/."""
+    product = ym_product(sequence)
+    folder = f"yamanashi/{product}/{YM_PUBLICATION}"
+    kind = "terrain" if sequence == YM_TERRAIN else f"surface, {product.upper()}"
+    levels = {"s": MetricCellTiling(YM_CRS, f"{folder}/s", SHEET_500, lambda i, j: sheet_name(jp_sheet(YM_ZONE, i, j)),
+                                    lambda name: jp_cell(YM_ZONE, code_of_name(name)))}
+    return S3SheetSets(f"Yamanashi point cloud grid 0.5 m ({kind})", YM_BUCKET, re.escape(YM_ROOT),
+                       ym_prefixes(sequence), ym_key(sequence), product, folder, YM_CRS, 0.5, levels, r"\.tif$",
+                       bytes_per_tile=_YM_BYTES[sequence], credit=YM_CREDIT)
+
+
+YM_DTM = ym_layer(YM_TERRAIN)
+YM_DSM = ym_layer(YM_SURFACE)
+
+# Offline boxes (south, north, west, east): bands of 0.05 degrees cut into columns of 0.01 degree, a cell kept when
+# it holds a sheet's centre (the listing of 2026-11-26) and Yamanashi's land (Natural Earth's admin-1) is at least
+# each neighbour's there, runs of kept cells a box. They hold 4 386 of Yamanashi's 4 520 km² and 2 191 of its 37 929
+# sheets lie outside them (border cells), against 118 km² of the neighbours' land (Shizuoka 44, Nagano 27, Saitama 19,
+# Tokyo 15, Kanagawa 13; the whole bands held 810). Shizuoka's boxes hold Yamanashi's land south of the five lakes
+# and Tokyo's its eastern edge: `yamanashi` comes before both in SOURCES (the first box holding a point wins), its
+# boxes keeping off their land as above. YM_BORDER_BOXES, the whole bands, hold the rest along the borders (the
+# neighbours' gap filling only)
+YM_BOXES = tuple(("jp-19", box) for box in (
+    (35.15, 35.20, 138.41, 138.49), (35.20, 35.25, 138.38, 138.51), (35.25, 35.30, 138.36, 138.51),
+    (35.30, 35.35, 138.24, 138.51), (35.35, 35.40, 138.23, 138.52), (35.35, 35.40, 138.65, 138.87),
+    (35.40, 35.45, 138.24, 138.92), (35.45, 35.50, 138.24, 139.01), (35.50, 35.55, 138.25, 139.10),
+    (35.55, 35.60, 138.23, 139.11), (35.60, 35.65, 138.21, 139.12), (35.65, 35.70, 138.19, 139.08),
+    (35.70, 35.75, 138.19, 139.00), (35.75, 35.80, 138.18, 138.97), (35.80, 35.85, 138.20, 138.94),
+    (35.85, 35.90, 138.30, 138.60), (35.85, 35.90, 138.69, 138.76), (35.90, 35.95, 138.33, 138.44)))
+YM_BORDER_BOXES = (
+    (35.15, 35.20, 138.37, 138.54), (35.20, 35.25, 138.35, 138.54), (35.25, 35.30, 138.24, 138.53),
+    (35.30, 35.35, 138.22, 138.54), (35.35, 35.40, 138.22, 138.92), (35.40, 35.45, 138.23, 138.96),
+    (35.45, 35.50, 138.23, 139.07), (35.50, 35.55, 138.23, 139.12), (35.55, 35.60, 138.21, 139.14),
+    (35.60, 35.65, 138.18, 139.14), (35.65, 35.70, 138.16, 139.14), (35.70, 35.75, 138.16, 139.07),
+    (35.75, 35.80, 138.17, 139.01), (35.80, 35.85, 138.18, 138.98), (35.85, 35.90, 138.21, 138.96),
+    (35.90, 35.95, 138.31, 138.79), (35.95, 36.00, 138.34, 138.45))
+
+def ym_source(surface: str, nmpt: Optional[S3SheetSets] = None) -> Source:
+    """The source `yamanashi` with the surface model of a sequence folder (YM_SURFACE's values): its layer (nmpt, or
+    a new ym_layer) and every text naming it (description, README row, note) follow the one value."""
+    return Source(
+        id="yamanashi", name="Yamanashi (lidar 0.5 m)",
+        description="Yamanashi Prefecture: point cloud data, airborne lidar grids 0.5 m of the whole prefecture "
+                    f"(surveys of 2019-2022), terrain and surface ({YM_SURFACE_TEXT[surface]}), JGD2011 / Japan "
+                    "Plane Rectangular CS VIII; lakes are no data in the terrain",
+        nmt=YM_DTM, nmpt=nmpt or ym_layer(surface), countries=("jp",), regions=("jp-19",), crs=YM_CRS,
+        credits=(YM_CREDIT,),
+        listing=ReadmeRow("Yamanashi (JP)", "Yamanashi point cloud grid 0.5 m (2019-2022)",
+                          f"Yamanashi point cloud grid 0.5 m, {ym_product(surface).upper()} (2019-2022)", "–"),
+        offline=YM_BOXES, border_boxes=YM_BORDER_BOXES, neighbours=("tokyo", "shizuoka"),
+        sample=(35.8946, 138.5948),  # Mizugaki-yama, 300 m east of R95's centre
+        note="Data: Yamanashi Prefecture point cloud data, CC BY 4.0. Airborne lidar of the whole prefecture "
+             "(2019-2022; parts flown by MLIT's Fujikawa sabo office and by Tokyo). The surface model is "
+             f"{YM_SURFACE_TEXT[surface]}. Lakes have no terrain data.",
+        coverage=Coverage(provider="Yamanashi Prefecture", added="2026-11-26", survey="2019–2022"))
+
+
+# Yamanashi first: its offline boxes overlap Tokyo's and Shizuoka's over its own land (YM_BOXES)
 SOURCES: List[Source] = [
+    ym_source(YM_SURFACE, YM_DSM),
     Source(
         id="tokyo", name="Tokyo (Digital Twin lidar 0.5 m)",
         description="Tokyo Metropolitan Government: Tokyo Digital Twin point cloud grids 0.5 m (terrain) of Tama "
@@ -314,7 +485,8 @@ SOURCES: List[Source] = [
              "taken as no data, filled as sea at 0 m in the search's sea zone and outside it as gaps on land from "
              "the fallback model.",
         coverage=Coverage(provider="Tokyo Metropolitan Government", added="2026-11-15", partial=True,
-                          survey="2022–2023")),
+                          survey="2022–2023"),
+        neighbours=("yamanashi",), border_boxes=TK_BORDER_BOXES),
     Source(
         id="shizuoka", name="Shizuoka (VIRTUAL SHIZUOKA lidar 0.5 m)",
         description="Shizuoka Prefecture: VIRTUAL SHIZUOKA land lidar (LP) grids 0.5 m (terrain), surveys of "
@@ -328,5 +500,6 @@ SOURCES: List[Source] = [
         note="Data: VIRTUAL SHIZUOKA point cloud data (Shizuoka Prefecture), CC BY 4.0. Terrain only (no surface "
              "model: trees and buildings are not in the data). In the centre, west and north-west the heights are "
              "given to the decimetre. The sea is left out; the bathymetric (ALB) grids are not used.",
-        coverage=Coverage(provider="Shizuoka Prefecture", added="2026-11-15", survey="2019–2025")),
+        coverage=Coverage(provider="Shizuoka Prefecture", added="2026-11-15", survey="2019–2025"),
+        neighbours=("yamanashi",)),
 ]
