@@ -188,7 +188,8 @@ So do it as a planned maintenance stop:
 2. The validation's way in checked from outside: for HTTP validation, port 80 of the router reaches SWAG's port
    80; for DNS validation, the DNS plugin's credentials cover the new name.
 3. Add the name, recreate SWAG, watch `docker logs -f swag` until it says the certificate exists and nginx starts.
-4. Check the other sites, then the mirror (`tests/mirror_check.sh --live`).
+4. Check the other sites, then the mirror (`tests/mirror_check.sh --live` with `MIRROR_LIVE_PRODUCTS='^wallonia/'`,
+   so LV17 shows that SWAG still streams: below).
 
 **No trial with SWAG's staging switch on a live SWAG**: switching `STAGING` on is itself one of the changed
 settings, so it revokes and deletes the production certificate, and switching it back does it again.
@@ -400,8 +401,10 @@ BusyBox refuses it, and a line built on it then prints nothing and looks like a 
 From a PC with the repository, through SWAG (what needs no test data; the cap check needs one published
 dataset, the index comparison `--master <folder>` the master copy):
 ```sh
-bash tests/mirror_check.sh --live https://mirror.findaline.lukawski.org
+MIRROR_LIVE_PRODUCTS='^wallonia/' bash tests/mirror_check.sh --live https://mirror.findaline.lukawski.org
 ```
+`MIRROR_LIVE_PRODUCTS` makes LV15 and LV17 take their tile from Wallonia's products: without it they size the first
+products of `datasets.json` only, whose largest tiles are about 7 MB, and LV17 is a SKIP.
 From inside the home network the address SWAG sees may be a local one; the checks hold either way.
 
 The cap check (LV15) takes the largest tile it finds (up to 15 tiles of every published product, at most 60
@@ -419,9 +422,10 @@ of about 1.8 MB); Valle d'Aosta (about 1.9 MB) and Slovakia's 1 m (about 7 MB) a
 LV17 holds slow downloads of the same tile and asks once more: it shows that SWAG passes `X-Accel-Buffering` on
 (streams a tile instead of buffering it), which LV15 does not, but only when the tile is larger than what the
 proxy's buffers and the sockets on the way hold. With the stand-in that was every time from 16 MB tiles on
-(12-14 MB now and then, 8 MB never: `LV17_MIN_BYTES`); below it LV17 is a SKIP naming the sizes. None of
-today's datasets has such tiles, so through the real SWAG that part stays unproven (the specification's open
-item M4); the test stack's C03-C07 show it with the stand-in.
+(12-14 MB now and then, 8 MB never: `LV17_MIN_BYTES`); below it LV17 is a SKIP naming the sizes. Wallonia's
+0.5 m tiles (up to about 31 MB) have them: LV17 passed through the real SWAG on 2026-11-27 (the specification's
+item M4, closed). A plain `--live` sizes only the first products of `datasets.json` (sorted: Wallonia comes last)
+and SKIPs LV17: run it with `MIRROR_LIVE_PRODUCTS='^wallonia/'`. The test stack's C03-C07 show it with the stand-in.
 
 ## The log and privacy
 

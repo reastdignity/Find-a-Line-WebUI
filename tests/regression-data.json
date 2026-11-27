@@ -5361,5 +5361,58 @@
    "proj": "9.7.1",
    "rasterio": "1.5.2"
   }
+ },
+ "R99": {
+  "access_skipped": null,
+  "area": {
+   "inputs": null,
+   "shape": "33bfeb81896ce53aa85a0348bea00867a426d96708a26b51de65f51d97e0408d",
+   "type": "circle"
+  },
+  "coastline": null,
+  "folders": {
+   "belgium/wallonia-mns/2022/epsg3812-0.5m-2km": {
+    "files": {
+     "belgium/wallonia-mns/2022/epsg3812-0.5m-2km/34_29/343_299.tif": "b4b4bee2f4a8a52731188041e2415bf9c21c632627152e2b40ec2a75533c66a0",
+     "belgium/wallonia-mns/2022/epsg3812-0.5m-2km/34_29/344_299.tif": "514df0458baad2c4c795497c6018df2cdde8a08d38ca3d3dc2d53b5b88a5806b",
+     "belgium/wallonia-mns/2022/epsg3812-0.5m-2km/34_30/343_300.tif": "e0e0f6e2f3f8ad1751ab4a4d519e9dd340751ce44a31407dc17588dd0a264454",
+     "belgium/wallonia-mns/2022/epsg3812-0.5m-2km/34_30/343_301.tif": "9c4920cde6d10ebaa80db76a7bbd4fc5028c4f73d82a83f868c9c81717820365",
+     "belgium/wallonia-mns/2022/epsg3812-0.5m-2km/34_30/344_300.tif": "593279dc15ecf65444839d204b880e71422ebc1546a40211928d00ef2faa1ce8",
+     "belgium/wallonia-mns/2022/epsg3812-0.5m-2km/34_30/344_301.tif": "6e0f32857c3218e91df6174db337487eb3a8bed618d77329a0f8bb589eb581b5"
+    },
+    "layers": [
+     "Wallonia MNS 0.5 m (trees, buildings)"
+    ]
+   },
+   "belgium/wallonia-mnt/2022/epsg3812-0.5m-2km": {
+    "files": {
+     "belgium/wallonia-mnt/2022/epsg3812-0.5m-2km/34_29/343_299.tif": "10ccf3cc5c5057bb85d4416b9c0ce8d8e782cd7aa48b741fe14e6c0284157866",
+     "belgium/wallonia-mnt/2022/epsg3812-0.5m-2km/34_29/344_299.tif": "a1330f0bb8b381ca51c592c6cfa1b8860486c43b40226ded5f56012834b532d4",
+     "belgium/wallonia-mnt/2022/epsg3812-0.5m-2km/34_30/343_300.tif": "5de37cdc46347dacea3ac95175827d49c9a7546ef000457024c7c9251e7d5c85",
+     "belgium/wallonia-mnt/2022/epsg3812-0.5m-2km/34_30/343_301.tif": "851f1a8e11fed188a0aa349eeaca1540b1a15af35fc020923844db177a4e0e03",
+     "belgium/wallonia-mnt/2022/epsg3812-0.5m-2km/34_30/344_300.tif": "0e4015608ebb23f7d2b01feadb47d2f0e27dfe0f3bda8e86d446ed288055e59f",
+     "belgium/wallonia-mnt/2022/epsg3812-0.5m-2km/34_30/344_301.tif": "0c3607fec39c7f4300babc7ae133119d94cadaa97dc8b1fee18538a3926ac65e"
+    },
+    "layers": [
+     "Wallonia MNT 0.5 m (terrain)"
+    ]
+   },
+   "copernicus30/2021/wbm": {
+    "files": {
+     "copernicus30/2021/wbm/N50E004.tif": "f5220b5e4fb7401beaae4d8a4a035c66849d8fed42e058d0c04854942c7ac1c7"
+    },
+    "layers": [
+     "Copernicus water body mask"
+    ]
+   }
+  },
+  "left_out": [],
+  "mixed": false,
+  "source": "wallonia",
+  "versions": {
+   "gdal": "3.12.2",
+   "proj": "9.7.1",
+   "rasterio": "1.5.2"
+  }
  }
 }

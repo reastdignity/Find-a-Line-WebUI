@@ -169,20 +169,21 @@ starts again; each size must equal the list's.
 4. Changed 2026-11-26 (the user's decision above): both products at 0.5 m with `average` 1, the cut's plain path
    (tiles of 4000 px; the card and the row name no mean); the catalogue's `GridTiles` at native 0.5 m (cache folders
    `...-0.5m-2km`, mirror `wallonia/dtm/0.5m` and `wallonia/dsm/0.5m`, tiles of an estimated 19.2 and 22.8 MB until
-   the cut measures them), the default resolution still 1 m: the mosaic averages the valid 0.5 m pixels of each 2 x 2
+   the cut measures them; measured 2026-11-27: 14.5 and 19.5 MB, the mean of the tiles with data), the default resolution still 1 m: the mosaic averages the valid 0.5 m pixels of each 2 x 2
    block, as for Luxembourg and the Netherlands. `Product.average` stays in the tool, used by no product.
 
-**Left.** G1 (`raster_overlap.py` on every neighbouring province pair of each model) and G2 (the low values per
-province; a floor only on the user's word after them, which changes the publishing row's sentence); the cut on the
-PC (`tools/mirror_tiles.py all wallonia`), `verify`, the publish; then `tools/check_source.py` and the probe at
-Freyr, and the regression entry (R94: the Rochers de Freyr, radius 800 m, lines 20-150 m, `needs_path`; Rocher
-Bayard, Marche-les-Dames, Comblain-au-Pont and Hotton for the checks).
+**Done 2026-11-27.** G1 (`raster_overlap.py`: every neighbouring province pair identical, both models) and G2 (the
+low values per province, every value below 0 m inside a quarry: no floor, the user's word); the cut on the PC
+(`tools/mirror_tiles.py all wallonia`, 4548 tiles with data a model) and `verify` ok for both; the publish (9096
+tiles); `tools/check_source.py` at Freyr (12 PASS) and the probe (`sources check wallonia` ok); the regression entry
+R99 (the Rochers de Freyr, radius 800 m, lines 20-150 m, `needs_path`; planned as R94, a number the USA's entry took
+meanwhile).
 
 **Acceptance.** Ten ZIPs of the listed sizes; both products final and `verify` ok; `check_source` PASS at Freyr; the
-regression entry's lines checked on the map (Freyr's walls over the Meuse).
+regression entry's lines checked on the map (Freyr's walls over the Meuse). Met 2026-11-27: R99's top spots lie on
+the rock ribs that fall to the Meuse, on a hillshade of the tiles and on SPW's orthophoto.
 
-**Blocks today.** The gates G1 and G2, then the cut and the publish from the PC (the inputs complete since
-2026-11-22). Mail 32 is a courtesy notice, not a condition.
+**Blocks today.** Nothing. Mail 32 is a courtesy notice, not a condition.
 
 ## 3. Valle d'Aosta's surface model
 

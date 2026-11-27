@@ -1681,8 +1681,12 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     only, the mean of each 2 x 2 block by `Product.average`, which no product uses now), the 1 m working grid
     averaging 2 x 2 of the tiles' pixels as Luxembourg's; published with the row of U96, amended 2026-11-26
     (docs/mirror-hosting/spec.md); orthophoto SPW's ORTHO_LAST (CC BY 4.0); neighbours Luxembourg, North
-    Rhine-Westphalia (with a border box of the Eifel) and the Netherlands. The cut, the publish, `check_source` and
-    R94 (the Rochers de Freyr) wait: docs/new-sources-6/spec.md, section 2.
+    Rhine-Westphalia (with a border box of the Eifel) and the Netherlands. Cut on the PC on 2026-11-27 (4548 tiles
+    with data a model, 65.8 and 88.8 GB, both verified; every seam shared by two provinces identical; no floor:
+    every value below 0 m lies in a quarry), published the same day (9096 tiles; the remote verify 0 faults, the
+    live check 0 failures); `check_source` at Freyr 12 PASS; the regression entry R99 (the Rochers de Freyr,
+    `needs_path`), its lines on the rock ribs above the Meuse (a hillshade of the tiles and SPW's orthophoto):
+    docs/new-sources-6/spec.md, section 2.
   - *Ontario* (`ontario`): to the user's question "Ontario - can we check if it is better data?" wave 0 measured the
     province's data against `canada`'s HRDEM mosaic: the same lidar on land to 1-3 cm, at twice the resolution and on
     the surveys' own grid (canada's EPSG:3979 reads lengths 1.8-2.6 % long), more of the small walls (Rattlesnake

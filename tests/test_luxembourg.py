@@ -61,10 +61,12 @@ def test_texts_fit_a_windows_console():
 
 def test_auto_offline(tmp_path, monkeypatch):
     """Offline, the country box decides: Luxembourg at the sample and in the Sûre valley, europe
-    beyond the box."""
+    beyond the box (the Belgian Eifel lies in Wallonia's box: without its mirror folder, FINDALINE_MIRROR
+    taken away here as the data server is by conftest, wallonia is unavailable and auto goes on to europe)."""
     def offline(*args, **kwargs):
         raise requests.ConnectionError("offline")
     monkeypatch.setattr(osm, "reverse", offline)
+    monkeypatch.delenv("FINDALINE_MIRROR", raising=False)
     cache_dir = str(tmp_path)
     for (lat, lon), sid in {src.SOURCES["luxembourg"].sample: "luxembourg",
                             (49.8695, 6.1650): "luxembourg",   # Bourscheid, the Sûre valley

@@ -3768,7 +3768,7 @@ def test_wallonia_declared():
     assert all(layer.origin == s.grid_origin == (0.0, 0.0) and layer.crs == s.crs == "EPSG:3812" and
                layer.tile_m == 2000 and layer.native_res == 0.5 and not layer.averaged for layer in (s.nmt, s.nmpt))
     assert s.default_resolution == 1.0 and s.nmt.resolution(1.0, "EPSG:3812") == 0.5
-    assert [s.nmt._bytes, s.nmpt._bytes] == [19.2e6, 22.8e6]  # estimates until the cut measures them
+    assert [s.nmt._bytes, s.nmpt._bytes] == [14.5e6, 19.5e6]  # measured over the cut's tiles with data, 2026-11-27
     assert [s.nmt.credit, s.nmpt.credit] == list(s.credits) and all(c.licence == "CC BY 4.0" for c in s.credits)
     assert s.nmpt.credit.attribution == ("Source : Service public de Wallonie (SPW) - Relief de la Wallonie - Modèle "
                                          "Numérique de Surface (MNS) 2021-2022 (2024-01-23) "

@@ -1214,7 +1214,7 @@ region and follows them): its tiles do not reach the islets, so the gap filling 
 the area, and the run names Madeira's source. Later phases of the same
 search keep the source chosen at its start and fail if a tile still missing cannot be downloaded
 (running it again resumes from the cache). On 2026-11-15 the VPS's local copy holds `slovakia/`
-only. The regression entries R80, R81 and R86-R88 are skipped without their folders (`needs_path`)
+only. The regression entries R80, R81, R86-R88 and R99 are skipped without their folders (`needs_path`)
 unless `tests/regression.py --mirror-url` names a data server.
 
 The public site reads the mirror's datasets through the data server once they are published there

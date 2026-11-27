@@ -2750,5 +2750,36 @@
     },
     "notes": "added 2026-11-27: --source auto picks miyagi (JP-04); the centre on the steep pixels of the cached sheets (4 763 over 70 degrees within 700 m of the research point, their centroid 462 m W, 58 m S of it); the rows flagged -9999 keep the heights the provider interpolated (the user's decision of 2026-11-27; with them as no data 98 lines in 12 spots: 17 lines anchored on a block of 464 such cells across the seam of 10QD3311 and 10QD3312); the first search there asked gic-miyagi 6 times for 33.5 MB",
     "seconds": 43.0
+  },
+  "R99": {
+    "place": "Rochers de Freyr above the Meuse, Wallonia (Belgium): the limestone walls of the climbing area, SPW's MNT and MNS 2021-2022 (lidar, 0.5 m), our own 2 km tiles from the mirror read onto a 1 m grid, ETRS89 / Belgian Lambert 2008",
+    "args": "--lat 50.2180 --lon 4.8940 --radius 800 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "be"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "wallonia/dtm/0.5m",
+      "wallonia/dsm/0.5m"
+    ],
+    "expected": {
+      "anchors": 40678,
+      "open": 3216,
+      "checked": 13729,
+      "lines": 3344,
+      "spots": 39,
+      "csv_sha256": "11d531b0e8e72ff61bb4e5e433cd8405a51c95813baca85adf330d0fb43b8ba0",
+      "length_km": 217.623,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.857,
+      "clearance_max": 18.79,
+      "over_trees": 2958,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "coastline": "no sea in the area"
+    },
+    "notes": "added 2026-11-27 (wallonia): --source auto picks wallonia (BE-WAL); 6 tiles of 2 km per model, read at 0.5 m and averaged 2 x 2 onto the 1 m grid; skipped without FINDALINE_MIRROR/wallonia/dtm/0.5m and dsm/0.5m, run from the data server with --mirror-url",
+    "seconds": 4.2
   }
 }

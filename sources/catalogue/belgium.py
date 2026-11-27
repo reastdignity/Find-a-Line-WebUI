@@ -30,14 +30,14 @@ WALLONIA_MNS_CREDIT = Credit(
     "Relief de la Wallonie MNS 2021-2022 (SPW, Wallonia)",
     "Source : Service public de Wallonie (SPW) - Relief de la Wallonie - Modèle Numérique de Surface (MNS) 2021-2022 "
     "(2024-01-23) https://geodata.wallonie.be/id/5a4c28fe-d30c-493e-861e-a80ebc703b64", *CC_BY)
-# The tiles' sizes: four times Slovakia's 1 m tiles of terrain and surface (estimates until the cut measures
-# Wallonia's)
+# The tile's size measured over the mirror's tiles with data (tools/mirror_tiles.py cut, 2026-11-27: the mean of
+# 4548 tiles a model; medians 15.2 and 19.9 MB, the largest 21.2 and 31.4 MB)
 WALLONIA_DTM = GridTiles("Wallonia MNT 0.5 m (terrain)", [], "EPSG:3812",
-                         "belgium/wallonia-mnt/2022/epsg3812-0.5m-2km", 2000, 0.5, 19.2e6, mirror="wallonia/dtm/0.5m",
+                         "belgium/wallonia-mnt/2022/epsg3812-0.5m-2km", 2000, 0.5, 14.5e6, mirror="wallonia/dtm/0.5m",
                          origin=WALLONIA_ORIGIN, tool="tools/mirror_tiles.py")
 WALLONIA_DTM.credit = WALLONIA_MNT_CREDIT
 WALLONIA_DSM = GridTiles("Wallonia MNS 0.5 m (trees, buildings)", [], "EPSG:3812",
-                         "belgium/wallonia-mns/2022/epsg3812-0.5m-2km", 2000, 0.5, 22.8e6, mirror="wallonia/dsm/0.5m",
+                         "belgium/wallonia-mns/2022/epsg3812-0.5m-2km", 2000, 0.5, 19.5e6, mirror="wallonia/dsm/0.5m",
                          origin=WALLONIA_ORIGIN, tool="tools/mirror_tiles.py")
 WALLONIA_DSM.credit = WALLONIA_MNS_CREDIT
 # SPW's newest orthophotos (CC BY 4.0, record dfc9f3a2-adff-4b7f-ab77-8a890c4cabbb): the ArcGIS WMS of ORTHO_LAST,

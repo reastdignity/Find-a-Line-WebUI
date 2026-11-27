@@ -452,7 +452,7 @@ U1, U5, U8, U10, U11, U12, U20; P21, P22, P23, P27.
   | The Desertas (DTM 5 m) | as Porto Santo's; approved by U55 (2026-11-17) | against: the same order's "MDT 5 m (folha)" at 37 € a sheet. The file's reference-system label (EPSG:3061) is replaced by the system its coast fits (PTRA08, EPSG:5016), nothing reprojected; the card names it (U56) |
   | The Selvagens (DTM 5 m) | as Porto Santo's; approved by U55 (2026-11-17) | against: the same order's "MDT 5 m (folha)" at 37 € a sheet |
 
-  Wallonia (batch 6; CC BY 4.0, "Il peut publier les données et l'œuvre dérivée à condition de citer les sources"; the terrain model's record also asks for "mention explicite des modifications", which its card does): its row approved 2026-11-22 (U96, amended 2026-11-26), products `dtm/0.5m` and `dsm/0.5m` at their own 0.5 m. Not a row of the tool: Hong Kong (batch 6; **none found**: no sentence allows a changed copy on the internet), no row: not publishable (section 11, step 7).
+  Wallonia (batch 6; CC BY 4.0, "Il peut publier les données et l'œuvre dérivée à condition de citer les sources"; the terrain model's record also asks for "mention explicite des modifications", which its card does): its row approved 2026-11-22 (U96, amended 2026-11-26), products `dtm/0.5m` and `dsm/0.5m` at their own 0.5 m, published 2026-11-27 (9096 tiles, 154.5 GB). Not a row of the tool: Hong Kong (batch 6; **none found**: no sentence allows a changed copy on the internet), no row: not publishable (section 11, step 7).
 
 Compared and not chosen for the transport: the tool's own tar over SSH with `sha256sum -c` (no new program; the
 planner's recommendation), a share with read-back, robocopy and rsync (no sha256).
@@ -814,7 +814,7 @@ Nothing before the build.
 | Id | What | Who | When |
 | --- | --- | --- | --- |
 | M2 | On the real server through SWAG, from the VPS and from one outside address: the first byte of a tile after ten idle minutes under 2 s; two connections sustain at least 80 % of twice the class's rate; the per-address cap refuses through the real SWAG; a 5 km Slovak search's tiles (189 MB) arrive within 45 s at a visitor's limits (24 s by the numbers). Numbers of A.5, C.3 and C.6 confirmed or corrected with the user | closed in rollout step 3 (2026-11-22): from one outside address the first byte 0.11 s, two connections 7.41 MB/s (mark 6.40), the cap 4 served and 4 refused through the real SWAG, the 189 MB in 25.5 s; from the VPS the first byte, the cap and the 45 s mark met, the two connections' mark not met at the time of the measurement; the numbers kept as they are (U94); LV17 through the real SWAG left to M4 | - |
-| M4 | LV17 of `mirror_check.sh --live` through the real SWAG: held downloads show that SWAG streams a tile (`X-Accel-Buffering`) instead of buffering it; it needs tiles of 16 MB or more | when the first dataset with such tiles is published (batch 6's 0.5 m tiles, about 22 MB) | that dataset's publishing |
+| M4 | LV17 of `mirror_check.sh --live` through the real SWAG: held downloads show that SWAG streams a tile (`X-Accel-Buffering`) instead of buffering it; it needs tiles of 16 MB or more | closed with Wallonia's publishing (2026-11-27): LV17 PASS through the real SWAG on a 29.39 MB tile of `wallonia/dsm/0.5m` (beside 3 held downloads at 64 KB/s a request 200, beside 4 a 429 with Retry-After 10) | - |
 | E1 | rclone's behaviour on a refused rename (the door's `sha256sum` is its own, U32; the tool proves the server's hashing on its lock file before any copy, U35) | closed in rollout step 1 (2026-11-20): the four folders on one device and one mount, and a folder moved from `staging` to `trash` by a server-side move through the door; the README requires one mount (U34) | - |
 | E2 | Which account the publishing key opens on the server | closed by U27, U32, U33: the publishing door, an SFTP container of the repository's own (`deploy/mirror/publish/`) | - |
 | - | The home server's facts (platform, uplink, the proxy's certificates, storage, how the PC reaches it, power and maintenance, the VPS's transfer quota) | answered by the user on 2026-11-15 and, by U16, kept out of the repository; what they set stands above as requirements | - |
@@ -859,8 +859,8 @@ tool from the task's branch: `deploy/mirror/` is copied to the home server from 
    `docker compose port sftp 2222`; one mount for `<root>`, U34); `mirror_check.sh --live`
    with an empty public folder; E1. `--live`'s cap check through the real SWAG (LV15: eight requests at once from
    one address) needs a tile of 1 MB or more, so it runs after the first publish (Madeira's tiles are about
-   1.8 MB); LV17 (held downloads: SWAG streams instead of buffering) needs tiles of 16 MB, which no dataset has
-   today (M4).
+   1.8 MB); LV17 (held downloads: SWAG streams instead of buffering) needs tiles of 16 MB, which no dataset had
+   then (M4; Wallonia's have them, LV17 passed on 2026-11-27).
 2. Publish Madeira (0.33 GB), check; then its islets Porto Santo, the Desertas and the Selvagens (U53, U55; 3.5 MB
    in all); then Valle d'Aosta, then Slovakia; `verify` on the remote after each. Step 1's cap
    check (LV15) keeps Madeira's tiles: no islet has a tile of 1 MB.
@@ -874,7 +874,7 @@ Follow-ups, not part of the build's definition of done:
 6. After a number of good days the user names: `/srv/findaline-mirror` removed from the VPS.
 7. Batch 6 (planned in its own task, 2026-11-15) with the same tool when its tiles are cut: datasets at a native
    0.5 m (a "0.5m" folder: A.2's pattern serves it; tiles of an estimated 22 MB, about 6 s at a visitor's rate and
-   still within the in-memory download; Wallonia's are, since 2026-11-26: U96), several products
+   still within the in-memory download; Wallonia's measured: up to 31.4 MB, about 8 s; Wallonia's are, since 2026-11-26: U96), several products
    under one dataset folder with one card, folders with a hyphen in their name. By that task's reading of the terms (2026-11-15): Wallonia, Valle d'Aosta's surface
    model, Saint Vincent, South Australia and the Australian Capital Territory can be published on a licence;
    New South Wales cannot be published
@@ -882,7 +882,7 @@ Follow-ups, not part of the build's definition of done:
    mirror dataset. A dataset that cannot be published and is kept as an own copy would reach the site only by a
    local copy on the VPS, an exception to U4 that the user decides then. Each new dataset needs its
    `PUBLISHABLE` row with the user's approval, and the storage for it (Wallonia at 0.5 m: est. about
-   90 GB per model; measured at the cut).
+   90 GB per model; measured at the cut, 2026-11-27: 65.8 GB of terrain and 88.8 GB of surface tiles).
 
 ## 12. Definition of done
 
@@ -900,7 +900,8 @@ The build is done when every line below holds; each names its test or command.
       the mirror's files, the check script, its static test or the workflow change, and by hand: U49; at most 150
       minutes): every line PASS, and its self-test FAILs every check with the behaviour switched off.
 - [ ] `tests/mirror_check.sh --live https://<host>`: every line PASS (the cap through the real SWAG among them,
-      LV15, from 1 MB tiles); LV17 a SKIP until a dataset has tiles of 16 MB (M4).
+      LV15, from 1 MB tiles); LV17 with `MIRROR_LIVE_PRODUCTS='^wallonia/'`, whose tiles reach 16 MB (M4, closed
+      2026-11-27; a plain run SKIPs it).
 - [ ] On the home server the README's check commands: read-only root, no capability, no published port, no route
       out, no log file older than 14 days; SWAG attached (U42); the door's port on `PUBLISH_ADDRESS` only (`docker compose port sftp 2222`, U89).
 
