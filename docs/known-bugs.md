@@ -1419,3 +1419,24 @@ to 136; `tests/test_view_kit.py`). Left:
   "the text's 13 px", and `--ink` would take the grey away as well.
 - **The access help cut in a phone's `.v-over`** (37 px at rest) and the map's switch after the credits in the Tab
   order: left by the user (T3, T2).
+
+## Share links' 3D view and profiles: known and left (2026-11-26)
+
+The task "share links get the 3D view and every line's profile" (the roadmap's decision of 2026-11-26) left these,
+by the user's answers or as named:
+- **A link's waiting tasks have no cap** (the user's D5, asked again after the code review): each waiting request
+  polls `jobs.sqlite` ten times a second for up to `QUICK_WAIT_MAX`. Several links or addresses at their rates while
+  the lane is busy could keep hundreds of waits, about 5 000 reads a second (the reviewer's estimate, read from the
+  code, not run). The F5 alert (the oldest quick task over 30 s) can fire for a link's task held behind users'.
+- **The wait after a 429 lives in the page's memory** (`sharelink.ts` `Backoff`): a reload, or a move between the 2D
+  and 3D pages, sends one request before `Retry-After`, and its refusal counts toward fail2ban's 100 in 10 minutes.
+  The text's `{{wait}}` is the server's at the 429 and does not count down.
+- **Not tried**:
+  - Esri's imagery and the ring on a link's 3D page (the tests have no key);
+  - a real iPhone (after the VPS update);
+  - the quick lane's seconds on the VPS (measured on the dev PC only);
+  - a scripted visit's requests (estimated from the code).
+- **Screenshots**: on the iPhone profile (Playwright's WebKit), the link's 3D pictures "Anchors moved" and the reach
+  limit show a blank stage with their texts in sight, as the 3D view's "Only valid lines" entry above.
+- **Unsettled**: whether a spot's first-shown line is always its representative, with a saved profile. The
+  measurement read so, the plan said often not. A profile on demand covers either case.
