@@ -1,6 +1,12 @@
 // What the 3D view's page is asked for: the run and line of its hash (#run=<id>&line=<lat1>,<lon1>,<lat2>,<lon2>,
 // as /api/profile's line) and the level (?level=phone|full, else a coarse pointer is a phone). Pure but for
-// `currentPage`, so tests can give their own location.
+// `currentPage`, so tests can give their own location. The page has two addresses: the app's /view3d and a share
+// link's /s/<token>/view3d (sharelink.ts shareToken: link mode), whose way back is the link's map.html.
+
+import type { Line } from "../types";
+import type { ResultModel } from "../result/model";
+import { runHash } from "../app/c/route";
+import { lineHash } from "../sharelink";
 
 export type Level = "phone" | "full";
 
@@ -73,18 +79,29 @@ export function patchUrl(p: PageRequest): string {
 }
 
 /** The app's page of the run with the line selected (app/c/route.ts runHash); `line`: the line now shown (a moved
- *  line's key) instead of the page's own. */
-export function backUrl(p: PageRequest, line: string | null = p.line): string {
-  return `/#run=${encodeURIComponent(p.run)}` + (line ? `&line=${encodeURIComponent(line)}` : "");
+ *  line's key) instead of the page's own. With `link` (a share link's 3D view) the link's own map instead, relative:
+ *  map.html with its hash of the line (map/main.tsx, sharelink.ts lineHash). */
+export function backUrl(p: PageRequest, line: string | null = p.line, link = false): string {
+  return link ? "map.html" + lineHash(line) : "/" + runHash(p.run, line);
 }
 
-/** The 3D view's address for the line now shown (the "Copy link" button): this page's path and the hash of the
- *  request, the level kept only when the address asked for one (`search`), so a link opened on a phone chooses its
- *  own, and the other lines (`also`, by default the address's own; never the line itself). Relative to the origin. */
-export function viewUrl(p: PageRequest, line: string | null, search: string, also: readonly string[] = p.also): string {
+/** The 3D view's address for the line now shown (the "Copy link" button): this page's path (`path`: the app's
+ *  /view3d, or a share link's /s/<token>/view3d) and the hash of the request, the level kept only when the address
+ *  asked for one (`search`), so a link opened on a phone chooses its own, and the other lines (`also`, by default the
+ *  address's own; never the line itself). Relative to the origin. */
+export function viewUrl(p: PageRequest, line: string | null, search: string, also: readonly string[] = p.also,
+                        path = "/view3d"): string {
   const asked = new URLSearchParams(search).get("level");
   const level = asked === "phone" || asked === "full" ? `?level=${asked}` : "";
   const self = line && isKey(line) ? canonicalKey(line) : null;
-  return `/view3d${level}#run=${encodeURIComponent(p.run)}` + (line ? `&line=${encodeURIComponent(line)}` : "") +
-         (line ? alsoParam(also.filter((k) => k !== self)) : "");
+  return `${path}${level}` + runHash(p.run, line) + (line ? alsoParam(also.filter((k) => k !== self)) : "");
+}
+
+/** The 2D result's link to a line's 3D view (the button "3D view", LineDetails and SpotActions): `base` and the hash
+ *  of the run's page with the line and, for a spot of several lines, the others of the spot in the model's order
+ *  (`&also=`, at most OTHERS_MAX); a line alone in its spot gets the link it always had. `base`: the app's "/view3d"
+ *  (app/c/ResultPage.tsx), a share link's map "view3d" (relative: /s/<token>/view3d, map/main.tsx). */
+export function view3dLink(base: string) {
+  return (model: Pick<ResultModel, "runOf" | "lineLink" | "alsoOf">, l: Line): string =>
+    base + runHash(model.runOf(l), model.lineLink(l)) + alsoParam(model.alsoOf(l, OTHERS_MAX).map((m) => model.lineLink(m)));
 }

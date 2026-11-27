@@ -21,6 +21,7 @@ import {
 } from "three";
 import { download } from "../download";
 import { detailMessage, t } from "../i18n";
+import { BACKOFF, computedHeaders, noteRefusal } from "../sharelink";
 import {
   buildMesh, CANOPY_BUDGET, CELL_METRES, chooseLattice, decodeCanopy, minValue, samplesPerCell, sameGrid,
   type CanopyData, type CanopyMesh,
@@ -61,16 +62,20 @@ class Failure extends Error {}
 
 /** Ask the block and decode it; throws Failure with the text to show. */
 async function fetchCanopy(url: string): Promise<CanopyData> {
+  const waiting = BACKOFF.blocked("patch");  // the patch's endpoint: its wait after a 429 (sharelink.ts)
+  if (waiting !== null) throw new Failure(waiting);
   let answer;
   try {
-    answer = await download(url, "arraybuffer", {headers: {"X-Findaline-Patch": "1"}});
+    answer = await download(url, "arraybuffer", {headers: computedHeaders({"X-Findaline-Patch": "1"})});
   } catch (e) {
     throw new Failure((e as Error).message);
   }
   if (answer.status !== 200) {
     let data: {detail?: unknown} = {};
     try { data = JSON.parse(new TextDecoder().decode(answer.body)); } catch { /* not JSON */ }
-    throw new Failure(detailMessage(data.detail, String(answer.status)));
+    const text = detailMessage(data.detail, String(answer.status));
+    noteRefusal("patch", answer.status, answer.header("Retry-After"), text);
+    throw new Failure(text);
   }
   try {
     return await decodeCanopy(answer.body);

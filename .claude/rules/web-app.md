@@ -99,12 +99,12 @@ tests that start Edge).
   the app (the public worker writes no runs.js: `Plan.index_runs`). The owners are the table `runs` of `jobs.sqlite`
   (the worker adds the row when a job saves its run; at the start of `web --public`, `Jobs.adopt_runs` gives runs
   without a row or owner to the first administrator of `FINDALINE_ADMINS`, whose user row is made then if needed).
-  Locally `/runs` is the plain folder as before (tests put their test pages there). Share links: `/s/<token>/<file>`
-  is another `RunFiles` (the run found by the sha256 of the token, `Jobs.shared_run`; none once its owner is blocked),
-  `/s/_viewer/` the viewer, `/s/runs.js` sets only `FINDALINE_APP = {profiles: false}` (no `FINDALINE_RUNS`: the map
-  shows its own run only), `/s/index.html` redirects to `/`; the map's `../../cache/...` lands on `/cache/`
-  (orthophoto tiles, open to anyone). The owner makes, renews (`POST /api/runs/<id>/share`, the link is shown once)
-  and revokes (`DELETE`) the link; a share page must never reach another run.
+  Locally `/runs` is the plain folder (tests put their pages there). Share links: `/s/<token>/<file>`
+  is another `RunFiles` (`Jobs.shared_run` by the token's sha256; none once its owner is blocked), `/s/runs.js`
+  `{profiles: true, favourites: false}`, `/s/<token>/view3d` the 3D page (`link_run`); the map's `../../cache/...` is
+  `/cache/`. The owner makes, renews, revokes it (`/api/runs/<id>/share`); a share page reaches no other run.
+  Its computed fetches send the token in `X-Findaline-Share` only: `run_or_link` on `/api/profile`, `/api/patch`,
+  `/api/reach`; a new computed route decides on links (`test_every_route_has_its_access_rule`).
 - **Sign-in** (`accounts.py`): Authlib keeps state, nonce and PKCE verifier in `request.session`, the signed cookie
   `__Host-findaline-oauth` of Starlette's `SessionMiddleware` (10 min); never configure Authlib's cache (it moves the
   state out of the browser's cookie). The callback address comes from `FINDALINE_PUBLIC_URL`, `next` only through

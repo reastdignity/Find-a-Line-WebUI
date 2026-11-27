@@ -10,6 +10,7 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { t } from "../i18n";
+import { shareToken } from "../sharelink";
 import type { Profile } from "../types";
 import type { Anchor3d } from "./decode";
 import { aFrame, raised, type Point3d, type Webbing } from "./geometry";
@@ -136,7 +137,10 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
   const length = el("span", "v3-read"), sag = el("span", "v3-read"), clearance = el("span", "v3-read");
   const trees = el("span", "v3-read v3-trees v3-hidden"), edited = el("span", "v3-read v3-edited v3-hidden");
   say(trees, t("ui.view3d.over_trees"), t("ui.view3d.over_trees_short"));
-  say(edited, t("ui.view3d.edited"), t("ui.view3d.edited_short"));
+  // a share link's view saves nothing: "Anchors moved" without "not saved" (the user's T3, 2026-11-26)
+  const link = shareToken() !== null;
+  say(edited, t(link ? "ui.view3d.edited_link" : "ui.view3d.edited"),
+      t(link ? "ui.view3d.edited_short_link" : "ui.view3d.edited_short"));
   const waiting = el("span", "v3-read v3-wait", t("ui.view3d.loading_profile"));
   const failed = el("span", "v3-read v3-failed v3-hidden");
   readoutBox.replaceChildren(edited, length, sag, clearance, trees, waiting, failed);

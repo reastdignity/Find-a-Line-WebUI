@@ -1,4 +1,5 @@
-// The 3D view of a line (GET /view3d#run=<id>&line=<lat1>,<lon1>,<lat2>,<lon2>, web.VIEW3D_HTML): the patch of
+// The 3D view of a line (GET /view3d#run=<id>&line=<lat1>,<lon1>,<lat2>,<lon2>, web.VIEW3D_HTML; a share link's
+// /s/<token>/view3d#… in link mode, sharelink.ts and `start`): the patch of
 // the run's elevation model around the line from /api/patch, decoded (decode.ts, its sha256 checked) and meshed
 // into the scene (scene.ts, terrain.ts); then the imagery (imagery.ts) and the found line's profile from
 // /api/profile (one request after the other) for the webbing's colour and the readout (line.ts); the walker's
@@ -17,6 +18,7 @@ import { detailMessage, t } from "../i18n";
 import { esriKey } from "../layers";
 import { nextPaint } from "../paint";
 import { measure, timed } from "../perf";
+import { BACKOFF, checkBackoff, computedHeaders, noteRefusal, shareToken } from "../sharelink";
 import type { Profile } from "../types";
 import { decodeValues, inflate, splitAnswer, toHeights, type Patch } from "./decode";
 import { createCanopy } from "./canopy";
@@ -46,11 +48,11 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
 /** The page's frame: the top bar with the way back, the stage of the canvas with its status and credits, the
  *  bar below with the toolbar's row, the readout and the preview's note. Landmarks: the top bar is the banner, the
  *  stage the main part, the bar a region named by `ui.view3d.bar`. */
-function frame(root: HTMLElement, page: PageRequest) {
+function frame(root: HTMLElement, page: PageRequest, link: boolean) {
   document.title = t("ui.view3d.title");
   const top = el("header", "v3-top");
   const back = el("a", "u-btn v3-back", t("ui.view3d.back"));
-  back.href = backUrl(page);
+  back.href = backUrl(page, page.line, link);
   const copy = el("button", "u-btn v3-copy", t("ui.view3d.copy_link"));
   copy.type = "button";
   top.append(back, el("h1", "v3-title", t("ui.view3d.title")), copy);
@@ -166,10 +168,12 @@ async function fetchPatch(page: PageRequest, onStage: OnStage): Promise<Patch> {
     ? t("ui.view3d.loading_download", {done: mb(done), total: mb(total)})
     : t("ui.view3d.loading_download_unknown", {done: mb(done)}), total ? Math.min(1, done / total) : null);
   onStage("server", t("ui.view3d.loading_server"), null);
+  const waiting = BACKOFF.blocked("patch");
+  if (waiting !== null) throw new PageError(waiting);
   let answer;
   try {
     answer = await download(patchUrl(page), "arraybuffer", {
-      headers: {"X-Findaline-Patch": "1"},
+      headers: computedHeaders({"X-Findaline-Patch": "1"}),
       onHeaders: (total) => { answered = performance.now(); measure("fal:3d:request", asked); say(0, total); },
       onBytes: say,
     });
@@ -179,7 +183,9 @@ async function fetchPatch(page: PageRequest, onStage: OnStage): Promise<Patch> {
   if (answer.status !== 200) {
     let data: {detail?: unknown} = {};
     try { data = JSON.parse(new TextDecoder().decode(answer.body)); } catch { /* not JSON */ }
-    throw new PageError(detailMessage(data.detail, String(answer.status)));
+    const text = detailMessage(data.detail, String(answer.status));
+    noteRefusal("patch", answer.status, answer.header("Retry-After"), text);
+    throw new PageError(text);
   }
   measure("fal:3d:body", answered, {bytes: answer.bytes});
   onStage("unpacking", t("ui.view3d.unpacking"), null);
@@ -213,19 +219,29 @@ async function decodeAnswer(answer: ArrayBuffer): Promise<Patch> {
   return patch;
 }
 
-/** A line's profile, `line` "lat1,lon1,lat2,lon2" (as result/model.ts fetchProfile, without the model's module). */
+/** A line's profile, `line` "lat1,lon1,lat2,lon2" (as result/model.ts fetchProfile, without the model's module):
+ *  a share link's token in its header, none sent while a 429's wait lasts (sharelink.ts). */
 async function fetchProfile(run: string, line: string): Promise<Profile> {
+  checkBackoff("profile");
   const response = await fetch("/api/profile?run=" + encodeURIComponent(run) + "&line=" +
-                               encodeURIComponent(line), {headers: {"X-Findaline-Profile": "1"}});
+                               encodeURIComponent(line), {headers: computedHeaders({"X-Findaline-Profile": "1"})});
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(detailMessage(body.detail, response.statusText || "error"));
+  if (!response.ok) {
+    const text = detailMessage(body.detail, response.statusText || "error");
+    noteRefusal("profile", response.status, response.headers.get("Retry-After"), text);
+    throw new Error(text);
+  }
   return body as Profile;
 }
 
 async function start() {
   const root = document.getElementById("view3d");
   if (!root) return;
-  const page = currentPage(), ui = frame(root, page);
+  // Link mode: the page under a share link (/s/<token>/view3d, sharelink.ts): Back to the link's map, Copy link the
+  // link's own address, no saving and no "Saved lines" (a link has no account); every computed request carries the
+  // token (computedHeaders)
+  const link = shareToken() !== null;
+  const page = currentPage(), ui = frame(root, page, link);
   if (!page.run || !page.line) { ui.say(t("error.patch_line"), true); return; }
   let scene: SceneCore | null = null, imagery: Imagery | null = null, ring: Ring | null = null;
   const lost = () => ui.say(t("ui.view3d.context_lost"), true);
@@ -273,13 +289,14 @@ async function start() {
     if (typeof patch.meta.slope === "number" && typeof patch.meta.leash_fall === "number") {
       createProfileCard(scene, line, current, patch.meta);
     }
-    const save = createSave(scene, line, page.run, current, ui.readout);
+    const save = link ? null : createSave(scene, line, page.run, current, ui.readout);
     // The other lines of the view (round 2, point 7): the address's and the user's other saved lines of the run
     const others = createOthers(scene, line, edit, root, {page, current, favourites: save,
                                                           notes: {parent: ui.bar, before: ui.note.nextElementSibling}});
-    line.onAnchors(() => { ui.back.href = backUrl(page, current.key()); });
+    line.onAnchors(() => { ui.back.href = backUrl(page, current.key(), link); });
+    const path = link ? location.pathname : "/view3d";
     ui.copy.addEventListener("click", () => copyLink(ui.copy, new URL(
-      viewUrl(page, current.key(), location.search, others.also()), location.origin).href));
+      viewUrl(page, current.key(), location.search, others.also(), path), location.origin).href));
   } else ui.copy.classList.add("v3-hidden");
   root.dataset.vertices = String(scene.terrain.vertices);
   root.dataset.maxError = String(scene.terrain.maxError);
@@ -307,7 +324,7 @@ async function start() {
     measure("fal:3d:profile", profileStart);
     edit?.found(profile);
   } catch (e) {
-    edit?.found(null);
+    edit?.found(null, (e as Error).message);  // the reason over the readout, as a moved line's failure (a 429's text)
     root.dataset.profileError = (e as Error).message;
     console.error(e);
   }

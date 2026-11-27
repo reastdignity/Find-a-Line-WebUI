@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_public import account_settings  # noqa: E402,F401
 from test_shell_c import BIG  # noqa: E402
-from test_shell_c_view_map import (DESKTOP, PHONE, SIDE_PHONE, WAIT, _crowded, _open, _state, _tap, _upright_then_hidden,  # noqa: E402,F401
+from test_shell_c_view_map import (DESKTOP, PHONE, SIDE_PHONE, WAIT, WORDS, _crowded, _open, _state, _tap, _upright_then_hidden,  # noqa: E402,F401
                                    site, view_clip)
 from test_web import EDGE, _playwright  # noqa: E402
 
@@ -492,8 +492,8 @@ def share_site(tmp_path, view_clip, account_settings):
 def test_share_page(share_site, device):
     """A share link's page (/s/<token>/map.html) behaves as the map's: #line= opens the line in view; a selection
     writes #line=… in place, none leaves no hash; a hashchange opens the new link; a line "Top level only" alone hides
-    turns the chip off; a link to no line of the run gets today's note, and so does a line outside the run (a share
-    page asks no profiles); a line other filters hide gets today's note, whose "clear filters" opens it; Back and
+    turns the chip off; a link to no line of the run gets today's note; a line outside the run is measured (a share
+    page asks profiles since 2026-11-26, D1/D3: as the map's); a line other filters hide gets today's note, whose "clear filters" opens it; Back and
     Forward open the links again."""
     from playwright.sync_api import sync_playwright
     context = DESKTOP if device == "desktop" else PHONE
@@ -520,13 +520,14 @@ def test_share_page(share_site, device):
             missing = _wait(page, "s.note !== null")
             assert missing["note"] == [NOT_HERE, None] and missing["selected"] == lifted["selected"], missing
             assert missing["hash"] == f"#line={top['link']}", missing
-            # a line outside the run: no profile asked (FINDALINE_APP.profiles is false there), today's note, no hash
+            # a line outside the run: measured (the server's /s/runs.js sends profiles: true), no note, the link kept
             page.keyboard.press("Escape")
             page.evaluate("() => window.FINDALINE_VIEW.view.model.setNote(null)")
             page.evaluate("(hash) => { location.hash = hash; }", hash_of(OUTSIDE))
-            outside = _wait(page, "s.note !== null && s.hash === ''")
-            assert outside["note"] == [NOT_HERE, None] and outside["measuredLink"] is None, outside
-            assert outside["selected"] is None and page.evaluate("() => PROFILE_ASKS") == []
+            outside = _wait(page, "s.measured !== null")
+            assert outside["note"] is None and outside["measuredLink"] == OUTSIDE and outside["measured"] == 80, outside
+            assert outside["selected"] is None and outside["hash"] == f"#line={OUTSIDE}", outside
+            assert page.evaluate("() => PROFILE_ASKS") == ["49.5000000,19.1000000,49.5004000,19.1005000"]
             # hidden by another filter: today's note; its "clear filters" opens the line
             page.evaluate("() => window.FINDALINE_VIEW.view.model.setNote(null)")
             page.evaluate(LONGER, a["len"])
@@ -546,6 +547,123 @@ def test_share_page(share_site, device):
             page.go_forward()
             forward = _wait(page, f"s.selected !== null && s.selected[1] === {b['row']}")
             assert forward["hash"] == f"#line={b['link']}" and forward["inView"], forward
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+# A share page's flags as the server sends them since 2026-11-26 (/s/runs.js: profiles on, D3), whatever this server
+# sends; the profiles asked, each with its address and its X-Findaline-Share header; while REFUSE > 0 the answer is
+# a 429 of a link's rate with Retry-After: 2 (the server's code and its {{wait}}: the page draws the catalogue's text)
+RATE_WAIT = "1 min"  # the server's {{wait}} (a no-break space)
+RATE_TEXT = WORDS["error.rate_link_profile"].replace("{{wait}}", RATE_WAIT)
+SHARE_PROFILES = """
+Object.defineProperty(window, "FINDALINE_APP", {configurable: true, get() { return window.__app; },
+  set(v) { window.__app = v && {...v, profiles: true}; }});
+window.SHARE_ASKS = [];
+window.REFUSE = 0;
+const realFetchOfShare = window.fetch;
+window.fetch = (url, init) => {
+  if (!String(url).startsWith("/api/profile")) return realFetchOfShare(url, init);
+  const headers = (init && init.headers) || {};
+  SHARE_ASKS.push({url: String(url), line: decodeURIComponent(String(url).split("line=")[1]),
+                   share: headers["X-Findaline-Share"] ?? null, at: performance.now()});
+  if (window.REFUSE > 0) {
+    window.REFUSE--;
+    return Promise.resolve(new Response(JSON.stringify({detail: {code: "rate_link_profile", params: {wait: "1\u00a0min"},
+      message: "%s"}}), {status: 429, headers: {"content-type": "application/json", "Retry-After": "2"}}));
+  }
+  return Promise.resolve(new Response(JSON.stringify({d: [0, 20, 40, 60, 80], z: [300, 296, 292, 296, 301], min: [40, 7.5],
+    water_m: 0, filled_m: 0}), {headers: {"content-type": "application/json"}}));
+};
+// the rows of the view's lines without a saved profile, and one with: the clip's run saves every line's profile (a
+// circle), so four passing lines of four spots lose theirs as an area's lines do (no Line of them made yet)
+window.S = {
+  unsaved() { const {view} = window.FINDALINE_VIEW, m = view.model, out = [], spots = new Set();
+    for (let row = view.count - 1; row >= 0 && out.length < 4; row--) {
+      const spot = view.spotOf(row);
+      if (view.passes(row) && !spots.has(spot) && !m.made.has(row)) { spots.add(spot); out.push([spot, row]); }
+    }
+    const source = m.data.columns.profiles, get = source.get.bind(source), rows = out.map((r) => r[1]);
+    source.get = (i) => rows.includes(i) ? undefined : get(i);
+    return out.filter(([, row]) => !m.lineAt(row).prof); },
+  saved() { const {view} = window.FINDALINE_VIEW, m = view.model;
+    for (let row = 0; row < view.count; row++) if (view.passes(row) && m.lineAt(row).prof) return [view.spotOf(row), row];
+    return null; },
+  // every answer of the model's profile(line), by the line's key: what the dock shows comes from it
+  watch() { const m = window.FINDALINE_VIEW.view.model, real = m.profile.bind(m); window.OUTCOMES = [];
+    m.profile = (l) => real(l).then((p) => { OUTCOMES.push({key: m.lineLink(l), error: null}); return p; },
+                                    (e) => { OUTCOMES.push({key: m.lineLink(l), error: e.message}); throw e; }); },
+  keyOf(row) { const m = window.FINDALINE_VIEW.view.model; return m.lineLink(m.lineAt(row)); },
+  dock() { const d = document.querySelector(".r-dock"); if (!d) return null;
+    return {error: d.querySelector(".r-error")?.textContent ?? null, ready: !!d.querySelector(".r-profile"),
+            busy: !!d.querySelector("[aria-busy]")}; },
+};
+""" % RATE_TEXT
+
+
+@BROWSER
+@pytest.mark.parametrize("device", ["desktop", "phone"])
+def test_share_page_profiles_and_3d(share_site, device):
+    """A share link's page with the flags the server sends (profiles: true, D1, D3): a line with a saved profile asks
+    nothing; one without asks /api/profile with X-Findaline-Share: <the page's token> and no token in the address;
+    Measure is offered and a measurement asks so too; the "3D view" button's href is view3d#run=…&line=…, which
+    resolves to /s/<token>/view3d. After a 429 with Retry-After: 2 no profile is asked for 2 s (the server's text
+    shown in the dock), then again."""
+    from playwright.sync_api import sync_playwright
+    context = DESKTOP if device == "desktop" else PHONE
+    base = share_site.rsplit("/", 1)[0]
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, share_site, context, SHARE_PROFILES)
+            assert page.evaluate("() => window.FINDALINE_VIEW.view.model.canCompute") is True
+            unsaved, saved = page.evaluate("() => S.unsaved()"), page.evaluate("() => S.saved()")
+            assert len(unsaved) >= 4 and saved, (unsaved, saved)
+            # a saved profile: nothing asked; the 3D button under the link
+            page.evaluate(f"() => window.FINDALINE_VIEW.view.select({saved[0]}, {saved[1]})")
+            page.wait_for_function("() => { const d = S.dock(); return d && d.ready; }", timeout=WAIT)
+            page.wait_for_selector(".r-view3d", state="attached", timeout=WAIT)
+            href, resolved, hash = page.evaluate("""() => { const a = document.querySelector('.r-view3d'), v = window.FINDALINE_VIEW.view;
+                return [a.getAttribute('href'), new URL(a.getAttribute('href'), location.href).pathname,
+                        '#run=' + encodeURIComponent(v.model.runId) + '&line=' + encodeURIComponent(v.model.lineLink(v.selected.line))]; }""")
+            assert href.startswith("view3d" + hash) and resolved == f"/s/{TOKEN}/view3d", (href, resolved)
+            assert page.evaluate("() => SHARE_ASKS") == []
+            # no saved profile: asked with the header
+            page.evaluate(f"() => window.FINDALINE_VIEW.view.select({unsaved[0][0]}, {unsaved[0][1]})")
+            page.wait_for_function("() => { const d = S.dock(); return d && d.ready; }", timeout=WAIT)
+            asks = page.evaluate("() => SHARE_ASKS")
+            assert len(asks) == 1 and asks[0]["share"] == TOKEN and TOKEN not in asks[0]["url"], asks
+            # Measure is offered; a measurement asks with the header
+            actions = page.evaluate("() => [...document.querySelectorAll('.r-actions button')].map((b) => b.textContent.trim() || b.getAttribute('aria-label'))")
+            assert WORDS["ui.actions.measure"] in actions, actions
+            page.evaluate("() => window.FINDALINE_VIEW.view.model.measure([49.5, 19.1], [49.5004, 19.1005])")
+            page.wait_for_function("() => SHARE_ASKS.length === 2", timeout=WAIT)
+            measured = page.evaluate("() => SHARE_ASKS[1]")
+            assert measured["share"] == TOKEN and measured["line"] == "49.5000000,19.1000000,49.5004000,19.1005000", measured
+            # a 429: the server's text, nothing asked for 2 s, then asked again
+            page.evaluate("() => { window.REFUSE = 1; }")
+            page.evaluate(f"() => window.FINDALINE_VIEW.view.select({unsaved[1][0]}, {unsaved[1][1]})")
+            page.wait_for_function("() => { const d = S.dock(); return d && d.error !== null; }", timeout=WAIT)
+            assert RATE_TEXT in page.evaluate("() => S.dock().error")
+            refused_at = page.evaluate("() => SHARE_ASKS[2].at")
+            # during the wait: the selected line's own profile is refused with the text (its outcome, by its key, before
+            # the dock is read: the dock keeps the line before's error until its effect ran), nothing asked
+            page.evaluate("() => S.watch()")
+            page.evaluate(f"() => window.FINDALINE_VIEW.view.select({unsaved[2][0]}, {unsaved[2][1]})")
+            key = page.evaluate(f"() => S.keyOf({unsaved[2][1]})")
+            page.wait_for_function("(key) => OUTCOMES.some((o) => o.key === key)", arg=key, timeout=WAIT)
+            page.evaluate("() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))")
+            during = page.evaluate("(key) => [SHARE_ASKS.length, OUTCOMES.find((o) => o.key === key).error, S.dock().error, "
+                                   "performance.now()]", key)
+            assert during[0] == 3 and RATE_TEXT in during[1] and RATE_TEXT in during[2], during
+            assert during[3] - refused_at < 2000, during
+            page.wait_for_function(f"() => performance.now() - {refused_at} > 2050", timeout=WAIT)
+            page.evaluate(f"() => window.FINDALINE_VIEW.view.select({unsaved[3][0]}, {unsaved[3][1]})")
+            page.wait_for_function("() => { const d = S.dock(); return d && d.ready; }", timeout=WAIT)
+            again = page.evaluate("() => SHARE_ASKS")
+            assert len(again) == 4 and again[3]["share"] == TOKEN, again
+            assert all(TOKEN not in a["url"] for a in again) and base.endswith(TOKEN)
             assert page.errors == []
         finally:
             browser.close()

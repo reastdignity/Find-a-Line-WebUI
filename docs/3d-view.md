@@ -100,6 +100,10 @@ Fixed with the user on 2026-11-01:
   sagging line, the athlete and the editing (not the mock's values panel, webbing length or height inputs, minimap,
   compass or readout).
 - **Where**: the public site (signed-in users) and the local app; not share links, not `map.html` from disk.
+  Reversed for share links by the user on 2026-11-26 ("I would like to have 3d view and all line profiles in the
+  shared link."): a share link's map has the button and the link's own 3D view (`/s/<token>/view3d`), with every tool
+  but saving, Esri and the ring as for users, under per-link rates (docs/3d-view-contract.md, "Share links
+  (2026-11-26)"). A run's own `map.html` from the server or from disk still has none.
 - **Fidelity**: compare a photorealistic mesh with our orthophoto draped on our DEM.
 - **Budget**: a free tier with a **hard stop** (a card on file is fine, a bill is not); up to 1000 opens a month.
 - **Commercial**: non-commercial now; also what accepting donations would change.

@@ -1647,13 +1647,73 @@
       }
     },
     {
+      "id": 42,
+      "type": "timeseries",
+      "title": "Quick answers per minute by caller (F5)",
+      "description": "user: a signed-in user's profile, 3D view, reach, estimate or lookup; link: a share link's visitor's (profiles, 3D views, reaches). The lane takes users' tasks first. Counted by the web process since its start.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (caller) (rate(findaline_quick_answers_total[$__rate_interval])) * 60",
+          "legendFormat": "{{caller}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 40,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "id": 108,
       "type": "row",
       "title": "Housekeeping (F13)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 48,
+        "y": 56,
         "w": 24,
         "h": 1
       },
@@ -1670,7 +1730,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 49,
+        "y": 57,
         "w": 4,
         "h": 8
       },
@@ -1742,7 +1802,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 49,
+        "y": 57,
         "w": 12,
         "h": 8
       },
@@ -1803,7 +1863,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 49,
+        "y": 57,
         "w": 8,
         "h": 8
       },

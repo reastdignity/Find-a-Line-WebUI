@@ -8,7 +8,8 @@ and the pitfalls are in `.claude/rules/` (viewer, view3d, browser-tests, coverag
 
 The result viewer (TypeScript, Preact, Leaflet; `src/`: `map/main.tsx` a run's `map.html` (bundle `viewer.js`: the
 app's result view, `result/view/ResultColumns.tsx`, loading the run's store itself over http(s) (`loadRunFrom("./")`),
-`#line=` in its hash, the way back to the app, none on a share link; while the store loads and when it failed (line
+`#line=` in its hash, the way back to the app, none on a share link; on a share link the line's "3D view" button, to
+the link's own 3D view (`view3dOf`: `view3d/page.ts` `view3dLink("view3d")`, 2026-11-26); while the store loads and when it failed (line
 volume's round 7, A6) a Back button "Find-a-Line" to "/" (none on a share link) and "Try again" where a new try can
 help (`result/view/RunLoading.tsx`: `onRetry`; `more` a share link's visitor's second sentence; `main` the box as the
 page's main region); the run's name from the page's `<title>` (`titleName`), which a rename rewrites; the disk notice (store wave 4: `runs.MAP_HTML`'s `#disk-notice`, `NOTICE`,
@@ -91,7 +92,12 @@ privacy and about pages of `web.py`; `logo/` the logo: `logo.svg` and `mark.svg`
 also copies the home-screen icons `viewer/home-screen/*.png` (`tools/home_screen_icons.py`; beside `src/`, as tests
 read every file under it as text) and writes `dist/manifest.webmanifest` itself (`homeScreenManifest`: "Find-a-Line",
 standalone, from "/", no orientation, the light `--bg` of `tokens.css` its one colour; written, not copied, so the
-checkout's line endings never reach dist)), `result/` a run in the app (`load.ts`
+checkout's line endings never reach dist)), `sharelink.ts` (no imports; the 2D and
+3D bundles) a share link's page: its token from the path (`shareToken`: `/s/<token>/<page>`), the header
+`X-Findaline-Share` of every computed request (`computedHeaders`: the result's `fetchProfile`, the 3D view's patch,
+canopy, profile and reach), the 2D page's `#line=` (`lineHash`), and the wait after a 429 of a computed request
+(`Backoff`/`BACKOFF`, per kind `profile`, `patch`, `reach`: no request until `Retry-After`, 60 s without one, the
+server's text again), `result/` a run in the app (`load.ts`
 `loadRun`/`loadRunFrom` a run by its folder (store wave 4's item 5: its store only, over http(s); no data.js, no
 script tag): `lines.arrow` and `profiles.arrow` downloaded by `download.ts` (XMLHttpRequest: its progress counts the
 decoded bytes, against `SIZE_HEADER` = `web.SIZE_HEADER`, which `web.RunFiles` sets: nginx's gzip drops Content-Length;
@@ -383,7 +389,9 @@ link's page, the public site's people; today's side opened by `?view=today`; eac
 
 The 3D view of a line (bundle `view3d.js`, page `web.VIEW3D_HTML`, opened by the line's "3D view" button of the app's
 result: `#run=<id>&line=<lat1,lon1,lat2,lon2>`, `?level=phone|full`; plain DOM and three.js, no Leaflet and no
-data.js): `main.ts` the page (patch, then profile, then imagery and ring), `page.ts` its request, `decode.ts` the
+data.js; a share link's `/s/<token>/view3d` too, in link mode: docs/3d-view-contract.md, "Share links (2026-11-26)"):
+`main.ts` the page (patch, then profile, then imagery and ring; link mode by the path: no Save, no "Saved lines",
+Back to the link's map), `page.ts` its request and its links (`backUrl`, `viewUrl`, the 2D button's `view3dLink`), `decode.ts` the
 patch body (`DecompressionStream`, the sha256 checked), `terrain.ts` with `martini.ts` (vendored @mapbox/martini,
 licence in `viewer/licences/`) the chunks' meshes (forced samples at the anchors and the line's footprint, skirts, an
 error raised until the vertex budget fits), `scene.ts`/`scene-api.ts`/`view.ts` the scene and its API for the modules

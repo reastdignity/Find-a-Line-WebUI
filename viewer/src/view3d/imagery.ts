@@ -12,6 +12,7 @@ import { measure } from "../perf";
 import { orthoForApp } from "../result/load";
 import type { Ortho } from "../types";
 import { radioKeys } from "../ui/radios";
+import { shareToken } from "../sharelink";
 import { DATA_CREDITS, DATA_ORDER, dataCredits, IMAGERY_CREDITS, IMAGERY_ORDER, imageryCredits } from "./credits";
 import type { Chunk, Scene3D } from "./scene-api";
 import { drawShore, shoreWithin } from "./shore";
@@ -197,7 +198,7 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
   const available: ImageryKind[] = [...(ortho ? ["ortho" as const] : []), ...(options.esriKey ? ["esri" as const] : []),
                                     "shaded", ...(scene.edgesSupported ? ["edges" as const] : [])];
   const root = scene.toolbar.closest?.<HTMLElement>(".ui") ?? null;
-  const data = dataCredits(meta.attribution, options.runId);
+  const data = dataCredits(meta.attribution, options.runId, shareToken() !== null);
   if (data) scene.credits.set(DATA_CREDITS, data, DATA_ORDER);
 
   // The textures' plans, once: the line's chunks first (they are looked at first)

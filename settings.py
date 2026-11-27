@@ -61,6 +61,9 @@ PUBLIC = {
     "estimate_rate": "20/minute;300/hour", "profile_rate": "30/minute;500/hour", "job_rate": "10/minute;60/hour",
     "place_rate": "10/minute;100/hour", "report_rate": "3/minute;20/day", "time_zone_rate": "5/minute;20/day",
     "patch_rate": "10/minute;120/hour", "reach_rate": "12/minute;200/hour", "export_rate": "4/minute;30/hour",
+    # a share link's, all its visitors together: a user's values (the user's choice of 2026-11-26)
+    "link_profile_rate": "30/minute;500/hour", "link_patch_rate": "10/minute;120/hour",
+    "link_reach_rate": "12/minute;200/hour",
     "queue_max": 50, "free_disk_gb_min": 20,
 }
 # Limits on request values: field of Limits -> (parameter of SearchParams, "min" or "max")
@@ -175,6 +178,16 @@ class Limits(BaseSettings):
         None, description="time zones a user's app may send (the country of the account), the same notation")
     job_rate: Optional[str] = Field(
         None, description="requests to start a search a user may send (refused ones too), the same notation")
+    # A share link's rates: every visitor of the link together, whoever is signed in (web.LinkVisitor)
+    link_profile_rate: Optional[str] = Field(
+        None, description="profiles (and measured lines) the visitors of one share link may ask for together, the "
+                          "same notation")
+    link_patch_rate: Optional[str] = Field(
+        None, description="terrain patches of the 3D view (and its trees) the visitors of one share link may ask for "
+                          "together, the same notation")
+    link_reach_rate: Optional[str] = Field(
+        None, description="reaches of an anchor in the 3D view the visitors of one share link may ask for together, "
+                          "the same notation")
     # Safeguards of the server, for everyone (also users without limits and administrators)
     queue_max: Optional[int] = Field(None, gt=0, description="searches waiting or running on the site at once")
     free_disk_gb_min: Optional[float] = Field(
@@ -182,7 +195,8 @@ class Limits(BaseSettings):
                                 "checked again before a search downloads and before it computes")
 
     @field_validator("estimate_rate", "profile_rate", "patch_rate", "reach_rate", "place_rate", "export_rate",
-                     "report_rate", "time_zone_rate", "job_rate")
+                     "report_rate", "time_zone_rate", "job_rate", "link_profile_rate", "link_patch_rate",
+                     "link_reach_rate")
     @classmethod
     def check_rate(cls, value: Optional[str]) -> Optional[str]:
         if value is not None:

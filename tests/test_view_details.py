@@ -333,9 +333,9 @@ def test_map_page_keeps_todays_features(site):
 
 @pytest.mark.parametrize("device", DEVICES, ids=IDS)
 def test_share_page_keeps_todays_features(share_site, device):
-    """A share link's page (no signed-in user: no favourites, no profiles asked, no report form, no 3D view): the view
-    draws no star, in the head or in a row, no "3D view", no Report, and on a phone the dock exactly where today's
-    sheet has it (today's draws its dock for every selection)."""
+    """A share link's page (no signed-in user: no favourites, no report form): the view draws no star, in the head or
+    in a row, no Report, and on a phone the dock exactly where today's sheet has it (today's draws its dock for every
+    selection); both pages have "3D view" since 2026-11-26 (the link's own 3D view: map/main.tsx view3dOf)."""
     from playwright.sync_api import sync_playwright
     settled = "(m) => window.FINDALINE_APP !== undefined"  # the share page's flags (FINDALINE_APP) came with it
     with sync_playwright() as p:
@@ -343,8 +343,9 @@ def test_share_page_keeps_todays_features(share_site, device):
         try:
             today, view = _todays_and_the_views(browser, share_site, device, settled)
             assert today["favourites"] is view["favourites"] is False, (today, view)
-            assert not any(view[k] for k in ("fav", "stars", "view3d", "report")), view
-            assert not any(today[k] for k in ("fav", "stars", "view3d", "report")), today
+            assert not any(view[k] for k in ("fav", "stars", "report")), view
+            assert not any(today[k] for k in ("fav", "stars", "report")), today
+            assert view["view3d"] is today["view3d"] is True, (today, view)
             assert view["dock"] == today["dock"] == (device is PHONE), (today, view)
         finally:
             browser.close()

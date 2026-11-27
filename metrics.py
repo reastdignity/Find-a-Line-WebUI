@@ -44,6 +44,7 @@ import jobs as jb
 SESSION_WINDOWS = {"15m": 15 * 60, "24h": 86400}  # findaline_sessions_active{window}
 HOUR = 3600
 QUICK_RESULTS = ("ok", "no_worker", "busy", "gone")  # web.QUICK_RESULTS
+QUICK_CALLERS = ("user", "link")  # web.QUICK_CALLERS: a signed-in user, a share link's visitor (never which one)
 REFUSALS = ("rate", "quota", "other")
 _FINISHED = "('done', 'failed', 'cancelled')"  # jobs.FINISHED in SQL
 # The error of a failed job: the code of its error_info, else a category of its text (the messages of
@@ -160,11 +161,11 @@ class Metrics(Collector):
     """The collector of the application's metrics (see the module's docstring). `limits`: the web
     process's settings.Limits (queue_max, the worker's slots); `accounts_dir`: the folder of
     accounts.sqlite (None: the local app, no accounts); `quick_answers`: the web app's counts of
-    the waits for the quick lane (web.create_app's app.state.quick_answers); `routes`: its
+    the waits for the quick lane by (result, caller) (web.create_app's app.state.quick_answers); `routes`: its
     web.RouteCounts; `event_streams`: the number of open event streams (web.EventHub)."""
 
     def __init__(self, data_dir: str, limits=None, accounts_dir: Optional[str] = None,
-                 quick_answers: Optional[Dict[str, int]] = None, routes=None,
+                 quick_answers: Optional[Dict[tuple, int]] = None, routes=None,
                  event_streams: Optional[Callable[[], int]] = None):
         self.data_dir = data_dir
         self.routes, self.event_streams = routes, event_streams
@@ -186,12 +187,22 @@ class Metrics(Collector):
             except (sqlite3.Error, OSError, ValueError, KeyError, TypeError) as e:  # this scrape goes on without them
                 print(f"metrics: {part.__name__}: {type(e).__name__}: {e}", file=sys.stderr)
         if self.quick_answers is not None:
-            yield counter("findaline_quick_answers", "Waits for the quick lane by how they ended, since the start",
-                          dict(self.quick_answers), "result", QUICK_RESULTS)
+            yield self._quick()
         if self.routes is not None:
             yield from self._routes()
         if self.event_streams is not None:
             yield gauge("findaline_event_streams", "Open event streams of the web process", self.event_streams())
+
+    def _quick(self) -> Metric:
+        """findaline_quick_answers{result, caller}: the web process's counts {(result, caller): n}, every pair
+        of QUICK_RESULTS and QUICK_CALLERS 0 too."""
+        found = dict(self.quick_answers)
+        answers = CounterMetricFamily("findaline_quick_answers", "Waits for the quick lane by how they ended and "
+                                      "who waited, since the start", labels=["result", "caller"])
+        for result in QUICK_RESULTS:
+            for caller in QUICK_CALLERS:
+                answers.add_metric([result, caller], found.get((result, caller), 0))
+        return answers
 
     def _routes(self) -> Iterator[Metric]:
         found, seconds = self.routes.snapshot()
@@ -428,7 +439,7 @@ class Metrics(Collector):
 
 
 def registry(data_dir: str, limits=None, accounts_dir: Optional[str] = None,
-             quick_answers: Optional[Dict[str, int]] = None, routes=None,
+             quick_answers: Optional[Dict[tuple, int]] = None, routes=None,
              event_streams: Optional[Callable[[], int]] = None) -> CollectorRegistry:
     """A registry with the application's metrics only."""
     found = CollectorRegistry(auto_describe=False)
@@ -437,7 +448,7 @@ def registry(data_dir: str, limits=None, accounts_dir: Optional[str] = None,
 
 
 def serve(port: int, addr: str, data_dir: str, limits=None, accounts_dir: Optional[str] = None,
-          quick_answers: Optional[Dict[str, int]] = None, routes=None,
+          quick_answers: Optional[Dict[tuple, int]] = None, routes=None,
           event_streams: Optional[Callable[[], int]] = None):
     """Serve the metrics on `addr`:`port` from a thread of this process (prometheus_client's own
     HTTP server, any path); returns (server, thread)."""

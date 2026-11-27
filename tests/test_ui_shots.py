@@ -434,7 +434,8 @@ def test_families_and_limits():
                 "c-basic-sea": "search", "c-new-more": "search", "c-layer-world": "layer", "c-layer-border": "layer",
                 "c-home": "home", "c-menu": "home", "c-osm": "home", "c-admin": "home", "c-account-end": "home",
                 "c-admin-end": "home", "page-about-end": "static",
-                "c-view": "view-b", "c-view-area": "view-b"}
+                "c-view": "view-b", "c-view-area": "view-b",
+                "view3d-shared": "view3d", "view3d-shared-valid": "view3d", "map-shared-line": "result"}
     assert {name: ui_shots.page_family(name) for name in families} == families
     assert {ui_shots.page_family(name) for name in ui_shots.PAGES} == {
         "view3d", "coverage", "static", "result", "search", "layer", "home", "view-b", "run-wait"}
@@ -472,8 +473,8 @@ def test_pages_selected_by_their_names():
     assert list(ui_shots.select_pages()) == [name for name in ui_shots.PAGES if name not in ui_shots.README_SHOTS]
     assert not ui_shots.select_pages("readme")  # the README's pages: --readme's only
     assert set(ui_shots.select_pages("c-line,map-shared")) == {"c-line", "c-line-profile", "map-shared",
-                                                                 "map-shared-credits"}
-    assert set(ui_shots.select_pages("c-line,map-shared", "credits,profile")) == {"c-line", "map-shared"}
+                                                                 "map-shared-credits", "map-shared-line"}
+    assert set(ui_shots.select_pages("c-line,map-shared", "credits,profile")) == {"c-line", "map-shared", "map-shared-line"}
     assert "c-home" not in ui_shots.select_pages(exclude="home")
 
 
@@ -1136,3 +1137,16 @@ def test_readme_images_refused_while_a_page_was_busy(tmp_path):
     with pytest.raises(SystemExit, match="readme-ortho still busy"):
         ui_shots.readme_images(rows, str(out))
     assert not os.listdir(out)
+
+def test_page_urls():
+    """page_url: a run's map, a share link's map and 3D view ("{share}" filled in, its level kept), the app's pages."""
+    site = {"url": "https://localhost:1", "run": "R", "share": "S", "line": "1,2,3,4", "also": "5,6,7,8", "border": ""}
+    urls = {name: ui_shots.page_url(site, *ui_shots.PAGES[name][:2]) for name in
+            ("map", "map-shared-line", "view3d-shared", "view3d-shared-valid", "view3d", "c-line", "page-signin")}
+    assert urls == {"map": "https://localhost:1/runs/R/map.html", "map-shared-line": "https://localhost:1/s/S/map.html",
+                    "view3d-shared": "https://localhost:1/s/S/view3d#run=R&line=1,2,3,4",
+                    "view3d-shared-valid": "https://localhost:1/s/S/view3d?level=full#run=R&line=1,2,3,4",
+                    "view3d": "https://localhost:1/view3d#run=R&line=1,2,3,4",
+                    "c-line": "https://localhost:1/?ui=c#run=R&line=1,2,3,4", "page-signin": urls["page-signin"]}
+    assert urls["page-signin"].startswith("https://localhost:1/") and "{" not in urls["page-signin"]
+    assert ui_shots.PAGES["view3d-shared"][3] == ui_shots.PAGES["map-shared-line"][3] == "visitor"

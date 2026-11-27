@@ -67,6 +67,10 @@ KEEP_QUICK_SECONDS = 3600  # an answer of the quick lane nobody took (the page w
 # A waiting task of the quick lane is deleted by the web process that waits for it when it gives up
 # (web.quick); one left by a web process that stopped is deleted after this (longer than any wait)
 KEEP_WAITING_QUICK_SECONDS = 86400
+# The order the quick lane takes its waiting tasks in: users' first, then by id. On the public site every task
+# of a user has its user_id and a share link's visitor's has none (web.LinkVisitor), so signed-in users never
+# wait behind a link's tasks; locally every task has none, so the order is by id as before
+QUICK_ORDER = "user_id IS NULL, id"
 # Exports (docs/line-volume/spec-store.md 1.4): the quick lane's kind "export" writes a run's lines.csv or
 # lines.geojson from its store into this folder of the data folder as <run id>-<token>.<extension>; the web
 # process sends it once (GET /api/runs/<run>/export/<token>.<extension>) and deletes it. None is kept: what nobody
@@ -1370,10 +1374,15 @@ class Jobs:
             return db.execute("DELETE FROM quick WHERE user_id = ? AND status = 'waiting'", (user_id,)).rowcount
 
     def quick_ahead(self, task_id: int) -> int:
-        """Tasks of the quick lane waiting or running before this one."""
+        """Tasks of the quick lane before this one: every other running task, and the waiting tasks
+        quick_claim takes first (QUICK_ORDER: a user's task waits behind every waiting task of a user before it,
+        a share link's behind every waiting task of a user and the links' before it)."""
         with self._db() as db:
-            return db.execute("SELECT COUNT(*) FROM quick WHERE id < ? AND status IN ('waiting', 'running')",
-                              (task_id,)).fetchone()[0]
+            return db.execute(
+                "SELECT COUNT(*) FROM quick AS q, (SELECT user_id IS NULL AS late, id FROM quick WHERE id = ?) AS t "
+                "WHERE q.id != t.id AND (q.status = 'running' OR (q.status = 'waiting' AND "
+                "((q.user_id IS NULL) < t.late OR ((q.user_id IS NULL) = t.late AND q.id < t.id))))",
+                (task_id,)).fetchone()[0]
 
     def quick_take(self, task_id: int) -> Optional[Dict]:
         """The answer of a task once it is there ({"code", "body"}), removing the task; else None.
@@ -1402,10 +1411,10 @@ class Jobs:
             return self.quick_waiting(own)
 
     def quick_claim(self, worker_id: str) -> Optional[Dict]:
-        """The oldest waiting task, now running on `worker_id`; None if none waits."""
+        """The first waiting task in QUICK_ORDER, now running on `worker_id`; None if none waits."""
         with self._write() as db:
             rows = db.execute("UPDATE quick SET status = 'running', worker_id = ?, started = ? WHERE id = "
-                              "(SELECT id FROM quick WHERE status = 'waiting' ORDER BY id LIMIT 1) "
+                              f"(SELECT id FROM quick WHERE status = 'waiting' ORDER BY {QUICK_ORDER} LIMIT 1) "
                               "AND status = 'waiting' RETURNING *", (worker_id, time.time())).fetchall()
         return dict(rows[0]) if rows else None
 

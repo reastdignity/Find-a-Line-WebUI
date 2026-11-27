@@ -44,7 +44,7 @@ CONTRACT = {
     "findaline_job_phase_seconds_count": {"phase"},
     "findaline_quick_waiting": set(),
     "findaline_quick_oldest_waiting_seconds": set(),
-    "findaline_quick_answers_total": {"result"},
+    "findaline_quick_answers_total": {"result", "caller"},
     "findaline_users": {"status"},
     "findaline_users_by_country": {"country"},
     "findaline_users_searched_in": {"country"},
@@ -208,8 +208,8 @@ def test_names_labels_and_values(data):
     the rows of the databases."""
     data_dir, ids = data
     limits = Limits.load(public=True).model_copy(update={"compute_slots": 3, "download_slots": 2})
-    text = scrape(data_dir, limits, str(data_dir), {"ok": 5, "no_worker": 1, "busy": 0, "gone": 2}, route_counts(),
-                  lambda: 2)
+    quick = {("ok", "user"): 5, ("no_worker", "user"): 1, ("busy", "user"): 0, ("gone", "user"): 2, ("ok", "link"): 3}
+    text = scrape(data_dir, limits, str(data_dir), quick, route_counts(), lambda: 2)
     found = samples(text)
     names = {}
     for name, labels in found:
@@ -237,8 +237,12 @@ def test_names_labels_and_values(data):
     assert value(found, "findaline_job_phase_seconds_count", phase="ready") == 5  # downloaded, then computed
     assert value(found, "findaline_job_phase_seconds_count", phase="compute") == 5
     assert value(found, "findaline_quick_waiting") == 1 and value(found, "findaline_quick_oldest_waiting_seconds") >= 0
-    assert value(found, "findaline_quick_answers_total", result="ok") == 5
-    assert value(found, "findaline_quick_answers_total", result="gone") == 2
+    assert value(found, "findaline_quick_answers_total", result="ok", caller="user") == 5
+    assert value(found, "findaline_quick_answers_total", result="gone", caller="user") == 2
+    assert value(found, "findaline_quick_answers_total", result="ok", caller="link") == 3  # O2: who waited
+    assert value(found, "findaline_quick_answers_total", result="busy", caller="link") == 0  # every pair, 0 too
+    assert {dict(k)["caller"] for (n, k), v in found.items() if n == "findaline_quick_answers_total"} == {
+        "user", "link"}  # never a run id or a token
     assert {s: value(found, "findaline_users", status=s) for s in ac.STATUSES} == {
         "pending": 1, "approved": 2, "blocked": 1}
     assert {dict(k)["country"]: v for (n, k), v in found.items() if n == "findaline_users_by_country"} == {
@@ -315,15 +319,18 @@ def test_no_personal_data_in_labels(data):
     own small set (statuses, phases, codes, actions, alpha-2 countries, cache folders, the catalogue's
     layers, roles, steps, classes of resolution)."""
     data_dir, ids = data
-    text = scrape(data_dir, Limits.load(public=True), str(data_dir), dict.fromkeys(metrics.QUICK_RESULTS, 0),
-                  route_counts(), lambda: 0)
+    import web
+    assert (metrics.QUICK_RESULTS, metrics.QUICK_CALLERS) == (web.QUICK_RESULTS, web.QUICK_CALLERS)  # copies
+    quick = {(result, caller): 0 for result in metrics.QUICK_RESULTS for caller in metrics.QUICK_CALLERS}
+    text = scrape(data_dir, Limits.load(public=True), str(data_dir), quick, route_counts(), lambda: 0)
     for secret in (SECRET["title"], SECRET["name"], SECRET["run"], "secret text", str(data_dir), "worker-1"):
         assert secret not in text, secret
     allowed = {
         "version": re.compile(r"[\w.+-]+"), "status": re.compile(r"queued|ready|downloading|computing|done|failed|"
                                                                    r"cancelled|pending|approved|blocked|[1-5]xx"),
         "phase": re.compile(r"waiting|download|ready|compute"), "error": re.compile(r"[a-z0-9_]*"),
-        "result": re.compile("|".join(metrics.QUICK_RESULTS)), "country": re.compile(r"[a-z]{2}|unknown"),
+        "result": re.compile("|".join(metrics.QUICK_RESULTS)), "caller": re.compile("|".join(metrics.QUICK_CALLERS)),
+        "country": re.compile(r"[a-z]{2}|unknown"),
         "window": re.compile(r"15m|24h"), "action": re.compile("|".join(audit.ACTIONS)),
         "kind": re.compile(r"rate|quota|other"), "folder": re.compile(r"[\w.-]+"),
         "host": re.compile(r"[a-z0-9.-]+"), "outcome": re.compile("|".join(servicecounts.OUTCOMES)),
@@ -407,7 +414,7 @@ def test_metrics_server(tmp_path):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    server, thread = metrics.serve(port, "127.0.0.1", str(tmp_path), Limits(), quick_answers={"ok": 0})
+    server, thread = metrics.serve(port, "127.0.0.1", str(tmp_path), Limits(), quick_answers={("ok", "user"): 0})
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=10) as answer:
             text = answer.read().decode()

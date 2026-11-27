@@ -101,6 +101,7 @@ catalogue), `browser-tests.md`.
   a change of that look changes both. The narrow desktop list on touch shares its columns by measured widths (39 /
   43 / 53 / 28 px): new words or units re-measure them (`test_list_at_1024_keeps_heads_and_values_apart`).
   `SpotActions.tsx` imports `report.ts`, which reads the page at load: the panels' Node bundle leaves it out.
+- `sharelink.ts` and its users: view3d.md (it loads with that file).
 
 ## Pitfalls
 
