@@ -119,9 +119,9 @@ def test_the_whole_list_by_continent_and_country(settings):
             "group-north-america-france": "France (5)", "group-north-america-netherlands": "Netherlands (3)",
             "group-north-america-united-states": "United States (54)", "group-oceania": "Oceania (4)",
             "group-oceania-australia": "Australia (3)", "group-south-america": "South America (3)",
-            "group-asia": "Asia (7)", "group-asia-japan": "Japan (5)", "group-africa": "Africa (2)",
+            "group-asia": "Asia (13)", "group-asia-japan": "Japan (11)", "group-africa": "Africa (2)",
             "group-africa-france": "France (2)"}
-        assert len(app.area_rows()) == 150   # 87 areas of the map, 50 states, 13 provinces and territories
+        assert len(app.area_rows()) == 156   # 93 areas of the map, 50 states, 13 provinces and territories
         assert [row.row.name for row in _group(app, "North America", "France").query(tui.AreaRow)] == [
             "france-guadeloupe", "france-martinique", "saint-barthelemy", "saint-martin-france",
             "saint-pierre-and-miquelon"]

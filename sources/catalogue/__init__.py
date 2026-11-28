@@ -21,6 +21,7 @@ from . import estonia
 from . import portugal
 from . import brazil
 from . import japan
+from . import japan_forest
 from . import hong_kong
 from . import belgium
 
@@ -36,10 +37,14 @@ from . import belgium
 # holds Monterrey, Mexico's keep clear of US land; Cyprus and Estonia anywhere before the global ones; Portugal
 # (Madeira) before Spain: Spain's offline box holds Madeira; Brazil (Rio de Janeiro) anywhere before the global ones;
 # Japan (Kanagawa, Yamanashi, Tokyo, Shizuoka, Miyagi; Kanagawa and Yamanashi first within it: their offline boxes
-# overlap the others' over their own land) anywhere before the global ones; Hong Kong anywhere before the global ones;
+# overlap the others' over their own land) anywhere before the global ones; Japan's Forestry Agency sources
+# (Mie, Yamagata, Nagano, Hiroshima, Okayama, Ishikawa: their own family, importing the sheet scheme of japan) right
+# before it: their offline boxes are cut to their data, Shizuoka's and Yamanashi's rough ones reach over Nagano's land
+# (measured 2026-11-28 on a 0.005 degree lattice: Nagano's land going to shizuoka offline 478 points this way round 195,
+# Shizuoka's going to nagano 0 against 35; no other pair moves); Hong Kong anywhere before the global ones;
 # Belgium (Wallonia) after Luxembourg: Luxembourg's offline box holds Arlon and Martelange, which stay Luxembourg's
 # offline (Wallonia's own offline boxes keep off France, Flanders, the Netherlands and Germany)
-FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, portugal, spain, mexico, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, cyprus, estonia, brazil, japan, hong_kong, belgium, world)
+FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, portugal, spain, mexico, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, cyprus, estonia, brazil, japan_forest, japan, hong_kong, belgium, world)
 SOURCES: Dict[str, Source] = {s.id: s for family in FAMILIES for s in family.SOURCES}
 
 # Each area of the coverage map (Source.map_areas: ISO 3166-1 alpha-2 or 3166-2, lower case) by its name for
@@ -71,6 +76,7 @@ AREA_NAMES: Dict[str, str] = {
     # area's code is ours: ISO 3166-2 names neither city; checked 2026-11-16)
     "de-hb": "Freie Hansestadt Bremen", "de-hb-bhv": "Bremerhaven",
     "jp-13": "東京都", "jp-22": "静岡県", "jp-19": "山梨県", "jp-14": "神奈川県", "jp-04": "宮城県",
+    "jp-24": "三重県", "jp-06": "山形県", "jp-20": "長野県", "jp-34": "広島県", "jp-33": "岡山県", "jp-17": "石川県",
     # Madeira's other island groups: Nominatim's municipality and archipelagos (checked 2026-11-15)
     "pt-30-ps": "Porto Santo, Portugal", "pt-30-de": "Ilhas Desertas", "pt-30-se": "Ilhas Selvagens",
     # Hong Kong: its own ISO 3166-1 code on the map (Natural Earth's admin-0 has it; Nominatim names the place "cn"

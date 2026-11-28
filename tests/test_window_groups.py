@@ -399,7 +399,9 @@ def test_serial_layers_go_in_squares(files):
 def test_serial_sources():
     """Range by range where it was faster too (docs/performance.md, "Window reads")."""
     serial = {s.id for s in src.SOURCES.values() for lay in (s.nmt, s.nmpt) if getattr(lay, "serial", False)}
-    assert serial == {"austria", "luxembourg", "british_columbia"}
+    # the Forestry Agency's six (japan_forest.RfBlocks): measured on mie, 2026-11-28 (the same section)
+    assert serial == {"austria", "luxembourg", "british_columbia",
+                      "mie", "yamagata", "nagano", "hiroshima", "okayama", "ishikawa"}
 
 
 def test_strips_end_on_the_rows_of_tiles():

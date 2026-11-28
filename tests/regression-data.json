@@ -5415,6 +5415,320 @@
    "rasterio": "1.5.2"
   }
  },
+ "R100": {
+  "access_skipped": null,
+  "area": {
+   "inputs": null,
+   "shape": "4a0d3ab5e583a54d28207d1b988453eab104e363e6d9bbccf7d74d0bba39dc65",
+   "type": "circle"
+  },
+  "coastline": null,
+  "folders": {
+   "copernicus30/2021/wbm": {
+    "files": {
+     "copernicus30/2021/wbm/N35E136.tif": "30396a247d9f53cf93651d62cedb2121df4ba3c78c6a706d64558969148aedb4"
+    },
+    "layers": [
+     "Copernicus water body mask"
+    ]
+   },
+   "fabdem/v1-2": {
+    "files": {
+     "fabdem/v1-2/N35E136.tif": "d3b4229d9e50dc918b746d15915d3671175ef0776a01164e2bd077ccea7774c1"
+    },
+    "layers": [
+     "FABDEM (terrain)"
+    ]
+   },
+   "mie/kitaise-dem/2025-20261002": {
+    "files": {
+     "mie/kitaise-dem/2025-20261002/1_-5/76_-216.tif": "08bdc163d85e5fddf2ed85917665ab579f8e3b9a5b4656431a6d1ad544a66fd7",
+     "mie/kitaise-dem/2025-20261002/1_-5/76_-217.tif": "5c089eb9c5fe91dea0d83ca8feb9113cf5eb9ea9e3d6189d91793fd8a7665e21",
+     "mie/kitaise-dem/2025-20261002/1_-5/76_-218.tif": "d22b16aa9d3f39dd41e93f1c4aba681724bfa070261fae520a2395af54f7828f",
+     "mie/kitaise-dem/2025-20261002/1_-5/76_-219.tif": "14aa0e750290543bd84da1e6297b015c573909c77936c22030792ab8f33950d9",
+     "mie/kitaise-dem/2025-20261002/1_-5/77_-216.tif": "8263e3f38a4c6f289587c120231421c04556127784e055a7c86f3373f40f1269",
+     "mie/kitaise-dem/2025-20261002/1_-5/77_-217.tif": "ef8d8c80b5baf64c09c619ad264d9fe1fa06a30e022c03b7d8963c959bede67b",
+     "mie/kitaise-dem/2025-20261002/1_-5/77_-218.tif": "982ffb218dad347c533b983b48b823f3bf842baa0893c86f52c8ce46e0da8cfd",
+     "mie/kitaise-dem/2025-20261002/1_-5/77_-219.tif": "8e46d24f1970e225e6ae4e53f44fa07f9cc710490162bd1f45162f8dfda23561",
+     "mie/kitaise-dem/2025-20261002/1_-5/78_-216.tif": "0118432d196d9cd5ca3a04a000886041ce994937d91f286cd1622e04e1a6b9b0",
+     "mie/kitaise-dem/2025-20261002/1_-5/78_-217.tif": "9a7442eb1151e5081d8391270a1b9baa56388adacbe6496fd6b7b7aa84464d6d",
+     "mie/kitaise-dem/2025-20261002/1_-5/78_-218.tif": "b4d3a3491c35d7681d0f4baa2180f0924866c69ab530279e0355da98c28b2fe1",
+     "mie/kitaise-dem/2025-20261002/1_-5/78_-219.tif": "84eb52dd5feee1093bb7d753a04d110e8f33ee8aec4af6eea95ba7bf5c969b24",
+     "mie/kitaise-dem/2025-20261002/1_-5/79_-216.tif": "7548398956b5480032f0ed9a577881cdcaf8c28f91240d236b6dc2cc42e5dbde",
+     "mie/kitaise-dem/2025-20261002/1_-5/79_-217.tif": "d0ded749c0fee75d6aa2a45b839420ae4d68b5f513283d8ea5e47b0c23708e16",
+     "mie/kitaise-dem/2025-20261002/1_-5/79_-218.tif": "8b2eeedfe0409af82c8b95480efe90d53f42468a996e3914d5a908ab95cfc5a2",
+     "mie/kitaise-dem/2025-20261002/1_-5/79_-219.tif": "da916fad30195a53d7964e9215806c2a42134951b4d85fdba5cb19351113ac61"
+    },
+    "layers": [
+     "Forestry Agency DEM 0.5 m, Kitaise (terrain)"
+    ]
+   }
+  },
+  "left_out": [],
+  "mixed": false,
+  "source": "mie",
+  "versions": {
+   "gdal": "3.12.2",
+   "proj": "9.7.1",
+   "rasterio": "1.5.2"
+  }
+ },
+ "R101": {
+  "access_skipped": null,
+  "area": {
+   "inputs": null,
+   "shape": "a2c275687391ae3ce33fe72d6efaeef5fe7e1e5ad32d6991b6add0b24c3f05ef",
+   "type": "circle"
+  },
+  "coastline": null,
+  "folders": {
+   "copernicus30/2021/wbm": {
+    "files": {
+     "copernicus30/2021/wbm/N38E139.tif": "e227991ae7d25cb1aa5616f0fe481eb24f499e0044ec8f48ce8757eacb53a801"
+    },
+    "layers": [
+     "Copernicus water body mask"
+    ]
+   },
+   "fabdem/v1-2": {
+    "files": {
+     "fabdem/v1-2/N38E139.tif": "c88a40c506c060694839dfbe11b8211814dbd6d5c0620c6c48a2802f315baed1"
+    },
+    "layers": [
+     "FABDEM (terrain)"
+    ]
+   },
+   "yamagata/syounai-dem/2025-20261002": {
+    "files": {
+     "yamagata/syounai-dem/2025-20261002/-4_-7/-183_-309.tif": "f8ed3958d052c8adf750392216835ff7180543ff7dddd18aff6aa2029a68d371",
+     "yamagata/syounai-dem/2025-20261002/-4_-7/-183_-310.tif": "019b6aa5d2651c52a53027540d7cd9391b49b8cef0b9c5b443073331935487c7",
+     "yamagata/syounai-dem/2025-20261002/-4_-7/-183_-311.tif": "4b7db09d93836c171aa34c6bc66b1e03537e81773292c1129c805894d3f4b883",
+     "yamagata/syounai-dem/2025-20261002/-4_-7/-184_-309.tif": "02f2af9266a2c2d4984ae41132f87c88014cddc883b4ed28610f15f8c6ae0550",
+     "yamagata/syounai-dem/2025-20261002/-4_-7/-184_-310.tif": "0fe9eeac2004942167b7f3299682211376133f44d04fbd0e2e604039f9e48616",
+     "yamagata/syounai-dem/2025-20261002/-4_-7/-184_-311.tif": "6ed91d1fe7a5fd288951948c1bca4c920577027cfc7e83ce308b9e8fd9599efe",
+     "yamagata/syounai-dem/2025-20261002/-4_-7/-185_-309.tif": "43436c9b703de107aa80769f92553fcbdb171e4776773475507e356f6c2549bf",
+     "yamagata/syounai-dem/2025-20261002/-4_-7/-185_-310.tif": "89dc13db2d7d47a1cd24940ae0c6aaa55218fdac853216cd7f5481dc7c54a061",
+     "yamagata/syounai-dem/2025-20261002/-4_-7/-185_-311.tif": "7275f582aee5fa7eba152fd51bf82ec5d06245a955708e3ce801af3c0f73670f",
+     "yamagata/syounai-dem/2025-20261002/-4_-7/-186_-310.tif": "9f9cb8cad2415b150eec0efff88ed5c244c177dda3e948728339f95aad7f47c5",
+     "yamagata/syounai-dem/2025-20261002/-4_-7/-186_-311.tif": "f5c24f23220c51809ff9ae3ffff034cda8f68471102f92d84a8983260995acf7"
+    },
+    "layers": [
+     "Forestry Agency DEM 0.5 m, Shonai (terrain)"
+    ]
+   }
+  },
+  "left_out": [],
+  "mixed": false,
+  "source": "yamagata",
+  "versions": {
+   "gdal": "3.12.2",
+   "proj": "9.7.1",
+   "rasterio": "1.5.2"
+  }
+ },
+ "R102": {
+  "access_skipped": null,
+  "area": {
+   "inputs": null,
+   "shape": "b695608252555c874a4fe16703d4e2755c6a706f0f1184d064d3331e41d34ddf",
+   "type": "circle"
+  },
+  "coastline": null,
+  "folders": {
+   "copernicus30/2021/wbm": {
+    "files": {
+     "copernicus30/2021/wbm/N34E132.tif": "39446e490178bcac3dc21d32fa0fd3ac8c9fffdc83a860f90076a7f3230ef975"
+    },
+    "layers": [
+     "Copernicus water body mask"
+    ]
+   },
+   "hiroshima/h30-dem/2025-20261002": {
+    "files": {
+     "hiroshima/h30-dem/2025-20261002/0_-7/41_-323.tif": "ec2b6616e270e3918aec53e619efdc7acb713213971081ef2741b47eda49f71c",
+     "hiroshima/h30-dem/2025-20261002/0_-7/41_-324.tif": "5584c666013aa632e7b48c224e3a85f165d0a9d2690d9409ff0edc1ebd28d721",
+     "hiroshima/h30-dem/2025-20261002/0_-7/41_-325.tif": "b7f792aab2032927874a2194cd202c110a720b44e3a35184d243a9720ba1785a",
+     "hiroshima/h30-dem/2025-20261002/0_-7/41_-326.tif": "96e452fd61d85b3f3128ae38165b39b67e50fb5e465fafcac86f8aa06c35eba1",
+     "hiroshima/h30-dem/2025-20261002/0_-7/42_-323.tif": "e6174f895a615b3f5901e1b3469577f5c19958b5ab92b52017b7292ac8225843",
+     "hiroshima/h30-dem/2025-20261002/0_-7/42_-324.tif": "0706c806715257706c07386814835071aafd45a18c9c591b2db88824cb143166",
+     "hiroshima/h30-dem/2025-20261002/0_-7/42_-325.tif": "52b63c893dd501b43f3ad87bc1c60e9e3b49b25a6e2fae1da1e951791c1a284b",
+     "hiroshima/h30-dem/2025-20261002/0_-7/42_-326.tif": "47961f8b5e46e5dabe9c8dc0f7e7d1b0ed5e3119e5492381ba087167919fe355",
+     "hiroshima/h30-dem/2025-20261002/0_-7/43_-323.tif": "7e934f2c31a94bcb210c7661e1cbd83704b948c9ac438a4d0cc0faad94c5f690",
+     "hiroshima/h30-dem/2025-20261002/0_-7/43_-324.tif": "5a808997e0d36d051141a66f722bfba48e9d64a26114ed46b091aed4fd95c0c3",
+     "hiroshima/h30-dem/2025-20261002/0_-7/43_-325.tif": "eee6b50153adf1945bcdae1ab60a8c11c8a2fa1746ac0afa7e56b48d64458c1e",
+     "hiroshima/h30-dem/2025-20261002/0_-7/43_-326.tif": "4372eecc6c58e7a805c1e717eeb7966608af3120aa8af67b738271f967df1704",
+     "hiroshima/h30-dem/2025-20261002/0_-7/44_-323.tif": "a78cdc35cdf9c2a822079bc30c9ca65b6c3a9fc7832f74a9176872a4c2ebde2d",
+     "hiroshima/h30-dem/2025-20261002/0_-7/44_-324.tif": "e09808973eb2837be89115a6832f1833b0e9f861d1a4529ac59120168d14e3b2",
+     "hiroshima/h30-dem/2025-20261002/0_-7/44_-325.tif": "67a01849fb7f2e4ebc3ac88fbb4de259d56e504a49deaf74ac0c6b2744ff0df1",
+     "hiroshima/h30-dem/2025-20261002/0_-7/44_-326.tif": "cbdf87c272a89bbca53e2c5f3b3218634d6b8f57c0e9bdb919cdaf5054690ec3"
+    },
+    "layers": [
+     "Forestry Agency DEM 0.5 m, July 2018 rains, Hiroshima (terrain)"
+    ]
+   }
+  },
+  "left_out": [],
+  "mixed": false,
+  "source": "hiroshima",
+  "versions": {
+   "gdal": "3.12.2",
+   "proj": "9.7.1",
+   "rasterio": "1.5.2"
+  }
+ },
+ "R103": {
+  "access_skipped": null,
+  "area": {
+   "inputs": null,
+   "shape": "a910c407630b44793f8a0784cd20367378509d1d09dd38bc18a85b929be1fbe2",
+   "type": "circle"
+  },
+  "coastline": null,
+  "folders": {
+   "copernicus30/2021/wbm": {
+    "files": {
+     "copernicus30/2021/wbm/N34E133.tif": "a97eddfe3cce202b8852465e723c0abb4f368fa6e599ea175f6f8d368f3045d1"
+    },
+    "layers": [
+     "Copernicus water body mask"
+    ]
+   },
+   "okayama/h30-dem/2025-20261002": {
+    "files": {
+     "okayama/h30-dem/2025-20261002/-4_-6/-170_-261.tif": "3d78dfc8ffa314e63393bf3ac22e2d12c9e98cf58bd734954b54aa2f0a50228e",
+     "okayama/h30-dem/2025-20261002/-4_-6/-170_-262.tif": "aaa1c47b223176c4878ba032aed78e98d2205a3053ce646baacbfde2fdc21742",
+     "okayama/h30-dem/2025-20261002/-4_-6/-170_-263.tif": "353f268598930e37d926db925ad6154ca9c2082e6490823a3424eb0b3fe1208d",
+     "okayama/h30-dem/2025-20261002/-4_-6/-171_-261.tif": "eb51f39af0c930b169178ccb02ffe3208f12014826d7084d2a9ec41716b1aa1e",
+     "okayama/h30-dem/2025-20261002/-4_-6/-171_-262.tif": "6a6175a0f800a004a7a1c476a6d19d8e25da5e281530a83c5a4a42dbecf3fc90",
+     "okayama/h30-dem/2025-20261002/-4_-6/-171_-263.tif": "ba18018d8b81d0565a3296ab378352b5dd9879abba8dd3346ffe5a17cf23d72e",
+     "okayama/h30-dem/2025-20261002/-4_-6/-172_-261.tif": "a12ab7103544b7c970152afa8b907110e71990bd5f9fd7163eb7bb3e35e4c41b",
+     "okayama/h30-dem/2025-20261002/-4_-6/-172_-262.tif": "47744c046d7f9e4fe8c47fa1739d6b40eb77d01980f689d60f6faf103adf2efe",
+     "okayama/h30-dem/2025-20261002/-4_-6/-172_-263.tif": "e99988f331c44ca721aff365f542e94823f8fc0121afaa89f7968d73e5a43305",
+     "okayama/h30-dem/2025-20261002/-4_-6/-173_-261.tif": "722a892700104a0e99884b9585e18557a8940ef20cf68f782992a4bab5e70f57",
+     "okayama/h30-dem/2025-20261002/-4_-6/-173_-262.tif": "287dcbf232b713102f231d2f2b8bc19a36d1d823496f177dd564786d847c491a",
+     "okayama/h30-dem/2025-20261002/-4_-6/-173_-263.tif": "60dca202dc3230672819d4feff7d91124f8b7418f5b30da24e067ee45889b037"
+    },
+    "layers": [
+     "Forestry Agency DEM 0.5 m, July 2018 rains, Okayama (terrain)"
+    ]
+   }
+  },
+  "left_out": [],
+  "mixed": false,
+  "source": "okayama",
+  "versions": {
+   "gdal": "3.12.2",
+   "proj": "9.7.1",
+   "rasterio": "1.5.2"
+  }
+ },
+ "R104": {
+  "access_skipped": null,
+  "area": {
+   "inputs": null,
+   "shape": "75c529c64e4b56f7ee74f291ccddc97cba13ba5b029256a49fbecf7faef42800",
+   "type": "circle"
+  },
+  "coastline": {
+   "edition": "2026-10-23"
+  },
+  "folders": {
+   "copernicus30/2021/wbm": {
+    "files": {
+     "copernicus30/2021/wbm/N37E136.tif": "ee87c801bfcce41408103a07e3a4f7fb1b478fb09d66d55a609c356e1f963b99"
+    },
+    "layers": [
+     "Copernicus water body mask"
+    ]
+   },
+   "ishikawa/r6-dem/2025-20261001": {
+    "files": {
+     "ishikawa/r6-dem/2025-20261001/-2_6/-67_301.tif": "6beb01ba4ab5c135fb8f71b905e941e208dc97dc5ae45d399e73cb46e1fec7b1",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-67_302.tif": "cc25d54b0d4fc477ec15743559e9c11309297e06b990f85ecd610c2228122118",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-67_303.tif": "528599bf45245749f6093493c842c098e65bac4499613b2f57ba162c45a616ce",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-67_304.tif": "6d768fe8ef4f0bae8e56742ef30333324e08eed739282bc3b7613ab82b8e0fc3",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-68_301.tif": "f4bc29cf3145b43d3b67fbca68f66f5068f46b25bbb4d8be9779a92c3a0246b5",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-68_302.tif": "e784cf24b254abf1ff7fd73308d464d5ab713ed1dfe150d8cb3a1de7d013c4f8",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-68_303.tif": "fffff1d42c173f531f40d54981ecd9647d60db92ca44548511928d7c296ca5ca",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-68_304.tif": "8b1ab04ffd21ee0d345d4a5df194ad1ee0d78245e2ec883abee9d17238b42c1c",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-69_301.tif": "ed6f1cbda9983aaafd122eed28c02aafd664343916719c39b3fb75aba2a79295",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-69_302.tif": "60689c731a7786eb6d4ae611b822eb36e7a065f61c7eafdcbffeb64b6b20059b",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-69_303.tif": "9b23a1cfd9ade80ae6c518a9cc43e3f61e097741cd03ff1bf1af0417e9fb8162",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-69_304.tif": "39e1cb70879a27b89e8307863744cbb9a013c42f4c4989a3ee02d39882d3b05c",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-70_301.tif": "41ae3a5173ed84f381e17b2167493ae2a7c77127c6f0106dd48e6d545530cfdd",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-70_302.tif": "ce72b8e5d4cc34edfd927b493f92d792766f713c3149518e6fea8f9fc1e1c962",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-70_303.tif": "4cfeb04f6afb46766b78a74f805b9f6d33b5ab3320f8f2b85ee6cf3a9267aaa9",
+     "ishikawa/r6-dem/2025-20261001/-2_6/-70_304.tif": "937e0656f78f25d1dff01344e54f50e411d8d666f6ce142730f8de0c1d8571d5"
+    },
+    "layers": [
+     "Forestry Agency DEM 0.5 m, Noto earthquake 2024, Ishikawa (terrain)"
+    ]
+   }
+  },
+  "left_out": [],
+  "mixed": false,
+  "source": "ishikawa",
+  "versions": {
+   "gdal": "3.12.2",
+   "proj": "9.7.1",
+   "rasterio": "1.5.2"
+  }
+ },
+ "R105": {
+  "access_skipped": null,
+  "area": {
+   "inputs": null,
+   "shape": "5160ba56424933a6e43322927da7b3ab7fac174005c89e9a649a9af8055222cb",
+   "type": "circle"
+  },
+  "coastline": null,
+  "folders": {
+   "copernicus30/2021/wbm": {
+    "files": {
+     "copernicus30/2021/wbm/N35E137.tif": "74dd6cdbb75c1a179f69ed27ec58eac67c9a6d180e3394397e20d014b4941c0a"
+    },
+    "layers": [
+     "Copernicus water body mask"
+    ]
+   },
+   "fabdem/v1-2": {
+    "files": {
+     "fabdem/v1-2/N35E137.tif": "39c0f83810586548e0d17a5c69d25061f7bea0d6b5c9d4d6b6537810a1439543"
+    },
+    "layers": [
+     "FABDEM (terrain)"
+    ]
+   },
+   "nagano/inatani-dem/2025-20261002": {
+    "files": {
+     "nagano/inatani-dem/2025-20261002/-3_-2/-114_-55.tif": "539dd0ce1548c8a98f0c6037603433b15f7cc85f02f7b85cffdfe1ef62538d11",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-114_-56.tif": "3f049f8fc779032bb9c35d3e92f45f18ee03f2abbbf22ebb41bf270c789540e8",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-114_-57.tif": "ab7a4318f6e899435090e8cea9106e6654b6d5cbf20185eead5491fc01dea09a",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-114_-58.tif": "7683df7839e3310598cb0353cad53565fbacee586c033d314806a666ceac75bf",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-115_-55.tif": "ea6d1933d6a3f3e50fbdb5756defb4f4143c7931266f469790ada921cd03d060",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-115_-56.tif": "f359d935fc99574600e18631ca9d960ef0fe2e62528ecc27cd38e3496c6ce851",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-115_-57.tif": "20b07c1076d2751c12f12b52a6785160dccf2bc2ea0b5bc1dc2418760f8f71bc",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-116_-55.tif": "bbbb7c1fd10567485b1ab09271797317cb22104ea619e5a8982bacbe18f21011",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-116_-56.tif": "55fc1e95206963cc01692b06e963bc9bfb4c20d7384ed1ccf81e99d3b78fbc3a",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-116_-57.tif": "0930d236d6c2aedd3933401fc8bc25083ed848b337321cc028ed1292d1dd0a86",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-117_-55.tif": "c1390e6da336778ee0cd92a2cd0147be3ceaa04b7bdb465bbf7ccc7eced1de92",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-117_-56.tif": "823d4daca551b910ce8f23b3275b65c567f2d2bb542cf09ae8e76d9cf3e0101c",
+     "nagano/inatani-dem/2025-20261002/-3_-2/-117_-57.tif": "72633d2c8e9e7535ba4136b87015adb0cb491904f449ac4044892d9314709077"
+    },
+    "layers": [
+     "Forestry Agency DEM 0.5 m, Inadani (terrain)"
+    ]
+   }
+  },
+  "left_out": [],
+  "mixed": false,
+  "source": "nagano",
+  "versions": {
+   "gdal": "3.12.2",
+   "proj": "9.7.1",
+   "rasterio": "1.5.2"
+  }
+ },
  "R110": {
   "access_skipped": null,
   "area": {

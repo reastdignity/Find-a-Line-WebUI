@@ -1390,8 +1390,9 @@ def test_yamanashi_catalogue_entry():
     assert japan.YM_DTM.credit is japan.YM_DSM.credit is japan.YM_CREDIT
     assert (japan.YM_DTM.bytes_per_tile(), japan.YM_DSM.bytes_per_tile()) == (0.95e6, 1.33e6)
     assert src.net.HOST_SLOTS_OF["japan-pointcloud.s3.ap-northeast-1.amazonaws.com"] == 2
-    assert source.neighbours == ("tokyo", "shizuoka", "kanagawa")
-    assert src.SOURCES["tokyo"].neighbours == src.SOURCES["shizuoka"].neighbours == ("yamanashi", "kanagawa")
+    assert source.neighbours == ("tokyo", "shizuoka", "kanagawa", "nagano")
+    assert src.SOURCES["tokyo"].neighbours == ("yamanashi", "kanagawa")
+    assert src.SOURCES["shizuoka"].neighbours == ("yamanashi", "kanagawa", "nagano")
 
 
 def test_yamanashi_offline_boxes():
@@ -1427,11 +1428,11 @@ def test_yamanashi_offline_boxes():
         assert offline(lat, lon) == "jp-19", (lat, lon)
     # The neighbours' land next to Yamanashi's boxes (0.3-0.5 km outside them, at least 0.3 km inside the neighbour by
     # Natural Earth's admin-1 1:10m outlines, 2026-11-26): the cells its land did not win; a box grown over them takes
-    # them. Tokyo's, Shizuoka's and Kanagawa's (since 2026-11-27) keep their own boxes; Nagano's and Saitama's have
-    # none (Kanagawa's at Lake Yamanaka's south lies in a Shizuoka box, as before Yamanashi)
+    # them. Tokyo's, Shizuoka's, Kanagawa's (since 2026-11-27) and Nagano's (since 2026-11-28: nagano, Inadani's
+    # data) keep their own boxes; Saitama's have none (Kanagawa's at Lake Yamanaka's south lies in a Shizuoka box)
     for lat, lon, code in ((35.802, 138.972, "jp-13"), (35.676, 139.084, "jp-13"), (35.728, 139.004, "jp-13"),
                            (35.548, 138.228, "jp-22"), (35.348, 138.522, "jp-22"), (35.402, 138.228, "jp-22"),
-                           (35.852, 138.198, None), (35.952, 138.328, None), (35.802, 138.178, None),  # Nagano
+                           (35.852, 138.198, "jp-20"), (35.952, 138.328, "jp-20"), (35.802, 138.178, "jp-20"),  # Nagano
                            (35.854, 138.814, None), (35.854, 138.864, None), (35.904, 138.718, None),  # Saitama
                            (35.548, 139.112, "jp-14"), (35.398, 138.922, "jp-22"), (35.598, 139.122, "jp-14")):  # Kanagawa
         assert offline(lat, lon) == code, (lat, lon, offline(lat, lon))

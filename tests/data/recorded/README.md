@@ -109,3 +109,14 @@ Administrative Region, from the Common Spatial Data Infrastructure (CSDI) Portal
 `nominatim/reverse-hong-kong.json`: Nominatim's reverse answers (zoom 3 and 8) of Lion Rock, Chek Lap Kok and Tung Lung
 Chau, recorded on 2026-11-16 (`osm.reverse`): "cn" at zoom 3, ISO3166-2-lvl3 CN-HK at zoom 8. Data © OpenStreetMap
 contributors, [ODbL 1.0](https://osm.org/copyright).
+
+`forest/`: the Forestry Agency's DEM of Kitaise (Mie) as served on 2026-11-27, for `tests/test_japan_forest.py`:
+`dem_06ne4_2025_pieces.zip`, pieces of `dem_06ne4_2025.tif` (380 489 100 bytes) byte for byte, each a member named
+by its first byte: the first 65 536 bytes (the header: every tile's offset and byte count, no heights) and the nine
+tiles under the 500 m block x 33 500-34 000, y -118 000..-117 500 of zone VI (seven empty, two of 13 569 and 4 588
+bytes with 4 832 and 1 032 valid pixels, outside that block), and `size`; `dem_06ne4_2025_empty_tiles.zip`, two
+more tiles of that file the tool decodes for its classes, both empty (nodata only): the full tile 0, 0 (1 626 bytes
+at 56 509) and the last row's first (1 390 bytes at 372 989 429); `kitaise_081_rows.json`, five of the record's
+resources in its package_show answer (title, ids, sizes, addresses). 出典：国土交通省土地・建設産業局地籍整備課、東海農政局木曽川
+水系土地改良調査管理事務所、三重県森林・林業経営課、津市農林水産部林業振興室、菰野町産業観光課・三重県（北伊勢森林計画区）DEM（林野庁加工）
+（https://www.geospatial.jp/ckan/dataset/kitaise_081）、PDL1.0（https://www.digital.go.jp/resources/open_data/public_data_license_v1.0）.

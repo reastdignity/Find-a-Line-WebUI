@@ -565,6 +565,23 @@ over `Yamanashi/2024/<seq>/LP/Grid/TIFF/08/`, `ym_prefixes`, `ym_key`, `block_pr
 only) and `miyagi` (`MG_DTM`, a `CellSheetTiles` of 1 m text sheets in zone X, EPSG:6678, over the shipped table
 `miyagi_sheets.npz` of `tools/miyagi_sheets.py`, `mg_files`; region jp-04, `MG_BOXES`; `europe` where
 `CellSheetTiling.has_data_near` finds no sheet within 2 km of the centre: `instead_without_data`);
+`japan_forest.py` (a family of its own, before `japan` in `FAMILIES`: its offline boxes are cut to its data): the
+Forestry Agency's 0.5 m DEMs (PDL 1.0), one BigTIFF per quarter of a 1/50000 sheet (20 x 15 km, `rf_quarter`,
+`rf_box`) on the bucket `gsic-opendata`, read in blocks of 500 m on the files' own pixels: `RfBlocks`
+(`FileBlocks`, serial) over `RfBlockTiling` (only blocks meeting a data cell are tiles; `has_data_near`: data
+within 2 km, from the masks, no request), `rf_files` (a block's own quarter first, then a neighbour's extra row
+or column), `rf_rows` (a record's files of one zone; a file off the blocks' pixels is refused), the shipped
+table `japan_forest_files.npz` (`RfFile`, `load_table`; per file its record, quarter, address, size, ETag, date,
+CRS from its tags, geotransform and a data mask of 512 px cells) made only by `tools/forest_files.py` (the lists
+from CKAN's `package_show`, the facts from each file's header; an empty-sized tile beside data is read and
+compared, a strip file up to 32 MB read whole; `--record`, `--strips`, `--max-requests`); `rf_stamp`: a record's
+cache folder is `<source>/<record>-dem/2025-<newest Last-Modified date>`, so a table made again after a file was
+replaced moves the record to a new folder; `rf_credit` (the local bodies' form) and `rf_agency_credit`. Sources,
+each one prefecture's region with `europe` where no data are near: `mie` (Kitaise, zone VI), `yamagata` (Shonai,
+X), `nagano` (Inadani, VIII; neighbours `yamanashi`, `shizuoka`; later the middle layer of Nagano's stack),
+`hiroshima` and `okayama` (the record h30 by zone, III and V), `ishikawa` (r6's zone VII; its zone VIII files lie
+in Niigata and are used by no source). Not built: Aichi and Oita (files unreachable), Tokushima (files off the
+pixels);
 `jp_sheet`, `jp_quad_sheet`, `jp_cell`, `jp_quad_cell` and
 `sheet_name` name the plane rectangular grid's sheets. `hong_kong` (new): `hong_kong` (`CellSheetTiles` of 750 ×
 600 m sheets of the Hong Kong 1980 Grid, EPSG:2326, DTM and DSM over `hong_kong_sheets.npz`; `hk_sheet`, `hk_cell`,

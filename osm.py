@@ -352,8 +352,15 @@ GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", 
                      # 2026-11-15); Yamanashi in "chubu" too (its chubu.poly holds Mizugaki, Kofu, Fuji's north
                      # side and Nanbu, checked 2026-11-26); Kanagawa in "kanto" (its kanto.poly holds Yugawara
                      # Makuiwa, Yokohama, Tanzawa and Hakone, checked 2026-11-27); Miyagi in "tohoku" (its
-                     # tohoku.poly holds Banji-iwa, Sendai and Shiroishi, checked 2026-11-27)
+                     # tohoku.poly holds Banji-iwa, Sendai and Shiroishi, checked 2026-11-27); Mie in "kansai" (its kansai.poly
+                     # holds Gozaisho, Tsu, Iga and Owase, chubu.poly none of them, checked 2026-11-27); Yamagata in
+                     # "tohoku" (its tohoku.poly holds Tsuruoka, Sakata and Gassan), Nagano in "chubu" (Ina, Iida,
+                     # Komagatake; checked 2026-11-28); Hiroshima and Okayama in "chugoku" (its chugoku.poly holds
+                     # Hiroshima, Kure, Okayama and Tsuyama), Ishikawa in "chubu" (Wajima, Sosogi, Anamizu; checked
+                     # 2026-11-28)
                      "jp-13": "kanto", "jp-22": "chubu", "jp-19": "chubu", "jp-14": "kanto", "jp-04": "tohoku",
+                     "jp-24": "kansai", "jp-06": "tohoku", "jp-20": "chubu", "jp-34": "chugoku", "jp-33": "chugoku",
+                     "jp-17": "chubu",
                      # Hong Kong (the region cn-hk of Nominatim's "cn"): Geofabrik's "hong-kong" (asia/china/hong-kong,
                      # 38 MB; China whole is 1.6 GB; checked 2026-11-16)
                      "cn-hk": "hong-kong",

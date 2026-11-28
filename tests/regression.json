@@ -2782,6 +2782,175 @@
     "notes": "added 2026-11-27 (wallonia): --source auto picks wallonia (BE-WAL); 6 tiles of 2 km per model, read at 0.5 m and averaged 2 x 2 onto the 1 m grid; skipped without FINDALINE_MIRROR/wallonia/dtm/0.5m and dsm/0.5m, run from the data server with --mirror-url",
     "seconds": 4.2
   },
+  "R100": {
+    "place": "Gozaisho, the Fujiuchi wall (Komono, JP-24): the Suzuka range's granite walls, the Forestry Agency's DEM 0.5 m of the Kitaise forest planning area (local bodies' lidar surveys of 2013-2023, processed by the Agency), read in blocks of 500 m from the quarter file 06NE4 in the bucket gsic-opendata, JGD2011 / Japan Plane Rectangular CS VI",
+    "args": "--lat 35.0217 --lon 136.4281 --radius 400 --min-length 20 --max-length 100",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 262043,
+      "open": 3583,
+      "checked": 2395,
+      "lines": 541,
+      "spots": 25,
+      "csv_sha256": "01f530f6bd4810b09b736f1f2f2e569298d9578235f4bd9ff86be51bf7cf31f5",
+      "length_km": 35.061,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.826,
+      "clearance_max": 7.19,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "Mie (Forestry Agency lidar 0.5 m)",
+      "filled_km2": 0.11,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "coastline": "no sea in the area"
+    },
+    "notes": "added 2026-11-27: --source auto picks mie (JP-24); the centre the research point on the Fujiuchi wall (the anchors' median slope 79 degrees in the cached blocks, none within 2 m of no data); the Shiga side of the ridge to the west has no data (filled from FABDEM); the first search there read 16 blocks of 06NE4 (16 file reads through GDAL: 81 distinct tiles, 37.1 MB by the file's header), a second one nothing",
+    "seconds": 2.5
+  },
+  "R101": {
+    "place": "The Asahi range's north-west foot above Tsuruoka (Yamagata, JP-06): the Forestry Agency's DEM 0.5 m of the Shonai forest planning area (the local bodies' lidar of FY2022), read in blocks of 500 m from the quarter file 10PB2 in the bucket gsic-opendata, JGD2011 / Japan Plane Rectangular CS X",
+    "args": "--lat 38.6013 --lon 139.7778 --radius 400 --min-length 20 --max-length 100",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 258986,
+      "open": 956,
+      "checked": 74,
+      "lines": 12,
+      "spots": 1,
+      "csv_sha256": "2307765d0d8e594d02b83c4c994bc53fbd050ab42f5f7428dcec20bebdf4967b",
+      "length_km": 0.658,
+      "clearance_min": 0.07,
+      "clearance_mean": 0.548,
+      "clearance_max": 1.61,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 1,
+      "source": "Yamagata (Forestry Agency lidar 0.5 m)",
+      "filled_km2": 0.42,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "coastline": "no sea in the area"
+    },
+    "notes": "added 2026-11-28: --source auto picks yamagata (JP-06); the centre on the largest tile of the record's 10PB2 (the roughest ground by the tiles' byte counts in the files' headers), 100 % of the area from the source; a second try at Chokai's south foot (39.1161, 140.0133) gave 336 lines in 7 spots but 27.5 % of its area filled from FABDEM, so the first place is kept; the first search asked gsic-opendata 12 times (GDAL reads)",
+    "seconds": 2.4
+  },
+  "R102": {
+    "place": "The Ota river's valley at Asa-cho Kuji (Asakita, Hiroshima city, JP-34): the Forestry Agency's DEM 0.5 m of its lidar after the July 2018 rains (the record h30), read in blocks of 500 m from the quarter file 03PE2 in the bucket gsic-opendata, JGD2011 / Japan Plane Rectangular CS III",
+    "args": "--lat 34.5400 --lon 132.4017 --radius 400 --min-length 20 --max-length 100",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 101345,
+      "open": 695,
+      "checked": 186,
+      "lines": 45,
+      "spots": 1,
+      "csv_sha256": "f9bb22322c1cf25a9ad1980edfe0277a753cf5fbd79cee9d2a88655a137926f8",
+      "length_km": 1.242,
+      "clearance_min": 0.01,
+      "clearance_mean": 0.53,
+      "clearance_max": 1.64,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "Hiroshima (Forestry Agency lidar 0.5 m)",
+      "coastline": "no sea in the area"
+    },
+    "notes": "added 2026-11-28: --source auto picks hiroshima (JP-34); 100 % of the area from the source; the lines (45 in 1 spot, 20-48 m) span a man-made rectangular pit of about 40 x 15 m beside the Ota river, on the valley's flat floor, its bottom at 58.3 m and the ground beside it at 67.5-71.5 m (walls of 9-13 m); no anchor on a file's edge or beside a hole; the steep valley sides around it give no line at these lengths; two earlier tries on the record's largest tiles (34.6332, 133.1886 and 34.6057, 133.1631, quarter 03PG1) found no line; the third place came from a screen of Copernicus GLO-30 slopes inside the data; the first search asked gsic-opendata 16 times (GDAL reads)",
+    "seconds": 2.3
+  },
+  "R103": {
+    "place": "Below the Nariwa river's reservoir at Bitchu-cho Hirakawa (Takahashi, JP-33): the Forestry Agency's DEM 0.5 m of its lidar after the July 2018 rains (the record h30), read in blocks of 500 m from the quarter file 05OB2 in the bucket gsic-opendata, JGD2011 / Japan Plane Rectangular CS V",
+    "args": "--lat 34.8181 --lon 133.3989 --radius 400 --min-length 20 --max-length 100",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 190829,
+      "open": 971,
+      "checked": 47,
+      "lines": 7,
+      "spots": 2,
+      "csv_sha256": "f34b323f27628260693c03701cf701d2d15f40ed313800f57c61d243375c6d80",
+      "length_km": 0.236,
+      "clearance_min": 0.05,
+      "clearance_mean": 0.304,
+      "clearance_max": 0.81,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "Okayama (Forestry Agency lidar 0.5 m)",
+      "coastline": "no sea in the area"
+    },
+    "notes": "added 2026-11-28: --source auto picks okayama (JP-33); 100 % of the area from the source; the first try, the steepest window of a screen of Copernicus GLO-30 slopes inside the data (405 pixels over 40 degrees in 800 m, 452 m of relief); the lines (7 in 2 spots) sit on the scarps of a broken slope below the dam, the anchors at a median 81 degrees, none on a file's edge or beside a hole; the first search asked gsic-opendata 12 times (GDAL reads)",
+    "seconds": 2.3
+  },
+  "R104": {
+    "place": "The coast at Kami-Ozawa (Wajima, Noto, JP-17): the Forestry Agency's DEM 0.5 m of its lidar after the Noto Peninsula earthquake of 2024 (the record r6), read in blocks of 500 m from the quarter file 07ED3 in the bucket gsic-opendata, JGD2011 / Japan Plane Rectangular CS VII",
+    "args": "--lat 37.3658 --lon 136.7806 --radius 400 --min-length 20 --max-length 100",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 87410,
+      "open": 1200,
+      "checked": 116,
+      "lines": 1,
+      "spots": 1,
+      "csv_sha256": "791da7a23a653e0937341905d2ff9edf5377f76cbdc91bc9c450f41d808fcbd6",
+      "length_km": 0.027,
+      "clearance_min": 1.59,
+      "clearance_mean": 1.59,
+      "clearance_max": 1.59,
+      "over_trees": 0,
+      "coverage": 96.55,
+      "empty_tiles": 0,
+      "source": "Ishikawa (Forestry Agency lidar 0.5 m, Noto)",
+      "sea_km2": 0.35,
+      "coastline": "OpenStreetMap water polygons (world file)"
+    },
+    "notes": "added 2026-11-28: --source auto picks ishikawa (JP-17); the first try, the steepest window of a screen of Copernicus GLO-30 slopes inside the data (the research's Sosogi and Ganmon coasts, 07ED4 and 07FC4, ranked lower); 96.6 % of the area from the source, the sea without data; the one line spans a gully of the coastal cliff, its anchors at 74 degrees, 40-60 m from the sea's edge of the data, none on a file's edge; the first search asked gsic-opendata 16 times (GDAL reads)",
+    "seconds": 2.8
+  },
+  "R105": {
+    "place": "The Central Alps' east slope above Komagane (Nagano, JP-20): the Forestry Agency's DEM 0.5 m of the Inadani forest planning area (the prefecture's lidar of 2013), read in blocks of 500 m from the quarter file 08KC4 in the bucket gsic-opendata, JGD2011 / Japan Plane Rectangular CS VIII",
+    "args": "--lat 35.7448 --lon 137.8643 --radius 400 --min-length 20 --max-length 100",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 249143,
+      "open": 1121,
+      "checked": 121,
+      "lines": 11,
+      "spots": 1,
+      "csv_sha256": "82ba104d0014e7f9fd577e94b5dbcc6cd9d012a55c1334feec146613b5bd6d06",
+      "length_km": 0.454,
+      "clearance_min": 0.05,
+      "clearance_mean": 0.902,
+      "clearance_max": 1.55,
+      "over_trees": 0,
+      "coverage": 97.24,
+      "empty_tiles": 3,
+      "source": "Nagano (Forestry Agency lidar 0.5 m, Inadani)",
+      "filled_km2": 0.52,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "coastline": "no sea in the area"
+    },
+    "notes": "added 2026-11-28: --source auto picks nagano (JP-20); the research's place (08KC9523, 85 degrees in the file), 97.2 % of the area from the source: its holes would be filled by the 2013-14 set once nagano becomes the stack (the user's decision 4 a), and whether the 2021-22 set reaches here is not known, so this entry may move then; a second try at the record's roughest tiles (36.0916, 138.0313) found no line; the first search asked gsic-opendata 16 times (GDAL reads)",
+    "seconds": 2.5
+  },
   "R110": {
     "place": "The Oregon cove (Otter Crest) as --source usa_opr: no 1 m DEM within 2 km, terrain from the lidar survey's own DEM (CA_WestCoastElNinoUTM10_2016: 0.5 m UTM 10N tiles, averaged onto 1 m blocks; its unit measured in metres); the rest from the 1/3 arc-second DEM",
     "args": "--lat 44.767488 --lon -124.070346 --source usa_opr",

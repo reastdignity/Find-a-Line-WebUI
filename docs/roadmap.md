@@ -1666,6 +1666,21 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     spots). The sets published as large archives (Kyoto, Tottori, Toyama, Nagano, Hyogo) are not built: the
     user, 2026-11-27, dropped the archive reader for now and asks the providers whether a tiled copy may be
     hosted (the Survey Act's Article 43: a copy receivable by the public needs the planning body's approval).
+  - *The Forestry Agency's areas* (`mie`, `yamagata`, `nagano`, `hiroshima`, `okayama`, `ishikawa`; built
+    2026-11-27/28, tag `history/japan-forest`): the Agency's 0.5 m DEMs of forest planning areas and of its
+    disaster surveys (PDL 1.0), one source per prefecture (the user, 2026-11-27), read in blocks of 500 m from
+    tiled quarter files; each covers part of its prefecture, and the 30 m source takes over where no data lie
+    within 2 km of a search's centre. `nagano` is the Inadani area alone and becomes the middle layer of
+    Nagano's stack when the prefecture's own sets are built (its entry R105 may move then). R100 Gozaisho (541
+    lines in 25 spots), R101 the Asahi range's foot (12 in 1), R102 a man-made pit beside the Ota river (45 in
+    1; three places tried), R103 below the Nariwa reservoir (7 in 2), R104 the coast at Kami-Ozawa (1), R105
+    above Komagane (11 in 1). Held by the user until the provider's files answer again (HTTP 500 since
+    2026-11): Aichi (Owari-nishimikawa's files can be read, Higashimikawa's not) and Oita. Open: Tokushima (its
+    own ten files have a pixel of 0.49999987 m and lie 1-2 cm off the grid: read on their own pixels or
+    resampled; Yoshinokawa has 2 of 16 files); the same records' data in Niigata (1 320 km², r6's zone VIII),
+    Toyama (490 km²) and Tottori (230 km²) as sources of their own; a cached block's folder names the table's
+    state, so a re-published file is read again only after `tools/forest_files.py` made the table again; flat
+    ground wholly enclosed by empty tiles would be taken for no data (none found in six records).
   - *Madeira's other islands* (`porto_santo`, `desertas`, `selvagens`): DROTe's 5 m ZIP, a mirror dataset per island
     group cut by the reworked `tools/mirror_tiles.py` (3.5 MB in all, final and verified, copied into the local
     mirror 2026-11-16); before `madeira` in pt-30, chosen by their boxes. R86 Porto Santo (7 184 lines in 431 spots),

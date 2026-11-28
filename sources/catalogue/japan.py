@@ -461,7 +461,7 @@ def ym_source(surface: str, nmpt: Optional[S3SheetSets] = None) -> Source:
         credits=(YM_CREDIT,),
         listing=ReadmeRow("Yamanashi (JP)", "Yamanashi point cloud grid 0.5 m (2019-2022)",
                           f"Yamanashi point cloud grid 0.5 m, {ym_product(surface).upper()} (2019-2022)", "–"),
-        offline=YM_BOXES, border_boxes=YM_BORDER_BOXES, neighbours=("tokyo", "shizuoka", "kanagawa"),
+        offline=YM_BOXES, border_boxes=YM_BORDER_BOXES, neighbours=("tokyo", "shizuoka", "kanagawa", "nagano"),
         sample=(35.8946, 138.5948),  # Mizugaki-yama, 300 m east of R95's centre
         note="Data: Yamanashi Prefecture point cloud data, CC BY 4.0. Airborne lidar of the whole prefecture "
              "(2019-2022; parts flown by MLIT's Fujikawa sabo office and by Tokyo). The surface model is "
@@ -722,7 +722,7 @@ SOURCES: List[Source] = [
              "model: trees and buildings are not in the data). In the centre, west and north-west the heights are "
              "given to the decimetre. The sea is left out; the bathymetric (ALB) grids are not used.",
         coverage=Coverage(provider="Shizuoka Prefecture", added="2026-11-15", survey="2019–2025"),
-        neighbours=("yamanashi", "kanagawa")),
+        neighbours=("yamanashi", "kanagawa", "nagano")),
     Source(
         id="miyagi", name="Miyagi (lidar 1 m)",
         description="Miyagi Prefecture: 3D point cloud data, airborne lidar grid 1 m (terrain), labelled 2023, "

@@ -232,6 +232,13 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # read 2026-11-27); the prefecture pays the egress (not an AWS Open Data bucket): two at once
     "gic-miyagi.s3.ap-northeast-1.amazonaws.com": 2,
     "miyagi.dataeye.jp": 2,
+    # G-Spatial's bucket gsic-opendata (the Forestry Agency's DEM files, read by windows: Mie's) and its CKAN (one
+    # package_show per record, asked by tools/forest_files.py only): no published limits (the records' notes, the
+    # Agency's important-notes PDF, PDL1.0 and G-Spatial's terms https://front.geospatial.jp/about/, whose Art. 6
+    # forbids obstructing the servers without a number, read 2026-11-27); who pays the bucket's egress is not stated:
+    # two at once, each block read range by range (serial: one connection per slot)
+    "gsic-opendata.s3.ap-northeast-1.amazonaws.com": 2,
+    "www.geospatial.jp": 2,
     # The CSDI Portal's bulk-data host (CEDD's 2020 lidar sheets of Hong Kong) and the portal (the FeatureServer of
     # their index, asked by tools/hong_kong_sheets.py only): no published limits (the CSDI Portal's Terms and
     # Conditions of Use, https://portal.csdi.gov.hk/csdi-webpage/doc/TNC, its FAQ,

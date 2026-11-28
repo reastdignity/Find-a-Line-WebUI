@@ -1,0 +1,43 @@
+{
+ "result": {
+  "name": "kitaise_081",
+  "title": "三重県（北伊勢森林計画区）・樹種ポリゴン/林相識別図/DCHM/DEM/微地形表現図（林野庁加工）",
+  "resources": [
+   {
+    "id": "07c2f711-3845-424c-b908-d2a06e38ecba",
+    "name": "公共データ利用規約（第１.0版）に関する重要情報",
+    "format": "PDF",
+    "size": 136842,
+    "url": "https://www.geospatial.jp/ckan/dataset/e17e8af8-ce78-4d8a-865b-e8a093463b48/resource/07c2f711-3845-424c-b908-d2a06e38ecba/download/important_notes_on_public_data_usage_local_-laser_terms_v1.0.pdf"
+   },
+   {
+    "id": "b3b823be-2cde-4ed9-9e67-9d3dfb74472c",
+    "name": "dchm_06NE4_2025.tif",
+    "format": "tif",
+    "size": 421636293,
+    "url": "https://www.geospatial.jp/ckan/dataset/e17e8af8-ce78-4d8a-865b-e8a093463b48/resource/b3b823be-2cde-4ed9-9e67-9d3dfb74472c/download/dchm_06ne4_2025.tif"
+   },
+   {
+    "id": "501f8649-b0c9-44fd-8738-efc77827c742",
+    "name": "dchm_06OE2_2025.tif",
+    "format": "tif",
+    "size": null,
+    "url": "https://gsic-opendata.s3.ap-northeast-1.amazonaws.com/national-gov/maff/forestry-agency/forest-data/2025/kitaise_081/DCHM_81_kitaise/dchm_06OE2_2025.tif"
+   },
+   {
+    "id": "f32fcb50-0c82-4c9a-ae21-a2011b96e198",
+    "name": "dem_06NE2_2025",
+    "format": "tif",
+    "size": 37613947,
+    "url": "https://www.geospatial.jp/ckan/dataset/e17e8af8-ce78-4d8a-865b-e8a093463b48/resource/f32fcb50-0c82-4c9a-ae21-a2011b96e198/download/dem_06ne2_2025.tif"
+   },
+   {
+    "id": "0ef7dcca-5f70-4090-a037-be6974385c14",
+    "name": "dem_06NE4_2025",
+    "format": "tif",
+    "size": 380489100,
+    "url": "https://www.geospatial.jp/ckan/dataset/e17e8af8-ce78-4d8a-865b-e8a093463b48/resource/0ef7dcca-5f70-4090-a037-be6974385c14/download/dem_06ne4_2025.tif"
+   }
+  ]
+ }
+}

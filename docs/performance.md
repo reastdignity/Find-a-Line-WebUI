@@ -3087,6 +3087,12 @@ Luxembourg and British Columbia (its strip sheets gain far more than its tiles l
 of 256: Austria -43 % instead of -47 %, Canada -42 % instead of -50 %. `search.DOWNLOAD_PROCESS_BYTES` holds the
 cache (768 MiB).
 
+Japan's Forestry Agency files (2026-11-28; `mie`, 16 blocks of 500 m at Gozaisho, `--mode serial=1 --mode serial=0`,
+the seconds taken in the lock's shared lane, not alone): one multi-range request per block 69.9 MB / 19 GET /
+36.8 s, range by range 37.3 MB / 39 GET / 11.6 s (each of the 81 tiles once: 37.1 MB; a block of 500 m lies over
+2-3 x 2-3 tiles of 256 m and shares most with the blocks beside it). Faster too, so C by the same rule: `RfBlocks`
+is serial for all six sources of `japan_forest.py` (one bucket, one file layout; measured on Mie's only).
+
 ### B: the country prefetch in groups
 
 `download_layers(group_m=)` (`country._prefetch` with `PREFETCH_GROUP_M`): each square of group_m is one task of

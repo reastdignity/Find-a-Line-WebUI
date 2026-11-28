@@ -982,6 +982,23 @@
    "survey": "2023",
    "trees": "no"
   },
+  "jp-06": {
+   "added": "2026-11-28",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Forestry Agency",
+   "res": [
+    1
+   ],
+   "source": "yamagata",
+   "survey": "2022",
+   "trees": "no"
+  },
   "jp-13": {
    "added": "2026-11-15",
    "level": 1,
@@ -1016,6 +1033,23 @@
    "survey": "2019–2024",
    "trees": "no"
   },
+  "jp-17": {
+   "added": "2026-11-28",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Forestry Agency",
+   "res": [
+    1
+   ],
+   "source": "ishikawa",
+   "survey": "2024",
+   "trees": "no"
+  },
   "jp-19": {
    "added": "2026-11-26",
    "level": 1,
@@ -1028,6 +1062,23 @@
    "source": "yamanashi",
    "survey": "2019–2022",
    "trees": "yes"
+  },
+  "jp-20": {
+   "added": "2026-11-28",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Forestry Agency",
+   "res": [
+    1
+   ],
+   "source": "nagano",
+   "survey": "2013",
+   "trees": "no"
   },
   "jp-22": {
    "added": "2026-11-15",
@@ -1044,6 +1095,57 @@
    ],
    "source": "shizuoka",
    "survey": "2019–2025",
+   "trees": "no"
+  },
+  "jp-24": {
+   "added": "2026-11-27",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Forestry Agency",
+   "res": [
+    1
+   ],
+   "source": "mie",
+   "survey": "2013–2023",
+   "trees": "no"
+  },
+  "jp-33": {
+   "added": "2026-11-28",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Forestry Agency",
+   "res": [
+    1
+   ],
+   "source": "okayama",
+   "survey": "2018",
+   "trees": "no"
+  },
+  "jp-34": {
+   "added": "2026-11-28",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Forestry Agency",
+   "res": [
+    1
+   ],
+   "source": "hiroshima",
+   "survey": "2018",
    "trees": "no"
   },
   "li": {
@@ -1528,10 +1630,16 @@
   ],
   "jp": [
    "jp-04",
+   "jp-06",
    "jp-13",
    "jp-14",
+   "jp-17",
    "jp-19",
-   "jp-22"
+   "jp-20",
+   "jp-22",
+   "jp-24",
+   "jp-33",
+   "jp-34"
   ],
   "pt": [
    "pt-30",
